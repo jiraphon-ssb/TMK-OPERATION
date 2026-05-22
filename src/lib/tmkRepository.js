@@ -5,6 +5,9 @@ const TABLES = {
   channels: 'tmk_channels',
   products: 'tmk_products',
   tasks: 'tmk_tasks',
+  checklist: 'tmk_task_checklist',
+  comments: 'tmk_task_comments',
+  attachments: 'tmk_task_attachments',
   purchaseOrders: 'tmk_purchase_orders',
   settings: 'tmk_settings'
 };
@@ -43,20 +46,17 @@ const mapProductFromDb = (product) => ({
 const mapTaskToDb = (task) => ({
   id: task.id,
   date: task.date,
-  camp: task.camp,
+  camp: task.camp || null,
   title: task.title,
   detail: task.detail || '',
   responsible: task.responsible || '',
   channel: task.channel || '',
   status: task.status || 'todo',
   priority: task.priority || 'medium',
-  checklist: task.checklist || [],
-  comments: task.comments || [],
-  attachments: task.attachments || [],
   reminder_days: Number(task.reminderDays || 1)
 });
 
-const mapTaskFromDb = (task) => ({
+const mapTaskFromDb = (task, checklistByTask, commentsByTask, attachmentsByTask) => ({
   id: task.id,
   date: task.date,
   camp: task.camp,
@@ -66,9 +66,9 @@ const mapTaskFromDb = (task) => ({
   channel: task.channel || '',
   status: task.status || 'todo',
   priority: task.priority || 'medium',
-  checklist: task.checklist || [],
-  comments: task.comments || [],
-  attachments: task.attachments || [],
+  checklist: checklistByTask[task.id] || [],
+  comments: commentsByTask[task.id] || [],
+  attachments: attachmentsByTask[task.id] || [],
   reminderDays: Number(task.reminder_days || 1)
 });
 
@@ -90,6 +90,13 @@ const mapPoFromDb = (po) => ({
   status: po.status || 'Pending'
 });
 
+const groupByTask = (rows, mapper) => rows.reduce((acc, row) => {
+  const taskId = row.task_id;
+  acc[taskId] = acc[taskId] || [];
+  acc[taskId].push(mapper(row));
+  return acc;
+}, {});
+
 const replaceTable = async (table, rows) => {
   const { error: deleteError } = await supabase.from(table).delete().neq('id', '__never__');
   if (deleteError) throw deleteError;
@@ -98,30 +105,73 @@ const replaceTable = async (table, rows) => {
   if (insertError) throw insertError;
 };
 
+const replaceTaskChildren = async (tasks) => {
+  await replaceTable(TABLES.checklist, tasks.flatMap(task => (task.checklist || []).map((item, index) => ({
+    id: item.id,
+    task_id: task.id,
+    text: item.text || '',
+    completed: Boolean(item.completed),
+    position: index
+  }))));
+
+  await replaceTable(TABLES.comments, tasks.flatMap(task => (task.comments || []).map(comment => ({
+    id: comment.id,
+    task_id: task.id,
+    text: comment.text || '',
+    author: comment.author || ''
+  }))));
+
+  await replaceTable(TABLES.attachments, tasks.flatMap(task => (task.attachments || []).map(attachment => ({
+    id: attachment.id,
+    task_id: task.id,
+    label: attachment.label || attachment.url || '',
+    url: attachment.url || ''
+  })).filter(attachment => attachment.url)));
+};
+
 export const tmkRepository = {
   isConfigured: isSupabaseConfigured,
 
   async loadAll() {
     if (!isSupabaseConfigured) return null;
 
-    const [campaigns, channels, products, tasks, purchaseOrders, settings] = await Promise.all([
+    const [campaigns, channels, products, tasks, checklist, comments, attachments, purchaseOrders, settings] = await Promise.all([
       supabase.from(TABLES.campaigns).select('*').order('created_at'),
       supabase.from(TABLES.channels).select('*').order('created_at'),
       supabase.from(TABLES.products).select('*').order('created_at'),
       supabase.from(TABLES.tasks).select('*').order('date'),
+      supabase.from(TABLES.checklist).select('*').order('position'),
+      supabase.from(TABLES.comments).select('*').order('created_at'),
+      supabase.from(TABLES.attachments).select('*').order('created_at'),
       supabase.from(TABLES.purchaseOrders).select('*').order('arrival_date'),
       supabase.from(TABLES.settings).select('*').eq('id', 'main').maybeSingle()
     ]);
 
-    const results = [campaigns, channels, products, tasks, purchaseOrders, settings];
+    const results = [campaigns, channels, products, tasks, checklist, comments, attachments, purchaseOrders, settings];
     const failed = results.find(result => result.error);
     if (failed) throw failed.error;
+
+    const checklistByTask = groupByTask(checklist.data || [], item => ({
+      id: item.id,
+      text: item.text,
+      completed: Boolean(item.completed)
+    }));
+    const commentsByTask = groupByTask(comments.data || [], comment => ({
+      id: comment.id,
+      text: comment.text,
+      author: comment.author || ''
+    }));
+    const attachmentsByTask = groupByTask(attachments.data || [], attachment => ({
+      id: attachment.id,
+      label: attachment.label || attachment.url,
+      url: attachment.url
+    }));
 
     return {
       campaigns: campaigns.data || [],
       channels: channels.data || [],
       products: (products.data || []).map(mapProductFromDb),
-      tasks: (tasks.data || []).map(mapTaskFromDb),
+      tasks: (tasks.data || []).map(task => mapTaskFromDb(task, checklistByTask, commentsByTask, attachmentsByTask)),
       poTracker: (purchaseOrders.data || []).map(mapPoFromDb),
       totalTarget: Number(settings.data?.total_target || 0),
       totalUnitsTarget: Number(settings.data?.total_units_target || 0)
@@ -130,9 +180,7 @@ export const tmkRepository = {
 
   async seedIfEmpty({ campaigns, channels, products, tasks, poTracker, totalTarget, totalUnitsTarget }) {
     if (!isSupabaseConfigured) return;
-    const { count, error } = await supabase
-      .from(TABLES.campaigns)
-      .select('id', { count: 'exact', head: true });
+    const { count, error } = await supabase.from(TABLES.campaigns).select('id', { count: 'exact', head: true });
     if (error) throw error;
     if (count && count > 0) return;
 
@@ -140,6 +188,7 @@ export const tmkRepository = {
     await replaceTable(TABLES.channels, channels);
     await replaceTable(TABLES.products, products.map(normalizeProduct).map(mapProductToDb));
     await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
+    await replaceTaskChildren(tasks);
     await replaceTable(TABLES.purchaseOrders, poTracker.map(mapPoToDb));
     await this.saveSettings({ totalTarget, totalUnitsTarget });
   },
@@ -162,6 +211,7 @@ export const tmkRepository = {
   async saveTasks(tasks) {
     if (!isSupabaseConfigured) return;
     await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
+    await replaceTaskChildren(tasks);
   },
 
   async savePurchaseOrders(poTracker) {
@@ -178,5 +228,22 @@ export const tmkRepository = {
       updated_at: new Date().toISOString()
     });
     if (error) throw error;
+  },
+
+  subscribeToChanges(onChange) {
+    if (!isSupabaseConfigured) return () => {};
+    let timer = null;
+    const channel = supabase.channel('tmk-realtime-sync');
+    Object.values(TABLES).forEach(table => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(onChange, 250);
+      });
+    });
+    channel.subscribe();
+    return () => {
+      clearTimeout(timer);
+      supabase.removeChannel(channel);
+    };
   }
 };

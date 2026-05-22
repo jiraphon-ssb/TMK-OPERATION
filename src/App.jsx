@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { tmkRepository } from './lib/tmkRepository';
 
 // Initial seed data from original HTML (May - June 2026)
@@ -373,6 +373,27 @@ export default function App() {
   const [showPoModal, setShowPoModal] = useState(false);
   const [poForm, setPoForm] = useState({ id: '', product: '', quantity: 0, orderDate: '', arrivalDate: '', status: 'Pending' });
   const [isPoEditMode, setIsPoEditMode] = useState(false);
+  const syncingFromRemoteRef = useRef(false);
+  const initialRemoteSeedRef = useRef(null);
+
+  if (initialRemoteSeedRef.current == null) {
+    initialRemoteSeedRef.current = { campaigns, channels, products, tasks, poTracker, totalTarget, totalUnitsTarget };
+  }
+
+  const applyRemoteData = useCallback((remoteData) => {
+    if (!remoteData) return;
+    syncingFromRemoteRef.current = true;
+    if (remoteData.campaigns.length) setCampaigns(remoteData.campaigns);
+    if (remoteData.channels.length) setChannels(remoteData.channels);
+    if (remoteData.products.length) setProducts(remoteData.products);
+    if (remoteData.tasks.length) setTasks(remoteData.tasks);
+    if (remoteData.poTracker.length) setPoTracker(remoteData.poTracker);
+    if (remoteData.totalTarget) setTotalTarget(remoteData.totalTarget);
+    if (remoteData.totalUnitsTarget) setTotalUnitsTarget(remoteData.totalUnitsTarget);
+    window.setTimeout(() => {
+      syncingFromRemoteRef.current = false;
+    }, 0);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -380,18 +401,11 @@ export default function App() {
     const loadRemoteData = async () => {
       if (!tmkRepository.isConfigured) return;
       try {
-        const localSnapshot = { campaigns, channels, products, tasks, poTracker, totalTarget, totalUnitsTarget };
-        await tmkRepository.seedIfEmpty(localSnapshot);
+        await tmkRepository.seedIfEmpty(initialRemoteSeedRef.current);
         const remoteData = await tmkRepository.loadAll();
         if (cancelled || !remoteData) return;
 
-        if (remoteData.campaigns.length) setCampaigns(remoteData.campaigns);
-        if (remoteData.channels.length) setChannels(remoteData.channels);
-        if (remoteData.products.length) setProducts(remoteData.products);
-        if (remoteData.tasks.length) setTasks(remoteData.tasks);
-        if (remoteData.poTracker.length) setPoTracker(remoteData.poTracker);
-        if (remoteData.totalTarget) setTotalTarget(remoteData.totalTarget);
-        if (remoteData.totalUnitsTarget) setTotalUnitsTarget(remoteData.totalUnitsTarget);
+        applyRemoteData(remoteData);
         setRemoteStatus('Supabase connected');
       } catch (error) {
         console.error('Supabase load failed:', error);
@@ -403,19 +417,34 @@ export default function App() {
 
     loadRemoteData();
 
+    const unsubscribe = tmkRepository.subscribeToChanges(async () => {
+      if (cancelled) return;
+      try {
+        const remoteData = await tmkRepository.loadAll();
+        if (cancelled || !remoteData) return;
+        applyRemoteData(remoteData);
+        setRemoteStatus('Supabase realtime synced');
+      } catch (error) {
+        console.error('Supabase realtime refresh failed:', error);
+        setRemoteStatus('Supabase realtime error');
+      }
+    });
+
     return () => {
       cancelled = true;
+      unsubscribe();
     };
-  }, []);
+  }, [applyRemoteData]);
 
-  const saveRemote = async (label, saveFn) => {
+  const saveRemote = useCallback(async (label, saveFn) => {
     if (!remoteReady || !tmkRepository.isConfigured) return;
+    if (syncingFromRemoteRef.current) return;
     try {
       await saveFn();
     } catch (error) {
       console.error(`Supabase save failed: ${label}`, error);
     }
-  };
+  }, [remoteReady]);
 
   // Sync to local storage and Supabase when configured.
   useEffect(() => {
@@ -426,22 +455,22 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('tmk_campaigns', JSON.stringify(campaigns));
     saveRemote('campaigns', () => tmkRepository.saveCampaigns(campaigns));
-  }, [campaigns, remoteReady]);
+  }, [campaigns, saveRemote]);
 
   useEffect(() => {
     localStorage.setItem('tmk_channels', JSON.stringify(channels));
     saveRemote('channels', () => tmkRepository.saveChannels(channels));
-  }, [channels, remoteReady]);
+  }, [channels, saveRemote]);
 
   useEffect(() => {
     localStorage.setItem('tmk_products', JSON.stringify(products));
     saveRemote('products', () => tmkRepository.saveProducts(products));
-  }, [products, remoteReady]);
+  }, [products, saveRemote]);
 
   useEffect(() => {
     localStorage.setItem('tmk_tasks', JSON.stringify(tasks));
     saveRemote('tasks', () => tmkRepository.saveTasks(tasks));
-  }, [tasks, remoteReady]);
+  }, [tasks, saveRemote]);
 
   useEffect(() => {
     localStorage.setItem('tmk_staff_list', JSON.stringify(staffList));
@@ -454,12 +483,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('tmk_pos', JSON.stringify(poTracker));
     saveRemote('purchase orders', () => tmkRepository.savePurchaseOrders(poTracker));
-  }, [poTracker, remoteReady]);
+  }, [poTracker, saveRemote]);
 
   useEffect(() => {
     localStorage.setItem('tmk_total_target', totalTarget.toString());
     saveRemote('target', () => tmkRepository.saveSettings({ totalTarget, totalUnitsTarget }));
-  }, [totalTarget, totalUnitsTarget, remoteReady]);
+  }, [totalTarget, totalUnitsTarget, saveRemote]);
 
   useEffect(() => {
     localStorage.setItem('tmk_total_units', totalUnitsTarget.toString());
