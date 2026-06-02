@@ -1267,6 +1267,7 @@ export default function App() {
   };
 
   const getTimelineDateParts = (dateStr) => {
+    if (!dateStr) return { day: '--', month: '---', year: '----' };
     const parts = dateStr.split('-');
     if (parts.length < 3) return { day: '00', month: 'ม.ค.', year: '2026' };
     const day = parts[2];
