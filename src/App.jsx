@@ -3161,32 +3161,28 @@ export default function App() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+            <div className="timeline-filter-bar">
               
               {/* Campaign Filter Buttons */}
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flexGrow: 1 }}>
+              <div className="timeline-filter-group">
                 <button 
-                  className={`btn ${timelineFilter === 'master' ? 'btn-primary' : ''}`}
+                  className={`timeline-filter-pill ${timelineFilter === 'master' ? 'active-pill' : ''}`}
                   onClick={() => setTimelineFilter('master')}
-                  style={{ borderRadius: '20px', padding: '6px 16px' }}
                 >
                   <i className="fa-solid fa-globe"></i> ภาพรวม (Master Timeline)
                 </button>
                 <button 
-                  className={`btn ${timelineFilter === 'stacked' ? 'btn-primary' : ''}`}
+                  className={`timeline-filter-pill ${timelineFilter === 'stacked' ? 'active-pill' : ''}`}
                   onClick={() => setTimelineFilter('stacked')}
-                  style={{ borderRadius: '20px', padding: '6px 16px' }}
                 >
                   <i className="fa-solid fa-cubes"></i> ดูแยกแคมเปญทั้งหมด (Stacked)
                 </button>
                 {campaigns.map(c => (
                   <button 
                     key={c.id}
-                    className={`btn ${timelineFilter === c.id ? 'btn-primary' : ''}`}
+                    className={`timeline-filter-pill camp-pill ${timelineFilter === c.id ? 'active-pill' : ''}`}
                     onClick={() => setTimelineFilter(c.id)}
                     style={{ 
-                      borderRadius: '20px', 
-                      padding: '6px 16px',
                       borderColor: timelineFilter === c.id ? c.color : 'var(--border)',
                       backgroundColor: timelineFilter === c.id ? c.color : 'var(--surface)'
                     }}
@@ -3196,7 +3192,6 @@ export default function App() {
                       height: '8px', 
                       borderRadius: '50%', 
                       backgroundColor: timelineFilter === c.id ? 'white' : c.color, 
-                      marginRight: '6px', 
                       display: 'inline-block' 
                     }}></span>
                     {c.name.split(':')[0]}
@@ -3206,13 +3201,11 @@ export default function App() {
 
               {/* Search Filters */}
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '50px', backgroundColor: 'var(--surface)' }}>
-                  <i className="fa-solid fa-magnifying-glass" style={{ color: 'var(--text-muted)', fontSize: '14px' }}></i>
+                <div className="timeline-filter-search">
+                  <i className="fa-solid fa-magnifying-glass"></i>
                   <input 
                     type="text" 
                     placeholder="ค้นหางาน..." 
-                    className="form-input" 
-                    style={{ border: 'none', padding: '0', fontWeight: '800', width: '120px', fontSize: '14.5px' }} 
                     value={timelineSearch}
                     onChange={(e) => setTimelineSearch(e.target.value)}
                   />
@@ -3241,9 +3234,9 @@ export default function App() {
                     </div>
                   </div>
                   <div className="campaign-health-card-ring">
-                    <svg>
-                      <circle cx="19" cy="19" r="15" stroke="var(--border)" strokeWidth="3" fill="transparent" />
-                      <circle cx="19" cy="19" r="15" stroke={camp.color} strokeWidth="3" fill="transparent" strokeDasharray={`${2 * Math.PI * 15}`} strokeDashoffset={`${2 * Math.PI * 15 * (1 - healthPercent / 100)}`} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }} />
+                    <svg viewBox="0 0 40 40">
+                      <circle cx="20" cy="20" r="16" stroke="var(--border)" strokeWidth="3" fill="transparent" />
+                      <circle cx="20" cy="20" r="16" stroke={camp.color} strokeWidth="3" fill="transparent" strokeDasharray={`${2 * Math.PI * 16}`} strokeDashoffset={`${2 * Math.PI * 16 * (1 - healthPercent / 100)}`} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }} />
                     </svg>
                     <span className="campaign-health-card-ring-value">{healthPercent}%</span>
                   </div>
@@ -3259,7 +3252,7 @@ export default function App() {
             {timelineFilter === 'master' && (
               <div className="campaign-card-timeline">
                 <div className="campaign-header-timeline" style={{ backgroundColor: 'var(--surface-hover)', borderLeft: '6px solid var(--kpi-blue)' }}>
-                  <h3 style={{ fontSize: '17px', fontWeight: '900', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h3>
                     <i className="fa-solid fa-list-ol" style={{ color: 'var(--kpi-blue)' }}></i>
                     ลำดับแผนปฏิบัติงานภาพรวมตามช่วงเวลา (Master Timeline View)
                   </h3>
@@ -3372,7 +3365,7 @@ export default function App() {
                     const campStyle = getCampaignStyle(camp, theme);
                     return (
                       <div className="campaign-header-timeline" style={{ backgroundColor: campStyle.backgroundColor, borderBottom: `1px solid ${campStyle.borderColor}`, borderLeft: `6px solid ${camp.color}` }}>
-                        <h3 style={{ fontSize: '18px', fontWeight: '900', color: camp.color }}>
+                        <h3 style={{ color: camp.color }}>
                           {camp.name}
                         </h3>
                       </div>

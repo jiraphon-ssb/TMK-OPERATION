@@ -1566,6 +1566,95 @@ body {
 }
 
 /* Timelines View Layout */
+/* Timeline Filter Controls */
+.timeline-filter-bar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+.timeline-filter-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex-grow: 1;
+}
+
+.timeline-filter-pill {
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 14px;
+  font-weight: 800;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-filter-pill:hover {
+  border-color: var(--text-light);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.timeline-filter-pill.active-pill {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+}
+
+.timeline-filter-pill.camp-pill {
+  border-color: var(--border);
+}
+
+.timeline-filter-pill.camp-pill.active-pill {
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.timeline-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 50px;
+  background: var(--surface);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.timeline-filter-search:focus-within {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.08);
+}
+
+.timeline-filter-search i {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.timeline-filter-search input {
+  border: none;
+  padding: 0;
+  font-weight: 800;
+  width: 120px;
+  font-size: 14.5px;
+  background: transparent;
+  color: var(--text-main);
+  outline: none;
+}
+
+.timeline-filter-search input::placeholder {
+  color: var(--text-light);
+}
+
 .timeline-section-container {
   display: flex;
   flex-direction: column;
@@ -1581,12 +1670,20 @@ body {
 }
 
 .campaign-header-timeline {
-  padding: 16px 24px;
+  padding: 18px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
   background-color: var(--surface-accent);
+}
+
+.campaign-header-timeline h3 {
+  font-size: 17px;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .timeline-list {
@@ -1609,63 +1706,97 @@ body {
   width: 80px;
   text-align: right;
   flex-shrink: 0;
-  padding-top: 4px;
+  padding-top: 7px;
 }
 
 .timeline-time-date {
   font-weight: 900;
-  font-size: 15px;
+  font-size: 16px;
   color: var(--text-main);
+  line-height: 1.2;
+  letter-spacing: 0.2px;
 }
 
 .timeline-time-month {
   display: block;
   font-size: 12px;
   color: var(--text-muted);
+  margin-top: 2px;
+  font-weight: 600;
 }
 
 .timeline-node-side {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 18px;
+  width: 24px;
   flex-shrink: 0;
   position: relative;
 }
 
 .timeline-time-dot {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 99px;
   background-color: var(--surface);
   border: 3px solid var(--text-light);
   z-index: 2;
   margin-top: 6px;
   position: relative;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6);
+}
+
+.timeline-time-dot::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  width: calc(100% + 10px);
+  height: calc(100% + 10px);
+  border-radius: 99px;
+  border: 2px solid currentColor;
+  opacity: 0.25;
+  transition: opacity 0.3s ease;
+}
+
+.timeline-task-card-modern:hover + .timeline-node-side .timeline-time-dot::before,
+.timeline-item-vertical:hover .timeline-time-dot::before {
+  opacity: 0.5;
+}
+
+.timeline-time-dot.pulse {
+  animation: timelinePulse 2s infinite ease-out;
 }
 
 .timeline-time-dot.pulse::after {
   content: '';
   position: absolute;
-  top: -6px;
-  left: -6px;
-  width: 20px;
-  height: 20px;
+  top: -8px;
+  left: -8px;
+  width: 26px;
+  height: 26px;
   border-radius: 99px;
   border: 2px solid currentColor;
   animation: pulse-ring 1.5s infinite ease-out;
   opacity: 0;
 }
 
+@keyframes timelinePulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 0 0 0 rgba(99,102,241,0.2); }
+  50% { box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 0 0 6px rgba(99,102,241,0.08); }
+}
+
 .timeline-time-line {
   width: 2px;
-  background-color: var(--border);
+  background: linear-gradient(to bottom, var(--border) 0%, var(--text-light) 50%, var(--border) 100%);
   position: absolute;
-  top: 22px;
+  top: 24px;
   bottom: -40px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
+  opacity: 0.6;
 }
 
 .timeline-item-vertical:last-child .timeline-time-line {
@@ -1677,7 +1808,7 @@ body {
   min-width: 0;
 }
 
-/* Modern Task Card */
+/* Modern Task Card — Redesigned */
 .timeline-task-card-modern {
   display: flex;
   gap: 0;
@@ -1686,26 +1817,27 @@ body {
   border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
 }
 
 .timeline-task-card-modern:hover {
   border-color: var(--border-focus);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
 }
 
 .timeline-card-indicator {
-  width: 5px;
+  width: 6px;
   flex-shrink: 0;
 }
 
 .timeline-card-body {
   flex: 1;
-  padding: 12px 16px;
+  padding: 14px 18px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
+  position: relative;
 }
 
 .timeline-card-header {
@@ -1716,10 +1848,11 @@ body {
 }
 
 .timeline-card-date {
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-muted);
   font-weight: 700;
   white-space: nowrap;
+  letter-spacing: 0.3px;
 }
 
 .timeline-card-avatars {
@@ -1729,17 +1862,17 @@ body {
 }
 
 .timeline-card-avatar {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 2px solid var(--surface);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11.5px;
+  font-size: 10.5px;
   font-weight: 900;
   color: white;
-  margin-left: -7px;
+  margin-left: -6px;
 }
 
 .timeline-card-avatar:first-child {
@@ -1747,26 +1880,27 @@ body {
 }
 
 .timeline-card-avatar-more {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: 2px solid var(--border);
-  margin-left: -7px;
+  margin-left: -6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 8.5px;
+  font-size: 8px;
   font-weight: 900;
   color: var(--text-muted);
   background: var(--surface-hover);
 }
 
 .timeline-card-title {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 900;
   color: var(--text-main);
-  line-height: 1.35;
+  line-height: 1.4;
   word-break: break-word;
+  letter-spacing: 0.2px;
 }
 
 .timeline-card-title.done {
@@ -1779,7 +1913,7 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-top: 2px;
+  flex-wrap: wrap;
 }
 
 .timeline-card-progress {
@@ -1787,61 +1921,66 @@ body {
   align-items: center;
   gap: 8px;
   flex: 1;
-  min-width: 0;
+  min-width: 100px;
   cursor: pointer;
 }
 
 .timeline-card-progress-bar {
   flex: 1;
-  height: 5px;
+  height: 6px;
   background: var(--border);
   border-radius: 99px;
   overflow: hidden;
-  max-width: 140px;
+  max-width: 180px;
 }
 
 .timeline-card-progress-fill {
   height: 100%;
   border-radius: 99px;
-  transition: width 0.4s ease;
+  transition: width 0.5s ease;
 }
 
 .timeline-card-progress-text {
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-muted);
   font-weight: 900;
   white-space: nowrap;
+  min-width: 30px;
 }
 
 .timeline-card-tag {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 900;
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 99px;
   white-space: nowrap;
   flex-shrink: 0;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
 }
 
-/* Hover actions overlay */
+/* Hover actions — positioned at top-right of card body */
 .timeline-card-actions-hover {
   position: absolute;
   top: 8px;
-  right: 8px;
+  right: 10px;
   display: flex;
-  gap: 3px;
+  gap: 4px;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
   z-index: 5;
+  transform: translateY(-2px);
 }
 
 .timeline-task-card-modern:hover .timeline-card-actions-hover {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .timeline-card-action-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);
@@ -1851,11 +1990,13 @@ body {
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
+  backdrop-filter: blur(4px);
 }
 
 .timeline-card-action-btn:hover {
   background: var(--surface-hover);
   color: var(--text-main);
+  box-shadow: var(--shadow-sm);
 }
 
 .timeline-card-action-btn.danger:hover {
@@ -1925,23 +2066,30 @@ body {
   display: none;
 }
 
-/* Compact Campaign Health Cards */
+/* Compact Campaign Health Cards — Redesigned */
 .campaign-health-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .campaign-health-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 10px;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--surface);
   overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.campaign-health-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  transform: translateY(-2px);
 }
 
 .campaign-health-card-info {
@@ -1950,25 +2098,26 @@ body {
 }
 
 .campaign-health-card-name {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .campaign-health-card-progress {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text-muted);
-  margin-top: 2px;
+  margin-top: 3px;
+  font-weight: 600;
 }
 
 .campaign-health-card-ring {
   position: relative;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -1979,6 +2128,7 @@ body {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.06));
 }
 
 .campaign-health-card-ring-value {
