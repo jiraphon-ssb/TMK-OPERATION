@@ -99,9 +99,12 @@ const groupByTask = (rows, mapper) => rows.reduce((acc, row) => {
 
 const replaceTable = async (table, rows) => {
   if (!rows || rows.length === 0) {
-    console.warn(`Skipped empty replace for ${table} to avoid deleting existing Supabase data.`);
+    console.warn(`⚠️ Skipped empty replace for ${table} to avoid deleting existing Supabase data.`);
     return;
   }
+
+  // Safety: log what we're about to save
+  console.log(`💾 Saving ${table}: ${rows.length} rows`, rows.map(r => r.id || r.name || '?'));
 
   // 1. Upsert to insert new rows or update existing ones, preventing foreign key cascading nulls/deletes
   const { error: upsertError } = await supabase.from(table).upsert(rows);
@@ -110,8 +113,11 @@ const replaceTable = async (table, rows) => {
   // 2. Safely delete only the rows that are not in the new set
   const incomingIds = rows.map(r => r.id).filter(Boolean);
   if (incomingIds.length > 0) {
-    const { error: deleteError } = await supabase.from(table).delete().not('id', 'in', incomingIds);
+    const { data: deletedRows, error: deleteError } = await supabase.from(table).delete().not('id', 'in', incomingIds).select('id');
     if (deleteError) throw deleteError;
+    if (deletedRows && deletedRows.length > 0) {
+      console.warn(`🗑️ ${table}: deleted ${deletedRows.length} rows not in incoming set:`, deletedRows.map(r => r.id));
+    }
   }
 };
 
