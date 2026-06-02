@@ -99,8 +99,7 @@ const groupByTask = (rows, mapper) => rows.reduce((acc, row) => {
 
 const replaceTable = async (table, rows) => {
   if (!rows || rows.length === 0) {
-    const { error: deleteError } = await supabase.from(table).delete().neq('id', '__never__');
-    if (deleteError) throw deleteError;
+    console.warn(`Skipped empty replace for ${table} to avoid deleting existing Supabase data.`);
     return;
   }
 
