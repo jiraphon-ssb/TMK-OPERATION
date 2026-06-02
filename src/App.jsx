@@ -304,6 +304,10 @@ function SearchableMultiSelect({
 export default function App() {
   // Authentication State
   const [user, setUser] = useState(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
+  const [loginLoading, setLoginLoading] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -336,6 +340,38 @@ export default function App() {
     } catch (error) {
       console.error('OAuth login failed:', error);
       alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message);
+    }
+  };
+
+  const handleEmailAuth = async (e) => {
+    e.preventDefault();
+    if (!supabase) return;
+    if (!email.trim() || !password) {
+      alert('กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน');
+      return;
+    }
+    try {
+      setLoginLoading(true);
+      if (authMode === 'login') {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password: password,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password: password,
+        });
+        if (error) throw error;
+        alert('สมัครสมาชิกสำเร็จแล้ว! หากระบบ Supabase ของคุณเปิดใช้งาน Email Confirmation ไว้ กรุณาตรวจสอบอีเมลของคุณเพื่อยืนยันบัญชี หรือลองลงชื่อเข้าใช้งานได้ทันที');
+        setAuthMode('login');
+      }
+    } catch (error) {
+      console.error('Email authentication failed:', error);
+      alert('เข้าสู่ระบบ/สมัครสมาชิกไม่สำเร็จ: ' + error.message);
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -1332,34 +1368,80 @@ export default function App() {
   if (tmkRepository.isConfigured && !user) {
     return (
       <div className="login-overlay-portal">
-        <div className="login-bg-glows">
-          <div className="glow-circle glow-circle-1"></div>
-          <div className="glow-circle glow-circle-2"></div>
-        </div>
         <div className="login-card-portal">
           <div className="login-card-header">
             <div className="brand-logo">TMK</div>
-            <h1>Operations Hub</h1>
-            <p>Campaign Control Room & Factory PO Management</p>
+            <h1>TMK PLAN</h1>
+            <p>ระบบควบคุมแผนงานและการตลาดส่วนกลาง</p>
           </div>
           
           <div className="login-card-body">
-            <div className="login-info-box">
-              <i className="fa-solid fa-shield-halved" style={{ color: 'var(--primary)', fontSize: '20px' }}></i>
-              <div>
-                <strong>ระบบรักษาความปลอดภัยแคมเปญ</strong>
-                <p>กรุณาลงชื่อเข้าใช้ด้วยบัญชี Google เพื่อเข้าสู่ระบบบอร์ดควบคุมงาน</p>
+            <form className="login-form" onSubmit={handleEmailAuth}>
+              <div className="form-group">
+                <label className="form-label text-left-align" htmlFor="login-email">อีเมลผู้ใช้งาน (Email)</label>
+                <input
+                  id="login-email"
+                  type="email"
+                  className="form-input"
+                  required
+                  placeholder="name@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
               </div>
+              
+              <div className="form-group">
+                <label className="form-label text-left-align" htmlFor="login-password">รหัสผ่าน (Password)</label>
+                <input
+                  id="login-password"
+                  type="password"
+                  className="form-input"
+                  required
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+              
+              <button type="submit" className="primary-login-btn" disabled={loginLoading}>
+                {loginLoading ? (
+                  <span>กำลังดำเนินการ...</span>
+                ) : (
+                  <span>{authMode === 'login' ? 'เข้าสู่ระบบ (Sign In)' : 'สมัครสมาชิก (Sign Up)'}</span>
+                )}
+              </button>
+            </form>
+
+            <div className="auth-toggle-link">
+              {authMode === 'login' ? (
+                <span>
+                  ยังไม่มีบัญชีผู้ใช้?{' '}
+                  <button type="button" className="text-btn" onClick={() => setAuthMode('signup')}>
+                    สมัครสมาชิกใหม่
+                  </button>
+                </span>
+              ) : (
+                <span>
+                  มีบัญชีผู้ใช้งานแล้ว?{' '}
+                  <button type="button" className="text-btn" onClick={() => setAuthMode('login')}>
+                    ย้อนกลับไปเข้าสู่ระบบ
+                  </button>
+                </span>
+              )}
             </div>
-            
-            <button className="google-login-btn" onClick={signInWithGoogle}>
+
+            <div className="login-divider">
+              <span>หรือลงชื่อเข้าใช้ผ่านช่องทางอื่น</span>
+            </div>
+
+            <button className="google-login-btn" type="button" onClick={signInWithGoogle}>
               <i className="fa-brands fa-google"></i>
-              <span>ลงชื่อเข้าใช้ด้วย Google (OAuth)</span>
+              <span>ลงชื่อเข้าใช้ด้วย Google Account</span>
             </button>
           </div>
           
           <div className="login-card-footer">
-            <span>© 2026 TMK Group. All rights reserved.</span>
+            <span>© 2026 TMK Group. ระบบรักษาความปลอดภัยข้อมูลภายใน.</span>
           </div>
         </div>
       </div>
