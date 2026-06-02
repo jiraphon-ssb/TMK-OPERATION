@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { tmkRepository } from './lib/tmkRepository';
+import { supabase } from './lib/supabaseClient';
 
 // Initial seed data from original HTML (May - June 2026)
 const initialCampaigns = [
@@ -301,6 +302,57 @@ function SearchableMultiSelect({
 }
 
 export default function App() {
+  // Authentication State
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    if (!supabase) return;
+    
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Listen to changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      if (subscription) subscription.unsubscribe();
+    };
+  }, []);
+
+  const signInWithGoogle = async () => {
+    if (!supabase) return;
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('OAuth login failed:', error);
+      alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    if (confirm('คุณต้องการออกจากระบบใช่หรือไม่?')) {
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+        setUser(null);
+      } catch (error) {
+        console.error('Signout failed:', error);
+        alert('ออกจากระบบไม่สำเร็จ: ' + error.message);
+      }
+    }
+  };
+
   // Theme & Page States
   const [theme, setTheme] = useState(() => localStorage.getItem('tmk_theme') || 'light');
   const [activeTab, setActiveTab] = useState(() => {
@@ -1277,6 +1329,43 @@ export default function App() {
     }
   };
 
+  if (tmkRepository.isConfigured && !user) {
+    return (
+      <div className="login-overlay-portal">
+        <div className="login-bg-glows">
+          <div className="glow-circle glow-circle-1"></div>
+          <div className="glow-circle glow-circle-2"></div>
+        </div>
+        <div className="login-card-portal">
+          <div className="login-card-header">
+            <div className="brand-logo">TMK</div>
+            <h1>Operations Hub</h1>
+            <p>Campaign Control Room & Factory PO Management</p>
+          </div>
+          
+          <div className="login-card-body">
+            <div className="login-info-box">
+              <i className="fa-solid fa-shield-halved" style={{ color: 'var(--primary)', fontSize: '20px' }}></i>
+              <div>
+                <strong>ระบบรักษาความปลอดภัยแคมเปญ</strong>
+                <p>กรุณาลงชื่อเข้าใช้ด้วยบัญชี Google เพื่อเข้าสู่ระบบบอร์ดควบคุมงาน</p>
+              </div>
+            </div>
+            
+            <button className="google-login-btn" onClick={signInWithGoogle}>
+              <i className="fa-brands fa-google"></i>
+              <span>ลงชื่อเข้าใช้ด้วย Google (OAuth)</span>
+            </button>
+          </div>
+          
+          <div className="login-card-footer">
+            <span>© 2026 TMK Group. All rights reserved.</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
@@ -1299,6 +1388,16 @@ export default function App() {
         </div>
 
         <div className="header-actions">
+          {user && (
+            <div className="user-profile-badge" title={`เข้าสู่ระบบด้วย: ${user.email}`}>
+              <img 
+                src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
+                alt="User Avatar" 
+                className="user-avatar"
+              />
+              <span className="user-name-span">{user.user_metadata?.full_name || user.email.split('@')[0]}</span>
+            </div>
+          )}
           <button
             className="icon-btn"
             onClick={refreshRemoteData}
@@ -1339,6 +1438,15 @@ export default function App() {
                     <small>กู้คืนข้อมูล หรือลบทิ้งถาวร</small>
                   </span>
                 </button>
+                {user && (
+                  <button type="button" className="danger" onClick={() => { handleSignOut(); setShowDataMenu(false); }}>
+                    <i className="fa-solid fa-right-from-bracket" style={{ color: 'var(--danger)' }}></i>
+                    <span>
+                      <strong>ออกจากระบบ (Log Out)</strong>
+                      <small>ออกจากระบบบัญชี Google</small>
+                    </span>
+                  </button>
+                )}
               </div>
             )}
           </div>
