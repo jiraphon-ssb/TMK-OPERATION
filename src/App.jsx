@@ -2766,13 +2766,15 @@ export default function App() {
                           return (
                             <>
                               {visibleTasks.map(task => {
-                                const camp = campaigns.find(c => c.id === task.camp) || { color: '#64748b' };
+                                const camp = campaigns.find(c => c.id === task.camp);
+                                const campFallback = { color: '#64748b', name: 'ไม่มีแคมเปญ' };
+                                const campDisp = camp || campFallback;
                                 return (
-                                  <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${camp.color || '#64748b'}` }}
+                                  <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${campDisp.color}` }}
                                     onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
                                     <div className="cal-task-card-title">{task.title}</div>
                                     <div className="cal-task-card-meta">
-                                      <span className="cal-task-card-camp">{camp ? camp.name.split(':')[0] : ''}</span>
+                                      <span className="cal-task-card-camp">{campDisp.name.split(':')[0]}</span>
                                       {task.responsible && <span className="cal-task-card-responsible">{task.responsible.split(',').map(s => s.trim()).filter(Boolean).length > 0 ? '👤 ' + task.responsible.split(',')[0].trim() : ''}</span>}
                                     </div>
                                   </div>
