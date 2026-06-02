@@ -1280,24 +1280,6 @@ export default function App() {
     return colors[index];
   };
 
-  const renderResponsibleTags = (responsibleStr) => {
-    if (!responsibleStr) return null;
-    const staffArr = responsibleStr.split(',').map(s => s.trim()).filter(Boolean);
-    return staffArr.map(staff => {
-      const colors = getHashColor(staff, false);
-      return (
-        <span 
-          key={staff} 
-          className="task-pill-responsible" 
-          style={{ backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }}
-        >
-          <i className="fa-solid fa-user-circle" style={{ fontSize: '12px' }}></i>
-          {staff}
-        </span>
-      );
-    });
-  };
-
   // Task CRUD Handlers
   const openAddTask = (dateStr) => {
     setTaskModalMode('add');
@@ -2848,95 +2830,103 @@ export default function App() {
 
       {/* 3. Kanban Task Board Tab */}
       {activeTab === 'kanban' && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: '900' }}>
-              <i className="fa-solid fa-list-check" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
+        <div className="kanban-wrapper">
+          <div className="kanban-header">
+            <h2 className="kanban-title">
+              <i className="fa-solid fa-list-check" style={{ color: 'var(--kpi-blue)', marginRight: '10px' }}></i>
               บอร์ดติดตามสถานะปฏิบัติการของทีม
             </h2>
           </div>
 
           <div className="kanban-grid">
-            
-            {/* Columns definition */}
             {['todo', 'inprogress', 'review', 'done'].map(status => {
-              const statusName = status === 'todo' ? 'To-Do (รอกระทำ)' : status === 'inprogress' ? 'In Progress (กำลังทำ)' : status === 'review' ? 'Review (ส่งตรวจสอบ)' : 'Done (สำเร็จ)';
+              const statusMeta = {
+                todo: { label: 'To-Do', sub: 'รอดำเนินการ', icon: 'fa-regular fa-circle' },
+                inprogress: { label: 'In Progress', sub: 'กำลังดำเนินการ', icon: 'fa-solid fa-spinner' },
+                review: { label: 'Review', sub: 'รอตรวจสอบ', icon: 'fa-solid fa-magnifying-glass' },
+                done: { label: 'Done', sub: 'สำเร็จแล้ว', icon: 'fa-solid fa-check-circle' }
+              }[status];
               const columnTasks = getFilteredKanbanTasks(status);
               
               return (
                 <div 
                   key={status} 
-                  className={`kanban-column ${draggedOverCol === status ? 'dragging-over' : ''}`}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    if (draggedOverCol !== status) setDraggedOverCol(status);
-                  }}
-                  onDragEnter={(e) => {
-                    e.preventDefault();
-                    setDraggedOverCol(status);
-                  }}
-                  onDragLeave={() => {
-                    setDraggedOverCol(null);
-                  }}
+                  className={`kanban-column ${draggedOverCol === status ? 'dragging-over' : ''} col-${status}`}
+                  onDragOver={(e) => { e.preventDefault(); if (draggedOverCol !== status) setDraggedOverCol(status); }}
+                  onDragEnter={(e) => { e.preventDefault(); setDraggedOverCol(status); }}
+                  onDragLeave={() => setDraggedOverCol(null)}
                   onDrop={(e) => handleDrop(e, status)}
                 >
                   <div className="kanban-column-header">
-                    <span style={{ fontSize: '15.5px', fontWeight: '900' }}>{statusName}</span>
-                    <span className="kanban-column-count">{columnTasks.length}</span>
+                    <div className="kanban-column-title-row">
+                      <i className={statusMeta.icon} style={{ fontSize: '15px' }}></i>
+                      <span className="kanban-column-title">{statusMeta.label}</span>
+                      <span className="kanban-column-count">{columnTasks.length}</span>
+                    </div>
+                    <span className="kanban-column-sub">{statusMeta.sub}</span>
                   </div>
 
                   <div className="kanban-card-list">
-                    {columnTasks.map(task => {
-                      const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b' };
-                      return (
-                        <div key={task.id} className="kanban-card" draggable={userRole === 'admin'} onDragStart={(e) => {
-                          if (userRole !== 'admin') {
-                            e.preventDefault();
-                            return;
-                          }
-                          handleDragStart(e, task.id);
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '12px', color: campObj.color, fontWeight: '900', textTransform: 'uppercase' }}>
-                              {campObj.name.split(':')[0]}
-                            </span>
-                            <span style={{ fontSize: '12.5px', color: 'var(--text-light)' }}>{task.date}</span>
-                          </div>
-                          
-                          <h4 style={{ fontSize: '15.5px', fontWeight: '800' }}>{task.title}</h4>
-                          <p style={{ fontSize: '14px', color: 'var(--text-muted)', lineSelf: 'stretch' }}>{task.detail}</p>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                              {renderResponsibleTags(task.responsible)}
+                    {columnTasks.length === 0 ? (
+                      <div className="kanban-empty">
+                        <i className="fa-regular fa-folder-open" style={{ fontSize: '28px', color: 'var(--text-muted)', opacity: 0.4 }}></i>
+                        <span style={{ fontSize: '13px', color: 'var(--text-muted)', opacity: 0.6 }}>ไม่มีงานในคอลัมน์นี้</span>
+                      </div>
+                    ) : (
+                      columnTasks.map(task => {
+                        const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b' };
+                        const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
+                        return (
+                          <div key={task.id} className="kanban-card" draggable={userRole === 'admin'} onDragStart={(e) => {
+                            if (userRole !== 'admin') { e.preventDefault(); return; }
+                            handleDragStart(e, task.id);
+                          }}>
+                            <div className="kanban-card-top">
+                              <span className="kanban-card-camp" style={{ backgroundColor: campObj.color + '18', color: campObj.color, border: `1px solid ${campObj.color}30` }}>
+                                {campObj.name.split(':')[0]}
+                              </span>
+                              <div className="kanban-card-actions">
+                                <button className="kanban-card-action-btn" onClick={(e) => { e.stopPropagation(); openEditTask(task); }} title={userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}>
+                                  <i className="fa-regular fa-pen-to-square"></i>
+                                </button>
+                                {userRole === 'admin' && (
+                                  <button className="kanban-card-action-btn" onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} title="ลบ">
+                                    <i className="fa-regular fa-trash-can"></i>
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                            
-                            <select className="form-input" style={{ padding: '2px 4px', fontSize: '12.5px' }} value={task.status} disabled={userRole !== 'admin'} onChange={(e) => {
-                              const newStatus = e.target.value;
-                              changeTaskStatus(task, newStatus);
-                            }}>
-                              <option value="todo">To-Do</option>
-                              <option value="inprogress">In Prog</option>
-                              <option value="review">Review</option>
-                              <option value="done">Done</option>
-                            </select>
+                            <div className="kanban-card-body">
+                              <h4 className="kanban-card-title">{task.title}</h4>
+                              {task.detail && <p className="kanban-card-detail">{task.detail}</p>}
+                            </div>
+                            <div className="kanban-card-footer">
+                              <span className="kanban-card-date"><i className="fa-regular fa-calendar"></i> {task.date}</span>
+                              <div className="kanban-card-assignees">
+                                {responsibleList.slice(0, 2).map((name) => {
+                                  const colors = getHashColor(name, false);
+                                  return (
+                                    <span key={name} className="kanban-card-pill" style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.border }}>
+                                      {name}
+                                    </span>
+                                  );
+                                })}
+                                {responsibleList.length > 2 && (
+                                  <span className="kanban-card-pill" style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-muted)' }}>
+                                    +{responsibleList.length - 2}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {task.status === 'done' && <div className="kanban-card-done-overlay"></div>}
                           </div>
-                          
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '2px' }}>
-                            <span style={{ cursor: 'pointer', fontSize: '13px', color: 'var(--kpi-blue)' }} onClick={() => openEditTask(task)}>
-                              {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
-                            </span>
-                            {userRole === 'admin' && (
-                              <span style={{ cursor: 'pointer', fontSize: '13px', color: 'var(--danger)' }} onClick={() => deleteTask(task.id)}>ลบ</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })
+                    )}
                   </div>
                 </div>
               );
             })}
-
           </div>
         </div>
       )}
