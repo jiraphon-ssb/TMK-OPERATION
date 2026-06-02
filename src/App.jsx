@@ -125,7 +125,8 @@ function SearchableMultiSelect({
   onChange,
   onAddOption,
   onDeleteOption,
-  addPlaceholder = "เพิ่มรายการใหม่..."
+  addPlaceholder = "เพิ่มรายการใหม่...",
+  disabled = false
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -179,29 +180,33 @@ function SearchableMultiSelect({
   return (
     <div className="custom-select-container" ref={containerRef}>
       <div
-        className="custom-select-trigger"
-        onClick={() => setIsOpen(!isOpen)}
+        className={`custom-select-trigger ${disabled ? 'disabled' : ''}`}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        style={disabled ? { pointerEvents: 'none', opacity: 0.8, background: 'var(--surface-hover)' } : {}}
       >
         {selectedValues.map(val => (
           <span
             key={val}
             className="select-tag"
             onClick={(e) => {
+              if (disabled) return;
               e.stopPropagation();
               toggleOption(val);
             }}
           >
             {val}
-            <button
-              type="button"
-              className="tag-remove-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleOption(val);
-              }}
-            >
-              &times;
-            </button>
+            {!disabled && (
+              <button
+                type="button"
+                className="tag-remove-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleOption(val);
+                }}
+              >
+                &times;
+              </button>
+            )}
           </span>
         ))}
         {selectedValues.length === 0 && (
@@ -310,6 +315,126 @@ export default function App() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
 
+  // Theme & Page States
+  const [theme, setTheme] = useState(() => localStorage.getItem('tmk_theme') || 'light');
+  const [activeTab, setActiveTab] = useState(() => {
+    const savedTab = localStorage.getItem('tmk_active_tab');
+    return savedTab && savedTab !== 'today' ? savedTab : 'dashboard';
+  });
+
+  // Multi-user Roles, Audit Logs, and Notifications States
+  const ADMIN_EMAILS = ['jiraphon.e@saisabuygroup.co'];
+  const userRole = user && ADMIN_EMAILS.includes(user.email) ? 'admin' : 'viewer';
+
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [showOnlyMyTasks, setShowOnlyMyTasks] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // Fetch Audit Logs
+  const fetchAuditLogs = async () => {
+    if (!supabase) return;
+    try {
+      const { data, error } = await supabase
+        .from('tmk_audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      setAuditLogs(data || []);
+    } catch (err) {
+      console.warn('Audit logs fetch failed (table might not exist yet):', err);
+    }
+  };
+
+  // Helper to log action in Database
+  const logAction = async (action, details) => {
+    if (!supabase || !user) return;
+    try {
+      await supabase.from('tmk_audit_logs').insert({
+        user_email: user.email,
+        action,
+        details: typeof details === 'string' ? details : JSON.stringify(details)
+      });
+    } catch (err) {
+      console.warn('Failed to insert audit log (table might not exist yet):', err);
+    }
+  };
+
+  const getLogBadgeClass = (action) => {
+    if (action.includes('สร้าง') || action.includes('กู้คืน')) return 'create';
+    if (action.includes('แก้ไข') || action.includes('บันทึก')) return 'update';
+    if (action.includes('ลบ')) return 'delete';
+    return 'default';
+  };
+
+  // Notification generator for tasks assigned to user due within 48h
+  const getMyNotifications = () => {
+    if (!user) return [];
+    const userPrefix = user.email.split('@')[0].toLowerCase();
+    const fullName = user.user_metadata?.full_name?.toLowerCase();
+    
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const twoDaysMillis = 2 * 24 * 60 * 60 * 1000;
+
+    return tasks.filter(task => {
+      const resp = (task.responsible || '').toLowerCase();
+      const isAssigned = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
+      if (!isAssigned) return false;
+      if (task.status === 'done') return false;
+
+      const taskTime = new Date(task.date).getTime();
+      if (isNaN(taskTime)) return false;
+
+      const diff = taskTime - todayStart;
+      return diff <= twoDaysMillis;
+    }).map(task => {
+      const taskTime = new Date(task.date).getTime();
+      const diff = taskTime - todayStart;
+      let statusText = 'ใกล้กำหนดส่ง';
+      if (diff < 0) {
+        statusText = '🚨 ค้างส่ง (เลยกำหนด)';
+      } else if (diff === 0) {
+        statusText = '🔥 ครบกำหนดวันนี้';
+      }
+      return {
+        id: task.id,
+        title: task.title,
+        date: task.date,
+        statusText,
+        task
+      };
+    });
+  };
+
+  // Realtime subscription for Audit Logs
+  useEffect(() => {
+    if (!supabase || !user) return;
+    fetchAuditLogs();
+
+    const channel = supabase
+      .channel('audit-logs-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tmk_audit_logs' },
+        (payload) => {
+          setAuditLogs(prev => [payload.new, ...prev].slice(0, 100));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Fetch audit logs on active tab changes
+  useEffect(() => {
+    if (activeTab === 'audit_logs') {
+      fetchAuditLogs();
+    }
+  }, [activeTab]);
+
   useEffect(() => {
     if (!supabase) return;
     
@@ -397,13 +522,6 @@ export default function App() {
       }
     }
   };
-
-  // Theme & Page States
-  const [theme, setTheme] = useState(() => localStorage.getItem('tmk_theme') || 'light');
-  const [activeTab, setActiveTab] = useState(() => {
-    const savedTab = localStorage.getItem('tmk_active_tab');
-    return savedTab && savedTab !== 'today' ? savedTab : 'dashboard';
-  });
   const todayStr = getLocalDateString();
   
   // Responsive Screen Width State
@@ -823,7 +941,16 @@ export default function App() {
                    task.responsible.toLowerCase().includes(q) ||
                    (task.channel || '').toLowerCase().includes(q);
       }
-      return isDate && isCamp && isRole && isPriority && isSearch;
+
+      let isMyTask = true;
+      if (showOnlyMyTasks && user) {
+        const userPrefix = user.email.split('@')[0].toLowerCase();
+        const resp = (task.responsible || '').toLowerCase();
+        const fullName = user.user_metadata?.full_name?.toLowerCase();
+        isMyTask = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
+      }
+
+      return isDate && isCamp && isRole && isPriority && isSearch && isMyTask;
     });
   };
 
@@ -843,7 +970,16 @@ export default function App() {
                    task.responsible.toLowerCase().includes(q) ||
                    (task.channel || '').toLowerCase().includes(q);
       }
-      return isStatus && isCamp && isRole && isPriority && isSearch;
+
+      let isMyTask = true;
+      if (showOnlyMyTasks && user) {
+        const userPrefix = user.email.split('@')[0].toLowerCase();
+        const resp = (task.responsible || '').toLowerCase();
+        const fullName = user.user_metadata?.full_name?.toLowerCase();
+        isMyTask = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
+      }
+
+      return isStatus && isCamp && isRole && isPriority && isSearch && isMyTask;
     });
   };
 
@@ -861,25 +997,43 @@ export default function App() {
 
   // Drag and Drop (Kanban)
   const handleDragStart = (e, taskId) => {
+    if (userRole !== 'admin') {
+      e.preventDefault();
+      return;
+    }
     e.dataTransfer.setData('text/plain', taskId);
   };
 
   const handleDrop = (e, status) => {
     e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ย้ายสถานะงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     const taskId = e.dataTransfer.getData('text/plain');
+    const movedTask = tasks.find(t => t.id === taskId);
+    if (movedTask) {
+      logAction('ย้ายสถานะงาน', `ย้ายงาน: "${movedTask.title}" ไปที่สถานะ [${status}]`);
+    }
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
     setDraggedOverCol(null);
   };
 
-
-
   // Checklist handlers
   const toggleChecklistItem = (taskId, itemId) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ทำรายการนี้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
-        const checklist = (t.checklist || []).map(item => 
-          item.id === itemId ? { ...item, completed: !item.completed } : item
-        );
+        const checklist = (t.checklist || []).map(item => {
+          if (item.id === itemId) {
+            logAction('แก้ไขรายการตรวจสอบย่อย', `${item.completed ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} รายการ: "${item.text}" ในงาน: "${t.title}"`);
+            return { ...item, completed: !item.completed };
+          }
+          return item;
+        });
         return { ...t, checklist };
       }
       return t;
@@ -887,10 +1041,15 @@ export default function App() {
   };
 
   const addChecklistItem = (taskId, text) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ทำรายการนี้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (!text || !text.trim()) return;
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
         const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: text.trim(), completed: false };
+        logAction('สร้างรายการตรวจสอบย่อย', `เพิ่มรายการย่อย: "${text.trim()}" ในงาน: "${t.title}"`);
         return { ...t, checklist: [...(t.checklist || []), newItem] };
       }
       return t;
@@ -898,8 +1057,16 @@ export default function App() {
   };
 
   const deleteChecklistItem = (taskId, itemId) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ทำรายการนี้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
+        const itemToDelete = (t.checklist || []).find(item => item.id === itemId);
+        if (itemToDelete) {
+          logAction('ลบรายการตรวจสอบย่อย', `ลบรายการย่อย: "${itemToDelete.text}" ในงาน: "${t.title}"`);
+        }
         const checklist = (t.checklist || []).filter(item => item.id !== itemId);
         return { ...t, checklist };
       }
@@ -958,49 +1125,54 @@ export default function App() {
               type="checkbox" 
               className="checklist-checkbox" 
               checked={item.completed} 
+              disabled={userRole !== 'admin'}
               onChange={() => toggleChecklistItem(task.id, item.id)} 
             />
             <span className={`checklist-text ${item.completed ? 'crossed' : ''}`}>
               {item.text}
             </span>
-            <button 
-              type="button" 
-              style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', marginLeft: 'auto', padding: '2px 4px' }}
-              onClick={() => deleteChecklistItem(task.id, item.id)}
-              title="ลบงานย่อย"
-            >
-              <i className="fa-solid fa-trash-can" style={{ fontSize: '11px' }}></i>
-            </button>
+            {userRole === 'admin' && (
+              <button 
+                type="button" 
+                style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', marginLeft: 'auto', padding: '2px 4px' }}
+                onClick={() => deleteChecklistItem(task.id, item.id)}
+                title="ลบงานย่อย"
+              >
+                <i className="fa-solid fa-trash-can" style={{ fontSize: '11px' }}></i>
+              </button>
+            )}
           </div>
         ))}
-        <div className="checklist-add-row" style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-          <input 
-            type="text" 
-            placeholder="เพิ่มงานย่อย แล้วกด Enter..." 
-            className="checklist-input" 
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addChecklistItem(task.id, e.target.value);
-                e.target.value = '';
-              }
-            }}
-          />
-          <button 
-            type="button" 
-            className="btn" 
-            style={{ padding: '4px 10px', fontSize: '11px' }}
-            onClick={(e) => {
-              const input = e.currentTarget.previousSibling;
-              if (input && input.value) {
-                addChecklistItem(task.id, input.value);
-                input.value = '';
-              }
-            }}
-          >
-            เพิ่ม
-          </button>
-        </div>
+        {userRole === 'admin' && (
+          <div className="checklist-add-row" style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+            <input 
+              type="text" 
+              placeholder="เพิ่มงานย่อย แล้วกด Enter..." 
+              className="checklist-input" 
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addChecklistItem(task.id, e.target.value);
+                  e.target.value = '';
+                }
+              }}
+            />
+            <button 
+              type="button" 
+              className="btn" 
+              style={{ padding: '4px 10px', fontSize: '11px' }}
+              onClick={(e) => {
+                const input = e.currentTarget.previousSibling;
+                if (input && input.value) {
+                  addChecklistItem(task.id, input.value);
+                  input.value = '';
+                }
+              }}
+            >
+              เพิ่ม
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -1114,19 +1286,29 @@ export default function App() {
 
   const saveTask = (e) => {
     e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์บันทึกงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (taskModalMode === 'add') {
       const newTask = {
         ...taskForm,
         id: 't-' + Date.now()
       };
       setTasks(prev => [...prev, newTask]);
+      logAction('สร้างงานหลัก', `สร้างงานใหม่: "${taskForm.title}" (ผู้รับผิดชอบ: ${taskForm.responsible})`);
     } else {
       setTasks(prev => prev.map(t => t.id === editingTaskId ? { ...taskForm, id: editingTaskId } : t));
+      logAction('แก้ไขงานหลัก', `แก้ไขงาน: "${taskForm.title}" (ผู้รับผิดชอบ: ${taskForm.responsible})`);
     }
     setShowTaskModal(false);
   };
 
   const deleteTask = (taskId) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ลบงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (confirm('ยืนยันที่จะลบหัวข้องานปฏิบัตินี้ออกใช่หรือไม่?')) {
       const taskToDelete = tasks.find(t => t.id === taskId);
       if (taskToDelete) {
@@ -1141,6 +1323,7 @@ export default function App() {
             data: taskToDelete
           }
         ]);
+        logAction('ย้ายงานไปถังขยะ', `ย้ายงาน: "${taskToDelete.title}" ไปที่ถังขยะ`);
       }
       setTasks(prev => prev.filter(t => t.id !== taskId));
     }
@@ -1161,16 +1344,26 @@ export default function App() {
 
   const saveChannel = (e) => {
     e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์แก้ไขช่องทางขาย (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (!isChannelEditMode) {
       const newCh = { ...channelForm, id: 'ch-' + Date.now() };
       setChannels(prev => [...prev, newCh]);
+      logAction('สร้างช่องทางขาย', `สร้างช่องทาง: "${channelForm.name}" (เป้าหมาย: ${channelForm.target}%)`);
     } else {
       setChannels(prev => prev.map(ch => ch.id === channelForm.id ? channelForm : ch));
+      logAction('แก้ไขช่องทางขาย', `แก้ไขช่องทาง: "${channelForm.name}" (เป้าหมาย: ${channelForm.target}%)`);
     }
     setShowChannelModal(false);
   };
 
   const deleteChannel = (id) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ลบช่องทางขาย (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (confirm('คุณต้องการลบช่องทางการขายนี้ใช่หรือไม่?')) {
       const channelToDelete = channels.find(ch => ch.id === id);
       if (channelToDelete) {
@@ -1185,12 +1378,11 @@ export default function App() {
             data: channelToDelete
           }
         ]);
+        logAction('ย้ายช่องทางขายไปถังขยะ', `ย้ายช่องทาง: "${channelToDelete.name}" ไปที่ถังขยะ`);
       }
       setChannels(prev => prev.filter(ch => ch.id !== id));
     }
   };
-
-
 
   // Product CRUD Handlers
   const openAddProduct = () => {
@@ -1207,16 +1399,26 @@ export default function App() {
 
   const saveProduct = (e) => {
     e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์แก้ไขข้อมูลสินค้า (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (!isProductEditMode) {
       const newProd = { ...productForm, id: 'p-' + Date.now() };
       setProducts(prev => [...prev, newProd]);
+      logAction('สร้างสินค้า', `สร้างสินค้า: "${productForm.name}" (ราคา: ${productForm.price} บาท)`);
     } else {
       setProducts(prev => prev.map(p => p.id === productForm.id ? productForm : p));
+      logAction('แก้ไขสินค้า', `แก้ไขสินค้า: "${productForm.name}" (ราคา: ${productForm.price} บาท)`);
     }
     setShowProductModal(false);
   };
 
   const deleteProduct = (id) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ลบสินค้า (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (confirm('คุณต้องการลบสินค้านี้ใช่หรือไม่?')) {
       const productToDelete = products.find(p => p.id === id);
       if (productToDelete) {
@@ -1231,6 +1433,7 @@ export default function App() {
             data: productToDelete
           }
         ]);
+        logAction('ย้ายสินค้าไปถังขยะ', `ย้ายสินค้า: "${productToDelete.name}" ไปที่ถังขยะ`);
       }
       setProducts(prev => prev.filter(p => p.id !== id));
     }
@@ -1251,16 +1454,26 @@ export default function App() {
 
   const saveCampaign = (e) => {
     e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์แก้ไขแคมเปญ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (!isCampaignEditMode) {
       const newCamp = { ...campaignForm, id: 'c-' + Date.now() };
       setCampaigns(prev => [...prev, newCamp]);
+      logAction('สร้างแคมเปญ', `สร้างแคมเปญ: "${campaignForm.name}"`);
     } else {
       setCampaigns(prev => prev.map(c => c.id === campaignForm.id ? campaignForm : c));
+      logAction('แก้ไขแคมเปญ', `แก้ไขแคมเปญ: "${campaignForm.name}"`);
     }
     setShowCampaignModal(false);
   };
 
   const deleteCampaign = (id) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ลบแคมเปญ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (confirm('ลบแคมเปญนี้ จะทำให้งานทั้งหมดที่ผูกอยู่ไม่มีสีแคมเปญ ต้องการลบใช่หรือไม่?')) {
       const campaignToDelete = campaigns.find(c => c.id === id);
       if (campaignToDelete) {
@@ -1275,6 +1488,7 @@ export default function App() {
             data: campaignToDelete
           }
         ]);
+        logAction('ย้ายแคมเปญไปถังขยะ', `ย้ายแคมเปญ: "${campaignToDelete.name}" ไปที่ถังขยะ`);
       }
       setCampaigns(prev => prev.filter(c => c.id !== id));
     }
@@ -1295,16 +1509,26 @@ export default function App() {
 
   const savePo = (e) => {
     e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์สร้าง/แก้ไขใบสั่งซื้อ PO (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (!isPoEditMode) {
       const newPo = { ...poForm, id: 'po-' + Date.now() };
       setPoTracker(prev => [...prev, newPo]);
+      logAction('สร้างใบสั่งซื้อ PO', `สร้าง PO สินค้า: "${poForm.product}" (จำนวน: ${poForm.quantity})`);
     } else {
       setPoTracker(prev => prev.map(p => p.id === poForm.id ? poForm : p));
+      logAction('แก้ไขใบสั่งซื้อ PO', `แก้ไข PO สินค้า: "${poForm.product}" (จำนวน: ${poForm.quantity})`);
     }
     setShowPoModal(false);
   };
 
   const deletePo = (id) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ลบใบสั่งซื้อ PO (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (confirm('ต้องการลบประวัติ PO นี้ออกใช่หรือไม่?')) {
       const poToDelete = poTracker.find(p => p.id === id);
       if (poToDelete) {
@@ -1319,12 +1543,17 @@ export default function App() {
             data: poToDelete
           }
         ]);
+        logAction('ย้ายใบสั่งซื้อ PO ไปถังขยะ', `ย้าย PO สินค้า: "${poToDelete.product}" ไปที่ถังขยะ`);
       }
       setPoTracker(prev => prev.filter(p => p.id !== id));
     }
   };
 
   const restoreTrashItem = (item) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์กู้คืนข้อมูล (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (!item || !item.data) return;
     const type = item.type;
     const data = item.data;
@@ -1357,20 +1586,31 @@ export default function App() {
     }
     
     setTrashItems(prev => prev.filter(t => t.id !== item.id));
+    logAction('กู้คืนข้อมูลจากถังขยะ', `กู้คืนข้อมูล: "${item.name}" (ประเภท: ${item.type})`);
     alert(`กู้คืน "${item.name}" เรียบร้อยแล้ว`);
   };
 
   const deleteTrashItemPermanently = (itemId) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ลบข้อมูลถาวร (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     const item = trashItems.find(t => t.id === itemId);
     if (!item) return;
     if (confirm(`คุณต้องการลบ "${item.name}" ทิ้งให้สิ้นซาก (ถาวร) ใช่หรือไม่?`)) {
       setTrashItems(prev => prev.filter(t => t.id !== itemId));
+      logAction('ลบข้อมูลถาวรจากถังขยะ', `ลบถาวร: "${item.name}" (ประเภท: ${item.type})`);
     }
   };
 
   const emptyTrash = () => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์ล้างถังขยะ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
     if (confirm('คุณต้องการล้างถังขยะทั้งหมด (ทิ้งให้สิ้นซาก) ใช่หรือไม่?')) {
       setTrashItems([]);
+      logAction('ล้างถังขยะทั้งหมด', 'ล้างข้อมูลทั้งหมดในถังขยะเรียบร้อยแล้ว');
     }
   };
 
@@ -1509,14 +1749,69 @@ export default function App() {
 
         <div className="header-actions">
           {user && (
-            <div className="user-profile-badge" title={`เข้าสู่ระบบด้วย: ${user.email}`}>
-              <img 
-                src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
-                alt="User Avatar" 
-                className="user-avatar"
-              />
-              <span className="user-name-span">{user.user_metadata?.full_name || user.email.split('@')[0]}</span>
-            </div>
+            <>
+              {/* Notification Center */}
+              <div className="notifications-wrapper" style={{ position: 'relative' }}>
+                <button 
+                  className="icon-btn notification-bell-btn" 
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  title="การแจ้งเตือน"
+                  aria-label="การแจ้งเตือน"
+                  style={{ marginRight: '8px' }}
+                >
+                  <i className="fa-solid fa-bell"></i>
+                  {getMyNotifications().length > 0 && (
+                    <span className="notification-badge">{getMyNotifications().length}</span>
+                  )}
+                </button>
+                
+                {showNotifications && (
+                  <div className="notifications-dropdown">
+                    <div className="dropdown-header">
+                      <span>🔔 การแจ้งเตือนงานของคุณ</span>
+                      <button type="button" className="close-dropdown-btn" onClick={() => setShowNotifications(false)}>×</button>
+                    </div>
+                    <div className="dropdown-body">
+                      {getMyNotifications().length === 0 ? (
+                        <div className="no-notifications">ไม่มีงานใกล้กำหนดส่งในขณะนี้</div>
+                      ) : (
+                        getMyNotifications().map(notif => (
+                          <div 
+                            key={notif.id} 
+                            className="notification-item"
+                            onClick={() => {
+                              setEditingTaskId(notif.id);
+                              setTaskForm({ ...notif.task });
+                              setTaskModalMode('edit');
+                              setShowTaskModal(true);
+                              setShowNotifications(false);
+                            }}
+                          >
+                            <div className="notif-title">{notif.title}</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                              <span className="notif-date"><i className="fa-solid fa-calendar-day"></i> {notif.date}</span>
+                              <span className="notif-status">{notif.statusText}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="user-profile-badge" title={`เข้าสู่ระบบด้วย: ${user.email}`}>
+                <img 
+                  src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
+                  alt="User Avatar" 
+                  className="user-avatar"
+                />
+                <span className="user-name-span">{user.user_metadata?.full_name || user.email.split('@')[0]}</span>
+                <span className={`role-badge ${userRole}`}>
+                  {userRole === 'admin' ? 'Admin' : 'Viewer'}
+                </span>
+              </div>
+            </>
           )}
           <button
             className="icon-btn"
@@ -1527,10 +1822,12 @@ export default function App() {
           >
             <i className={`fa-solid fa-rotate ${isRefreshingRemote ? 'fa-spin' : ''}`}></i>
           </button>
-          <button className="btn btn-primary header-main-action" onClick={() => openAddTask(todayStr)}>
-            <i className="fa-solid fa-plus"></i>
-            <span>เพิ่มงานวันนี้</span>
-          </button>
+          {userRole === 'admin' && (
+            <button className="btn btn-primary header-main-action" onClick={() => openAddTask(todayStr)}>
+              <i className="fa-solid fa-plus"></i>
+              <span>เพิ่มงานวันนี้</span>
+            </button>
+          )}
           <div className="data-menu-wrapper">
             <button className={`icon-btn ${showDataMenu ? 'active' : ''}`} onClick={() => setShowDataMenu(prev => !prev)} title="จัดการข้อมูล" aria-label="จัดการข้อมูล">
               <i className="fa-solid fa-ellipsis-vertical"></i>
@@ -1591,6 +1888,9 @@ export default function App() {
           <button className={`tab-btn ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>
             <i className="fa-solid fa-shirt"></i> แผนสินค้า / PO
           </button>
+          <button className={`tab-btn ${activeTab === 'audit_logs' ? 'active' : ''}`} onClick={() => setActiveTab('audit_logs')}>
+            <i className="fa-solid fa-clock-rotate-left"></i> ประวัติการใช้งาน
+          </button>
         </nav>
       </div>
 
@@ -1626,6 +1926,20 @@ export default function App() {
                 <option value="low">💤 ต่ำ (Low)</option>
               </select>
             </div>
+
+            {user && (
+              <div className="filter-checkbox-wrapper" style={{ display: 'flex', alignItems: 'center' }}>
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none', marginLeft: '8px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={showOnlyMyTasks} 
+                    onChange={(e) => setShowOnlyMyTasks(e.target.checked)} 
+                    style={{ cursor: 'pointer', width: '16px', height: '16px', margin: 0 }}
+                  />
+                  <span>🎯 งานของฉัน</span>
+                </label>
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1638,7 +1952,7 @@ export default function App() {
                 onChange={(e) => setTimelineSearch(e.target.value)} 
               />
             </div>
-            {activeTab === 'calendar' && (
+            {activeTab === 'calendar' && userRole === 'admin' && (
               <button className="btn btn-primary" onClick={() => openAddTask(selectedDate)}>
                 <i className="fa-solid fa-plus"></i> เพิ่มงานในวันที่เลือก
               </button>
@@ -1685,9 +1999,11 @@ export default function App() {
                       <div className="circular-progress-text">{targetCompletedLabel}</div>
                     </div>
                   </div>
-                  <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsEditingTargets(true)}>
-                    <i className="fa-solid fa-pencil"></i> แก้ไขเป้าหมายหลัก
-                  </button>
+                  {userRole === 'admin' && (
+                    <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsEditingTargets(true)}>
+                      <i className="fa-solid fa-pencil"></i> แก้ไขเป้าหมายหลัก
+                    </button>
+                  )}
 
                   {/* Calibration Audit Card */}
                   <div style={{
@@ -1769,9 +2085,11 @@ export default function App() {
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <h4 style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase' }}>ยอดขายตามช่องทาง</h4>
-                  <button className="btn" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={openAddChannel}>
-                    <i className="fa-solid fa-plus"></i> เพิ่มช่องทาง
-                  </button>
+                  {userRole === 'admin' && (
+                    <button className="btn" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={openAddChannel}>
+                      <i className="fa-solid fa-plus"></i> เพิ่มช่องทาง
+                    </button>
+                  )}
                 </div>
                 {totalTarget > 0 && (
                   <div style={{
@@ -1832,14 +2150,16 @@ export default function App() {
                               สำเร็จ {progressPercent}%
                             </span>
                           </div>
-                          <div className="channel-actions">
-                            <button className="channel-action-btn edit" onClick={() => openEditChannel(ch)}>
-                              <i className="fa-solid fa-pencil"></i> แก้ไข
-                            </button>
-                            <button className="channel-action-btn delete" onClick={() => deleteChannel(ch.id)}>
-                              <i className="fa-solid fa-trash"></i> ลบ
-                            </button>
-                          </div>
+                          {userRole === 'admin' && (
+                            <div className="channel-actions">
+                              <button className="channel-action-btn edit" onClick={() => openEditChannel(ch)}>
+                                <i className="fa-solid fa-pencil"></i> แก้ไข
+                              </button>
+                              <button className="channel-action-btn delete" onClick={() => deleteChannel(ch.id)}>
+                                <i className="fa-solid fa-trash"></i> ลบ
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
@@ -1970,14 +2290,20 @@ export default function App() {
                           <td style={{ textAlign: 'right', color: 'var(--kpi-blue)', fontWeight: '600' }}>{targetPercent}%</td>
                           <td style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>{prod.strategy}</td>
                           <td style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            {userRole === 'admin' ? (
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditProduct(prod)}>
+                                  <i className="fa-solid fa-pencil"></i>
+                                </button>
+                                <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deleteProduct(prod.id)}>
+                                  <i className="fa-solid fa-trash"></i>
+                                </button>
+                              </div>
+                            ) : (
                               <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditProduct(prod)}>
-                                <i className="fa-solid fa-pencil"></i>
+                                <i className="fa-solid fa-eye"></i> ดูรายละเอียด
                               </button>
-                              <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deleteProduct(prod.id)}>
-                                <i className="fa-solid fa-trash"></i>
-                              </button>
-                            </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1995,7 +2321,7 @@ export default function App() {
                         {Math.round((products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0) / totalTarget) * 100)}%
                       </td>
                       <td>-</td>
-                      <td style={{ textAlign: 'center' }}>-</td>
+                      {userRole === 'admin' && <td style={{ textAlign: 'center' }}>-</td>}
                     </tr>
                   </tbody>
                 </table>
@@ -2142,11 +2468,13 @@ export default function App() {
                       </div>
                       <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
                         <button className="btn" style={{ flexGrow: 1, padding: '4px', fontSize: '12px', justifyContent: 'center' }} onClick={() => openEditTask(task)}>
-                          <i className="fa-solid fa-pencil"></i> แก้ไข
+                          <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
                         </button>
-                        <button className="btn btn-danger" style={{ flexGrow: 1, padding: '4px', fontSize: '12px', justifyContent: 'center' }} onClick={() => deleteTask(task.id)}>
-                          <i className="fa-solid fa-trash"></i> ลบ
-                        </button>
+                        {userRole === 'admin' && (
+                          <button className="btn btn-danger" style={{ flexGrow: 1, padding: '4px', fontSize: '12px', justifyContent: 'center' }} onClick={() => deleteTask(task.id)}>
+                            <i className="fa-solid fa-trash"></i> ลบ
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -2154,9 +2482,11 @@ export default function App() {
               )}
             </div>
 
-            <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openAddTask(selectedDate)}>
-              <i className="fa-solid fa-plus"></i> เพิ่มงานในวันนี้
-            </button>
+            {userRole === 'admin' && (
+              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openAddTask(selectedDate)}>
+                <i className="fa-solid fa-plus"></i> เพิ่มงานในวันนี้
+              </button>
+            )}
           </aside>
 
         </div>
@@ -2217,7 +2547,13 @@ export default function App() {
                     {columnTasks.map(task => {
                       const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b' };
                       return (
-                        <div key={task.id} className="kanban-card" draggable onDragStart={(e) => handleDragStart(e, task.id)}>
+                        <div key={task.id} className="kanban-card" draggable={userRole === 'admin'} onDragStart={(e) => {
+                          if (userRole !== 'admin') {
+                            e.preventDefault();
+                            return;
+                          }
+                          handleDragStart(e, task.id);
+                        }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: '10px', color: campObj.color, fontWeight: '700', textTransform: 'uppercase' }}>
                               {campObj.name.split(':')[0]}
@@ -2254,7 +2590,7 @@ export default function App() {
                               {renderResponsibleTags(task.responsible)}
                             </div>
                             
-                            <select className="form-input" style={{ padding: '2px 4px', fontSize: '10.5px' }} value={task.status} onChange={(e) => {
+                            <select className="form-input" style={{ padding: '2px 4px', fontSize: '10.5px' }} value={task.status} disabled={userRole !== 'admin'} onChange={(e) => {
                               const newStatus = e.target.value;
                               setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
                             }}>
@@ -2266,8 +2602,12 @@ export default function App() {
                           </div>
                           
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '2px' }}>
-                            <span style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--kpi-blue)' }} onClick={() => openEditTask(task)}>แก้ไข</span>
-                            <span style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--danger)' }} onClick={() => deleteTask(task.id)}>ลบ</span>
+                            <span style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--kpi-blue)' }} onClick={() => openEditTask(task)}>
+                              {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
+                            </span>
+                            {userRole === 'admin' && (
+                              <span style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--danger)' }} onClick={() => deleteTask(task.id)}>ลบ</span>
+                            )}
                           </div>
                         </div>
                       );
@@ -2292,9 +2632,11 @@ export default function App() {
                 <i className="fa-solid fa-box" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 ใบสั่งผลิต & เปิด PO โรงงาน (PO Tracker)
               </h3>
-              <button className="btn btn-primary" onClick={openAddPo}>
-                <i className="fa-solid fa-plus"></i> บันทึกใบ PO การผลิตใหม่
-              </button>
+              {userRole === 'admin' && (
+                <button className="btn btn-primary" onClick={openAddPo}>
+                  <i className="fa-solid fa-plus"></i> บันทึกใบ PO การผลิตใหม่
+                </button>
+              )}
             </div>
             
             <div className="table-container">
@@ -2329,26 +2671,30 @@ export default function App() {
                         </span>
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                          {po.status !== 'Completed' && (
-                            <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => {
-                              setPoTracker(prev => prev.map(p => p.id === po.id ? { ...p, status: 'Completed' } : p));
-                              setProducts(prev => prev.map(prod => (
-                                po.product.includes(prod.name) || prod.name.includes(po.product)
-                                  ? { ...prod, stockOnHand: Number(prod.stockOnHand || 0) + Number(po.quantity || 0) }
-                                  : prod
-                              )));
-                            }}>
-                              <i className="fa-solid fa-check"></i> รับสินค้าแล้ว
+                        {userRole === 'admin' ? (
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            {po.status !== 'Completed' && (
+                              <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => {
+                                setPoTracker(prev => prev.map(p => p.id === po.id ? { ...p, status: 'Completed' } : p));
+                                setProducts(prev => prev.map(prod => (
+                                  po.product.includes(prod.name) || prod.name.includes(po.product)
+                                    ? { ...prod, stockOnHand: Number(prod.stockOnHand || 0) + Number(po.quantity || 0) }
+                                    : prod
+                                )));
+                              }}>
+                                <i className="fa-solid fa-check"></i> รับสินค้าแล้ว
+                              </button>
+                            )}
+                            <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditPo(po)}>
+                              <i className="fa-solid fa-pencil"></i>
                             </button>
-                          )}
-                          <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditPo(po)}>
-                            <i className="fa-solid fa-pencil"></i>
-                          </button>
-                          <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deletePo(po.id)}>
-                            <i className="fa-solid fa-trash"></i>
-                          </button>
-                        </div>
+                            <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deletePo(po.id)}>
+                              <i className="fa-solid fa-trash"></i>
+                            </button>
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>-</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -2368,9 +2714,11 @@ export default function App() {
                 <i className="fa-solid fa-warehouse" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 Stock Watch
               </h3>
-              <button className="btn btn-primary" onClick={openAddProduct}>
-                <i className="fa-solid fa-plus"></i> เพิ่มสินค้า
-              </button>
+              {userRole === 'admin' && (
+                <button className="btn btn-primary" onClick={openAddProduct}>
+                  <i className="fa-solid fa-plus"></i> เพิ่มสินค้า
+                </button>
+              )}
             </div>
             <div className="table-container">
               <table className="data-table">
@@ -2403,7 +2751,7 @@ export default function App() {
                         </td>
                         <td style={{ textAlign: 'center' }}>
                           <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditProduct(prod)}>
-                            <i className="fa-solid fa-pencil"></i> แก้ไข
+                            <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
                           </button>
                         </td>
                       </tr>
@@ -2864,6 +3212,68 @@ export default function App() {
         </div>
       )}
 
+      {/* 7. Audit Logs Tab */}
+      {activeTab === 'audit_logs' && (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <i className="fa-solid fa-clock-rotate-left" style={{ color: 'var(--primary)' }}></i>
+                ประวัติการใช้งานระบบ (Audit Logs)
+              </h2>
+              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
+                ติดตามความเคลื่อนไหว กิจกรรมการเพิ่ม แก้ไข และลบเป้าหมายยอดขายรวม ยอดขายช่องทาง แคมเปญ สินค้า และใบสั่งซื้อ PO
+              </p>
+            </div>
+            <button className="btn" onClick={fetchAuditLogs}>
+              <i className="fa-solid fa-arrows-rotate"></i> รีเฟรชประวัติ
+            </button>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table className="audit-logs-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
+                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>วัน-เวลา</th>
+                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>ผู้ดำเนินการ</th>
+                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>กิจกรรม</th>
+                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>รายละเอียด</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditLogs.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      <i className="fa-solid fa-circle-info" style={{ fontSize: '24px', display: 'block', marginBottom: '8px' }}></i>
+                      ไม่มีประวัติการใช้งาน หรือยังไม่ได้สร้างตารางประวัติในฐานข้อมูล
+                    </td>
+                  </tr>
+                ) : (
+                  auditLogs.map((log) => (
+                    <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px 8px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                        {new Date(log.created_at).toLocaleString('th-TH')}
+                      </td>
+                      <td style={{ padding: '12px 8px', fontWeight: '600', color: 'var(--text-main)' }}>
+                        {log.user_email}
+                      </td>
+                      <td style={{ padding: '12px 8px' }}>
+                        <span className={`log-badge badge-${getLogBadgeClass(log.action)}`}>
+                          {log.action}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 8px', color: 'var(--text-main)' }}>
+                        {log.details}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* ALL MODAL DIALOGS */}
 
       {/* 1. Add/Edit Task Modal */}
@@ -2871,22 +3281,22 @@ export default function App() {
         <div className="modal-overlay">
           <form className="modal-dialog" onSubmit={saveTask}>
             <div className="modal-header">
-              <h2>{taskModalMode === 'add' ? 'เพิ่มแผนงานปฏิบัติการรายวัน' : 'แก้ไขแผนงานปฏิบัติการ'}</h2>
+              <h2>{taskModalMode === 'add' ? 'เพิ่มแผนงานปฏิบัติการรายวัน' : (userRole === 'admin' ? 'แก้ไขแผนงานปฏิบัติการ' : 'รายละเอียดแผนงานปฏิบัติการ')}</h2>
               <button type="button" className="modal-close-btn" onClick={() => setShowTaskModal(false)}>&times;</button>
             </div>
             
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">วันที่ปฏิบัติงาน</label>
-                <input type="date" className="form-input" required value={taskForm.date} onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })} />
+                <input type="date" className="form-input" required disabled={userRole !== 'admin'} value={taskForm.date} onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">หัวข้องานหลัก</label>
-                <input type="text" className="form-input" required placeholder="เช่น บรีฟงาน Graphic / แจ้งเตือนก่อนเปิดตัว" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
+                <input type="text" className="form-input" required disabled={userRole !== 'admin'} placeholder="เช่น บรีฟงาน Graphic / แจ้งเตือนก่อนเปิดตัว" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">รายละเอียดของงาน</label>
-                <textarea className="form-input" style={{ minHeight: '80px', resize: 'vertical' }} placeholder="ระบุเนื้อหารายละเอียดขั้นตอนทำงาน..." value={taskForm.detail} onChange={(e) => setTaskForm({ ...taskForm, detail: e.target.value })} />
+                <textarea className="form-input" style={{ minHeight: '80px', resize: 'vertical' }} disabled={userRole !== 'admin'} placeholder="ระบุเนื้อหารายละเอียดขั้นตอนทำงาน..." value={taskForm.detail} onChange={(e) => setTaskForm({ ...taskForm, detail: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">ผู้รับผิดชอบงาน</label>
@@ -2899,6 +3309,7 @@ export default function App() {
                   onAddOption={(newVal) => setStaffList(prev => [...prev, newVal])}
                   onDeleteOption={(val) => setStaffList(prev => prev.filter(v => v !== val))}
                   addPlaceholder="เพิ่มผู้รับผิดชอบใหม่..."
+                  disabled={userRole !== 'admin'}
                 />
               </div>
               <div className="form-group">
@@ -2912,19 +3323,20 @@ export default function App() {
                   onAddOption={(newVal) => setPromoChannels(prev => [...prev, newVal])}
                   onDeleteOption={(val) => setPromoChannels(prev => prev.filter(v => v !== val))}
                   addPlaceholder="เพิ่มช่องทางโปรโมตใหม่..."
+                  disabled={userRole !== 'admin'}
                 />
               </div>
               
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
                 <div className="form-group">
                   <label className="form-label">เชื่อมโยงแคมเปญ</label>
-                  <select className="form-input" value={taskForm.camp} onChange={(e) => setTaskForm({ ...taskForm, camp: e.target.value })}>
+                  <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.camp} onChange={(e) => setTaskForm({ ...taskForm, camp: e.target.value })}>
                     {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">สถานะการทำ</label>
-                  <select className="form-input" value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value })}>
+                  <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value })}>
                     <option value="todo">To-Do (รอทำงาน)</option>
                     <option value="inprogress">In Progress (กำลังทำ)</option>
                     <option value="review">Review (ตรวจสอบ)</option>
@@ -2933,7 +3345,7 @@ export default function App() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">ความสำคัญ (Priority)</label>
-                  <select className="form-input" value={taskForm.priority || 'medium'} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
+                  <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.priority || 'medium'} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
                     <option value="low">ต่ำ (Low)</option>
                     <option value="medium">ปานกลาง (Medium)</option>
                     <option value="high">สูง / วิกฤต (High)</option>
@@ -2950,6 +3362,7 @@ export default function App() {
                       <input
                         type="checkbox"
                         checked={item.completed}
+                        disabled={userRole !== 'admin'}
                         onChange={() => {
                           const updatedChecklist = taskForm.checklist.map(ch => 
                             ch.id === item.id ? { ...ch, completed: !ch.completed } : ch
@@ -2962,6 +3375,7 @@ export default function App() {
                         className="form-input"
                         style={{ flexGrow: 1, padding: '4px 6px', fontSize: '12px' }}
                         value={item.text}
+                        disabled={userRole !== 'admin'}
                         onChange={(e) => {
                           const updatedChecklist = taskForm.checklist.map(ch => 
                             ch.id === item.id ? { ...ch, text: e.target.value } : ch
@@ -2969,59 +3383,63 @@ export default function App() {
                           setTaskForm({ ...taskForm, checklist: updatedChecklist });
                         }}
                       />
+                      {userRole === 'admin' && (
                         <button
                           type="button"
                           className="btn btn-danger"
                           style={{ padding: '3px 6px', fontSize: '11px' }}
-                        onClick={() => {
-                          const updatedChecklist = taskForm.checklist.filter(ch => ch.id !== item.id);
-                          setTaskForm({ ...taskForm, checklist: updatedChecklist });
-                        }}
-                      >
-                        <i className="fa-solid fa-trash-can"></i>
-                      </button>
+                          onClick={() => {
+                            const updatedChecklist = taskForm.checklist.filter(ch => ch.id !== item.id);
+                            setTaskForm({ ...taskForm, checklist: updatedChecklist });
+                          }}
+                        >
+                          <i className="fa-solid fa-trash-can"></i>
+                        </button>
+                      )}
                     </div>
                   ))}
                   {(taskForm.checklist || []).length === 0 && (
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ไม่มีงานย่อยในขณะนี้</div>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <input
-                    type="text"
-                    id="new-modal-subtodo"
-                    placeholder="เพิ่มหัวข้องานย่อย..."
-                    className="form-input"
-                    style={{ flexGrow: 1, padding: '5px 10px', fontSize: '12px' }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        const val = e.target.value.trim();
+                {userRole === 'admin' && (
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      type="text"
+                      id="new-modal-subtodo"
+                      placeholder="เพิ่มหัวข้องานย่อย..."
+                      className="form-input"
+                      style={{ flexGrow: 1, padding: '5px 10px', fontSize: '12px' }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = e.target.value.trim();
+                          if (val) {
+                            const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: val, completed: false };
+                            setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
+                            e.target.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ padding: '5px 10px', fontSize: '11px' }}
+                      onClick={() => {
+                        const input = document.getElementById('new-modal-subtodo');
+                        const val = input.value.trim();
                         if (val) {
                           const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: val, completed: false };
                           setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
-                          e.target.value = '';
+                          input.value = '';
                         }
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="btn"
-                    style={{ padding: '5px 10px', fontSize: '11px' }}
-                    onClick={() => {
-                      const input = document.getElementById('new-modal-subtodo');
-                      const val = input.value.trim();
-                      if (val) {
-                        const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: val, completed: false };
-                        setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
-                        input.value = '';
-                      }
-                    }}
-                  >
-                    เพิ่ม
-                  </button>
-                </div>
+                      }}
+                    >
+                      เพิ่ม
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="modal-subsection">
@@ -3029,40 +3447,50 @@ export default function App() {
                 <div className="support-list">
                   {(taskForm.attachments || []).map(attachment => (
                     <div className="support-row" key={attachment.id}>
-                      <span>{attachment.label}</span>
-                      <button type="button" onClick={() => setTaskForm({ ...taskForm, attachments: taskForm.attachments.filter(item => item.id !== attachment.id) })}>
-                        <i className="fa-solid fa-xmark"></i>
-                      </button>
+                      {attachment.url ? (
+                        <a href={attachment.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontSize: '13px' }}>{attachment.label}</a>
+                      ) : (
+                        <span>{attachment.label}</span>
+                      )}
+                      {userRole === 'admin' && (
+                        <button type="button" onClick={() => setTaskForm({ ...taskForm, attachments: taskForm.attachments.filter(item => item.id !== attachment.id) })}>
+                          <i className="fa-solid fa-xmark"></i>
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '6px' }}>
-                  <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" style={{ padding: '6px 10px', fontSize: '12px' }} />
-                  <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" style={{ padding: '6px 10px', fontSize: '12px' }} />
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => {
-                      const labelInput = document.getElementById('new-modal-attachment-label');
-                      const urlInput = document.getElementById('new-modal-attachment-url');
-                      const label = labelInput.value.trim();
-                      const url = urlInput.value.trim();
-                      if (label || url) {
-                        setTaskForm({ ...taskForm, attachments: [...(taskForm.attachments || []), { id: 'attach-' + Date.now(), label: label || url, url }] });
-                        labelInput.value = '';
-                        urlInput.value = '';
-                      }
-                    }}
-                  >
-                    เพิ่ม
-                  </button>
-                </div>
+                {userRole === 'admin' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '6px' }}>
+                    <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" style={{ padding: '6px 10px', fontSize: '12px' }} />
+                    <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" style={{ padding: '6px 10px', fontSize: '12px' }} />
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => {
+                        const labelInput = document.getElementById('new-modal-attachment-label');
+                        const urlInput = document.getElementById('new-modal-attachment-url');
+                        const label = labelInput.value.trim();
+                        const url = urlInput.value.trim();
+                        if (label || url) {
+                          setTaskForm({ ...taskForm, attachments: [...(taskForm.attachments || []), { id: 'attach-' + Date.now(), label: label || url, url }] });
+                          labelInput.value = '';
+                          urlInput.value = '';
+                        }
+                      }}
+                    >
+                      เพิ่ม
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             
             <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowTaskModal(false)}>ยกเลิก</button>
-              <button type="submit" className="btn btn-primary">บันทึกข้อมูล</button>
+              <button type="button" className="btn" onClick={() => setShowTaskModal(false)}>{userRole === 'admin' ? 'ยกเลิก' : 'ปิด'}</button>
+              {userRole === 'admin' && (
+                <button type="submit" className="btn btn-primary">บันทึกข้อมูล</button>
+              )}
             </div>
           </form>
         </div>
@@ -3112,52 +3540,54 @@ export default function App() {
         <div className="modal-overlay">
           <form className="modal-dialog" onSubmit={saveProduct}>
             <div className="modal-header">
-              <h2>{isProductEditMode ? 'แก้ไขสินค้า / กลุ่มสินค้า' : 'เพิ่มกลุ่มสินค้าใหม่'}</h2>
+              <h2>{isProductEditMode ? (userRole === 'admin' ? 'แก้ไขสินค้า / กลุ่มสินค้า' : 'รายละเอียดสินค้า / กลุ่มสินค้า') : 'เพิ่มกลุ่มสินค้าใหม่'}</h2>
               <button type="button" className="modal-close-btn" onClick={() => setShowProductModal(false)}>&times;</button>
             </div>
             
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">ชื่อกลุ่มสินค้า</label>
-                <input type="text" className="form-input" required placeholder="เช่น สินค้าใหม่, ลายขายดี" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} />
+                <input type="text" className="form-input" required disabled={userRole !== 'admin'} placeholder="เช่น สินค้าใหม่, ลายขายดี" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">ราคาขายต่อหน่วย (บาท)</label>
-                <input type="number" className="form-input" required min="0" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} />
+                <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label">เป้าจำนวนขาย (ตัว)</label>
-                  <input type="number" className="form-input" required min="0" value={productForm.targetUnits} onChange={(e) => setProductForm({ ...productForm, targetUnits: Number(e.target.value) })} />
+                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.targetUnits} onChange={(e) => setProductForm({ ...productForm, targetUnits: Number(e.target.value) })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">จำนวนที่ขายจริงได้แล้ว (ตัว)</label>
-                  <input type="number" className="form-input" required min="0" value={productForm.actualUnits} onChange={(e) => setProductForm({ ...productForm, actualUnits: Number(e.target.value) })} />
+                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.actualUnits} onChange={(e) => setProductForm({ ...productForm, actualUnits: Number(e.target.value) })} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                 <div className="form-group">
                   <label className="form-label">สต็อกคงเหลือ</label>
-                  <input type="number" className="form-input" required min="0" value={productForm.stockOnHand || 0} onChange={(e) => setProductForm({ ...productForm, stockOnHand: Number(e.target.value) })} />
+                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.stockOnHand || 0} onChange={(e) => setProductForm({ ...productForm, stockOnHand: Number(e.target.value) })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">จอง/กันไว้</label>
-                  <input type="number" className="form-input" required min="0" value={productForm.reservedUnits || 0} onChange={(e) => setProductForm({ ...productForm, reservedUnits: Number(e.target.value) })} />
+                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.reservedUnits || 0} onChange={(e) => setProductForm({ ...productForm, reservedUnits: Number(e.target.value) })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">จุดเติมสต็อก</label>
-                  <input type="number" className="form-input" required min="0" value={productForm.reorderPoint || 0} onChange={(e) => setProductForm({ ...productForm, reorderPoint: Number(e.target.value) })} />
+                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.reorderPoint || 0} onChange={(e) => setProductForm({ ...productForm, reorderPoint: Number(e.target.value) })} />
                 </div>
               </div>
               <div className="form-group">
                 <label className="form-label">กลยุทธ์การขายสินค้า</label>
-                <input type="text" className="form-input" placeholder="เช่น เน้นขายส่ง Line, ทำโปรโมชั่นซื้อ 2 แถม 1" value={productForm.strategy} onChange={(e) => setProductForm({ ...productForm, strategy: e.target.value })} />
+                <input type="text" className="form-input" disabled={userRole !== 'admin'} placeholder="เช่น เน้นขายส่ง Line, ทำโปรโมชั่นซื้อ 2 แถม 1" value={productForm.strategy} onChange={(e) => setProductForm({ ...productForm, strategy: e.target.value })} />
               </div>
             </div>
             
             <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowProductModal(false)}>ยกเลิก</button>
-              <button type="submit" className="btn btn-primary">บันทึก</button>
+              <button type="button" className="btn" onClick={() => setShowProductModal(false)}>{userRole === 'admin' ? 'ยกเลิก' : 'ปิด'}</button>
+              {userRole === 'admin' && (
+                <button type="submit" className="btn btn-primary">บันทึก</button>
+              )}
             </div>
           </form>
         </div>

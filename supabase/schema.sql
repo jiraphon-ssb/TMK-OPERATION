@@ -203,3 +203,30 @@ alter table public.tmk_settings disable row level security;
 
 -- Phase 1: no complex roles yet. Keep access simple while the app has no login.
 -- Add RLS policies before exposing this project to untrusted users.
+
+-- New Audit Logs Table
+create table if not exists public.tmk_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_email text not null,
+  action text not null,
+  details text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.tmk_audit_logs replica identity full;
+
+-- Enable Realtime for Audit Logs
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'tmk_audit_logs'
+  ) then
+    alter publication supabase_realtime add table public.tmk_audit_logs;
+  end if;
+end $$;
+
+grant select, insert on public.tmk_audit_logs to anon, authenticated;
+alter table public.tmk_audit_logs disable row level security;
