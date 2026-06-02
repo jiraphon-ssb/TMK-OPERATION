@@ -738,6 +738,16 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateString());
   const [campFilter, setCampFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [calendarViewMode, setCalendarViewMode] = useState('month');
+  const getWeekStart = (date = new Date()) => {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    d.setDate(diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+  const [weekStart, setWeekStart] = useState(() => getWeekStart());
 
   // Modals & Forms States
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -1043,6 +1053,27 @@ export default function App() {
     } else {
       setCurrentMonth(prev => prev + 1);
     }
+  };
+
+  const goToPrevWeek = () => {
+    setWeekStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() - 7);
+      return d;
+    });
+  };
+
+  const goToNextWeek = () => {
+    setWeekStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + 7);
+      return d;
+    });
+  };
+
+  const goToTodayWeek = () => {
+    setWeekStart(getWeekStart());
+    setSelectedDate(getLocalDateString());
   };
 
   // Generate Month Grid
@@ -2524,102 +2555,209 @@ export default function App() {
       {activeTab === 'calendar' && (
         <div className="calendar-view-container card">
           
-          {/* Main Grid Calendar */}
-          <div>
-            
-            <div style={{ marginBottom: '10px' }}></div>
-
-            {/* Navigation Header */}
-            <div className="month-nav-header">
-              <span className="month-title">
-                {monthNames[currentMonth]} {currentYear}
-              </span>
+          {/* View Mode Toggle + Navigation */}
+          <div className="cal-view-header">
+            <div className="cal-view-toggle">
+              <button className={`btn btn-sm ${calendarViewMode === 'month' ? 'btn-primary' : ''}`} onClick={() => setCalendarViewMode('month')}>
+                <i className="fa-solid fa-calendar-days"></i> เดือน
+              </button>
+              <button className={`btn btn-sm ${calendarViewMode === 'week' ? 'btn-primary' : ''}`} onClick={() => setCalendarViewMode('week')}>
+                <i className="fa-solid fa-calendar-week"></i> สัปดาห์
+              </button>
+            </div>
+            {calendarViewMode === 'week' && (
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: '800', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
-                  <i className="fa-solid fa-list-check" style={{ marginRight: '4px', color: 'var(--primary)' }}></i>
-                  {tasks.filter(t => {
-                    const taskMonth = parseInt(t.date?.split('-')[1]) - 1;
-                    const taskYear = parseInt(t.date?.split('-')[0]);
-                    return taskMonth === currentMonth && taskYear === currentYear;
-                  }).length} งานในเดือนนี้ (ทั้งหมด {tasks.length} งาน)
-                </span>
-                <button className="btn" onClick={handlePrevMonth}>
-                  <i className="fa-solid fa-chevron-left"></i>
-                  <span className="btn-text-responsive"> ย้อนกลับ</span>
-                </button>
-                <button className="btn" onClick={handleNextMonth}>
-                  <span className="btn-text-responsive">ถัดไป </span>
-                  <i className="fa-solid fa-chevron-right"></i>
-                </button>
+                <button className="btn btn-sm" onClick={goToTodayWeek}><i className="fa-solid fa-circle-dot"></i> วันนี้</button>
+                <button className="btn btn-sm" onClick={goToPrevWeek}><i className="fa-solid fa-chevron-left"></i></button>
+                <button className="btn btn-sm" onClick={goToNextWeek}><i className="fa-solid fa-chevron-right"></i></button>
               </div>
-            </div>
-
-            {/* Day Headers */}
-            <div className="calendar-grid-scroll-wrapper">
-              <div className="calendar-grid">
-                {dayLabels.map(day => <div key={day} className="cal-day-header">{day}</div>)}
-                
-                {/* Empty placeholder cells */}
-                {Array.from({ length: firstDayIndex }).map((_, idx) => (
-                  <div key={`empty-${idx}`} className="cal-cell empty"></div>
-                ))}
-
-                {/* Day cells */}
-                {Array.from({ length: totalDays }).map((_, idx) => {
-                  const dayNum = idx + 1;
-                  const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                  const dayTasks = getFilteredTasks(dateStr);
-                  const isSelected = selectedDate === dateStr;
-
-                  // Check channels icons
-                  const channelsIcons = new Set();
-                  dayTasks.forEach(task => {
-                    const ch = (task.channel || '').toLowerCase();
-                    if (ch.includes('fb') || ch.includes('facebook')) channelsIcons.add(<i key="fb" className="fa-brands fa-facebook" style={{ color: '#1877F2' }}></i>);
-                    if (ch.includes('line')) channelsIcons.add(<i key="line" className="fa-brands fa-line" style={{ color: '#00B900' }}></i>);
-                    if (ch.includes('tiktok')) channelsIcons.add(<i key="tt" className="fa-brands fa-tiktok"></i>);
-                  });
-
-                  return (
-                    <div key={dateStr} className={`cal-cell ${isSelected ? 'active-selected' : ''}`} onClick={() => setSelectedDate(dateStr)}>
-                      <div className="cal-cell-top">
-                        <span className="cal-day-num">{dayNum}</span>
-                        <div className="cal-channels-icons">{Array.from(channelsIcons)}</div>
-                      </div>
-                      
-                      <div className="cal-events-list">
-                        {(() => {
-                          const maxVisibleTasks = windowWidth < 480 ? 2 : (windowWidth < 1024 ? 3 : 5);
-                          const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
-                          const remainingTasks = dayTasks.length - maxVisibleTasks;
-                          return (
-                            <>
-                              {visibleTasks.map(task => {
-                                const camp = campaigns.find(c => c.id === task.camp);
-                                const campFallback = { color: '#64748b', name: 'ไม่มีแคมเปญ' };
-                                const campDisp = camp || campFallback;
-                                return (
-                                  <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${campDisp.color}` }}
-                                    onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
-                                    <div className="cal-task-card-title">{task.title}</div>
-                                  </div>
-                                );
-                              })}
-                              {remainingTasks > 0 && (
-                                <div className="cal-more-indicator">
-                                  + อีก {remainingTasks} งาน
-                                </div>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            )}
           </div>
+
+          {/* Month View */}
+          {calendarViewMode === 'month' && (
+            <>
+              <div>
+                <div style={{ marginBottom: '10px' }}></div>
+
+                <div className="month-nav-header">
+                  <span className="month-title">
+                    {monthNames[currentMonth]} {currentYear}
+                  </span>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: '800', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
+                      <i className="fa-solid fa-list-check" style={{ marginRight: '4px', color: 'var(--primary)' }}></i>
+                      {tasks.filter(t => {
+                        const taskMonth = parseInt(t.date?.split('-')[1]) - 1;
+                        const taskYear = parseInt(t.date?.split('-')[0]);
+                        return taskMonth === currentMonth && taskYear === currentYear;
+                      }).length} งานในเดือนนี้ (ทั้งหมด {tasks.length} งาน)
+                    </span>
+                    <button className="btn" onClick={handlePrevMonth}>
+                      <i className="fa-solid fa-chevron-left"></i>
+                      <span className="btn-text-responsive"> ย้อนกลับ</span>
+                    </button>
+                    <button className="btn" onClick={handleNextMonth}>
+                      <span className="btn-text-responsive">ถัดไป </span>
+                      <i className="fa-solid fa-chevron-right"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="calendar-grid-scroll-wrapper">
+                  <div className="calendar-grid">
+                    {dayLabels.map(day => <div key={day} className="cal-day-header">{day}</div>)}
+                    
+                    {Array.from({ length: firstDayIndex }).map((_, idx) => (
+                      <div key={`empty-${idx}`} className="cal-cell empty"></div>
+                    ))}
+
+                    {Array.from({ length: totalDays }).map((_, idx) => {
+                      const dayNum = idx + 1;
+                      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                      const dayTasks = getFilteredTasks(dateStr);
+                      const isSelected = selectedDate === dateStr;
+
+                      const channelsIcons = new Set();
+                      dayTasks.forEach(task => {
+                        const ch = (task.channel || '').toLowerCase();
+                        if (ch.includes('fb') || ch.includes('facebook')) channelsIcons.add(<i key="fb" className="fa-brands fa-facebook" style={{ color: '#1877F2' }}></i>);
+                        if (ch.includes('line')) channelsIcons.add(<i key="line" className="fa-brands fa-line" style={{ color: '#00B900' }}></i>);
+                        if (ch.includes('tiktok')) channelsIcons.add(<i key="tt" className="fa-brands fa-tiktok"></i>);
+                      });
+
+                      return (
+                        <div key={dateStr} className={`cal-cell ${isSelected ? 'active-selected' : ''}`} onClick={() => setSelectedDate(dateStr)}>
+                          <div className="cal-cell-top">
+                            <span className="cal-day-num">{dayNum}</span>
+                            <div className="cal-channels-icons">{Array.from(channelsIcons)}</div>
+                          </div>
+                          
+                          <div className="cal-events-list">
+                            {(() => {
+                              const maxVisibleTasks = windowWidth < 480 ? 2 : (windowWidth < 1024 ? 3 : 5);
+                              const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
+                              const remainingTasks = dayTasks.length - maxVisibleTasks;
+                              return (
+                                <>
+                                  {visibleTasks.map(task => {
+                                    const camp = campaigns.find(c => c.id === task.camp);
+                                    const campFallback = { color: '#64748b', name: 'ไม่มีแคมเปญ' };
+                                    const campDisp = camp || campFallback;
+                                    return (
+                                      <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${campDisp.color}` }}
+                                        onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
+                                        <div className="cal-task-card-title">{task.title}</div>
+                                      </div>
+                                    );
+                                  })}
+                                  {remainingTasks > 0 && (
+                                    <div className="cal-more-indicator">
+                                      + อีก {remainingTasks} งาน
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Week View */}
+          {calendarViewMode === 'week' && (
+            <div className="week-view-wrapper">
+              <div className="week-view-container-inner">
+                {/* Week header with date range */}
+                <div className="week-range-header">
+                  {(() => {
+                    const start = new Date(weekStart);
+                    const end = new Date(weekStart);
+                    end.setDate(end.getDate() + 6);
+                    const sm = monthNames[start.getMonth()];
+                    const em = monthNames[end.getMonth()];
+                    const sy = start.getFullYear();
+                    const ey = end.getFullYear();
+                    if (sm === em && sy === ey) return `${start.getDate()} – ${end.getDate()} ${sm} ${sy}`;
+                    if (sy === ey) return `${start.getDate()} ${sm} – ${end.getDate()} ${em} ${ey}`;
+                    return `${start.getDate()} ${sm} ${sy} – ${end.getDate()} ${em} ${ey}`;
+                  })()}
+                </div>
+                <div className="week-grid-scroll">
+                  <div className="week-grid">
+                    {/* Corner cell */}
+                    <div className="week-corner"></div>
+                    {/* Day column headers */}
+                    {Array.from({ length: 7 }).map((_, i) => {
+                      const d = new Date(weekStart);
+                      d.setDate(d.getDate() + i);
+                      const dateStr = getLocalDateString(d);
+                      const dayName = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'][i];
+                      const isToday = getLocalDateString() === dateStr;
+                      const isSelected = selectedDate === dateStr;
+                      return (
+                        <div key={i} className={`week-day-header ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`} onClick={() => setSelectedDate(dateStr)}>
+                          <span className="week-day-name">{dayName}</span>
+                          <span className="week-day-num">{d.getDate()}</span>
+                        </div>
+                      );
+                    })}
+                    {/* All-day events row */}
+                    <div className="week-time-slot all-day-row">
+                      <span className="week-time-label">ทุกวัน</span>
+                    </div>
+                    {Array.from({ length: 7 }).map((_, dayIdx) => {
+                      const d = new Date(weekStart);
+                      d.setDate(d.getDate() + dayIdx);
+                      const dateStr = getLocalDateString(d);
+                      const dayTasks = getFilteredTasks(dateStr);
+                      const isToday = getLocalDateString() === dateStr;
+                      return (
+                        <div key={dayIdx} className={`week-cell all-day-cell ${isToday ? 'today' : ''}`} onClick={() => setSelectedDate(dateStr)}>
+                          {dayTasks.map(task => {
+                            const taskCamp = campaigns.find(c => c.id === task.camp) || { color: '#64748b', name: 'ไม่มีแคมเปญ' };
+                            return (
+                              <div key={task.id} className="week-task-block" style={{ borderLeft: `3px solid ${taskCamp.color}` }}
+                                onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
+                                <div className="week-task-title">{task.title}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                    {/* Time grid rows */}
+                    {Array.from({ length: 10 }).map((_, hourIdx) => {
+                      const hour = hourIdx + 7;
+                      const label = hour > 12 ? `${hour - 12} PM` : hour === 12 ? '12 PM' : `${hour} AM`;
+                      return (
+                        <React.Fragment key={hourIdx}>
+                          <div className="week-time-slot">
+                            <span className="week-time-label">{label}</span>
+                          </div>
+                          {Array.from({ length: 7 }).map((_, dayIdx) => {
+                            const d = new Date(weekStart);
+                            d.setDate(d.getDate() + dayIdx);
+                            const dateStr = getLocalDateString(d);
+                            const isToday = getLocalDateString() === dateStr;
+                            return (
+                              <div key={dayIdx} className={`week-cell ${isToday ? 'today' : ''}`} onClick={() => setSelectedDate(dateStr)}>
+                              </div>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Side Drawer Daily Detail panel */}
           <aside className="details-panel">
