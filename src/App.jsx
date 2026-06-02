@@ -2574,6 +2574,88 @@ export default function App() {
             )}
           </div>
 
+          {/* Side Drawer Daily Detail panel */}
+          <aside className="details-panel">
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fa-solid fa-clipboard-list" style={{ color: 'var(--kpi-blue)' }}></i>
+              รายละเอียดงานรายวัน
+            </h3>
+            
+            <div className="date-selected-badge">
+              {(() => {
+                const parts = selectedDate.split('-');
+                if (parts.length < 3) return 'กรุณาเลือกวันที่';
+                const d = parseInt(parts[2]);
+                const m = monthNames[parseInt(parts[1]) - 1];
+                return `${d} ${m} ${parts[0]}`;
+              })()}
+            </div>
+
+            <div className="tasks-container">
+              {getFilteredTasks(selectedDate).length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 10px', fontSize: '15px' }}>
+                  ไม่มีกำหนดการแคมเปญในวันนี้
+                </div>
+              ) : (
+                getFilteredTasks(selectedDate).map(task => {
+                  const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
+                  const campStyle = getCampaignStyle(campObj, theme);
+                  const { day, month, year } = getTimelineDateParts(task.date);
+                  const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
+                  const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
+                  const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const displayAvatars = responsibleList.slice(0, 2);
+                  const extraCount = Math.max(0, responsibleList.length - 2);
+                  
+                  return (
+                    <div key={task.id} className="timeline-task-card-modern" style={{ marginBottom: '8px' }}>
+                      <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
+                      <div className="timeline-card-body" onClick={() => openEditTask(task)}>
+                        <div className="timeline-card-header">
+                          <span className="timeline-card-date">{displayDate}</span>
+                          <div className="timeline-card-avatars">
+                            {displayAvatars.map((name, i) => (
+                              <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
+                                {name.charAt(0)}
+                              </div>
+                            ))}
+                            {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
+                          </div>
+                        </div>
+                        <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
+                        {task.detail && <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
+                        <div className="timeline-card-footer">
+                          <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                            {campObj.name.split(':')[0]}
+                          </span>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
+                              <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดู'}
+                            </button>
+                            {userRole === 'admin' && (
+                              <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {userRole === 'admin' && (
+              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openAddTask(selectedDate)}>
+                <i className="fa-solid fa-plus"></i> เพิ่มงานในวันนี้
+              </button>
+            )}
+          </aside>
+
+          {/* Main Calendar Area */}
+          <div className="cal-main-area">
+
           {/* Month View */}
           {calendarViewMode === 'month' && (
             <>
@@ -2759,84 +2841,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Side Drawer Daily Detail panel */}
-          <aside className="details-panel">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fa-solid fa-clipboard-list" style={{ color: 'var(--kpi-blue)' }}></i>
-              รายละเอียดงานรายวัน
-            </h3>
-            
-            <div className="date-selected-badge">
-              {(() => {
-                const parts = selectedDate.split('-');
-                if (parts.length < 3) return 'กรุณาเลือกวันที่';
-                const d = parseInt(parts[2]);
-                const m = monthNames[parseInt(parts[1]) - 1];
-                return `${d} ${m} ${parts[0]}`;
-              })()}
-            </div>
-
-            <div className="tasks-container">
-              {getFilteredTasks(selectedDate).length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 10px', fontSize: '15px' }}>
-                  ไม่มีกำหนดการแคมเปญในวันนี้
-                </div>
-              ) : (
-                getFilteredTasks(selectedDate).map(task => {
-                  const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
-                  const campStyle = getCampaignStyle(campObj, theme);
-                  const { day, month, year } = getTimelineDateParts(task.date);
-                  const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
-                  const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
-                  const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
-                  const displayAvatars = responsibleList.slice(0, 2);
-                  const extraCount = Math.max(0, responsibleList.length - 2);
-                  
-                  return (
-                    <div key={task.id} className="timeline-task-card-modern" style={{ marginBottom: '8px' }}>
-                      <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
-                      <div className="timeline-card-body" onClick={() => openEditTask(task)}>
-                        <div className="timeline-card-header">
-                          <span className="timeline-card-date">{displayDate}</span>
-                          <div className="timeline-card-avatars">
-                            {displayAvatars.map((name, i) => (
-                              <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
-                                {name.charAt(0)}
-                              </div>
-                            ))}
-                            {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
-                          </div>
-                        </div>
-                        <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                        {task.detail && <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
-                        <div className="timeline-card-footer">
-                          <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                            {campObj.name.split(':')[0]}
-                          </span>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
-                              <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดู'}
-                            </button>
-                            {userRole === 'admin' && (
-                              <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
-                                <i className="fa-solid fa-trash"></i>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {userRole === 'admin' && (
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openAddTask(selectedDate)}>
-                <i className="fa-solid fa-plus"></i> เพิ่มงานในวันนี้
-              </button>
-            )}
-          </aside>
+            </div>{/* end cal-main-area */}
 
         </div>
       )}

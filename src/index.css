@@ -836,9 +836,13 @@ body {
 /* Calendar Container */
 .calendar-view-container {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 340px 1fr;
   gap: 20px;
   align-items: start;
+}
+
+.cal-main-area {
+  min-width: 0;
 }
 
 .month-nav-header {
@@ -875,16 +879,16 @@ body {
 }
 
 .cal-cell {
-  aspect-ratio: 1.1;
-  min-height: 96px;
+  min-height: 110px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px;
+  border-radius: 10px;
+  padding: 10px;
   background-color: var(--surface);
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  transition: box-shadow 0.15s, border-color 0.15s;
 }
 
 .cal-cell:not(.empty):hover {
@@ -911,10 +915,11 @@ body {
   justify-content: space-between;
   align-items: center;
   width: 100%;
+  margin-bottom: 6px;
 }
 
 .cal-day-num {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 900;
 }
 
@@ -928,9 +933,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 6px;
   overflow: hidden;
   width: 100%;
+  flex: 1;
 }
 
 .cal-event-pill {
@@ -961,9 +966,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
   gap: 8px;
   flex-wrap: wrap;
+  grid-column: 1 / -1;
 }
 .cal-view-toggle {
   display: flex;
@@ -1925,6 +1930,10 @@ body {
     gap: 16px;
   }
 
+  .cal-view-header {
+    grid-column: 1;
+  }
+
   .kanban-grid {
     grid-template-columns: repeat(4, minmax(260px, 1fr));
   }
@@ -1935,9 +1944,8 @@ body {
   }
 
   .cal-cell {
-    aspect-ratio: auto;
     min-height: 80px;
-    padding: 6px;
+    padding: 8px;
   }
   
   .app-header {
@@ -1990,9 +1998,8 @@ body {
   }
 
   .cal-cell {
-    aspect-ratio: auto;
     min-height: 60px;
-    padding: 4px;
+    padding: 6px;
     border-radius: 8px;
   }
 
