@@ -985,28 +985,6 @@ body {
   white-space: nowrap;
 }
 
-.cal-task-card-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--text-muted);
-  font-weight: 700;
-}
-
-.cal-task-card-camp {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex-shrink: 1;
-  min-width: 0;
-}
-
-.cal-task-card-responsible {
-  flex-shrink: 0;
-}
-
 .btn-text-responsive {
   display: inline;
 }

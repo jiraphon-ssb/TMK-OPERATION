@@ -2602,10 +2602,6 @@ export default function App() {
                                   <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${campDisp.color}` }}
                                     onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
                                     <div className="cal-task-card-title">{task.title}</div>
-                                    <div className="cal-task-card-meta">
-                                      <span className="cal-task-card-camp">{campDisp.name.split(':')[0]}</span>
-                                      {task.responsible && <span className="cal-task-card-responsible">{task.responsible.split(',').map(s => s.trim()).filter(Boolean).length > 0 ? '👤 ' + task.responsible.split(',')[0].trim() : ''}</span>}
-                                    </div>
                                   </div>
                                 );
                               })}
