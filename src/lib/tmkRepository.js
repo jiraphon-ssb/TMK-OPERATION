@@ -109,7 +109,7 @@ const replaceTable = async (table, rows) => {
     const { data: deletedRows, error: deleteError } = await supabase
       .from(table)
       .delete()
-      .neq('id', '')
+      .not('id', 'is', null)
       .select('id');
     if (deleteError) throw deleteError;
     if (deletedRows && deletedRows.length > 0) {
@@ -252,8 +252,11 @@ export const tmkRepository = {
 
   async saveTasks(tasks) {
     if (!isSupabaseConfigured) return;
-    await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
+    // 1. Save/delete children first (checklist, comments, attachments)
+    //    This avoids FK constraint errors when removing parent tasks.
     await replaceTaskChildren(tasks);
+    // 2. Then replace the tasks table (upsert remaining + delete removed)
+    await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
   },
 
   async savePurchaseOrders(poTracker) {
