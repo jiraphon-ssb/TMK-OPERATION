@@ -2712,7 +2712,15 @@ export default function App() {
               <span className="month-title">
                 {monthNames[currentMonth]} {currentYear}
               </span>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
+                  <i className="fa-solid fa-list-check" style={{ marginRight: '4px', color: 'var(--primary)' }}></i>
+                  {tasks.filter(t => {
+                    const taskMonth = parseInt(t.date?.split('-')[1]) - 1;
+                    const taskYear = parseInt(t.date?.split('-')[0]);
+                    return taskMonth === currentMonth && taskYear === currentYear;
+                  }).length} งานในเดือนนี้ (ทั้งหมด {tasks.length} งาน)
+                </span>
                 <button className="btn" onClick={handlePrevMonth}>
                   <i className="fa-solid fa-chevron-left"></i>
                   <span className="btn-text-responsive"> ย้อนกลับ</span>
@@ -2759,7 +2767,7 @@ export default function App() {
                       
                       <div className="cal-events-list">
                         {(() => {
-                          const maxVisibleTasks = windowWidth < 480 ? 1 : (windowWidth < 1024 ? 2 : 3);
+                          const maxVisibleTasks = windowWidth < 480 ? 2 : (windowWidth < 1024 ? 3 : 5);
                           const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
                           const remainingTasks = dayTasks.length - maxVisibleTasks;
                           return (
