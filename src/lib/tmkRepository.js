@@ -195,28 +195,6 @@ export const tmkRepository = {
     };
   },
 
-  async seedIfEmpty({ campaigns, channels, products, tasks, poTracker, totalTarget, totalUnitsTarget }) {
-    if (!isSupabaseConfigured) return;
-    const { count, error } = await supabase.from(TABLES.campaigns).select('id', { count: 'exact', head: true });
-    if (error) throw error;
-    if (count && count > 0) return;
-
-    await replaceTable(TABLES.campaigns, campaigns);
-    const dbChannels = channels.map(ch => ({
-      id: ch.id,
-      name: ch.name,
-      percentage: Number(ch.target || 0),
-      actual: Number(ch.actual || 0),
-      color: ch.color
-    }));
-    await replaceTable(TABLES.channels, dbChannels);
-    await replaceTable(TABLES.products, products.map(normalizeProduct).map(mapProductToDb));
-    await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
-    await replaceTaskChildren(tasks);
-    await replaceTable(TABLES.purchaseOrders, poTracker.map(mapPoToDb));
-    await this.saveSettings({ totalTarget, totalUnitsTarget });
-  },
-
   async saveCampaigns(campaigns) {
     if (!isSupabaseConfigured) return;
     await replaceTable(TABLES.campaigns, campaigns);

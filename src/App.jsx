@@ -2,59 +2,6 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { tmkRepository } from './lib/tmkRepository';
 import { supabase } from './lib/supabaseClient';
 
-// Initial seed data from original HTML (May - June 2026)
-const initialCampaigns = [
-  { id: 'c1', name: 'Campaign 1: เตรียมการ & เปิดตัว "ลายใหม่ (1)"', color: '#0284c7', bg: '#f0f9ff', border: '#bae6fd' },
-  { id: 'c2', name: 'Campaign 2: Mid-Month เสื้อดำ & ระบายสต็อก', color: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe' },
-  { id: 'c3', name: 'Campaign 3: ลายใหม่ (2) & เก็บยอด Payday', color: '#ea580c', bg: '#fff7ed', border: '#ffedd5' }
-];
-
-const initialChannels = [
-  { id: 'ch1', name: 'Sales (Direct)', target: 440000, actual: 440000, color: '#5b9bd5' },
-  { id: 'ch2', name: 'Shopee & Lazada', target: 250000, actual: 250000, color: '#ed7d31' },
-  { id: 'ch3', name: 'TikTok', target: 250000, actual: 250000, color: '#4f4f4f' },
-  { id: 'ch4', name: 'CRM', target: 60000, actual: 60000, color: '#ffc000' }
-];
-
-const initialProducts = [
-  { id: 'p1', name: 'สินค้าใหม่', price: 279, targetUnits: 2400, actualUnits: 2400, stockOnHand: 620, reservedUnits: 160, reorderPoint: 250, strategy: 'เน้นขายกลุ่มลูกค้าเก่า' },
-  { id: 'p2', name: 'ลายขายดี', price: 259, targetUnits: 600, actualUnits: 600, stockOnHand: 210, reservedUnits: 40, reorderPoint: 120, strategy: '-' },
-  { id: 'p3', name: 'สินค้าระบายสต็อก', price: 99, targetUnits: 820, actualUnits: 820, stockOnHand: 430, reservedUnits: 20, reorderPoint: 80, strategy: 'จัดโปรโมชั่นต่างๆ' },
-  { id: 'p4', name: 'สินค้าเสื้อดำ', price: 159, targetUnits: 600, actualUnits: 600, stockOnHand: 95, reservedUnits: 18, reorderPoint: 100, strategy: 'เสนอขายเมื่อสนใจโปรแลกซื้อ 99 บาท' }
-];
-
-const initialTasks = [
-  { id: 't1', date: '2026-05-18', camp: 'c1', title: 'บรีฟงาน Graphic', detail: 'ออกแบบลายใหม่ (1)', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't2', date: '2026-05-19', camp: 'c1', title: 'บรีฟงาน Graphic', detail: 'ออกแบบลายใหม่ (1)', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't3', date: '2026-05-20', camp: 'c1', title: 'บรีฟงาน Graphic', detail: 'ออกแบบลายใหม่ (1)', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't4', date: '2026-05-22', camp: 'c1', title: 'กราฟิกส่งงาน', detail: 'ส่งแบบลายใหม่ (1)', responsible: 'Graphic', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't5', date: '2026-05-23', camp: 'c1', title: 'ขึ้นตัวอย่าง เทสสี', detail: 'ส่งเทสลายพิมพ์และเนื้อผ้า', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't6', date: '2026-05-26', camp: 'c1', title: 'ได้รับตัวอย่าง พร้อมเปิด PO ลายใหม่ (1)', detail: 'เช็กความเรียบร้อยและเปิด PO 500 ตัว', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't7', date: '2026-05-30', camp: 'c1', title: 'เทรนเซล (Admin)', detail: 'เตรียมข้อมูลสำหรับการขาย ลายใหม่ (1)', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't8', date: '2026-05-31', camp: 'c1', title: 'Teaser ลายใหม่ (1)', detail: 'ภาพโปรโมต Teaser', responsible: 'MKT', channel: 'Line Broadcast', status: 'done' },
-  { id: 't9', date: '2026-06-01', camp: 'c3', title: 'บรีฟงาน Graphic', detail: 'ออกแบบลายใหม่ (2)', responsible: 'มัง', channel: 'หลังบ้าน', status: 'done' },
-  { id: 't10', date: '2026-06-02', camp: 'c1', title: 'แจ้งเตือนก่อนเปิดตัว ลายใหม่ (1)', detail: 'แจ้งเตือนก่อนเปิดพรีออเดอร์', responsible: 'MKT', channel: 'Line Broadcast', status: 'todo' },
-  { id: 't11', date: '2026-06-03', camp: 'c1', title: '🚀 เปิดตัวลายใหม่ (1) อย่างเป็นทางการ', detail: 'พร้อม Pre-Order', responsible: 'มัง, MKT', channel: 'ทุกแพลตฟอร์ม + BC (Line OA/FB)', status: 'todo' },
-  { id: 't12', date: '2026-06-04', camp: 'c3', title: 'กราฟิกอัปเดตงาน', detail: 'อัปเดตลายใหม่ (2)', responsible: 'Graphic', channel: 'หลังบ้าน', status: 'todo' },
-  { id: 't13', date: '2026-06-05', camp: 'c3', title: 'กราฟิกส่งงาน', detail: 'สรุปแบบลายใหม่ (2)', responsible: 'Graphic', channel: 'หลังบ้าน', status: 'todo' },
-  { id: 't14', date: '2026-06-06', camp: 'c3', title: 'กราฟิกส่งงาน', detail: 'AW โหวตลายเสื้อ', responsible: 'Graphic', channel: 'หลังบ้าน', status: 'todo' },
-  { id: 't15', date: '2026-06-08', camp: 'c1', title: 'พร้อมส่ง ลายใหม่ (1)', detail: 'อัปเดตสินค้าพร้อมส่ง', responsible: 'มัง, MKT', channel: 'ทุกแพลตฟอร์ม + BC (Line OA/FB)', status: 'todo' },
-  { id: 't16', date: '2026-06-09', camp: 'c3', title: 'โหวตลายใหม่ (2)', detail: 'กิจกรรมเปิดให้โหวตลายดีไซน์ใหม่ล่าสุด', responsible: 'มัง, MKT', channel: 'ทุกแพลตฟอร์ม', status: 'todo' },
-  { id: 't17', date: '2026-06-10', camp: 'c3', title: 'ขึ้นตัวอย่าง', detail: 'ขึ้นตัวอย่างลายใหม่ (2)', responsible: 'มัง', channel: 'หลังบ้าน', status: 'todo' },
-  { id: 't18', date: '2026-06-12', camp: 'c3', title: 'ได้รับตัวอย่าง', detail: 'ตัวอย่างลายใหม่ (2) เช็กความเรียบร้อย และเปิด PO 500 ตัว', responsible: 'มัง', channel: 'หลังบ้าน', status: 'todo' },
-  { id: 't19', date: '2026-06-13', camp: 'c2', title: 'เทรนเซล (Admin)', detail: 'เตรียมข้อมูลเสื้อสีดำ', responsible: 'มัง', channel: 'หลังบ้าน', status: 'todo' },
-  { id: 't20', date: '2026-06-15', camp: 'c2', title: 'โปรโล๊ะสต็อก & เริ่มรันดันเสื้อสีดำ', detail: 'โปรโล๊ะสต็อก ซื้อ 2 แถม 1 ราคา 299.- และ เสื้อสีดำ ราคา 159.-', responsible: 'มัง, MKT', channel: 'Line/FB Broadcast, MKP (Flash Sale 24 h)', status: 'todo' },
-  { id: 't21', date: '2026-06-18', camp: 'c3', title: 'เทรนเซล & Teaser ลายใหม่ (2)', detail: 'เตรียมข้อมูลสำหรับการขาย ลายใหม่ (2)', responsible: 'มัง, MKT', channel: 'Line Broadcast', status: 'todo' },
-  { id: 't22', date: '2026-06-21', camp: 'c3', title: 'แจ้งเตือนก่อนเปิดตัว ลายใหม่ (2)', detail: 'แจ้งเตือนการสั่งสินค้า', responsible: 'MKT', channel: 'Line Broadcast', status: 'todo' },
-  { id: 't23', date: '2026-06-22', camp: 'c3', title: 'พร้อมส่ง ลายใหม่ (2)', detail: 'อัปเดตสินค้าพร้อมส่ง', responsible: 'มัง, MKT', channel: 'ทุกแพลตฟอร์ม + BC (Line OA/FB)', status: 'todo' },
-  { id: 't24', date: '2026-06-26', camp: 'c3', title: 'กระตุ้นใกล้หมด ลายใหม่(2)', detail: 'โปรโมทกระตุ้นยอดขายใกล้หมดลายใหม่', responsible: 'มัง, MKT', channel: 'Line/FB Broadcast', status: 'todo' }
-];
-
-const initialPOs = [
-  { id: 'po-1', product: 'ลายใหม่ (1)', quantity: 500, orderDate: '2026-05-26', arrivalDate: '2026-06-08', status: 'Pending' },
-  { id: 'po-2', product: 'ลายใหม่ (2)', quantity: 500, orderDate: '2026-06-12', arrivalDate: '2026-06-22', status: 'Pending' }
-];
-
 const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 const dayLabels = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
 
@@ -101,22 +48,6 @@ const getCampaignStyle = (camp, currentTheme) => {
     };
   }
 };
-
-const safeReadJson = (key, fallback) => {
-  try {
-    const value = localStorage.getItem(key);
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const normalizeStoredProducts = (products) => products.map(product => ({
-  ...product,
-  stockOnHand: Number(product.stockOnHand || 0),
-  reservedUnits: Number(product.reservedUnits || 0),
-  reorderPoint: Number(product.reorderPoint || 0)
-}));
 
 function SearchableMultiSelect({
   placeholder,
@@ -327,6 +258,8 @@ export default function App() {
   const userRole = user && ADMIN_EMAILS.includes(user.email) ? 'admin' : 'viewer';
 
   const [auditLogs, setAuditLogs] = useState([]);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditFilter, setAuditFilter] = useState('all');
   const [showOnlyMyTasks, setShowOnlyMyTasks] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -367,7 +300,91 @@ export default function App() {
     return 'default';
   };
 
-  // Notification generator for tasks assigned to user due within 48h
+  const getAuditType = (action = '') => {
+    if (action.includes('สร้าง') || action.includes('กู้คืน')) return 'create';
+    if (action.includes('แก้ไข') || action.includes('บันทึก') || action.includes('ย้ายสถานะ') || action.includes('รับสินค้า')) return 'update';
+    if (action.includes('ลบ') || action.includes('ถังขยะ')) return 'delete';
+    return 'system';
+  };
+
+  const parseAuditDetails = (details) => {
+    if (!details) return { summary: '-' };
+    if (typeof details === 'object') return details;
+    try {
+      const parsed = JSON.parse(details);
+      return parsed && typeof parsed === 'object' ? parsed : { summary: String(details) };
+    } catch {
+      return { summary: String(details) };
+    }
+  };
+
+  const formatAuditValue = (value) => {
+    if (value === null || value === undefined || value === '') return '-';
+    if (Array.isArray(value)) return `${value.length} รายการ`;
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  };
+
+  const getObjectChanges = (before = {}, after = {}) => {
+    const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
+    return keys
+      .filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
+      .map(key => ({
+        field: key,
+        before: formatAuditValue(before?.[key]),
+        after: formatAuditValue(after?.[key])
+      }));
+  };
+
+  const buildAuditDetails = ({ entityType, entityName, summary, before, after, extra = {} }) => ({
+    entityType,
+    entityName,
+    summary,
+    changes: before || after ? getObjectChanges(before, after) : [],
+    ...extra
+  });
+
+  const getEntityLabel = (type) => ({
+    task: 'งาน',
+    channel: 'ช่องทางขาย',
+    product: 'สินค้า',
+    campaign: 'แคมเปญ',
+    po: 'PO',
+    checklist: 'เช็คลิสต์',
+    trash: 'ถังขยะ',
+    target: 'เป้าหมาย'
+  }[type] || type || 'ระบบ');
+
+  const renderAuditDetails = (log) => {
+    const detail = parseAuditDetails(log.details);
+    const changes = detail.changes || [];
+    return (
+      <div className="audit-detail-stack">
+        <div className="audit-detail-summary">{detail.summary || log.details || '-'}</div>
+        {(detail.entityType || detail.entityName) && (
+          <div className="audit-entity-line">
+            <span>{getEntityLabel(detail.entityType)}</span>
+            {detail.entityName && <strong>{detail.entityName}</strong>}
+          </div>
+        )}
+        {changes.length > 0 && (
+          <div className="audit-change-grid">
+            {changes.slice(0, 4).map(change => (
+              <div className="audit-change-row" key={change.field}>
+                <span className="audit-field">{change.field}</span>
+                <span className="audit-before">{change.before}</span>
+                <i className="fa-solid fa-arrow-right-long"></i>
+                <span className="audit-after">{change.after}</span>
+              </div>
+            ))}
+            {changes.length > 4 && <div className="audit-more">+{changes.length - 4} รายการที่เปลี่ยนเพิ่ม</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Notification generator for tasks assigned to user due within 7 days
   const getMyNotifications = () => {
     if (!user) return [];
     const userPrefix = user.email.split('@')[0].toLowerCase();
@@ -375,7 +392,7 @@ export default function App() {
     
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const twoDaysMillis = 2 * 24 * 60 * 60 * 1000;
+    const sevenDaysMillis = 7 * 24 * 60 * 60 * 1000;
 
     return tasks.filter(task => {
       const resp = (task.responsible || '').toLowerCase();
@@ -387,30 +404,43 @@ export default function App() {
       if (isNaN(taskTime)) return false;
 
       const diff = taskTime - todayStart;
-      return diff <= twoDaysMillis;
+      return diff <= sevenDaysMillis;
     }).map(task => {
       const taskTime = new Date(task.date).getTime();
       const diff = taskTime - todayStart;
-      let statusText = 'ใกล้กำหนดส่ง';
+      const daysUntilDue = Math.ceil(diff / (24 * 60 * 60 * 1000));
+      let statusText = `อีก ${daysUntilDue} วัน`;
+      let severity = 'upcoming';
       if (diff < 0) {
-        statusText = '🚨 ค้างส่ง (เลยกำหนด)';
+        statusText = `ค้างส่ง ${Math.abs(daysUntilDue)} วัน`;
+        severity = 'overdue';
       } else if (diff === 0) {
-        statusText = '🔥 ครบกำหนดวันนี้';
+        statusText = 'ครบกำหนดวันนี้';
+        severity = 'today';
+      } else if (daysUntilDue <= 2) {
+        statusText = `ใกล้ครบกำหนด อีก ${daysUntilDue} วัน`;
+        severity = 'soon';
       }
       return {
         id: task.id,
         title: task.title,
         date: task.date,
         statusText,
+        severity,
+        responsible: task.responsible || '-',
+        priority: task.priority || 'medium',
         task
       };
+    }).sort((a, b) => {
+      const severityRank = { overdue: 0, today: 1, soon: 2, upcoming: 3 };
+      return severityRank[a.severity] - severityRank[b.severity] || new Date(a.date) - new Date(b.date);
     });
   };
 
   // Realtime subscription for Audit Logs
   useEffect(() => {
     if (!supabase || !user) return;
-    fetchAuditLogs();
+    const fetchTimer = window.setTimeout(fetchAuditLogs, 0);
 
     const channel = supabase
       .channel('audit-logs-realtime')
@@ -424,6 +454,7 @@ export default function App() {
       .subscribe();
 
     return () => {
+      window.clearTimeout(fetchTimer);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -431,7 +462,8 @@ export default function App() {
   // Fetch audit logs on active tab changes
   useEffect(() => {
     if (activeTab === 'audit_logs') {
-      fetchAuditLogs();
+      const fetchTimer = window.setTimeout(fetchAuditLogs, 0);
+      return () => window.clearTimeout(fetchTimer);
     }
   }, [activeTab]);
 
@@ -540,64 +572,29 @@ export default function App() {
   const [timelinePriority, setTimelinePriority] = useState('all');
 
   // Main Data States
-  const [campaigns, setCampaigns] = useState(() => safeReadJson('tmk_campaigns', initialCampaigns));
-  const [channels, setChannels] = useState(() => {
-    const raw = safeReadJson('tmk_channels', initialChannels);
-    return raw.map(ch => {
-      let targetVal = ch.target;
-      let actualVal = ch.actual;
-      
-      if ((targetVal === undefined || targetVal <= 100) && actualVal > 100) {
-        targetVal = actualVal;
-        actualVal = 0;
-      }
-      
-      if ((targetVal === undefined || targetVal <= 100) && ch.percentage) {
-        targetVal = Math.round((ch.percentage / 100) * (Number(localStorage.getItem('tmk_total_target')) || 1000000));
-        actualVal = 0;
-      }
-      
-      return {
-        ...ch,
-        target: Number(targetVal || 0),
-        actual: Number(actualVal || 0)
-      };
-    });
-  });
-  const [products, setProducts] = useState(() => normalizeStoredProducts(safeReadJson('tmk_products', initialProducts)));
-  const [tasks, setTasks] = useState(() => safeReadJson('tmk_tasks', initialTasks));
-  const [poTracker, setPoTracker] = useState(() => safeReadJson('tmk_pos', initialPOs));
-  const [remoteReady, setRemoteReady] = useState(!tmkRepository.isConfigured);
-  const [remoteStatus, setRemoteStatus] = useState(tmkRepository.isConfigured ? 'กำลังเชื่อมต่อ Supabase...' : 'Local mode');
+  const [campaigns, setCampaigns] = useState([]);
+  const [channels, setChannels] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [poTracker, setPoTracker] = useState([]);
+  const [remoteReady, setRemoteReady] = useState(false);
+  const [remoteStatus, setRemoteStatus] = useState(tmkRepository.isConfigured ? 'กำลังเชื่อมต่อ Supabase...' : 'Supabase not configured');
   const [isRefreshingRemote, setIsRefreshingRemote] = useState(false);
 
   // Dynamic staff list state
-  const [staffList, setStaffList] = useState(() => {
-    const saved = localStorage.getItem('tmk_staff_list_v2');
-    return saved ? safeReadJson('tmk_staff_list_v2', []) : ['มัง', 'MKT', 'Graphic', 'Admin'];
-  });
+  const [staffList, setStaffList] = useState(['มัง', 'MKT', 'Graphic', 'Admin']);
 
   // Dynamic promo channels list state
-  const [promoChannels, setPromoChannels] = useState(() => {
-    const saved = localStorage.getItem('tmk_promo_channels');
-    return saved ? safeReadJson('tmk_promo_channels', []) : ['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม', 'Line/FB Broadcast', 'ทุกแพลตฟอร์ม + BC (Line OA/FB)'];
-  });
+  const [promoChannels, setPromoChannels] = useState(['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม', 'Line/FB Broadcast', 'ทุกแพลตฟอร์ม + BC (Line OA/FB)']);
 
   // Recycle Bin State
-  const [trashItems, setTrashItems] = useState(() => {
-    const saved = localStorage.getItem('tmk_recycle_bin');
-    return saved ? safeReadJson('tmk_recycle_bin', []) : [];
-  });
+  const [trashItems, setTrashItems] = useState([]);
   const [showTrashModal, setShowTrashModal] = useState(false);
-
-  useEffect(() => {
-    localStorage.setItem('tmk_recycle_bin', JSON.stringify(trashItems));
-  }, [trashItems]);
   
   
   // Dashboard & Target States
   const totalTarget = channels.reduce((sum, ch) => sum + (Number(ch.target) || 0), 0);
-  const [totalUnitsTarget, setTotalUnitsTarget] = useState(() => Number(localStorage.getItem('tmk_total_units')) || 3850);
+  const [totalUnitsTarget, setTotalUnitsTarget] = useState(0);
   const [isEditingTargets, setIsEditingTargets] = useState(false);
 
   // Calendar State
@@ -659,15 +656,7 @@ export default function App() {
       };
     }));
     setProducts(remoteData.products);
-    setTasks((remoteData.tasks || []).map(task => {
-      if (!task.camp || task.camp === 'null') {
-        const matchingInitial = initialTasks.find(it => it.id === task.id || (it.title === task.title && it.date === task.date));
-        if (matchingInitial) {
-          return { ...task, camp: matchingInitial.camp };
-        }
-      }
-      return task;
-    }));
+    setTasks(remoteData.tasks || []);
     setPoTracker(remoteData.poTracker);
     setTotalUnitsTarget(remoteData.totalUnitsTarget);
     window.setTimeout(() => {
@@ -676,49 +665,21 @@ export default function App() {
   }, []);
 
   const loadRemoteData = useCallback(async (statusLabel = 'Supabase connected') => {
-    if (!tmkRepository.isConfigured) return;
+    if (!tmkRepository.isConfigured) {
+      setRemoteStatus('Supabase not configured');
+      return false;
+    }
     try {
       const remoteData = await tmkRepository.loadAll();
-      if (!remoteData) return;
+      if (!remoteData) return false;
 
-      const isRemoteEmpty = (!remoteData.campaigns || remoteData.campaigns.length === 0) &&
-                            (!remoteData.tasks || remoteData.tasks.length === 0);
-
-      if (isRemoteEmpty) {
-        // Read local state from localStorage or initial mock data to seed DB
-        const localCampaigns = safeReadJson('tmk_campaigns', initialCampaigns);
-        const localChannels = safeReadJson('tmk_channels', initialChannels);
-        const localProducts = normalizeStoredProducts(safeReadJson('tmk_products', initialProducts));
-        const localTasks = safeReadJson('tmk_tasks', initialTasks);
-        const localPoTracker = safeReadJson('tmk_pos', initialPOs);
-        const localTotalTarget = Number(localStorage.getItem('tmk_total_target')) || initialChannels.reduce((sum, ch) => sum + (Number(ch.actual) || 0), 0);
-        const localTotalUnitsTarget = Number(localStorage.getItem('tmk_total_units')) || 3850;
-
-        console.log('Supabase is empty. Seeding with local backup data...');
-        setRemoteStatus('กำลังบันทึกข้อมูลเริ่มต้นไปยัง Supabase...');
-        await tmkRepository.seedIfEmpty({
-          campaigns: localCampaigns,
-          channels: localChannels,
-          products: localProducts,
-          tasks: localTasks,
-          poTracker: localPoTracker,
-          totalTarget: localTotalTarget,
-          totalUnitsTarget: localTotalUnitsTarget
-        });
-        
-        // After seeding, reload the seeded data
-        const reloadedData = await tmkRepository.loadAll();
-        if (reloadedData) {
-          applyRemoteData(reloadedData);
-        }
-        setRemoteStatus(statusLabel);
-      } else {
-        applyRemoteData(remoteData);
-        setRemoteStatus(statusLabel);
-      }
+      applyRemoteData(remoteData);
+      setRemoteStatus(statusLabel);
+      return true;
     } catch (error) {
       console.error('Failed to load/sync Supabase data:', error);
-      setRemoteStatus('Supabase error: ใช้ข้อมูลในเครื่องชั่วคราว');
+      setRemoteStatus('Supabase error: ไม่สามารถโหลดข้อมูลได้');
+      return false;
     }
   }, [applyRemoteData]);
 
@@ -727,8 +688,11 @@ export default function App() {
     const scrollY = window.scrollY;
     setIsRefreshingRemote(true);
     try {
-      await loadRemoteData('Supabase refreshed');
-      window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      const loaded = await loadRemoteData('Supabase refreshed');
+      if (loaded) {
+        setRemoteReady(true);
+        window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
+      }
     } catch (error) {
       console.error('Supabase manual refresh failed:', error);
       setRemoteStatus('Supabase refresh error');
@@ -743,11 +707,11 @@ export default function App() {
     const bootstrapRemoteData = async () => {
       if (!tmkRepository.isConfigured) return;
       try {
-        await loadRemoteData();
-        if (!cancelled) setRemoteReady(true);
+        const loaded = await loadRemoteData();
+        if (loaded && !cancelled) setRemoteReady(true);
       } catch (error) {
         console.error('Supabase load failed:', error);
-        setRemoteStatus('Supabase error: ใช้ข้อมูลในเครื่องชั่วคราว');
+        setRemoteStatus('Supabase error: ไม่สามารถโหลดข้อมูลได้');
       }
     };
 
@@ -760,7 +724,8 @@ export default function App() {
         return;
       }
       try {
-        await loadRemoteData('Supabase realtime synced');
+        const loaded = await loadRemoteData('Supabase realtime synced');
+        if (loaded) setRemoteReady(true);
       } catch (error) {
         console.error('Supabase realtime refresh failed:', error);
         setRemoteStatus('Supabase realtime error');
@@ -796,28 +761,20 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem('tmk_campaigns', JSON.stringify(campaigns));
     saveRemote('campaigns', () => tmkRepository.saveCampaigns(campaigns));
   }, [campaigns, saveRemote]);
 
   useEffect(() => {
-    localStorage.setItem('tmk_channels', JSON.stringify(channels));
     saveRemote('channels', () => tmkRepository.saveChannels(channels));
   }, [channels, saveRemote]);
 
   useEffect(() => {
-    localStorage.setItem('tmk_products', JSON.stringify(products));
     saveRemote('products', () => tmkRepository.saveProducts(products));
   }, [products, saveRemote]);
 
   useEffect(() => {
-    localStorage.setItem('tmk_tasks', JSON.stringify(tasks));
     saveRemote('tasks', () => tmkRepository.saveTasks(tasks));
   }, [tasks, saveRemote]);
-
-  useEffect(() => {
-    localStorage.setItem('tmk_staff_list_v2', JSON.stringify(staffList));
-  }, [staffList]);
 
   useEffect(() => {
     localStorage.setItem('tmk_active_tab', activeTab);
@@ -840,22 +797,12 @@ export default function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    localStorage.setItem('tmk_promo_channels', JSON.stringify(promoChannels));
-  }, [promoChannels]);
-
-  useEffect(() => {
-    localStorage.setItem('tmk_pos', JSON.stringify(poTracker));
     saveRemote('purchase orders', () => tmkRepository.savePurchaseOrders(poTracker));
   }, [poTracker, saveRemote]);
 
   useEffect(() => {
-    localStorage.setItem('tmk_total_target', totalTarget.toString());
     saveRemote('target', () => tmkRepository.saveSettings({ totalTarget, totalUnitsTarget }));
   }, [totalTarget, totalUnitsTarget, saveRemote]);
-
-  useEffect(() => {
-    localStorage.setItem('tmk_total_units', totalUnitsTarget.toString());
-  }, [totalUnitsTarget]);
 
   // Extract staff and channel options dynamically from tasks to prevent empty lists on fresh browser/Vercel load
   useEffect(() => {
@@ -875,10 +822,6 @@ export default function App() {
         });
       }
     });
-    if (staffUpdated) {
-      setStaffList(Array.from(currentStaffSet));
-    }
-
     // 2. Merge promo channels from tasks
     const currentChannelsSet = new Set(promoChannels);
     let channelsUpdated = false;
@@ -893,10 +836,18 @@ export default function App() {
         });
       }
     });
-    if (channelsUpdated) {
-      setPromoChannels(Array.from(currentChannelsSet));
-    }
-  }, [tasks]);
+    const staffTimer = staffUpdated
+      ? window.setTimeout(() => setStaffList(Array.from(currentStaffSet)), 0)
+      : null;
+    const channelsTimer = channelsUpdated
+      ? window.setTimeout(() => setPromoChannels(Array.from(currentChannelsSet)), 0)
+      : null;
+
+    return () => {
+      if (staffTimer) window.clearTimeout(staffTimer);
+      if (channelsTimer) window.clearTimeout(channelsTimer);
+    };
+  }, [tasks, staffList, promoChannels]);
 
   // Calc summaries
   const totalActualSales = channels.reduce((sum, ch) => sum + ch.actual, 0);
@@ -1021,10 +972,56 @@ export default function App() {
     const taskId = e.dataTransfer.getData('text/plain');
     const movedTask = tasks.find(t => t.id === taskId);
     if (movedTask) {
-      logAction('ย้ายสถานะงาน', `ย้ายงาน: "${movedTask.title}" ไปที่สถานะ [${status}]`);
+      logAction('ย้ายสถานะงาน', buildAuditDetails({
+        entityType: 'task',
+        entityName: movedTask.title,
+        summary: `ย้ายงานไปสถานะ ${status}`,
+        before: { status: movedTask.status },
+        after: { status }
+      }));
     }
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
     setDraggedOverCol(null);
+  };
+
+  const changeTaskStatus = (task, status) => {
+    if (!task || task.status === status) return;
+    logAction('แก้ไขสถานะงาน', buildAuditDetails({
+      entityType: 'task',
+      entityName: task.title,
+      summary: `เปลี่ยนสถานะงาน "${task.title}"`,
+      before: { status: task.status },
+      after: { status }
+    }));
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status } : t));
+  };
+
+  const toggleTaskCompletion = (task) => {
+    changeTaskStatus(task, task.status === 'done' ? 'todo' : 'done');
+  };
+
+  const markPoReceived = (po) => {
+    if (!po || po.status === 'Completed') return;
+    const updatedPo = { ...po, status: 'Completed' };
+    const matchedProducts = products.filter(prod => po.product.includes(prod.name) || prod.name.includes(po.product));
+
+    logAction('รับสินค้าเข้า Stock', buildAuditDetails({
+      entityType: 'po',
+      entityName: po.product,
+      summary: `รับสินค้าเข้าโกดังจาก PO "${po.product}" จำนวน ${Number(po.quantity || 0).toLocaleString()} ตัว`,
+      before: po,
+      after: updatedPo,
+      extra: {
+        stockUpdatedProducts: matchedProducts.map(prod => prod.name)
+      }
+    }));
+
+    setPoTracker(prev => prev.map(p => p.id === po.id ? updatedPo : p));
+    setProducts(prev => prev.map(prod => (
+      po.product.includes(prod.name) || prod.name.includes(po.product)
+        ? { ...prod, stockOnHand: Number(prod.stockOnHand || 0) + Number(po.quantity || 0) }
+        : prod
+    )));
   };
 
   // Checklist handlers
@@ -1037,7 +1034,13 @@ export default function App() {
       if (t.id === taskId) {
         const checklist = (t.checklist || []).map(item => {
           if (item.id === itemId) {
-            logAction('แก้ไขรายการตรวจสอบย่อย', `${item.completed ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} รายการ: "${item.text}" ในงาน: "${t.title}"`);
+            logAction('แก้ไขรายการตรวจสอบย่อย', buildAuditDetails({
+              entityType: 'checklist',
+              entityName: item.text,
+              summary: `${item.completed ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} ในงาน "${t.title}"`,
+              before: { completed: item.completed },
+              after: { completed: !item.completed }
+            }));
             return { ...item, completed: !item.completed };
           }
           return item;
@@ -1057,7 +1060,12 @@ export default function App() {
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
         const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: text.trim(), completed: false };
-        logAction('สร้างรายการตรวจสอบย่อย', `เพิ่มรายการย่อย: "${text.trim()}" ในงาน: "${t.title}"`);
+        logAction('สร้างรายการตรวจสอบย่อย', buildAuditDetails({
+          entityType: 'checklist',
+          entityName: text.trim(),
+          summary: `เพิ่มรายการย่อยในงาน "${t.title}"`,
+          after: newItem
+        }));
         return { ...t, checklist: [...(t.checklist || []), newItem] };
       }
       return t;
@@ -1073,7 +1081,12 @@ export default function App() {
       if (t.id === taskId) {
         const itemToDelete = (t.checklist || []).find(item => item.id === itemId);
         if (itemToDelete) {
-          logAction('ลบรายการตรวจสอบย่อย', `ลบรายการย่อย: "${itemToDelete.text}" ในงาน: "${t.title}"`);
+          logAction('ลบรายการตรวจสอบย่อย', buildAuditDetails({
+            entityType: 'checklist',
+            entityName: itemToDelete.text,
+            summary: `ลบรายการย่อยออกจากงาน "${t.title}"`,
+            before: itemToDelete
+          }));
         }
         const checklist = (t.checklist || []).filter(item => item.id !== itemId);
         return { ...t, checklist };
@@ -1304,10 +1317,23 @@ export default function App() {
         id: 't-' + Date.now()
       };
       setTasks(prev => [...prev, newTask]);
-      logAction('สร้างงานหลัก', `สร้างงานใหม่: "${taskForm.title}" (ผู้รับผิดชอบ: ${taskForm.responsible})`);
+      logAction('สร้างงานหลัก', buildAuditDetails({
+        entityType: 'task',
+        entityName: newTask.title,
+        summary: `สร้างงานใหม่ให้ ${newTask.responsible || '-'}`,
+        after: newTask
+      }));
     } else {
-      setTasks(prev => prev.map(t => t.id === editingTaskId ? { ...taskForm, id: editingTaskId } : t));
-      logAction('แก้ไขงานหลัก', `แก้ไขงาน: "${taskForm.title}" (ผู้รับผิดชอบ: ${taskForm.responsible})`);
+      const beforeTask = tasks.find(t => t.id === editingTaskId);
+      const updatedTask = { ...taskForm, id: editingTaskId };
+      setTasks(prev => prev.map(t => t.id === editingTaskId ? updatedTask : t));
+      logAction('แก้ไขงานหลัก', buildAuditDetails({
+        entityType: 'task',
+        entityName: updatedTask.title,
+        summary: `แก้ไขงาน "${updatedTask.title}"`,
+        before: beforeTask,
+        after: updatedTask
+      }));
     }
     setShowTaskModal(false);
   };
@@ -1331,7 +1357,12 @@ export default function App() {
             data: taskToDelete
           }
         ]);
-        logAction('ย้ายงานไปถังขยะ', `ย้ายงาน: "${taskToDelete.title}" ไปที่ถังขยะ`);
+        logAction('ย้ายงานไปถังขยะ', buildAuditDetails({
+          entityType: 'task',
+          entityName: taskToDelete.title,
+          summary: `ย้ายงาน "${taskToDelete.title}" ไปที่ถังขยะ`,
+          before: taskToDelete
+        }));
       }
       setTasks(prev => prev.filter(t => t.id !== taskId));
     }
@@ -1359,10 +1390,22 @@ export default function App() {
     if (!isChannelEditMode) {
       const newCh = { ...channelForm, id: 'ch-' + Date.now() };
       setChannels(prev => [...prev, newCh]);
-      logAction('สร้างช่องทางขาย', `สร้างช่องทาง: "${channelForm.name}" (เป้าหมาย: ${channelForm.target}%)`);
+      logAction('สร้างช่องทางขาย', buildAuditDetails({
+        entityType: 'channel',
+        entityName: newCh.name,
+        summary: `สร้างช่องทางขาย "${newCh.name}"`,
+        after: newCh
+      }));
     } else {
+      const beforeChannel = channels.find(ch => ch.id === channelForm.id);
       setChannels(prev => prev.map(ch => ch.id === channelForm.id ? channelForm : ch));
-      logAction('แก้ไขช่องทางขาย', `แก้ไขช่องทาง: "${channelForm.name}" (เป้าหมาย: ${channelForm.target}%)`);
+      logAction('แก้ไขช่องทางขาย', buildAuditDetails({
+        entityType: 'channel',
+        entityName: channelForm.name,
+        summary: `แก้ไขช่องทางขาย "${channelForm.name}"`,
+        before: beforeChannel,
+        after: channelForm
+      }));
     }
     setShowChannelModal(false);
   };
@@ -1386,7 +1429,12 @@ export default function App() {
             data: channelToDelete
           }
         ]);
-        logAction('ย้ายช่องทางขายไปถังขยะ', `ย้ายช่องทาง: "${channelToDelete.name}" ไปที่ถังขยะ`);
+        logAction('ย้ายช่องทางขายไปถังขยะ', buildAuditDetails({
+          entityType: 'channel',
+          entityName: channelToDelete.name,
+          summary: `ย้ายช่องทางขาย "${channelToDelete.name}" ไปที่ถังขยะ`,
+          before: channelToDelete
+        }));
       }
       setChannels(prev => prev.filter(ch => ch.id !== id));
     }
@@ -1414,10 +1462,22 @@ export default function App() {
     if (!isProductEditMode) {
       const newProd = { ...productForm, id: 'p-' + Date.now() };
       setProducts(prev => [...prev, newProd]);
-      logAction('สร้างสินค้า', `สร้างสินค้า: "${productForm.name}" (ราคา: ${productForm.price} บาท)`);
+      logAction('สร้างสินค้า', buildAuditDetails({
+        entityType: 'product',
+        entityName: newProd.name,
+        summary: `สร้างสินค้า "${newProd.name}"`,
+        after: newProd
+      }));
     } else {
+      const beforeProduct = products.find(p => p.id === productForm.id);
       setProducts(prev => prev.map(p => p.id === productForm.id ? productForm : p));
-      logAction('แก้ไขสินค้า', `แก้ไขสินค้า: "${productForm.name}" (ราคา: ${productForm.price} บาท)`);
+      logAction('แก้ไขสินค้า', buildAuditDetails({
+        entityType: 'product',
+        entityName: productForm.name,
+        summary: `แก้ไขสินค้า "${productForm.name}"`,
+        before: beforeProduct,
+        after: productForm
+      }));
     }
     setShowProductModal(false);
   };
@@ -1441,7 +1501,12 @@ export default function App() {
             data: productToDelete
           }
         ]);
-        logAction('ย้ายสินค้าไปถังขยะ', `ย้ายสินค้า: "${productToDelete.name}" ไปที่ถังขยะ`);
+        logAction('ย้ายสินค้าไปถังขยะ', buildAuditDetails({
+          entityType: 'product',
+          entityName: productToDelete.name,
+          summary: `ย้ายสินค้า "${productToDelete.name}" ไปที่ถังขยะ`,
+          before: productToDelete
+        }));
       }
       setProducts(prev => prev.filter(p => p.id !== id));
     }
@@ -1469,10 +1534,22 @@ export default function App() {
     if (!isCampaignEditMode) {
       const newCamp = { ...campaignForm, id: 'c-' + Date.now() };
       setCampaigns(prev => [...prev, newCamp]);
-      logAction('สร้างแคมเปญ', `สร้างแคมเปญ: "${campaignForm.name}"`);
+      logAction('สร้างแคมเปญ', buildAuditDetails({
+        entityType: 'campaign',
+        entityName: newCamp.name,
+        summary: `สร้างแคมเปญ "${newCamp.name}"`,
+        after: newCamp
+      }));
     } else {
+      const beforeCampaign = campaigns.find(c => c.id === campaignForm.id);
       setCampaigns(prev => prev.map(c => c.id === campaignForm.id ? campaignForm : c));
-      logAction('แก้ไขแคมเปญ', `แก้ไขแคมเปญ: "${campaignForm.name}"`);
+      logAction('แก้ไขแคมเปญ', buildAuditDetails({
+        entityType: 'campaign',
+        entityName: campaignForm.name,
+        summary: `แก้ไขแคมเปญ "${campaignForm.name}"`,
+        before: beforeCampaign,
+        after: campaignForm
+      }));
     }
     setShowCampaignModal(false);
   };
@@ -1496,7 +1573,12 @@ export default function App() {
             data: campaignToDelete
           }
         ]);
-        logAction('ย้ายแคมเปญไปถังขยะ', `ย้ายแคมเปญ: "${campaignToDelete.name}" ไปที่ถังขยะ`);
+        logAction('ย้ายแคมเปญไปถังขยะ', buildAuditDetails({
+          entityType: 'campaign',
+          entityName: campaignToDelete.name,
+          summary: `ย้ายแคมเปญ "${campaignToDelete.name}" ไปที่ถังขยะ`,
+          before: campaignToDelete
+        }));
       }
       setCampaigns(prev => prev.filter(c => c.id !== id));
     }
@@ -1524,10 +1606,22 @@ export default function App() {
     if (!isPoEditMode) {
       const newPo = { ...poForm, id: 'po-' + Date.now() };
       setPoTracker(prev => [...prev, newPo]);
-      logAction('สร้างใบสั่งซื้อ PO', `สร้าง PO สินค้า: "${poForm.product}" (จำนวน: ${poForm.quantity})`);
+      logAction('สร้างใบสั่งซื้อ PO', buildAuditDetails({
+        entityType: 'po',
+        entityName: newPo.product,
+        summary: `สร้าง PO สินค้า "${newPo.product}"`,
+        after: newPo
+      }));
     } else {
+      const beforePo = poTracker.find(p => p.id === poForm.id);
       setPoTracker(prev => prev.map(p => p.id === poForm.id ? poForm : p));
-      logAction('แก้ไขใบสั่งซื้อ PO', `แก้ไข PO สินค้า: "${poForm.product}" (จำนวน: ${poForm.quantity})`);
+      logAction('แก้ไขใบสั่งซื้อ PO', buildAuditDetails({
+        entityType: 'po',
+        entityName: poForm.product,
+        summary: `แก้ไข PO สินค้า "${poForm.product}"`,
+        before: beforePo,
+        after: poForm
+      }));
     }
     setShowPoModal(false);
   };
@@ -1551,7 +1645,12 @@ export default function App() {
             data: poToDelete
           }
         ]);
-        logAction('ย้ายใบสั่งซื้อ PO ไปถังขยะ', `ย้าย PO สินค้า: "${poToDelete.product}" ไปที่ถังขยะ`);
+        logAction('ย้ายใบสั่งซื้อ PO ไปถังขยะ', buildAuditDetails({
+          entityType: 'po',
+          entityName: poToDelete.product,
+          summary: `ย้าย PO สินค้า "${poToDelete.product}" ไปที่ถังขยะ`,
+          before: poToDelete
+        }));
       }
       setPoTracker(prev => prev.filter(p => p.id !== id));
     }
@@ -1594,7 +1693,12 @@ export default function App() {
     }
     
     setTrashItems(prev => prev.filter(t => t.id !== item.id));
-    logAction('กู้คืนข้อมูลจากถังขยะ', `กู้คืนข้อมูล: "${item.name}" (ประเภท: ${item.type})`);
+    logAction('กู้คืนข้อมูลจากถังขยะ', buildAuditDetails({
+      entityType: item.type,
+      entityName: item.name,
+      summary: `กู้คืน "${item.name}" จากถังขยะ`,
+      after: data
+    }));
     alert(`กู้คืน "${item.name}" เรียบร้อยแล้ว`);
   };
 
@@ -1607,7 +1711,12 @@ export default function App() {
     if (!item) return;
     if (confirm(`คุณต้องการลบ "${item.name}" ทิ้งให้สิ้นซาก (ถาวร) ใช่หรือไม่?`)) {
       setTrashItems(prev => prev.filter(t => t.id !== itemId));
-      logAction('ลบข้อมูลถาวรจากถังขยะ', `ลบถาวร: "${item.name}" (ประเภท: ${item.type})`);
+      logAction('ลบข้อมูลถาวรจากถังขยะ', buildAuditDetails({
+        entityType: item.type,
+        entityName: item.name,
+        summary: `ลบ "${item.name}" ออกจากถังขยะแบบถาวร`,
+        before: item.data
+      }));
     }
   };
 
@@ -1617,10 +1726,43 @@ export default function App() {
       return;
     }
     if (confirm('คุณต้องการล้างถังขยะทั้งหมด (ทิ้งให้สิ้นซาก) ใช่หรือไม่?')) {
+      const removedCount = trashItems.length;
       setTrashItems([]);
-      logAction('ล้างถังขยะทั้งหมด', 'ล้างข้อมูลทั้งหมดในถังขยะเรียบร้อยแล้ว');
+      logAction('ล้างถังขยะทั้งหมด', buildAuditDetails({
+        entityType: 'trash',
+        entityName: 'ถังขยะ',
+        summary: `ล้างข้อมูลในถังขยะ ${removedCount} รายการ`,
+        before: { count: removedCount },
+        after: { count: 0 }
+      }));
     }
   };
+
+  const notifications = getMyNotifications();
+  const notificationStats = notifications.reduce((acc, item) => {
+    acc[item.severity] = (acc[item.severity] || 0) + 1;
+    return acc;
+  }, { overdue: 0, today: 0, soon: 0, upcoming: 0 });
+  const filteredAuditLogs = auditLogs.filter(log => {
+    const detail = parseAuditDetails(log.details);
+    const type = getAuditType(log.action);
+    const searchText = [
+      log.user_email,
+      log.action,
+      detail.summary,
+      detail.entityName,
+      getEntityLabel(detail.entityType)
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    const matchesFilter = auditFilter === 'all' || type === auditFilter;
+    const matchesSearch = !auditSearch.trim() || searchText.includes(auditSearch.trim().toLowerCase());
+    return matchesFilter && matchesSearch;
+  });
+  const auditStats = auditLogs.reduce((acc, log) => {
+    const type = getAuditType(log.action);
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, { create: 0, update: 0, delete: 0, system: 0 });
 
   if (tmkRepository.isConfigured && !user) {
     return (
@@ -1768,25 +1910,36 @@ export default function App() {
                   style={{ marginRight: '8px' }}
                 >
                   <i className="fa-solid fa-bell"></i>
-                  {getMyNotifications().length > 0 && (
-                    <span className="notification-badge">{getMyNotifications().length}</span>
+                  {notifications.length > 0 && (
+                    <span className="notification-badge">{notifications.length}</span>
                   )}
                 </button>
                 
                 {showNotifications && (
                   <div className="notifications-dropdown">
-                    <div className="dropdown-header">
-                      <span>🔔 การแจ้งเตือนงานของคุณ</span>
-                      <button type="button" className="close-dropdown-btn" onClick={() => setShowNotifications(false)}>×</button>
+                    <div className="notifications-dropdown-header">
+                      <div>
+                        <strong>การแจ้งเตือนงานของคุณ</strong>
+                        <span>{notifications.length} รายการที่ต้องติดตาม</span>
+                      </div>
+                      <button type="button" className="close-dropdown-btn" onClick={() => setShowNotifications(false)} aria-label="ปิดการแจ้งเตือน">×</button>
                     </div>
-                    <div className="dropdown-body">
-                      {getMyNotifications().length === 0 ? (
-                        <div className="no-notifications">ไม่มีงานใกล้กำหนดส่งในขณะนี้</div>
+                    <div className="notification-summary-strip">
+                      <span className="danger">{notificationStats.overdue} ค้างส่ง</span>
+                      <span className="warning">{notificationStats.today} วันนี้</span>
+                      <span>{notificationStats.soon} ใกล้ครบกำหนด</span>
+                    </div>
+                    <div className="notifications-list">
+                      {notifications.length === 0 ? (
+                        <div className="notifications-dropdown-empty">
+                          <i className="fa-regular fa-circle-check"></i>
+                          ไม่มีงานใกล้ครบกำหนดใน 7 วัน
+                        </div>
                       ) : (
-                        getMyNotifications().map(notif => (
+                        notifications.map(notif => (
                           <div 
                             key={notif.id} 
-                            className="notification-item"
+                            className={`notification-item severity-${notif.severity}`}
                             onClick={() => {
                               setEditingTaskId(notif.id);
                               setTaskForm({ ...notif.task });
@@ -1795,14 +1948,32 @@ export default function App() {
                               setShowNotifications(false);
                             }}
                           >
-                            <div className="notif-title">{notif.title}</div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                              <span className="notif-date"><i className="fa-solid fa-calendar-day"></i> {notif.date}</span>
-                              <span className="notif-status">{notif.statusText}</span>
+                            <div className="noti-topline">
+                              <span className="noti-status">{notif.statusText}</span>
+                              {renderPriorityBadge(notif.priority)}
+                            </div>
+                            <div className="noti-title">{notif.title}</div>
+                            <div className="noti-desc">
+                              <span><i className="fa-solid fa-calendar-day"></i> {notif.date}</span>
+                              <span><i className="fa-solid fa-user"></i> {notif.responsible}</span>
                             </div>
                           </div>
                         ))
                       )}
+                    </div>
+                    <div className="notifications-footer">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => {
+                          setShowOnlyMyTasks(true);
+                          setActiveTab('kanban');
+                          setShowNotifications(false);
+                        }}
+                      >
+                        <i className="fa-solid fa-list-check"></i>
+                        ดูงานของฉันทั้งหมด
+                      </button>
                     </div>
                   </div>
                 )}
@@ -2600,7 +2771,7 @@ export default function App() {
                             
                             <select className="form-input" style={{ padding: '2px 4px', fontSize: '10.5px' }} value={task.status} disabled={userRole !== 'admin'} onChange={(e) => {
                               const newStatus = e.target.value;
-                              setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
+                              changeTaskStatus(task, newStatus);
                             }}>
                               <option value="todo">To-Do</option>
                               <option value="inprogress">In Prog</option>
@@ -2682,14 +2853,7 @@ export default function App() {
                         {userRole === 'admin' ? (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                             {po.status !== 'Completed' && (
-                              <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => {
-                                setPoTracker(prev => prev.map(p => p.id === po.id ? { ...p, status: 'Completed' } : p));
-                                setProducts(prev => prev.map(prod => (
-                                  po.product.includes(prod.name) || prod.name.includes(po.product)
-                                    ? { ...prod, stockOnHand: Number(prod.stockOnHand || 0) + Number(po.quantity || 0) }
-                                    : prod
-                                )));
-                              }}>
+                              <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => markPoReceived(po)}>
                                 <i className="fa-solid fa-check"></i> รับสินค้าแล้ว
                               </button>
                             )}
@@ -3090,9 +3254,7 @@ export default function App() {
                                   <button 
                                     className="btn" 
                                     style={{ padding: '4px 8px', fontSize: '11px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}
-                                    onClick={() => {
-                                      setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: t.status === 'done' ? 'todo' : 'done' } : t));
-                                    }}
+                                    onClick={() => toggleTaskCompletion(task)}
                                   >
                                     <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
                                     {task.status === 'done' ? 'สำเร็จแล้ว' : 'ทำเครื่องหมายสำเร็จ'}
@@ -3190,9 +3352,7 @@ export default function App() {
                                     <button 
                                       className="btn" 
                                       style={{ padding: '4px 8px', fontSize: '11px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}
-                                      onClick={() => {
-                                        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: t.status === 'done' ? 'todo' : 'done' } : t));
-                                      }}
+                                      onClick={() => toggleTaskCompletion(task)}
                                     >
                                       <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
                                       {task.status === 'done' ? 'สำเร็จแล้ว' : 'ทำเครื่องหมายสำเร็จ'}
@@ -3222,56 +3382,110 @@ export default function App() {
 
       {/* 7. Audit Logs Tab */}
       {activeTab === 'audit_logs' && (
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '16px' }}>
+        <div className="audit-page">
+          <div className="audit-header">
             <div>
-              <h2 style={{ fontSize: '18px', fontWeight: '800', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <i className="fa-solid fa-clock-rotate-left" style={{ color: 'var(--primary)' }}></i>
-                ประวัติการใช้งานระบบ (Audit Logs)
+              <h2>
+                <i className="fa-solid fa-clock-rotate-left"></i>
+                ประวัติการใช้งานระบบ
               </h2>
-              <p style={{ fontSize: '12.5px', color: 'var(--text-muted)', margin: '4px 0 0 0' }}>
-                ติดตามความเคลื่อนไหว กิจกรรมการเพิ่ม แก้ไข และลบเป้าหมายยอดขายรวม ยอดขายช่องทาง แคมเปญ สินค้า และใบสั่งซื้อ PO
+              <p>
+                ตรวจสอบว่าใครเพิ่ม แก้ไข ลบ หรือย้ายสถานะข้อมูลใด พร้อมรายละเอียดการเปลี่ยนแปลงล่าสุดจาก Supabase
               </p>
             </div>
-            <button className="btn" onClick={fetchAuditLogs}>
-              <i className="fa-solid fa-arrows-rotate"></i> รีเฟรชประวัติ
-            </button>
+            <div className="audit-header-actions">
+              <button className="btn" onClick={fetchAuditLogs}>
+                <i className="fa-solid fa-arrows-rotate"></i> รีเฟรช
+              </button>
+            </div>
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table className="audit-logs-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13.5px' }}>
+          <div className="audit-metrics">
+            <div className="audit-metric create">
+              <span>สร้าง</span>
+              <strong>{auditStats.create || 0}</strong>
+            </div>
+            <div className="audit-metric update">
+              <span>แก้ไข/ย้าย</span>
+              <strong>{auditStats.update || 0}</strong>
+            </div>
+            <div className="audit-metric delete">
+              <span>ลบ/ถังขยะ</span>
+              <strong>{auditStats.delete || 0}</strong>
+            </div>
+            <div className="audit-metric">
+              <span>ทั้งหมด</span>
+              <strong>{auditLogs.length}</strong>
+            </div>
+          </div>
+
+          <div className="audit-toolbar">
+            <div className="search-input-wrapper audit-search">
+              <i className="fa-solid fa-magnifying-glass"></i>
+              <input
+                type="text"
+                placeholder="ค้นหาผู้ใช้ กิจกรรม หรือชื่อข้อมูล..."
+                value={auditSearch}
+                onChange={(e) => setAuditSearch(e.target.value)}
+              />
+            </div>
+            <div className="audit-filter-tabs">
+              {[
+                ['all', 'ทั้งหมด'],
+                ['create', 'สร้าง'],
+                ['update', 'แก้ไข'],
+                ['delete', 'ลบ'],
+                ['system', 'ระบบ']
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  key={value}
+                  className={auditFilter === value ? 'active' : ''}
+                  onClick={() => setAuditFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="audit-table-wrap">
+            <table className="audit-logs-table">
               <thead>
-                <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
-                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>วัน-เวลา</th>
-                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>ผู้ดำเนินการ</th>
-                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>กิจกรรม</th>
-                  <th style={{ padding: '12px 8px', fontWeight: '700', color: 'var(--text-muted)' }}>รายละเอียด</th>
+                <tr>
+                  <th>วัน-เวลา</th>
+                  <th>ผู้ดำเนินการ</th>
+                  <th>กิจกรรม</th>
+                  <th>รายละเอียด</th>
                 </tr>
               </thead>
               <tbody>
-                {auditLogs.length === 0 ? (
+                {filteredAuditLogs.length === 0 ? (
                   <tr>
                     <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                       <i className="fa-solid fa-circle-info" style={{ fontSize: '24px', display: 'block', marginBottom: '8px' }}></i>
-                      ไม่มีประวัติการใช้งาน หรือยังไม่ได้สร้างตารางประวัติในฐานข้อมูล
+                      ไม่พบประวัติตามเงื่อนไขที่เลือก
                     </td>
                   </tr>
                 ) : (
-                  auditLogs.map((log) => (
-                    <tr key={log.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '12px 8px', whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
+                  filteredAuditLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td className="audit-time">
                         {new Date(log.created_at).toLocaleString('th-TH')}
                       </td>
-                      <td style={{ padding: '12px 8px', fontWeight: '600', color: 'var(--text-main)' }}>
-                        {log.user_email}
+                      <td>
+                        <div className="audit-user-cell">
+                          <span>{(log.user_email || '?').slice(0, 1).toUpperCase()}</span>
+                          <strong>{log.user_email || '-'}</strong>
+                        </div>
                       </td>
-                      <td style={{ padding: '12px 8px' }}>
+                      <td>
                         <span className={`log-badge badge-${getLogBadgeClass(log.action)}`}>
                           {log.action}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 8px', color: 'var(--text-main)' }}>
-                        {log.details}
+                      <td>
+                        {renderAuditDetails(log)}
                       </td>
                     </tr>
                   ))
