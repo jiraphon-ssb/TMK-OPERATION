@@ -12,6 +12,12 @@ const getLocalDateString = (date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+let generatedIdCounter = 0;
+const generateId = (prefix) => {
+  generatedIdCounter += 1;
+  return `${prefix}-${generatedIdCounter}-${crypto.randomUUID()}`;
+};
+
 const getCampaignStyle = (camp, currentTheme) => {
   if (!camp) return { backgroundColor: 'var(--surface-hover)', borderColor: 'var(--border)', color: 'var(--text-main)' };
   
@@ -254,14 +260,23 @@ export default function App() {
   });
 
   // Multi-user Roles, Audit Logs, and Notifications States
-  const ADMIN_EMAILS = ['jiraphon.e@saisabuygroup.co'];
-  const userRole = user && ADMIN_EMAILS.includes(user.email) ? 'admin' : 'viewer';
+  const BOOTSTRAP_ADMIN_EMAILS = ['jiraphon.e@saisabuygroup.co'];
+  const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
+  const currentUserEmail = normalizeEmail(user?.email);
 
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditSearch, setAuditSearch] = useState('');
   const [auditFilter, setAuditFilter] = useState('all');
+  const [userRoles, setUserRoles] = useState([]);
+  const [roleForm, setRoleForm] = useState({ email: '', role: 'viewer' });
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [roleSaving, setRoleSaving] = useState(false);
+  const [roleError, setRoleError] = useState('');
   const [showOnlyMyTasks, setShowOnlyMyTasks] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const assignedUserRole = userRoles.find(item => normalizeEmail(item.email) === currentUserEmail)?.role;
+  const isBootstrapAdmin = BOOTSTRAP_ADMIN_EMAILS.includes(currentUserEmail);
+  const userRole = user && (assignedUserRole === 'admin' || isBootstrapAdmin) ? 'admin' : 'viewer';
 
   // Fetch Audit Logs
   const fetchAuditLogs = async () => {
@@ -290,6 +305,107 @@ export default function App() {
       });
     } catch (err) {
       console.warn('Failed to insert audit log (table might not exist yet):', err);
+    }
+  };
+
+  const fetchUserRoles = async () => {
+    if (!supabase) return;
+    try {
+      setRoleLoading(true);
+      setRoleError('');
+      const { data, error } = await supabase
+        .from('tmk_user_roles')
+        .select('*')
+        .order('role', { ascending: true })
+        .order('email', { ascending: true });
+      if (error) throw error;
+      setUserRoles(data || []);
+    } catch (err) {
+      console.warn('User roles fetch failed:', err);
+      setRoleError('ยังโหลดสิทธิ์ผู้ใช้ไม่ได้ หากเพิ่งเพิ่มระบบนี้ กรุณารัน SQL schema ล่าสุดใน Supabase ก่อน');
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
+  const saveUserRole = async (e) => {
+    e.preventDefault();
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์จัดการผู้ใช้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
+    const emailToSave = normalizeEmail(roleForm.email);
+    if (!emailToSave || !emailToSave.includes('@')) {
+      alert('กรุณากรอกอีเมลให้ถูกต้อง');
+      return;
+    }
+    if (emailToSave === currentUserEmail && roleForm.role !== 'admin') {
+      alert('ไม่สามารถลดสิทธิ์บัญชีที่กำลังใช้งานอยู่ได้ เพื่อป้องกันการล็อกตัวเองออกจากระบบ');
+      return;
+    }
+
+    try {
+      setRoleSaving(true);
+      setRoleError('');
+      const rolePayload = {
+        email: emailToSave,
+        role: roleForm.role,
+        created_by: currentUserEmail
+      };
+      const { error } = await supabase
+        .from('tmk_user_roles')
+        .upsert(rolePayload, { onConflict: 'email' });
+      if (error) throw error;
+
+      await fetchUserRoles();
+      setRoleForm({ email: '', role: 'viewer' });
+      logAction('บันทึกสิทธิ์ผู้ใช้', buildAuditDetails({
+        entityType: 'user_role',
+        entityName: emailToSave,
+        summary: `ตั้งสิทธิ์ ${emailToSave} เป็น ${roleForm.role}`,
+        after: rolePayload
+      }));
+    } catch (err) {
+      console.error('User role save failed:', err);
+      setRoleError('บันทึกสิทธิ์ไม่สำเร็จ กรุณาตรวจสอบว่ามีตาราง tmk_user_roles ใน Supabase แล้ว');
+    } finally {
+      setRoleSaving(false);
+    }
+  };
+
+  const deleteUserRole = async (roleItem) => {
+    if (userRole !== 'admin') {
+      alert('คุณไม่มีสิทธิ์จัดการผู้ใช้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
+      return;
+    }
+    const emailToDelete = normalizeEmail(roleItem.email);
+    if (emailToDelete === currentUserEmail) {
+      alert('ไม่สามารถลบสิทธิ์บัญชีที่กำลังใช้งานอยู่ได้ เพื่อป้องกันการล็อกตัวเองออกจากระบบ');
+      return;
+    }
+    if (!confirm(`ต้องการลบสิทธิ์ของ ${emailToDelete} ใช่หรือไม่?`)) return;
+
+    try {
+      setRoleSaving(true);
+      setRoleError('');
+      const { error } = await supabase
+        .from('tmk_user_roles')
+        .delete()
+        .eq('email', emailToDelete);
+      if (error) throw error;
+
+      await fetchUserRoles();
+      logAction('ลบสิทธิ์ผู้ใช้', buildAuditDetails({
+        entityType: 'user_role',
+        entityName: emailToDelete,
+        summary: `ลบสิทธิ์ของ ${emailToDelete}`,
+        before: roleItem
+      }));
+    } catch (err) {
+      console.error('User role delete failed:', err);
+      setRoleError('ลบสิทธิ์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
+    } finally {
+      setRoleSaving(false);
     }
   };
 
@@ -352,7 +468,8 @@ export default function App() {
     po: 'PO',
     checklist: 'เช็คลิสต์',
     trash: 'ถังขยะ',
-    target: 'เป้าหมาย'
+    target: 'เป้าหมาย',
+    user_role: 'สิทธิ์ผู้ใช้'
   }[type] || type || 'ระบบ');
 
   const renderAuditDetails = (log) => {
@@ -466,6 +583,25 @@ export default function App() {
       return () => window.clearTimeout(fetchTimer);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!supabase || !user) return;
+    const fetchTimer = window.setTimeout(fetchUserRoles, 0);
+
+    const channel = supabase
+      .channel('user-roles-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tmk_user_roles' },
+        () => fetchUserRoles()
+      )
+      .subscribe();
+
+    return () => {
+      window.clearTimeout(fetchTimer);
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -1059,7 +1195,7 @@ export default function App() {
     if (!text || !text.trim()) return;
     setTasks(prev => prev.map(t => {
       if (t.id === taskId) {
-        const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: text.trim(), completed: false };
+        const newItem = { id: generateId('sub'), text: text.trim(), completed: false };
         logAction('สร้างรายการตรวจสอบย่อย', buildAuditDetails({
           entityType: 'checklist',
           entityName: text.trim(),
@@ -1314,7 +1450,7 @@ export default function App() {
     if (taskModalMode === 'add') {
       const newTask = {
         ...taskForm,
-        id: 't-' + Date.now()
+        id: generateId('t')
       };
       setTasks(prev => [...prev, newTask]);
       logAction('สร้างงานหลัก', buildAuditDetails({
@@ -1349,7 +1485,7 @@ export default function App() {
         setTrashItems(prev => [
           ...prev,
           {
-            id: 'trash-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            id: generateId('trash'),
             originalId: taskToDelete.id,
             type: 'task',
             name: taskToDelete.title || 'ไม่มีหัวข้อ',
@@ -1388,7 +1524,7 @@ export default function App() {
       return;
     }
     if (!isChannelEditMode) {
-      const newCh = { ...channelForm, id: 'ch-' + Date.now() };
+      const newCh = { ...channelForm, id: generateId('ch') };
       setChannels(prev => [...prev, newCh]);
       logAction('สร้างช่องทางขาย', buildAuditDetails({
         entityType: 'channel',
@@ -1421,7 +1557,7 @@ export default function App() {
         setTrashItems(prev => [
           ...prev,
           {
-            id: 'trash-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            id: generateId('trash'),
             originalId: channelToDelete.id,
             type: 'channel',
             name: channelToDelete.name || 'ไม่มีชื่อช่องทาง',
@@ -1460,7 +1596,7 @@ export default function App() {
       return;
     }
     if (!isProductEditMode) {
-      const newProd = { ...productForm, id: 'p-' + Date.now() };
+      const newProd = { ...productForm, id: generateId('p') };
       setProducts(prev => [...prev, newProd]);
       logAction('สร้างสินค้า', buildAuditDetails({
         entityType: 'product',
@@ -1493,7 +1629,7 @@ export default function App() {
         setTrashItems(prev => [
           ...prev,
           {
-            id: 'trash-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            id: generateId('trash'),
             originalId: productToDelete.id,
             type: 'product',
             name: productToDelete.name || 'ไม่มีชื่อสินค้า',
@@ -1532,7 +1668,7 @@ export default function App() {
       return;
     }
     if (!isCampaignEditMode) {
-      const newCamp = { ...campaignForm, id: 'c-' + Date.now() };
+      const newCamp = { ...campaignForm, id: generateId('c') };
       setCampaigns(prev => [...prev, newCamp]);
       logAction('สร้างแคมเปญ', buildAuditDetails({
         entityType: 'campaign',
@@ -1565,7 +1701,7 @@ export default function App() {
         setTrashItems(prev => [
           ...prev,
           {
-            id: 'trash-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            id: generateId('trash'),
             originalId: campaignToDelete.id,
             type: 'campaign',
             name: campaignToDelete.name || 'ไม่มีชื่อแคมเปญ',
@@ -1604,7 +1740,7 @@ export default function App() {
       return;
     }
     if (!isPoEditMode) {
-      const newPo = { ...poForm, id: 'po-' + Date.now() };
+      const newPo = { ...poForm, id: generateId('po') };
       setPoTracker(prev => [...prev, newPo]);
       logAction('สร้างใบสั่งซื้อ PO', buildAuditDetails({
         entityType: 'po',
@@ -1637,7 +1773,7 @@ export default function App() {
         setTrashItems(prev => [
           ...prev,
           {
-            id: 'trash-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+            id: generateId('trash'),
             originalId: poToDelete.id,
             type: 'po',
             name: `PO: ${poToDelete.product} (${poToDelete.quantity} ชิ้น)`,
@@ -1763,6 +1899,10 @@ export default function App() {
     acc[type] = (acc[type] || 0) + 1;
     return acc;
   }, { create: 0, update: 0, delete: 0, system: 0 });
+  const roleStats = userRoles.reduce((acc, item) => {
+    acc[item.role] = (acc[item.role] || 0) + 1;
+    return acc;
+  }, { admin: 0, viewer: 0 });
 
   if (tmkRepository.isConfigured && !user) {
     return (
@@ -2013,6 +2153,15 @@ export default function App() {
             </button>
             {showDataMenu && (
               <div className="data-menu">
+                {userRole === 'admin' && (
+                  <button type="button" onClick={() => { setActiveTab('user_roles'); setShowDataMenu(false); }}>
+                    <i className="fa-solid fa-user-shield"></i>
+                    <span>
+                      <strong>User Role Settings</strong>
+                      <small>มอบสิทธิ์ Admin / Viewer ให้ทีม</small>
+                    </span>
+                  </button>
+                )}
                 <button type="button" onClick={() => { setActiveTab('campaigns'); setShowDataMenu(false); }}>
                   <i className="fa-solid fa-layer-group"></i>
                   <span>
@@ -2070,6 +2219,11 @@ export default function App() {
           <button className={`tab-btn ${activeTab === 'audit_logs' ? 'active' : ''}`} onClick={() => setActiveTab('audit_logs')}>
             <i className="fa-solid fa-clock-rotate-left"></i> ประวัติการใช้งาน
           </button>
+          {userRole === 'admin' && (
+            <button className={`tab-btn ${activeTab === 'user_roles' ? 'active' : ''}`} onClick={() => setActiveTab('user_roles')}>
+              <i className="fa-solid fa-user-shield"></i> สิทธิ์ผู้ใช้
+            </button>
+          )}
         </nav>
       </div>
 
@@ -3380,6 +3534,166 @@ export default function App() {
         </div>
       )}
 
+      {/* 7. User Role Settings Tab */}
+      {activeTab === 'user_roles' && userRole === 'admin' && (
+        <div className="role-page">
+          <div className="audit-header">
+            <div>
+              <h2>
+                <i className="fa-solid fa-user-shield"></i>
+                ตั้งค่าสิทธิ์ผู้ใช้
+              </h2>
+              <p>
+                เพิ่มอีเมลสมาชิกในทีมแล้วเลือกสิทธิ์ Admin หรือ Viewer ระบบจะใช้สิทธิ์นี้ทันทีเมื่อผู้ใช้งาน login ด้วยอีเมลนั้น
+              </p>
+            </div>
+            <div className="audit-header-actions">
+              <button className="btn" onClick={fetchUserRoles} disabled={roleLoading}>
+                <i className={`fa-solid fa-arrows-rotate ${roleLoading ? 'fa-spin' : ''}`}></i> รีเฟรช
+              </button>
+            </div>
+          </div>
+
+          <div className="audit-metrics">
+            <div className="audit-metric update">
+              <span>Admin จากตาราง</span>
+              <strong>{roleStats.admin || 0}</strong>
+            </div>
+            <div className="audit-metric">
+              <span>Viewer จากตาราง</span>
+              <strong>{roleStats.viewer || 0}</strong>
+            </div>
+            <div className="audit-metric create">
+              <span>Bootstrap Admin</span>
+              <strong>{BOOTSTRAP_ADMIN_EMAILS.length}</strong>
+            </div>
+            <div className="audit-metric">
+              <span>รวมที่ตั้งค่า</span>
+              <strong>{userRoles.length}</strong>
+            </div>
+          </div>
+
+          {roleError && (
+            <div className="role-alert">
+              <i className="fa-solid fa-circle-exclamation"></i>
+              <span>{roleError}</span>
+            </div>
+          )}
+
+          <div className="role-layout">
+            <form className="role-form-card" onSubmit={saveUserRole}>
+              <div className="role-card-title">
+                <i className="fa-solid fa-user-plus"></i>
+                <div>
+                  <strong>เพิ่มหรือแก้ไขสิทธิ์</strong>
+                  <span>กรอกอีเมลเดียวกับบัญชีที่ใช้ login</span>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">อีเมลผู้ใช้งาน</label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="name@company.com"
+                  value={roleForm.email}
+                  onChange={(e) => setRoleForm({ ...roleForm, email: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Role</label>
+                <select
+                  className="form-input"
+                  value={roleForm.role}
+                  onChange={(e) => setRoleForm({ ...roleForm, role: e.target.value })}
+                >
+                  <option value="viewer">Viewer - ดูข้อมูลได้</option>
+                  <option value="admin">Admin - เพิ่ม/แก้ไข/ลบ/มอบสิทธิ์ได้</option>
+                </select>
+              </div>
+              <button className="btn btn-primary" type="submit" disabled={roleSaving}>
+                <i className={`fa-solid ${roleSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
+                บันทึกสิทธิ์
+              </button>
+            </form>
+
+            <div className="role-table-card">
+              <div className="role-card-title">
+                <i className="fa-solid fa-users-gear"></i>
+                <div>
+                  <strong>รายชื่อสิทธิ์ใน Supabase</strong>
+                  <span>แก้ไขได้จากหน้านี้โดยไม่ต้อง deploy ใหม่</span>
+                </div>
+              </div>
+              <div className="role-bootstrap-note">
+                <i className="fa-solid fa-key"></i>
+                <span>บัญชี bootstrap admin: {BOOTSTRAP_ADMIN_EMAILS.join(', ')}</span>
+              </div>
+              <div className="audit-table-wrap">
+                <table className="role-table">
+                  <thead>
+                    <tr>
+                      <th>อีเมล</th>
+                      <th>สิทธิ์</th>
+                      <th>อัปเดตล่าสุด</th>
+                      <th style={{ textAlign: 'center' }}>จัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userRoles.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="role-empty">
+                          {roleLoading ? 'กำลังโหลดสิทธิ์ผู้ใช้...' : 'ยังไม่มี role ในตาราง Supabase'}
+                        </td>
+                      </tr>
+                    ) : (
+                      userRoles.map(roleItem => (
+                        <tr key={roleItem.email}>
+                          <td>
+                            <div className="audit-user-cell">
+                              <span>{normalizeEmail(roleItem.email).slice(0, 1).toUpperCase()}</span>
+                              <strong>{normalizeEmail(roleItem.email)}</strong>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`role-pill ${roleItem.role}`}>
+                              <i className={`fa-solid ${roleItem.role === 'admin' ? 'fa-user-shield' : 'fa-eye'}`}></i>
+                              {roleItem.role}
+                            </span>
+                          </td>
+                          <td className="audit-time">
+                            {roleItem.updated_at ? new Date(roleItem.updated_at).toLocaleString('th-TH') : '-'}
+                          </td>
+                          <td>
+                            <div className="role-actions">
+                              <button
+                                type="button"
+                                className="btn"
+                                onClick={() => setRoleForm({ email: normalizeEmail(roleItem.email), role: roleItem.role })}
+                              >
+                                <i className="fa-solid fa-pencil"></i>
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-danger"
+                                disabled={normalizeEmail(roleItem.email) === currentUserEmail || roleSaving}
+                                onClick={() => deleteUserRole(roleItem)}
+                              >
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 7. Audit Logs Tab */}
       {activeTab === 'audit_logs' && (
         <div className="audit-page">
@@ -3637,7 +3951,7 @@ export default function App() {
                           e.preventDefault();
                           const val = e.target.value.trim();
                           if (val) {
-                            const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: val, completed: false };
+                            const newItem = { id: generateId('sub'), text: val, completed: false };
                             setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
                             e.target.value = '';
                           }
@@ -3652,7 +3966,7 @@ export default function App() {
                         const input = document.getElementById('new-modal-subtodo');
                         const val = input.value.trim();
                         if (val) {
-                          const newItem = { id: 'sub-' + Date.now() + Math.random().toString(36).substr(2, 5), text: val, completed: false };
+                          const newItem = { id: generateId('sub'), text: val, completed: false };
                           setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
                           input.value = '';
                         }
@@ -3695,7 +4009,7 @@ export default function App() {
                         const label = labelInput.value.trim();
                         const url = urlInput.value.trim();
                         if (label || url) {
-                          setTaskForm({ ...taskForm, attachments: [...(taskForm.attachments || []), { id: 'attach-' + Date.now(), label: label || url, url }] });
+                          setTaskForm({ ...taskForm, attachments: [...(taskForm.attachments || []), { id: generateId('attach'), label: label || url, url }] });
                           labelInput.value = '';
                           urlInput.value = '';
                         }

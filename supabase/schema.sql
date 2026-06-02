@@ -93,12 +93,21 @@ create table if not exists public.tmk_settings (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.tmk_user_roles (
+  email text primary key,
+  role text not null default 'viewer' check (role in ('admin', 'viewer')),
+  created_by text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists tmk_tasks_date_idx on public.tmk_tasks(date);
 create index if not exists tmk_tasks_camp_idx on public.tmk_tasks(camp);
 create index if not exists tmk_task_checklist_task_id_idx on public.tmk_task_checklist(task_id);
 create index if not exists tmk_task_comments_task_id_idx on public.tmk_task_comments(task_id);
 create index if not exists tmk_task_attachments_task_id_idx on public.tmk_task_attachments(task_id);
 create index if not exists tmk_purchase_orders_arrival_date_idx on public.tmk_purchase_orders(arrival_date);
+create index if not exists tmk_user_roles_role_idx on public.tmk_user_roles(role);
 
 create or replace function public.tmk_touch_updated_at()
 returns trigger
@@ -150,6 +159,11 @@ create trigger tmk_purchase_orders_touch_updated_at
 before update on public.tmk_purchase_orders
 for each row execute function public.tmk_touch_updated_at();
 
+drop trigger if exists tmk_user_roles_touch_updated_at on public.tmk_user_roles;
+create trigger tmk_user_roles_touch_updated_at
+before update on public.tmk_user_roles
+for each row execute function public.tmk_touch_updated_at();
+
 alter table public.tmk_campaigns replica identity full;
 alter table public.tmk_channels replica identity full;
 alter table public.tmk_products replica identity full;
@@ -159,6 +173,7 @@ alter table public.tmk_task_comments replica identity full;
 alter table public.tmk_task_attachments replica identity full;
 alter table public.tmk_purchase_orders replica identity full;
 alter table public.tmk_settings replica identity full;
+alter table public.tmk_user_roles replica identity full;
 
 do $$
 declare
@@ -173,7 +188,8 @@ begin
     'tmk_task_comments',
     'tmk_task_attachments',
     'tmk_purchase_orders',
-    'tmk_settings'
+    'tmk_settings',
+    'tmk_user_roles'
   ]
   loop
     if not exists (
@@ -200,6 +216,7 @@ alter table public.tmk_task_comments disable row level security;
 alter table public.tmk_task_attachments disable row level security;
 alter table public.tmk_purchase_orders disable row level security;
 alter table public.tmk_settings disable row level security;
+alter table public.tmk_user_roles disable row level security;
 
 -- Phase 1: no complex roles yet. Keep access simple while the app has no login.
 -- Add RLS policies before exposing this project to untrusted users.
