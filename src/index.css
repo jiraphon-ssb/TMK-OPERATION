@@ -1189,6 +1189,7 @@ body {
   flex-direction: column;
   gap: 20px;
   max-width: 720px;
+  margin: 0 auto;
 }
 
 .timeline-item-vertical {
@@ -1262,8 +1263,8 @@ body {
   width: 2px;
   background-color: var(--border);
   position: absolute;
-  top: 20px;
-  bottom: -24px;
+  top: 22px;
+  bottom: -40px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 1;
