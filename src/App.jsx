@@ -9,10 +9,10 @@ const initialCampaigns = [
 ];
 
 const initialChannels = [
-  { id: 'ch1', name: 'Sales (Direct)', percentage: 44, actual: 440000, color: '#5b9bd5' },
-  { id: 'ch2', name: 'Shopee & Lazada', percentage: 25, actual: 250000, color: '#ed7d31' },
-  { id: 'ch3', name: 'TikTok', percentage: 25, actual: 250000, color: '#4f4f4f' },
-  { id: 'ch4', name: 'CRM', percentage: 6, actual: 60000, color: '#ffc000' }
+  { id: 'ch1', name: 'Sales (Direct)', target: 440000, actual: 440000, color: '#5b9bd5' },
+  { id: 'ch2', name: 'Shopee & Lazada', target: 250000, actual: 250000, color: '#ed7d31' },
+  { id: 'ch3', name: 'TikTok', target: 250000, actual: 250000, color: '#4f4f4f' },
+  { id: 'ch4', name: 'CRM', target: 60000, actual: 60000, color: '#ffc000' }
 ];
 
 const initialProducts = [
@@ -326,7 +326,29 @@ export default function App() {
 
   // Main Data States
   const [campaigns, setCampaigns] = useState(() => safeReadJson('tmk_campaigns', initialCampaigns));
-  const [channels, setChannels] = useState(() => safeReadJson('tmk_channels', initialChannels));
+  const [channels, setChannels] = useState(() => {
+    const raw = safeReadJson('tmk_channels', initialChannels);
+    return raw.map(ch => {
+      let targetVal = ch.target;
+      let actualVal = ch.actual;
+      
+      if ((targetVal === undefined || targetVal <= 100) && actualVal > 100) {
+        targetVal = actualVal;
+        actualVal = 0;
+      }
+      
+      if ((targetVal === undefined || targetVal <= 100) && ch.percentage) {
+        targetVal = Math.round((ch.percentage / 100) * (Number(localStorage.getItem('tmk_total_target')) || 1000000));
+        actualVal = 0;
+      }
+      
+      return {
+        ...ch,
+        target: Number(targetVal || 0),
+        actual: Number(actualVal || 0)
+      };
+    });
+  });
   const [products, setProducts] = useState(() => normalizeStoredProducts(safeReadJson('tmk_products', initialProducts)));
   const [tasks, setTasks] = useState(() => safeReadJson('tmk_tasks', initialTasks));
   const [poTracker, setPoTracker] = useState(() => safeReadJson('tmk_pos', initialPOs));
@@ -359,13 +381,7 @@ export default function App() {
   
   
   // Dashboard & Target States
-  const [totalTarget, setTotalTarget] = useState(() => {
-  const stored = Number(localStorage.getItem('tmk_total_target'));
-  if (stored && stored > 0) return stored;
-  // Default to sum of initial channel actual sales
-  const defaultSum = initialChannels.reduce((sum, ch) => sum + (Number(ch.actual) || 0), 0);
-  return defaultSum;
-});
+  const totalTarget = channels.reduce((sum, ch) => sum + (Number(ch.target) || 0), 0);
   const [totalUnitsTarget, setTotalUnitsTarget] = useState(() => Number(localStorage.getItem('tmk_total_units')) || 3850);
   const [isEditingTargets, setIsEditingTargets] = useState(false);
 
@@ -385,7 +401,7 @@ export default function App() {
   const [draggedOverCol, setDraggedOverCol] = useState(null);
 
   const [showChannelModal, setShowChannelModal] = useState(false);
-  const [channelForm, setChannelForm] = useState({ id: '', name: '', percentage: 0, actual: 0, color: '#3b82f6' });
+  const [channelForm, setChannelForm] = useState({ id: '', name: '', target: 0, actual: 0, color: '#3b82f6' });
   const [isChannelEditMode, setIsChannelEditMode] = useState(false);
 
   const [showProductModal, setShowProductModal] = useState(false);
@@ -401,16 +417,35 @@ export default function App() {
   const [isPoEditMode, setIsPoEditMode] = useState(false);
   const syncingFromRemoteRef = useRef(false);
   const hasRestoredScrollRef = useRef(false);
+  const savingRef = useRef(false);
 
   const applyRemoteData = useCallback((remoteData) => {
     if (!remoteData) return;
     syncingFromRemoteRef.current = true;
     setCampaigns(remoteData.campaigns);
-    setChannels(remoteData.channels);
+    setChannels(remoteData.channels.map(ch => {
+      let targetVal = ch.target;
+      let actualVal = ch.actual;
+      
+      if ((targetVal === undefined || targetVal <= 100) && actualVal > 100) {
+        targetVal = actualVal;
+        actualVal = 0;
+      }
+      
+      if ((targetVal === undefined || targetVal <= 100) && ch.percentage) {
+        targetVal = Math.round((ch.percentage / 100) * (Number(remoteData.totalTarget) || 1000000));
+        actualVal = 0;
+      }
+      
+      return {
+        ...ch,
+        target: Number(targetVal || 0),
+        actual: Number(actualVal || 0)
+      };
+    }));
     setProducts(remoteData.products);
     setTasks(remoteData.tasks);
     setPoTracker(remoteData.poTracker);
-    setTotalTarget(remoteData.totalTarget);
     setTotalUnitsTarget(remoteData.totalUnitsTarget);
     window.setTimeout(() => {
       syncingFromRemoteRef.current = false;
@@ -447,11 +482,10 @@ export default function App() {
       if (!tmkRepository.isConfigured) return;
       try {
         await loadRemoteData();
+        if (!cancelled) setRemoteReady(true);
       } catch (error) {
         console.error('Supabase load failed:', error);
         setRemoteStatus('Supabase error: ใช้ข้อมูลในเครื่องชั่วคราว');
-      } finally {
-        if (!cancelled) setRemoteReady(true);
       }
     };
 
@@ -459,6 +493,10 @@ export default function App() {
 
     const unsubscribe = tmkRepository.subscribeToChanges(async () => {
       if (cancelled) return;
+      if (savingRef.current) {
+        console.log('Ignoring real-time refresh because we initiated the database change.');
+        return;
+      }
       try {
         await loadRemoteData('Supabase realtime synced');
       } catch (error) {
@@ -477,9 +515,15 @@ export default function App() {
     if (!remoteReady || !tmkRepository.isConfigured) return;
     if (syncingFromRemoteRef.current) return;
     try {
+      savingRef.current = true;
       await saveFn();
     } catch (error) {
       console.error(`Supabase save failed: ${label}`, error);
+    } finally {
+      // Small timeout to allow Supabase postgres changes channel broadcast to be received and skipped
+      window.setTimeout(() => {
+        savingRef.current = false;
+      }, 1000);
     }
   }, [remoteReady]);
 
@@ -595,6 +639,7 @@ export default function App() {
   // Calc summaries
   const totalActualSales = channels.reduce((sum, ch) => sum + ch.actual, 0);
   const totalActualUnits = products.reduce((sum, prod) => sum + prod.actualUnits, 0);
+  const totalProductTargetRevenue = products.reduce((sum, p) => sum + (Number(p.price) || 0) * (Number(p.targetUnits) || 0), 0);
   const targetCompletedPercent = totalTarget > 0 ? Math.min(999, Number(((totalActualSales / totalTarget) * 100).toFixed(1))) : 0;
   const targetCompletedLabel = Number.isInteger(targetCompletedPercent) ? `${targetCompletedPercent}%` : `${targetCompletedPercent.toFixed(1)}%`;
 
@@ -968,7 +1013,7 @@ export default function App() {
   // Channel CRUD Handlers
   const openAddChannel = () => {
     setIsChannelEditMode(false);
-    setChannelForm({ id: '', name: '', percentage: 0, actual: 0, color: '#3b82f6' });
+    setChannelForm({ id: '', name: '', target: 0, actual: 0, color: '#3b82f6' });
     setShowChannelModal(true);
   };
 
@@ -1376,12 +1421,71 @@ export default function App() {
                   <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsEditingTargets(true)}>
                     <i className="fa-solid fa-pencil"></i> แก้ไขเป้าหมายหลัก
                   </button>
+
+                  {/* Calibration Audit Card */}
+                  <div style={{
+                    backgroundColor: 'var(--surface-hover)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px',
+                    padding: '12px 14px',
+                    fontSize: '12.5px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '8px',
+                    marginTop: '4px'
+                  }}>
+                    <div style={{ fontWeight: '700', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <i className="fa-solid fa-scale-balanced" style={{ color: 'var(--primary)' }}></i>
+                      ตรวจสอบเป้าหมาย (Calibration Audit)
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                      <span>เป้าหมายช่องทางรวม:</span>
+                      <strong style={{ color: 'var(--text-main)' }}>{totalTarget.toLocaleString()} ฿</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
+                      <span>เป้าหมายสินค้า (Price × Qty):</span>
+                      <strong style={{ color: 'var(--text-main)' }}>{totalProductTargetRevenue.toLocaleString()} ฿</strong>
+                    </div>
+                    
+                    {(() => {
+                      const diff = totalTarget - totalProductTargetRevenue;
+                      const isBalanced = diff === 0;
+                      return (
+                        <div style={{
+                          borderTop: '1px solid var(--border)',
+                          paddingTop: '8px',
+                          marginTop: '4px',
+                          color: isBalanced ? 'var(--success)' : (diff > 0 ? 'var(--primary)' : 'var(--danger)'),
+                          fontWeight: '700',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span>สถานะแผนเป้าหมาย:</span>
+                            <span>
+                              {isBalanced ? 'สมดุล (Balanced)' : (diff > 0 ? 'เป้าช่องทางเกิน' : 'เป้าช่องทางขาด')}
+                            </span>
+                          </div>
+                          {!isBalanced && (
+                            <div style={{ fontSize: '11px', fontWeight: '500', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                              {diff < 0 ? (
+                                <span>⚠️ เป้าหมายตามช่องทางขาดไปอีก <strong>{Math.abs(diff).toLocaleString()} ฿</strong> เพื่อให้ครอบคลุมเป้าหมายของสินค้าทั้งหมด</span>
+                              ) : (
+                                <span>💡 เป้าหมายตามช่องทางรวมมีมูลค่ามากกว่าเป้าหมายสินค้าอยู่ <strong>{diff.toLocaleString()} ฿</strong></span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               ) : (
                 <div className="target-kpi-card" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
                   <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label className="form-label">เป้ายอดขายรวม (บาท)</label>
-                    <input type="number" className="form-input" value={totalTarget} onChange={(e) => setTotalTarget(Number(e.target.value))} />
+                    <label className="form-label">เป้ายอดขายรวม (บาท) [คำนวณอัตโนมัติจากช่องทาง]</label>
+                    <input type="text" className="form-input" disabled value={`${totalTarget.toLocaleString()} ฿`} />
                   </div>
                   <div className="form-group" style={{ marginBottom: '12px' }}>
                     <label className="form-label">เป้าจำนวนสินค้า (ตัว)</label>
@@ -1397,33 +1501,77 @@ export default function App() {
 
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase' }}>สัดส่วนเป้าตามช่องทาง</h4>
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase' }}>ยอดขายตามช่องทาง</h4>
                   <button className="btn" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={openAddChannel}>
                     <i className="fa-solid fa-plus"></i> เพิ่มช่องทาง
                   </button>
                 </div>
+                {totalTarget > 0 && (
+                  <div style={{
+                    display: 'flex',
+                    height: '10px',
+                    width: '100%',
+                    borderRadius: '99px',
+                    overflow: 'hidden',
+                    marginBottom: '16px',
+                    backgroundColor: 'var(--border)',
+                    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)'
+                  }} title="สัดส่วนเป้าหมายช่องทางทั้งหมด">
+                    {channels.map(ch => {
+                      const share = totalTarget > 0 ? (ch.target / totalTarget) * 100 : 0;
+                      if (share <= 0) return null;
+                      return (
+                        <div
+                          key={ch.id}
+                          style={{
+                            width: `${share}%`,
+                            backgroundColor: ch.color,
+                            height: '100%',
+                            transition: 'width 0.5s ease'
+                          }}
+                          title={`${ch.name}: เป้า ${ch.target.toLocaleString()} ฿ (${Math.round(share)}%)`}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="channel-stats">
                   {channels.map(ch => {
-                    const channelProgress = Math.round((ch.actual / ch.percentage / (totalTarget / 100)) * 100) || 0;
+                    const progressPercent = ch.target > 0 ? Math.round((ch.actual / ch.target) * 100) : 0;
+                    const targetSharePercent = totalTarget > 0 ? Math.round((ch.target / totalTarget) * 100) : 0;
                     return (
                       <div key={ch.id} className="channel-item">
                         <div className="channel-header">
-                          <span className="channel-info">
-                            <span className="channel-dot" style={{ backgroundColor: ch.color }}></span>
-                            {ch.name} ({ch.percentage}%)
+                          <span className="channel-info" style={{ fontSize: '14px', fontWeight: '800' }}>
+                            <span className="channel-dot" style={{ backgroundColor: ch.color, boxShadow: `0 0 8px ${ch.color}80` }}></span>
+                            {ch.name}
+                            <span style={{ fontSize: '10.5px', fontWeight: '600', color: 'var(--text-muted)', marginLeft: '8px', backgroundColor: 'var(--surface-accent)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                              สัดส่วนเป้า: {targetSharePercent}%
+                            </span>
                           </span>
-                          <span style={{ color: 'var(--text-muted)' }}>
-                            {ch.actual.toLocaleString()} ฿
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-light)' }}>
+                            เป้าหมาย: <strong style={{ color: 'var(--text-main)', fontSize: '14.5px' }}>{ch.target.toLocaleString()} ฿</strong>
                           </span>
                         </div>
-                        <div className="progress-bar-bg">
-                          <div className="progress-bar-fill" style={{ width: `${Math.min(100, Math.max(0, channelProgress))}%`, backgroundColor: ch.color }}></div>
+                        <div className="progress-bar-bg" style={{ height: '6px', margin: '2px 0' }}>
+                          <div className="progress-bar-fill" style={{ width: `${Math.min(100, progressPercent)}%`, backgroundColor: ch.color }}></div>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-light)', marginTop: '2px' }}>
-                          <span>เป้า: {Math.round((ch.percentage / 100) * totalTarget).toLocaleString()} ฿</span>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <span style={{ cursor: 'pointer', color: 'var(--kpi-blue)' }} onClick={() => openEditChannel(ch)}>แก้ไข</span>
-                            <span style={{ cursor: 'pointer', color: 'var(--danger)' }} onClick={() => deleteChannel(ch.id)}>ลบ</span>
+                        <div className="channel-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <span className="channel-badge" style={{ backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderColor: 'rgba(99,102,241,0.1)' }}>
+                              ขายจริง: {ch.actual.toLocaleString()} ฿
+                            </span>
+                            <span className="channel-badge" style={{ backgroundColor: 'var(--success-light)', color: 'var(--success)', borderColor: 'rgba(52,211,153,0.1)' }}>
+                              สำเร็จ {progressPercent}%
+                            </span>
+                          </div>
+                          <div className="channel-actions">
+                            <button className="channel-action-btn edit" onClick={() => openEditChannel(ch)}>
+                              <i className="fa-solid fa-pencil"></i> แก้ไข
+                            </button>
+                            <button className="channel-action-btn delete" onClick={() => deleteChannel(ch.id)}>
+                              <i className="fa-solid fa-trash"></i> ลบ
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -2668,8 +2816,8 @@ export default function App() {
                 <input type="text" className="form-input" required placeholder="เช่น TikTok Shop, Shopee" value={channelForm.name} onChange={(e) => setChannelForm({ ...channelForm, name: e.target.value })} />
               </div>
               <div className="form-group">
-                <label className="form-label">สัดส่วนเป้าหมาย (%)</label>
-                <input type="number" className="form-input" required min="0" max="100" value={channelForm.percentage} onChange={(e) => setChannelForm({ ...channelForm, percentage: Number(e.target.value) })} />
+                <label className="form-label">เป้าหมายยอดขาย (บาท)</label>
+                <input type="number" className="form-input" required min="0" value={channelForm.target} onChange={(e) => setChannelForm({ ...channelForm, target: Number(e.target.value) })} />
               </div>
               <div className="form-group">
                 <label className="form-label">ยอดขายทำจริงขณะนี้ (บาท)</label>

@@ -169,7 +169,13 @@ export const tmkRepository = {
 
     return {
       campaigns: campaigns.data || [],
-      channels: channels.data || [],
+      channels: (channels.data || []).map(ch => ({
+        id: ch.id,
+        name: ch.name,
+        target: Number(ch.percentage ?? 0),
+        actual: Number(ch.actual ?? 0),
+        color: ch.color || '#3b82f6'
+      })),
       products: (products.data || []).map(mapProductFromDb),
       tasks: (tasks.data || []).map(task => mapTaskFromDb(task, checklistByTask, commentsByTask, attachmentsByTask)),
       poTracker: (purchaseOrders.data || []).map(mapPoFromDb),
@@ -185,7 +191,14 @@ export const tmkRepository = {
     if (count && count > 0) return;
 
     await replaceTable(TABLES.campaigns, campaigns);
-    await replaceTable(TABLES.channels, channels);
+    const dbChannels = channels.map(ch => ({
+      id: ch.id,
+      name: ch.name,
+      percentage: Number(ch.target || 0),
+      actual: Number(ch.actual || 0),
+      color: ch.color
+    }));
+    await replaceTable(TABLES.channels, dbChannels);
     await replaceTable(TABLES.products, products.map(normalizeProduct).map(mapProductToDb));
     await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
     await replaceTaskChildren(tasks);
@@ -200,7 +213,14 @@ export const tmkRepository = {
 
   async saveChannels(channels) {
     if (!isSupabaseConfigured) return;
-    await replaceTable(TABLES.channels, channels);
+    const dbChannels = channels.map(ch => ({
+      id: ch.id,
+      name: ch.name,
+      percentage: Number(ch.target || 0),
+      actual: Number(ch.actual || 0),
+      color: ch.color
+    }));
+    await replaceTable(TABLES.channels, dbChannels);
   },
 
   async saveProducts(products) {
