@@ -98,15 +98,30 @@ const groupByTask = (rows, mapper) => rows.reduce((acc, row) => {
 }, {});
 
 const replaceTable = async (table, rows) => {
-  if (!rows || rows.length === 0) {
-    console.warn(`⚠️ Skipped empty replace for ${table} to avoid deleting existing Supabase data.`);
+  if (!rows) {
+    console.warn(`⚠️ Skipped replace for ${table}: rows is null/undefined`);
+    return;
+  }
+
+  // Empty incoming set: delete ALL rows from the table
+  if (rows.length === 0) {
+    console.log(`🗑️ Deleting ALL rows from ${table} (empty incoming set)`);
+    const { data: deletedRows, error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .neq('id', '')
+      .select('id');
+    if (deleteError) throw deleteError;
+    if (deletedRows && deletedRows.length > 0) {
+      console.warn(`🗑️ ${table}: deleted ALL ${deletedRows.length} rows`);
+    }
     return;
   }
 
   // Safety: log what we're about to save
   console.log(`💾 Saving ${table}: ${rows.length} rows`, rows.map(r => r.id || r.name || '?'));
 
-  // 1. Upsert to insert new rows or update existing ones, preventing foreign key cascading nulls/deletes
+  // 1. Upsert to insert new rows or update existing ones
   const { error: upsertError } = await supabase.from(table).upsert(rows);
   if (upsertError) throw upsertError;
 
