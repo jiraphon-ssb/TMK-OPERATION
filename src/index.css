@@ -197,7 +197,7 @@ body {
   color: #ffffff;
   background: linear-gradient(135deg, #111827, var(--primary));
   font-weight: 900;
-  font-size: 15px;
+  font-size: 17px;
   letter-spacing: 0.5px;
   box-shadow: 0 10px 24px rgba(79, 70, 229, 0.22);
   flex-shrink: 0;
@@ -212,7 +212,7 @@ body {
   align-items: center;
   gap: 7px;
   color: var(--primary);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.7px;
   text-transform: uppercase;
@@ -228,7 +228,7 @@ body {
 }
 
 .brand-copy h1 {
-  font-size: 25px;
+  font-size: 27px;
   font-weight: 850;
   line-height: 1.12;
   color: var(--text-main);
@@ -240,9 +240,9 @@ body {
 
 .brand-copy p {
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 14.5px;
   margin-top: 5px;
-  font-weight: 500;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -257,7 +257,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 3px 9px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   color: var(--text-muted);
   background-color: var(--surface);
@@ -360,12 +360,12 @@ body {
 }
 
 .data-menu strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .data-menu small {
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 13.5px;
 }
 
 .data-menu .danger i,
@@ -391,8 +391,8 @@ body {
   border: none;
   padding: 12px 20px;
   font-family: var(--font-family);
-  font-size: 14.5px;
-  font-weight: 600;
+  font-size: 16.5px;
+  font-weight: 800;
   color: var(--text-muted);
   cursor: pointer;
   border-radius: 10px 10px 0 0;
@@ -418,8 +418,8 @@ body {
 /* High-end Form Components */
 .btn {
   font-family: var(--font-family);
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: 800;
   padding: 8px 16px;
   border-radius: 10px;
   cursor: pointer;
@@ -490,7 +490,7 @@ body {
 
 .btn-sm {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 14px;
   border-radius: 6px;
 }
 
@@ -502,14 +502,14 @@ body {
 }
 
 .form-label {
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 800;
   color: var(--text-muted);
 }
 
 .form-input {
   font-family: var(--font-family);
-  font-size: 14px;
+  font-size: 16px;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -549,8 +549,8 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 15.5px;
+  font-weight: 800;
   color: var(--text-muted);
   background-color: var(--surface-hover);
   padding: 4px 10px;
@@ -563,7 +563,7 @@ body {
   border: none;
   outline: none;
   font-family: var(--font-family);
-  font-weight: 600;
+  font-weight: 800;
   color: var(--text-main);
   cursor: pointer;
 }
@@ -579,14 +579,14 @@ body {
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-light);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .search-input-wrapper input {
   width: 100%;
   padding: 8px 12px 8px 36px;
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: 15.5px;
   border: 1px solid var(--border);
   background-color: var(--surface);
   color: var(--text-main);
@@ -600,7 +600,7 @@ body {
 
 .section-eyebrow {
   color: var(--primary);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -608,7 +608,7 @@ body {
 
 .helper-text {
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 14.5px;
   margin-top: 6px;
 }
 
@@ -622,7 +622,7 @@ body {
 
 .section-header h3,
 .reminder-card h3 {
-  font-size: 16px;
+  font-size: 18px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -631,7 +631,7 @@ body {
 .stock-badge {
   border-radius: 999px;
   padding: 4px 9px;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
 }
 
@@ -652,7 +652,7 @@ body {
   border-radius: 12px;
   padding: 18px;
   text-align: center;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 /* Master Dashboard Grid */
@@ -696,22 +696,22 @@ body {
 }
 
 .target-kpi-info .value {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 900;
   color: var(--primary);
   letter-spacing: -1px;
 }
 
 .target-kpi-info .label {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 800;
   color: var(--text-muted);
 }
 
 .target-kpi-info .sub-label {
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-light);
-  font-weight: 500;
+  font-weight: 700;
 }
 
 /* SVG Circular progress styling */
@@ -743,8 +743,8 @@ body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 13.5px;
-  font-weight: 700;
+  font-size: 15.5px;
+  font-weight: 900;
   color: var(--text-main);
 }
 
@@ -777,8 +777,8 @@ body {
 .channel-header {
   display: flex;
   justify-content: space-between;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 900;
   align-items: center;
 }
 
@@ -821,7 +821,7 @@ body {
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13.5px;
+  font-size: 15.5px;
   white-space: nowrap;
 }
 
@@ -829,7 +829,7 @@ body {
   text-align: left;
   padding: 14px 18px;
   color: var(--text-muted);
-  font-weight: 700;
+  font-weight: 900;
   border-bottom: 2px solid var(--border);
   background-color: var(--surface-accent);
 }
@@ -851,8 +851,8 @@ body {
 
 /* Priority Badges */
 .priority-badge {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 900;
   padding: 2px 8px;
   border-radius: 6px;
   display: inline-flex;
@@ -893,8 +893,8 @@ body {
 }
 
 .month-title {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 900;
 }
 
 .calendar-grid-scroll-wrapper {
@@ -911,8 +911,8 @@ body {
 
 .cal-day-header {
   text-align: center;
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 14.5px;
+  font-weight: 900;
   color: var(--text-muted);
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
@@ -958,14 +958,14 @@ body {
 }
 
 .cal-day-num {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 900;
 }
 
 .cal-channels-icons {
   display: flex;
   gap: 4px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .cal-events-list {
@@ -979,8 +979,8 @@ body {
 }
 
 .cal-event-pill {
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 800;
   padding: 2px 6px;
   border-radius: 4px;
   color: #ffffff;
@@ -991,8 +991,8 @@ body {
 }
 
 .cal-more-indicator {
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 900;
   color: var(--text-muted);
   padding: 1px 4px;
   text-align: left;
@@ -1016,10 +1016,10 @@ body {
   background-color: var(--surface-accent);
   padding: 10px 14px;
   border-radius: 10px;
-  font-weight: 700;
+  font-weight: 900;
   text-align: center;
   border: 1px solid var(--border);
-  font-size: 14.5px;
+  font-size: 16.5px;
 }
 
 .tasks-container {
@@ -1048,8 +1048,8 @@ body {
 }
 
 .task-detail-card .campaign-tag {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 900;
   padding: 2px 6px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1057,20 +1057,20 @@ body {
 }
 
 .task-detail-card .title {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 900;
   color: var(--text-main);
 }
 
 .task-detail-card .desc {
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--text-muted);
 }
 
 .task-detail-card .meta-row {
   display: flex;
   justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-muted);
   border-top: 1px solid var(--border);
   padding-top: 8px;
@@ -1115,8 +1115,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 700;
-  font-size: 13.5px;
+  font-weight: 900;
+  font-size: 15.5px;
   padding-bottom: 8px;
   border-bottom: 2px solid var(--border);
 }
@@ -1126,7 +1126,7 @@ body {
   color: var(--text-muted);
   padding: 2px 8px;
   border-radius: 99px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .kanban-card-list {
@@ -1209,14 +1209,14 @@ body {
 }
 
 .timeline-time-date {
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 900;
+  font-size: 15px;
   color: var(--text-main);
 }
 
 .timeline-time-month {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -1312,9 +1312,9 @@ body {
 }
 
 .timeline-card-date {
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -1332,8 +1332,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9.5px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 900;
   color: white;
   margin-left: -7px;
 }
@@ -1352,14 +1352,14 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 8.5px;
-  font-weight: 700;
+  font-weight: 900;
   color: var(--text-muted);
   background: var(--surface-hover);
 }
 
 .timeline-card-title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 900;
   color: var(--text-main);
   line-height: 1.35;
   word-break: break-word;
@@ -1403,15 +1403,15 @@ body {
 }
 
 .timeline-card-progress-text {
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-muted);
-  font-weight: 700;
+  font-weight: 900;
   white-space: nowrap;
 }
 
 .timeline-card-tag {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 900;
   padding: 3px 10px;
   border-radius: 99px;
   white-space: nowrap;
@@ -1444,7 +1444,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -1472,9 +1472,9 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--text-light);
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -1489,7 +1489,7 @@ body {
 
 .timeline-card-detail {
   display: none;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-muted);
   white-space: pre-wrap;
   line-height: 1.5;
@@ -1509,9 +1509,9 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   color: var(--text-light);
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
   padding: 2px 6px;
   border-radius: 4px;
@@ -1566,8 +1566,8 @@ body {
 }
 
 .campaign-health-card-name {
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: 12.5px;
+  font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   white-space: nowrap;
@@ -1576,7 +1576,7 @@ body {
 }
 
 .campaign-health-card-progress {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-muted);
   margin-top: 2px;
 }
@@ -1599,8 +1599,8 @@ body {
 
 .campaign-health-card-ring-value {
   position: absolute;
-  font-size: 9.5px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 900;
   color: var(--text-main);
 }
 
@@ -1615,8 +1615,8 @@ body {
 }
 
 .checklist-title {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 900;
   text-transform: uppercase;
   color: var(--text-light);
   display: flex;
@@ -1628,7 +1628,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: 14.5px;
 }
 
 .checklist-checkbox {
@@ -1651,7 +1651,7 @@ body {
 
 .checklist-input {
   font-family: var(--font-family);
-  font-size: 11.5px;
+  font-size: 13.5px;
   padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1705,14 +1705,14 @@ body {
 }
 
 .modal-header h2 {
-  font-size: 16.5px;
-  font-weight: 700;
+  font-size: 18.5px;
+  font-weight: 900;
 }
 
 .modal-close-btn {
   background: none;
   border: none;
-  font-size: 20px;
+  font-size: 22px;
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -1759,11 +1759,11 @@ body {
 }
 
 .approval-callout strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .approval-callout span {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-muted);
 }
 
@@ -1783,7 +1783,7 @@ body {
   background-color: var(--surface-accent);
   border-radius: 8px;
   padding: 7px 9px;
-  font-size: 12.5px;
+  font-size: 14.5px;
 }
 
 .support-row button {
@@ -1821,8 +1821,8 @@ body {
 }
 
 .staff-name {
-  font-size: 14.5px;
-  font-weight: 700;
+  font-size: 16.5px;
+  font-weight: 900;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1832,15 +1832,15 @@ body {
 .staff-stat-row {
   display: flex;
   justify-content: space-between;
-  font-size: 12.5px;
+  font-size: 14.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 700;
 }
 
 /* Campaign Tag Standalone styling */
 .campaign-tag {
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 900;
   padding: 2px 8px;
   border-radius: 4px;
   text-transform: uppercase;
@@ -1850,8 +1850,8 @@ body {
 
 /* Configuration grid forms */
 .config-section-title {
-  font-size: 14.5px;
-  font-weight: 700;
+  font-size: 16.5px;
+  font-weight: 900;
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
   margin-top: 8px;
@@ -1927,7 +1927,7 @@ body {
 
   .tab-btn {
     padding: 10px 14px;
-    font-size: 13px;
+    font-size: 15px;
   }
   
   .target-kpi-card {
@@ -1937,7 +1937,7 @@ body {
   }
 
   .target-kpi-info .value {
-    font-size: 24px;
+    font-size: 26px;
   }
   
   .calendar-grid {
@@ -1959,29 +1959,29 @@ body {
   }
 
   .cal-channels-icons {
-    font-size: 9px;
+    font-size: 11px;
     gap: 2px;
     flex-wrap: wrap;
     justify-content: flex-end;
   }
 
   .cal-day-num {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .cal-day-header {
-    font-size: 10px;
+    font-size: 12px;
     padding: 4px 0;
   }
 
   .cal-event-pill {
-    font-size: 9px;
+    font-size: 11px;
     padding: 1px 4px;
     border-radius: 3px;
   }
 
   .cal-more-indicator {
-    font-size: 8px;
+    font-size: 10px;
     padding: 1px 2px;
   }
   
@@ -2025,7 +2025,7 @@ body {
     padding: 12px 16px;
   }
   .modal-header h2 {
-    font-size: 15px;
+    font-size: 17px;
   }
   .modal-footer {
     padding: 10px 16px;
@@ -2039,7 +2039,7 @@ body {
   }
   .dropdown-option-item {
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: 15px;
   }
   .dropdown-option-checkbox-label input[type="checkbox"] {
     width: 16px;
@@ -2054,14 +2054,14 @@ body {
   }
   
   .brand-copy h1 {
-    font-size: 18px;
+    font-size: 20px;
   }
 
   .brand-mark {
     width: 48px;
     height: 48px;
     border-radius: 12px;
-    font-size: 12px;
+    font-size: 14px;
   }
 
   .brand-copy p {
@@ -2095,13 +2095,13 @@ body {
   }
 
   .cal-channels-icons {
-    font-size: 8px;
+    font-size: 10px;
     gap: 1px;
   }
 
   .cal-day-num {
-    font-size: 9px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 900;
   }
 
   .cal-day-header {
@@ -2110,7 +2110,7 @@ body {
   }
 
   .cal-event-pill {
-    font-size: 8px;
+    font-size: 10px;
     padding: 1px 2px;
     border-radius: 2px;
     line-height: 1.1;
@@ -2152,7 +2152,7 @@ body {
     padding: 12px 16px;
   }
   .modal-header h2 {
-    font-size: 15px;
+    font-size: 17px;
   }
   .modal-footer {
     padding: 10px 16px;
@@ -2166,7 +2166,7 @@ body {
   }
   .dropdown-option-item {
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: 15px;
   }
   .dropdown-option-checkbox-label input[type="checkbox"] {
     width: 16px;
@@ -2303,11 +2303,11 @@ body {
   color: var(--primary);
   border-radius: 8px;
   padding: 4px 8px;
-  font-size: 13px;
+  font-size: 15px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-weight: 600;
+  font-weight: 800;
   transition: all 0.15s ease;
 }
 
@@ -2320,7 +2320,7 @@ body {
   border: none;
   color: var(--primary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1;
   padding: 0;
   display: flex;
@@ -2362,7 +2362,7 @@ body {
 .dropdown-search-input {
   width: 100%;
   padding: 10px 14px;
-  font-size: 13px;
+  font-size: 15px;
   background-color: var(--surface-hover);
   border: 2px solid var(--border);
   border-radius: 10px;
@@ -2412,8 +2412,8 @@ body {
   padding: 10px 12px;
   border-radius: 10px;
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 700;
   transition: all 0.15s ease;
   user-select: none;
   position: relative;
@@ -2458,12 +2458,12 @@ body {
 
 .dropdown-option-checkbox-label span {
   color: var(--text-main);
-  font-weight: 500;
+  font-weight: 700;
 }
 
 .dropdown-option-item.selected .dropdown-option-checkbox-label span {
   color: var(--primary);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .dropdown-option-delete-btn {
@@ -2494,8 +2494,8 @@ body {
   align-items: center;
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 800;
   gap: 4px;
   background-color: var(--border);
   color: var(--text-muted);
@@ -2507,8 +2507,8 @@ body {
   align-items: center;
   padding: 2px 6px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 800;
   gap: 4px;
   background-color: var(--border);
   color: var(--text-muted);
@@ -2525,8 +2525,8 @@ body {
 }
 
 .channel-badge {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 800;
   color: var(--text-muted);
   background-color: var(--surface-accent);
   padding: 3px 8px;
@@ -2544,8 +2544,8 @@ body {
   border: none;
   cursor: pointer;
   padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 800;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -2621,7 +2621,7 @@ body {
 }
 
 .login-card-header .brand-logo {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 900;
   letter-spacing: 2px;
   color: #ffffff;
@@ -2637,7 +2637,7 @@ body {
 }
 
 .login-card-header h1 {
-  font-size: 24px;
+  font-size: 26px;
   font-weight: 800;
   color: #0f172a;
   letter-spacing: -0.5px;
@@ -2645,7 +2645,7 @@ body {
 }
 
 .login-card-header p {
-  font-size: 13.5px;
+  font-size: 15.5px;
   color: #64748b;
   margin: 0;
   line-height: 1.5;
@@ -2671,15 +2671,15 @@ body {
 
 .form-label.text-left-align {
   text-align: left;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 14.5px;
+  font-weight: 800;
   color: #475569;
 }
 
 .form-input {
   width: 100%;
   padding: 10px 14px;
-  font-size: 14px;
+  font-size: 16px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background-color: #ffffff;
@@ -2705,8 +2705,8 @@ body {
   color: #ffffff;
   border: none;
   font-family: var(--font-family);
-  font-size: 14.5px;
-  font-weight: 700;
+  font-size: 16.5px;
+  font-weight: 900;
   padding: 12px 20px;
   border-radius: 8px;
   cursor: pointer;
@@ -2735,7 +2735,7 @@ body {
 /* Auth toggle link */
 .auth-toggle-link {
   text-align: center;
-  font-size: 13px;
+  font-size: 15px;
   color: #64748b;
 }
 
@@ -2743,7 +2743,7 @@ body {
   background: none;
   border: none;
   color: #2563eb;
-  font-weight: 600;
+  font-weight: 800;
   cursor: pointer;
   padding: 0;
   font-family: var(--font-family);
@@ -2759,7 +2759,7 @@ body {
   display: flex;
   align-items: center;
   text-align: center;
-  font-size: 12px;
+  font-size: 14px;
   color: #94a3b8;
   margin: 8px 0;
 }
@@ -2785,8 +2785,8 @@ body {
   color: #334155;
   border: 1px solid #cbd5e1;
   font-family: var(--font-family);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 800;
   padding: 11px 20px;
   border-radius: 8px;
   cursor: pointer;
@@ -2810,13 +2810,13 @@ body {
 }
 
 .google-login-btn i {
-  font-size: 16px;
+  font-size: 18px;
   color: #ea4335; /* Google Red style */
 }
 
 .login-card-footer {
   text-align: center;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: #94a3b8;
   margin-top: 8px;
 }
@@ -2827,7 +2827,7 @@ body {
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: 13px;
   color: #64748b;
   max-height: 80px;
   overflow-y: auto;
@@ -2836,7 +2836,7 @@ body {
 
 .terms-container strong {
   display: block;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: #475569;
   margin-bottom: 4px;
 }
@@ -2865,9 +2865,9 @@ body {
 }
 
 .terms-checkbox-wrapper label {
-  font-size: 12px;
+  font-size: 14px;
   color: #475569;
-  font-weight: 500;
+  font-weight: 700;
   line-height: 1.4;
   cursor: pointer;
   user-select: none;
@@ -2896,8 +2896,8 @@ body {
 }
 
 .user-name-span {
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 14.5px;
+  font-weight: 900;
   color: var(--text-main);
 }
 
@@ -2911,8 +2911,8 @@ body {
   align-items: center;
   padding: 4px 10px;
   border-radius: 99px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -2959,8 +2959,8 @@ body {
   right: -4px;
   background-color: var(--danger);
   color: white;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 900;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -2997,7 +2997,7 @@ body {
 
 .notifications-dropdown-header strong {
   display: block;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
 }
 
@@ -3005,7 +3005,7 @@ body {
   display: block;
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .close-dropdown-btn {
@@ -3016,7 +3016,7 @@ body {
   color: var(--text-main);
   border-radius: 50%;
   cursor: pointer;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
 }
 
@@ -3036,7 +3036,7 @@ body {
   border-radius: 6px;
   background: var(--surface);
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
 }
 
@@ -3061,14 +3061,14 @@ body {
   padding: 30px 20px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .notifications-dropdown-empty i {
   display: block;
   margin-bottom: 8px;
   color: var(--success);
-  font-size: 24px;
+  font-size: 26px;
 }
 
 .notification-item {
@@ -3111,13 +3111,13 @@ body {
 
 .noti-status {
   color: var(--danger);
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 800;
 }
 
 .notification-item .noti-title {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 900;
   color: var(--text-main);
   line-height: 1.35;
 }
@@ -3126,7 +3126,7 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: 13.5px;
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -3165,7 +3165,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 19px;
+  font-size: 21px;
   font-weight: 850;
   color: var(--text-main);
 }
@@ -3178,7 +3178,7 @@ body {
   margin: 5px 0 0;
   max-width: 760px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.55;
 }
 
@@ -3200,7 +3200,7 @@ body {
 
 .audit-metric span {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -3251,7 +3251,7 @@ body {
   color: var(--text-muted);
   border-radius: 6px;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -3286,8 +3286,8 @@ body {
 .audit-logs-table th {
   background-color: var(--surface-hover);
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 900;
   text-transform: uppercase;
 }
 
@@ -3316,14 +3316,14 @@ body {
   border-radius: 50%;
   background: var(--primary-light);
   color: var(--primary);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
 }
 
 .audit-user-cell strong {
   color: var(--text-main);
-  font-size: 12.5px;
-  font-weight: 750;
+  font-size: 14.5px;
+  font-weight: 900;
 }
 
 .audit-detail-stack {
@@ -3335,7 +3335,7 @@ body {
 
 .audit-detail-summary {
   color: var(--text-main);
-  font-weight: 700;
+  font-weight: 900;
   line-height: 1.45;
 }
 
@@ -3344,7 +3344,7 @@ body {
   gap: 8px;
   align-items: center;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .audit-entity-line span {
@@ -3357,7 +3357,7 @@ body {
 
 .audit-entity-line strong {
   color: var(--text-main);
-  font-weight: 750;
+  font-weight: 900;
 }
 
 .audit-change-grid {
@@ -3374,7 +3374,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-hover);
-  font-size: 11.5px;
+  font-size: 13.5px;
 }
 
 .audit-field {
@@ -3398,13 +3398,13 @@ body {
 
 .audit-change-row i {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .audit-more {
   color: var(--text-muted);
-  font-size: 11.5px;
-  font-weight: 700;
+  font-size: 13.5px;
+  font-weight: 900;
 }
 
 .log-badge {
@@ -3412,8 +3412,8 @@ body {
   align-items: center;
   padding: 2px 8px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 900;
   text-transform: uppercase;
 }
 
@@ -3491,14 +3491,14 @@ body {
 
 .role-card-title strong {
   color: var(--text-main);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 850;
 }
 
 .role-card-title span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .role-alert {
@@ -3510,8 +3510,8 @@ body {
   border-radius: 8px;
   background: var(--warning-light);
   color: var(--warning);
-  font-size: 13px;
-  font-weight: 750;
+  font-size: 15px;
+  font-weight: 900;
 }
 
 .role-bootstrap-note {
@@ -3524,8 +3524,8 @@ body {
   border-radius: 8px;
   background: var(--surface-hover);
   color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .role-bootstrap-note i {
@@ -3547,7 +3547,7 @@ body {
 .role-table th {
   color: var(--text-muted);
   background: var(--surface-hover);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -3558,7 +3558,7 @@ body {
   gap: 6px;
   padding: 5px 10px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 13.5px;
   font-weight: 850;
   text-transform: uppercase;
 }
@@ -3585,8 +3585,8 @@ body {
   padding: 34px 12px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 900;
 }
 
 @media (max-width: 760px) {
