@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { tmkRepository } from './lib/tmkRepository';
-import { supabase } from './lib/supabaseClient';
+import { supabase, supabaseProjectRef } from './lib/supabaseClient';
 
 const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 const dayLabels = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
@@ -821,7 +821,7 @@ export default function App() {
         remoteData.tasks,
         remoteData.poTracker
       ].every(list => !list || list.length === 0);
-      setRemoteStatus(isRemoteEmpty ? 'Supabase connected แต่ยังอ่านไม่พบข้อมูลหลัก' : statusLabel);
+      setRemoteStatus(isRemoteEmpty ? `Supabase ${supabaseProjectRef || ''} connected แต่ยังอ่านไม่พบข้อมูลหลัก` : `${statusLabel}${supabaseProjectRef ? ` (${supabaseProjectRef})` : ''}`);
       return true;
     } catch (error) {
       console.error('Failed to load/sync Supabase data:', error);
