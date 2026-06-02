@@ -1198,6 +1198,14 @@ body {
   animation: fadeSlideRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
+.timeline-item-vertical:nth-child(even) {
+  flex-direction: row-reverse;
+}
+
+.timeline-item-vertical:nth-child(even) .timeline-time-side {
+  text-align: left;
+}
+
 .timeline-time-side {
   width: 80px;
   text-align: right;
@@ -1757,6 +1765,10 @@ body {
   .timeline-item-vertical {
     flex-direction: column;
     gap: 10px;
+  }
+
+  .timeline-item-vertical:nth-child(even) {
+    flex-direction: column;
   }
   
   .timeline-time-side {
