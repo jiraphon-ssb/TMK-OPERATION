@@ -2,6 +2,8 @@
    TMK Operations Hub - Professional Ultra-Premium Design System & Stylesheet
    ========================================================================== */
 
+@import url('https://fonts.googleapis.com/css2?family=TH+Sarabun+New:wght@400;600;700&display=swap');
+
 /* Global Reset & Base */
 * {
   box-sizing: border-box;
@@ -55,7 +57,7 @@
   --priority-low-bg: #f1f5f9;
 
   /* Typography */
-  --font-family: 'Inter', 'Kanit', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-family: 'TH Sarabun New', 'Inter', 'Kanit', -apple-system, BlinkMacSystemFont, sans-serif;
   
   /* Scrollbar */
   --scrollbar-thumb: #cbd5e1;
@@ -1199,14 +1201,6 @@ body {
   animation: fadeSlideRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-.timeline-item-vertical:nth-child(even) {
-  flex-direction: row-reverse;
-}
-
-.timeline-item-vertical:nth-child(even) .timeline-time-side {
-  text-align: left;
-}
-
 .timeline-time-side {
   width: 80px;
   text-align: right;
@@ -1766,10 +1760,6 @@ body {
   .timeline-item-vertical {
     flex-direction: column;
     gap: 10px;
-  }
-
-  .timeline-item-vertical:nth-child(even) {
-    flex-direction: column;
   }
   
   .timeline-time-side {
