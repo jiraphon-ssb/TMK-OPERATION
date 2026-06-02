@@ -1001,6 +1001,56 @@ body {
   text-overflow: ellipsis;
 }
 
+.cal-task-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  min-height: 0;
+}
+
+.cal-task-card:hover {
+  border-color: var(--border-focus);
+  box-shadow: var(--shadow-sm);
+}
+
+.cal-task-card-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-main);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-task-card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.cal-task-card-camp {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.cal-task-card-responsible {
+  flex-shrink: 0;
+}
+
 .btn-text-responsive {
   display: inline;
 }

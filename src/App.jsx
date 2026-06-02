@@ -1423,37 +1423,20 @@ export default function App() {
     });
   };
 
-  const renderChannelTags = (channelStr) => {
-    if (!channelStr) return null;
-    const channelArr = channelStr.split(',').map(c => c.trim()).filter(Boolean);
-    return channelArr.map(chan => {
-      const colors = getHashColor(chan, true);
-      return (
-        <span 
-          key={chan} 
-          className="task-pill-channel" 
-          style={{ backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }}
-        >
-          <i className="fa-solid fa-circle-nodes" style={{ fontSize: '12px' }}></i>
-          {chan}
-        </span>
-      );
-    });
-  };
-
   // Task CRUD Handlers
   const openAddTask = (dateStr) => {
     setTaskModalMode('add');
     setTaskForm({ 
-      date: dateStr || '', 
+      date: dateStr || '',
+      dateEnd: '', 
       title: '', 
       detail: '', 
       responsible: 'มัง', 
       channel: 'หลังบ้าน', 
       camp: campaigns[0]?.id || 'c1', 
       status: 'todo',
-      priority: 'medium',
-      checklist: [],
+      
+      
       comments: [],
       attachments: [],
       reminderDays: 1
@@ -1465,8 +1448,8 @@ export default function App() {
     setTaskModalMode('edit');
     setEditingTaskId(task.id);
     setTaskForm({ 
-      priority: 'medium',
-      checklist: [],
+      
+      dateEnd: task.dateEnd || '',
       comments: [],
       attachments: [],
       reminderDays: 1,
@@ -1484,7 +1467,8 @@ export default function App() {
     if (taskModalMode === 'add') {
       const newTask = {
         ...taskForm,
-        id: generateId('t')
+        id: generateId('t'),
+        dateEnd: taskForm.dateEnd || taskForm.date,
       };
       setTasks(prev => [...prev, newTask]);
       logAction('สร้างงานหลัก', buildAuditDetails({
@@ -1495,7 +1479,7 @@ export default function App() {
       }));
     } else {
       const beforeTask = tasks.find(t => t.id === editingTaskId);
-      const updatedTask = { ...taskForm, id: editingTaskId };
+      const updatedTask = { ...taskForm, id: editingTaskId, dateEnd: taskForm.dateEnd || taskForm.date };
       setTasks(prev => prev.map(t => t.id === editingTaskId ? updatedTask : t));
       logAction('แก้ไขงานหลัก', buildAuditDetails({
         entityType: 'task',
@@ -2781,10 +2765,15 @@ export default function App() {
                           return (
                             <>
                               {visibleTasks.map(task => {
-                                const campObj = campaigns.find(c => c.id === task.camp) || { color: '#64748b' };
+                                const camp = campaigns.find(c => c.id === task.camp) || { color: '#64748b' };
                                 return (
-                                  <div key={task.id} className="cal-event-pill" style={{ backgroundColor: campObj.color }} title={task.title}>
-                                    {task.title}
+                                  <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${camp.color || '#64748b'}` }}
+                                    onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
+                                    <div className="cal-task-card-title">{task.title}</div>
+                                    <div className="cal-task-card-meta">
+                                      <span className="cal-task-card-camp">{camp ? camp.name.split(':')[0] : ''}</span>
+                                      {task.responsible && <span className="cal-task-card-responsible">{task.responsible.split(',').map(s => s.trim()).filter(Boolean).length > 0 ? '👤 ' + task.responsible.split(',')[0].trim() : ''}</span>}
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -2829,35 +2818,47 @@ export default function App() {
               ) : (
                 getFilteredTasks(selectedDate).map(task => {
                   const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
+                  const campStyle = getCampaignStyle(campObj, theme);
+                  const { day, month, year } = getTimelineDateParts(task.date);
+                  const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
+                  const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
+                  const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
+                  const displayAvatars = responsibleList.slice(0, 2);
+                  const extraCount = Math.max(0, responsibleList.length - 2);
+                  
                   return (
-                    <div key={task.id} className="task-detail-card" style={{ borderLeft: `5px solid ${campObj.color}` }}>
-                      {(() => {
-                        const campStyle = getCampaignStyle(campObj, theme);
-                        return (
-                          <span className="campaign-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                    <div key={task.id} className="timeline-task-card-modern" style={{ marginBottom: '8px' }}>
+                      <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
+                      <div className="timeline-card-body" onClick={() => openEditTask(task)}>
+                        <div className="timeline-card-header">
+                          <span className="timeline-card-date">{displayDate}</span>
+                          <div className="timeline-card-avatars">
+                            {displayAvatars.map((name, i) => (
+                              <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
+                                {name.charAt(0)}
+                              </div>
+                            ))}
+                            {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
+                          </div>
+                        </div>
+                        <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
+                        {task.detail && <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
+                        {renderInlineChecklist(task)}
+                        <div className="timeline-card-footer">
+                          <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
                             {campObj.name.split(':')[0]}
                           </span>
-                        );
-                      })()}
-                      <div className="title">{task.title}</div>
-                      <div className="desc">{task.detail}</div>
-                      
-                      {/* Render inline checklist for daily schedule drawer */}
-                      {renderInlineChecklist(task)}
-
-                      <div className="meta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
-                        {renderResponsibleTags(task.responsible)}
-                        {renderChannelTags(task.channel)}
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
-                        <button className="btn" style={{ flexGrow: 1, padding: '4px', fontSize: '14px', justifyContent: 'center' }} onClick={() => openEditTask(task)}>
-                          <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
-                        </button>
-                        {userRole === 'admin' && (
-                          <button className="btn btn-danger" style={{ flexGrow: 1, padding: '4px', fontSize: '14px', justifyContent: 'center' }} onClick={() => deleteTask(task.id)}>
-                            <i className="fa-solid fa-trash"></i> ลบ
-                          </button>
-                        )}
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button className="btn" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
+                              <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดู'}
+                            </button>
+                            {userRole === 'admin' && (
+                              <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
+                                <i className="fa-solid fa-trash"></i>
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -3403,13 +3404,15 @@ export default function App() {
                               const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
                               const displayAvatars = responsibleList.slice(0, 2);
                               const extraCount = Math.max(0, responsibleList.length - 2);
+                              const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
+                              const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
                               
                               return (
                                 <div className="timeline-task-card-modern">
                                   <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
                                   <div className="timeline-card-body" onClick={() => openEditTask(task)}>
                                     <div className="timeline-card-header">
-                                      <span className="timeline-card-date">{day} {month} {year}</span>
+                                      <span className="timeline-card-date">{displayDate}</span>
                                       <div className="timeline-card-avatars">
                                         {displayAvatars.map((name, i) => (
                                           <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
@@ -3510,13 +3513,15 @@ export default function App() {
                                 const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
                                 const displayAvatars = responsibleList.slice(0, 2);
                                 const extraCount = Math.max(0, responsibleList.length - 2);
+                                const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
+                                const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
                                 
                                 return (
                                   <div className="timeline-task-card-modern">
                                     <div className="timeline-card-indicator" style={{ backgroundColor: camp.color, borderRadius: '14px 0 0 14px' }}></div>
                                     <div className="timeline-card-body" onClick={() => openEditTask(task)}>
                                       <div className="timeline-card-header">
-                                        <span className="timeline-card-date">{day} {month} {year}</span>
+                                        <span className="timeline-card-date">{displayDate}</span>
                                         <div className="timeline-card-avatars">
                                           {displayAvatars.map((name, i) => (
                                             <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
@@ -3855,6 +3860,10 @@ export default function App() {
               <div className="form-group">
                 <label className="form-label">วันที่ปฏิบัติงาน</label>
                 <input type="date" className="form-input" required disabled={userRole !== 'admin'} value={taskForm.date} onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">วันที่สิ้นสุด (ไม่บังคับ)</label>
+                <input type="date" className="form-input" value={taskForm.dateEnd || ''} onChange={(e) => setTaskForm({ ...taskForm, dateEnd: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">หัวข้องานหลัก</label>
