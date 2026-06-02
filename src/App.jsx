@@ -147,7 +147,7 @@ function SearchableMultiSelect({
           </span>
         ))}
         {selectedValues.length === 0 && (
-          <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{placeholder}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{placeholder}</span>
         )}
         <i
           className="fa-solid fa-chevron-down"
@@ -156,7 +156,7 @@ function SearchableMultiSelect({
             right: '12px',
             top: '50%',
             transform: 'translateY(-50%)',
-            fontSize: '13px',
+            fontSize: '12px',
             color: 'var(--text-muted)',
             pointerEvents: 'none'
           }}
@@ -232,7 +232,7 @@ function SearchableMultiSelect({
               </div>
             )}
             {filteredOptions.length === 0 && !searchTerm.trim() && (
-              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '12px' }}>
                 ไม่พบข้อมูล
               </div>
             )}
@@ -1330,7 +1330,7 @@ export default function App() {
                 onClick={() => deleteChecklistItem(task.id, item.id)}
                 title="ลบงานย่อย"
               >
-                <i className="fa-solid fa-trash-can" style={{ fontSize: '12px' }}></i>
+                <i className="fa-solid fa-trash-can" style={{ fontSize: '11px' }}></i>
               </button>
             )}
           </div>
@@ -1352,7 +1352,7 @@ export default function App() {
             <button 
               type="button" 
               className="btn" 
-              style={{ padding: '4px 10px', fontSize: '12px' }}
+              style={{ padding: '4px 10px', fontSize: '11px' }}
               onClick={(e) => {
                 const input = e.currentTarget.previousSibling;
                 if (input && input.value) {
@@ -1416,7 +1416,7 @@ export default function App() {
           className="task-pill-responsible" 
           style={{ backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }}
         >
-          <i className="fa-solid fa-user-circle" style={{ fontSize: '11px' }}></i>
+          <i className="fa-solid fa-user-circle" style={{ fontSize: '10px' }}></i>
           {staff}
         </span>
       );
@@ -1434,7 +1434,7 @@ export default function App() {
           className="task-pill-channel" 
           style={{ backgroundColor: colors.bg, borderColor: colors.border, color: colors.text }}
         >
-          <i className="fa-solid fa-circle-nodes" style={{ fontSize: '11px' }}></i>
+          <i className="fa-solid fa-circle-nodes" style={{ fontSize: '10px' }}></i>
           {chan}
         </span>
       );
@@ -2304,7 +2304,7 @@ export default function App() {
 
             {user && (
               <div className="filter-checkbox-wrapper" style={{ display: 'flex', alignItems: 'center' }}>
-                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '700', color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none', marginLeft: '8px' }}>
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '700', color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none', marginLeft: '8px' }}>
                   <input 
                     type="checkbox" 
                     checked={showOnlyMyTasks} 
@@ -2345,7 +2345,7 @@ export default function App() {
           {/* Target Sidebar */}
           <aside className="sidebar-targets">
             <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <h3 style={{ fontSize: '16px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
+              <h3 style={{ fontSize: '15px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
                 <i className="fa-solid fa-bullseye" style={{ color: 'var(--kpi-blue)', marginRight: '6px' }}></i>
                 Sales Target Overview
               </h3>
@@ -2386,7 +2386,7 @@ export default function App() {
                     border: '1px solid var(--border)',
                     borderRadius: '12px',
                     padding: '12px 14px',
-                    fontSize: '13.5px',
+                    fontSize: '12.5px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '8px',
@@ -2426,7 +2426,7 @@ export default function App() {
                             </span>
                           </div>
                           {!isBalanced && (
-                            <div style={{ fontSize: '12px', fontWeight: '500', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                            <div style={{ fontSize: '11px', fontWeight: '500', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                               {diff < 0 ? (
                                 <span>⚠️ เป้าหมายตามช่องทางขาดไปอีก <strong>{Math.abs(diff).toLocaleString()} ฿</strong> เพื่อให้ครอบคลุมเป้าหมายของสินค้าทั้งหมด</span>
                               ) : (
@@ -2459,9 +2459,9 @@ export default function App() {
 
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ fontSize: '14px', fontWeight: '700', textTransform: 'uppercase' }}>ยอดขายตามช่องทาง</h4>
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase' }}>ยอดขายตามช่องทาง</h4>
                   {userRole === 'admin' && (
-                    <button className="btn" style={{ padding: '4px 8px', fontSize: '12px' }} onClick={openAddChannel}>
+                    <button className="btn" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={openAddChannel}>
                       <i className="fa-solid fa-plus"></i> เพิ่มช่องทาง
                     </button>
                   )}
@@ -2502,15 +2502,15 @@ export default function App() {
                     return (
                       <div key={ch.id} className="channel-item">
                         <div className="channel-header">
-                          <span className="channel-info" style={{ fontSize: '15px', fontWeight: '800' }}>
+                          <span className="channel-info" style={{ fontSize: '14px', fontWeight: '800' }}>
                             <span className="channel-dot" style={{ backgroundColor: ch.color, boxShadow: `0 0 8px ${ch.color}80` }}></span>
                             {ch.name}
-                            <span style={{ fontSize: '11.5px', fontWeight: '600', color: 'var(--text-muted)', marginLeft: '8px', backgroundColor: 'var(--surface-accent)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: '10.5px', fontWeight: '600', color: 'var(--text-muted)', marginLeft: '8px', backgroundColor: 'var(--surface-accent)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>
                               สัดส่วนเป้า: {targetSharePercent}%
                             </span>
                           </span>
-                          <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-light)' }}>
-                            เป้าหมาย: <strong style={{ color: 'var(--text-main)', fontSize: '15.5px' }}>{ch.target.toLocaleString()} ฿</strong>
+                          <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-light)' }}>
+                            เป้าหมาย: <strong style={{ color: 'var(--text-main)', fontSize: '14.5px' }}>{ch.target.toLocaleString()} ฿</strong>
                           </span>
                         </div>
                         <div className="progress-bar-bg" style={{ height: '6px', margin: '2px 0' }}>
@@ -2549,7 +2549,7 @@ export default function App() {
             
             {/* Monthly Highlight Summary */}
             <div className="card">
-              <h3 style={{ fontSize: '17px', fontWeight: '700', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>
                 <i className="fa-solid fa-star" style={{ color: '#facc15', marginRight: '8px' }}></i>
                 สรุปแผนงานและกิจกรรมแคมเปญประจำเดือนนี้
               </h3>
@@ -2560,11 +2560,11 @@ export default function App() {
                   const campStyle = getCampaignStyle(camp, theme);
                   return (
                     <div key={camp.id} style={{ backgroundColor: campStyle.backgroundColor, border: `1px solid ${campStyle.borderColor}`, padding: '16px', borderRadius: '12px' }}>
-                      <span style={{ backgroundColor: camp.color, color: 'white', padding: '3px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>
+                      <span style={{ backgroundColor: camp.color, color: 'white', padding: '3px 8px', borderRadius: '20px', fontSize: '10px', fontWeight: '700', textTransform: 'uppercase' }}>
                         Campaign {index + 1}
                       </span>
-                      <h4 style={{ marginTop: '10px', fontSize: '16px', fontWeight: '600' }}>{camp.name}</h4>
-                      <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+                      <h4 style={{ marginTop: '10px', fontSize: '15px', fontWeight: '600' }}>{camp.name}</h4>
+                      <div style={{ marginTop: '10px', fontSize: '12px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
                         <span>ความคืบหน้าแผนงาน:</span>
                         <strong>{doneTasksCount}/{campTasksCount} งานสำเร็จ</strong>
                       </div>
@@ -2579,11 +2579,11 @@ export default function App() {
 
             {/* Staff Workload & Performance Tracker */}
             <div className="card">
-              <h3 style={{ fontSize: '17px', fontWeight: '700', marginBottom: '12px' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700', marginBottom: '12px' }}>
                 <i className="fa-solid fa-users-gear" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 ประเมินภาระงานและผลงานรายบุคคล (Staff Workload Dashboard)
               </h3>
-              <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
                 วิเคราะห์การกระจายงาน ความคืบหน้าของงานทั้งหมดที่แต่ละคนดูแล เพื่อประสิทธิภาพในการจัดสรรงาน
               </p>
               
@@ -2599,7 +2599,7 @@ export default function App() {
                   return (
                     <div key={staff} className="staff-card">
                       <div className="staff-name">
-                        <i className="fa-solid fa-user-circle" style={{ color: 'var(--kpi-blue)', fontSize: '19px' }}></i>
+                        <i className="fa-solid fa-user-circle" style={{ color: 'var(--kpi-blue)', fontSize: '18px' }}></i>
                         <span>{staff}</span>
                       </div>
                       <div className="staff-stat-row" style={{ marginTop: '4px' }}>
@@ -2609,7 +2609,7 @@ export default function App() {
                       <div className="progress-bar-bg" style={{ height: '6px', margin: '4px 0' }}>
                         <div className="progress-bar-fill" style={{ width: `${percent}%`, backgroundColor: 'var(--success)' }}></div>
                       </div>
-                      <div className="staff-stat-row" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      <div className="staff-stat-row" style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                         <span>สำเร็จ {completed} | กำลังทำ {inProgress} | รอทำ/ตรวจ {pending}</span>
                         <strong>{percent}%</strong>
                       </div>
@@ -2622,7 +2622,7 @@ export default function App() {
             {/* Product Matrix Overview Table */}
             <div className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ fontSize: '17px', fontWeight: '700' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: '700' }}>
                   <i className="fa-solid fa-gem" style={{ color: '#0284c7', marginRight: '8px' }}></i>
                   สัดส่วนและเป้ายอดขายตามกลุ่มสินค้า
                 </h3>
@@ -2663,7 +2663,7 @@ export default function App() {
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: '700' }}>{prodTargetSales.toLocaleString()} ฿</td>
                           <td style={{ textAlign: 'right', color: 'var(--kpi-blue)', fontWeight: '600' }}>{targetPercent}%</td>
-                          <td style={{ fontSize: '13.5px', color: 'var(--text-muted)' }}>{prod.strategy}</td>
+                          <td style={{ fontSize: '12.5px', color: 'var(--text-muted)' }}>{prod.strategy}</td>
                           <td style={{ textAlign: 'center' }}>
                             {userRole === 'admin' ? (
                               <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
@@ -2721,7 +2721,7 @@ export default function App() {
                 {monthNames[currentMonth]} {currentYear}
               </span>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: '600', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: '600', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
                   <i className="fa-solid fa-list-check" style={{ marginRight: '4px', color: 'var(--primary)' }}></i>
                   {tasks.filter(t => {
                     const taskMonth = parseInt(t.date?.split('-')[1]) - 1;
@@ -2823,7 +2823,7 @@ export default function App() {
 
             <div className="tasks-container">
               {getFilteredTasks(selectedDate).length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 10px', fontSize: '14px' }}>
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 10px', fontSize: '13px' }}>
                   ไม่มีกำหนดการแคมเปญในวันนี้
                 </div>
               ) : (
@@ -2850,11 +2850,11 @@ export default function App() {
                         {renderChannelTags(task.channel)}
                       </div>
                       <div style={{ display: 'flex', gap: '8px', borderTop: '1px solid var(--border)', paddingTop: '10px', marginTop: '4px' }}>
-                        <button className="btn" style={{ flexGrow: 1, padding: '4px', fontSize: '13px', justifyContent: 'center' }} onClick={() => openEditTask(task)}>
+                        <button className="btn" style={{ flexGrow: 1, padding: '4px', fontSize: '12px', justifyContent: 'center' }} onClick={() => openEditTask(task)}>
                           <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
                         </button>
                         {userRole === 'admin' && (
-                          <button className="btn btn-danger" style={{ flexGrow: 1, padding: '4px', fontSize: '13px', justifyContent: 'center' }} onClick={() => deleteTask(task.id)}>
+                          <button className="btn btn-danger" style={{ flexGrow: 1, padding: '4px', fontSize: '12px', justifyContent: 'center' }} onClick={() => deleteTask(task.id)}>
                             <i className="fa-solid fa-trash"></i> ลบ
                           </button>
                         )}
@@ -2879,7 +2879,7 @@ export default function App() {
       {activeTab === 'kanban' && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '19px', fontWeight: '700' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '700' }}>
               <i className="fa-solid fa-list-check" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
               บอร์ดติดตามสถานะปฏิบัติการของทีม
             </h2>
@@ -2915,9 +2915,9 @@ export default function App() {
                 >
                   <div className="kanban-column-header">
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <span style={{ fontSize: '14.5px', fontWeight: '700' }}>{statusName}</span>
+                      <span style={{ fontSize: '13.5px', fontWeight: '700' }}>{statusName}</span>
                       {totalSubtasks > 0 && (
-                        <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: '500' }}>
+                        <span style={{ fontSize: '10.5px', color: 'var(--text-muted)', fontWeight: '500' }}>
                           <i className="fa-solid fa-list-check" style={{ marginRight: '4px' }}></i>
                           งานย่อยสำเร็จ: {completedSubtasks}/{totalSubtasks}
                         </span>
@@ -2938,17 +2938,17 @@ export default function App() {
                           handleDragStart(e, task.id);
                         }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '11px', color: campObj.color, fontWeight: '700', textTransform: 'uppercase' }}>
+                            <span style={{ fontSize: '10px', color: campObj.color, fontWeight: '700', textTransform: 'uppercase' }}>
                               {campObj.name.split(':')[0]}
                             </span>
                             <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
                               {renderPriorityBadge(task.priority)}
-                              <span style={{ fontSize: '11.5px', color: 'var(--text-light)' }}>{task.date}</span>
+                              <span style={{ fontSize: '10.5px', color: 'var(--text-light)' }}>{task.date}</span>
                             </div>
                           </div>
                           
-                          <h4 style={{ fontSize: '14.5px', fontWeight: '600' }}>{task.title}</h4>
-                          <p style={{ fontSize: '13px', color: 'var(--text-muted)', lineSelf: 'stretch' }}>{task.detail}</p>
+                          <h4 style={{ fontSize: '13.5px', fontWeight: '600' }}>{task.title}</h4>
+                          <p style={{ fontSize: '12px', color: 'var(--text-muted)', lineSelf: 'stretch' }}>{task.detail}</p>
                           
                           {/* Subtask checklist progress bar */}
                           {task.checklist && task.checklist.length > 0 && (() => {
@@ -2957,7 +2957,7 @@ export default function App() {
                             const pct = Math.round((completed / total) * 100);
                             return (
                               <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11.5px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10.5px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                                   <span><i className="fa-solid fa-list-check" style={{ marginRight: '4px' }}></i>ความคืบหน้า</span>
                                   <span>{completed}/{total} ({pct}%)</span>
                                 </div>
@@ -2973,7 +2973,7 @@ export default function App() {
                               {renderResponsibleTags(task.responsible)}
                             </div>
                             
-                            <select className="form-input" style={{ padding: '2px 4px', fontSize: '11.5px' }} value={task.status} disabled={userRole !== 'admin'} onChange={(e) => {
+                            <select className="form-input" style={{ padding: '2px 4px', fontSize: '10.5px' }} value={task.status} disabled={userRole !== 'admin'} onChange={(e) => {
                               const newStatus = e.target.value;
                               changeTaskStatus(task, newStatus);
                             }}>
@@ -2985,11 +2985,11 @@ export default function App() {
                           </div>
                           
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', marginTop: '2px' }}>
-                            <span style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--kpi-blue)' }} onClick={() => openEditTask(task)}>
+                            <span style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--kpi-blue)' }} onClick={() => openEditTask(task)}>
                               {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
                             </span>
                             {userRole === 'admin' && (
-                              <span style={{ cursor: 'pointer', fontSize: '12px', color: 'var(--danger)' }} onClick={() => deleteTask(task.id)}>ลบ</span>
+                              <span style={{ cursor: 'pointer', fontSize: '11px', color: 'var(--danger)' }} onClick={() => deleteTask(task.id)}>ลบ</span>
                             )}
                           </div>
                         </div>
@@ -3011,7 +3011,7 @@ export default function App() {
           {/* Production PO Tracker */}
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '17px', fontWeight: '700' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700' }}>
                 <i className="fa-solid fa-box" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 ใบสั่งผลิต & เปิด PO โรงงาน (PO Tracker)
               </h3>
@@ -3047,7 +3047,7 @@ export default function App() {
                           color: po.status === 'Completed' ? 'var(--success)' : '#d97706',
                           padding: '4px 10px',
                           borderRadius: '20px',
-                          fontSize: '12.5px',
+                          fontSize: '11.5px',
                           fontWeight: '700'
                         }}>
                           {po.status === 'Completed' ? 'ของเข้าแล้ว' : 'กำลังผลิต'}
@@ -3057,7 +3057,7 @@ export default function App() {
                         {userRole === 'admin' ? (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                             {po.status !== 'Completed' && (
-                              <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '12.5px' }} onClick={() => markPoReceived(po)}>
+                              <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => markPoReceived(po)}>
                                 <i className="fa-solid fa-check"></i> รับสินค้าแล้ว
                               </button>
                             )}
@@ -3086,7 +3086,7 @@ export default function App() {
 
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
-              <h3 style={{ fontSize: '17px', fontWeight: '700' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: '700' }}>
                 <i className="fa-solid fa-warehouse" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 Stock Watch
               </h3>
@@ -3145,7 +3145,7 @@ export default function App() {
       {activeTab === 'campaigns' && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '19px', fontWeight: '700' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '700' }}>
               <i className="fa-solid fa-layer-group" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
               ตั้งค่าแคมเปญการตลาด (Campaign Settings)
             </h2>
@@ -3154,7 +3154,7 @@ export default function App() {
             </button>
           </div>
 
-          <p style={{ fontSize: '14.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+          <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
             ตั้งค่าแคมเปญและสีประจำแคมเปญ เพื่อให้ระบบนำไปวาดและจำแนกจุดกำหนดการบนปฏิทินปฏิบัติงาน และคำนวณข้อมูลผลงานรายแคมเปญ
           </p>
 
@@ -3219,11 +3219,11 @@ export default function App() {
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
-                <h2 style={{ fontSize: '19px', fontWeight: '700' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '700' }}>
                   <i className="fa-solid fa-route" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                   ไทม์ไลน์แผนปฏิบัติงานแนวตั้ง (Campaign Roadmap)
                 </h2>
-                <p style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
                   ติดตาม กำหนดการ และขั้นตอนย่อยของทุกแคมเปญ เพื่อให้ทีมทำงานร่วมกันได้อย่างเป็นระบบ
                 </p>
               </div>
@@ -3280,12 +3280,12 @@ export default function App() {
               {/* Priority and Search Filters */}
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '50px', backgroundColor: 'var(--surface)' }}>
-                  <span style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-muted)' }}>
+                  <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--text-muted)' }}>
                     <i className="fa-solid fa-triangle-exclamation"></i> ความสำคัญ:
                   </span>
                   <select 
                     className="form-input" 
-                    style={{ border: 'none', padding: '0', fontWeight: '600', fontSize: '13.5px' }} 
+                    style={{ border: 'none', padding: '0', fontWeight: '600', fontSize: '12.5px' }} 
                     value={timelinePriority} 
                     onChange={(e) => setTimelinePriority(e.target.value)}
                   >
@@ -3297,12 +3297,12 @@ export default function App() {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '50px', backgroundColor: 'var(--surface)' }}>
-                  <i className="fa-solid fa-magnifying-glass" style={{ color: 'var(--text-muted)', fontSize: '13px' }}></i>
+                  <i className="fa-solid fa-magnifying-glass" style={{ color: 'var(--text-muted)', fontSize: '12px' }}></i>
                   <input 
                     type="text" 
                     placeholder="ค้นหางาน..." 
                     className="form-input" 
-                    style={{ border: 'none', padding: '0', fontWeight: '600', width: '120px', fontSize: '13.5px' }} 
+                    style={{ border: 'none', padding: '0', fontWeight: '600', width: '120px', fontSize: '12.5px' }} 
                     value={timelineSearch}
                     onChange={(e) => setTimelineSearch(e.target.value)}
                   />
@@ -3349,7 +3349,7 @@ export default function App() {
             {timelineFilter === 'master' && (
               <div className="campaign-card-timeline">
                 <div className="campaign-header-timeline" style={{ backgroundColor: 'var(--surface-hover)', borderLeft: '6px solid var(--kpi-blue)' }}>
-                  <h3 style={{ fontSize: '16px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <h3 style={{ fontSize: '15px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <i className="fa-solid fa-list-ol" style={{ color: 'var(--kpi-blue)' }}></i>
                     ลำดับแผนปฏิบัติงานภาพรวมตามช่วงเวลา (Master Timeline View)
                   </h3>
@@ -3388,65 +3388,61 @@ export default function App() {
                                 backgroundColor: task.status === 'done' ? campObj.color : 'var(--surface)' 
                               }}
                             >
-                              {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '9px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
+                              {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '8px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
                             </div>
                             <div className="timeline-time-line"></div>
                           </div>
                           
                           <div className="timeline-content-side">
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-                              <h4 className="timeline-task-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                {task.title}
-                              </h4>
-                              {(() => {
-                                const campStyle = getCampaignStyle(campObj, theme);
-                                return (
-                                  <span className="campaign-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                                    {campObj.name.split(':')[0]}
-                                  </span>
-                                );
-                              })()}
-                            </div>
-                            
-                            <div className="timeline-task-detail-box" style={{ borderLeft: `4px solid ${campObj.color}` }}>
-                              <p style={{ fontSize: '14px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>{task.detail}</p>
+                            {(() => {
+                              const campStyle = getCampaignStyle(campObj, theme);
+                              const checklist = task.checklist || [];
+                              const completedItems = checklist.filter(i => i.completed).length;
+                              const totalItems = checklist.length;
+                              const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : (task.status === 'done' ? 100 : 0);
+                              const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
+                              const displayAvatars = responsibleList.slice(0, 2);
+                              const extraCount = Math.max(0, responsibleList.length - 2);
                               
-                              {/* Checklist component */}
-                              {renderInlineChecklist(task)}
-
-                              <div className="timeline-actions-row">
-                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                  {renderResponsibleTags(task.responsible)}
-                                  {renderChannelTags(task.channel)}
-                                  {task.priority && (
-                                    <span className="timeline-responsible-tag" style={{ 
-                                      backgroundColor: task.priority === 'high' ? 'rgba(239, 68, 68, 0.15)' : task.priority === 'low' ? 'rgba(16, 185, 129, 0.15)' : 'var(--border)', 
-                                      color: task.priority === 'high' ? 'var(--danger)' : task.priority === 'low' ? 'var(--success)' : 'var(--text-muted)' 
-                                    }}>
-                                      <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: '4px' }}></i>
-                                      {task.priority === 'high' ? 'สูง' : task.priority === 'low' ? 'ต่ำ' : 'ปานกลาง'}
-                                    </span>
-                                  )}
+                              return (
+                                <div className="timeline-task-card-modern">
+                                  <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
+                                  <div className="timeline-card-body" onClick={() => openEditTask(task)}>
+                                    <div className="timeline-card-header">
+                                      <span className="timeline-card-date">{day} {month} {year}</span>
+                                      <div className="timeline-card-avatars">
+                                        {displayAvatars.map((name, i) => (
+                                          <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
+                                            {name.charAt(0)}
+                                          </div>
+                                        ))}
+                                        {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
+                                      </div>
+                                    </div>
+                                    <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
+                                    <div className="timeline-card-footer">
+                                      <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
+                                        <div className="timeline-card-progress-bar">
+                                          <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: campObj.color }}></div>
+                                        </div>
+                                        <span className="timeline-card-progress-text">{progress}%</span>
+                                      </div>
+                                      <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                                        {campObj.name.split(':')[0]}
+                                      </span>
+                                    </div>
+                                    <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
+                                      <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
+                                        <i className="fa-solid fa-trash-can"></i>
+                                      </button>
+                                      <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
+                                        <i className="fa-solid fa-pencil"></i>
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
-
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                  <button 
-                                    className="btn" 
-                                    style={{ padding: '4px 8px', fontSize: '12px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}
-                                    onClick={() => toggleTaskCompletion(task)}
-                                  >
-                                    <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
-                                    {task.status === 'done' ? 'สำเร็จแล้ว' : 'ทำเครื่องหมายสำเร็จ'}
-                                  </button>
-                                  <button className="btn" style={{ padding: '4px 8px', fontSize: '12.5px' }} onClick={() => openEditTask(task)}>
-                                    <i className="fa-solid fa-pencil"></i>
-                                  </button>
-                                  <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '12.5px' }} onClick={() => deleteTask(task.id)}>
-                                    <i className="fa-solid fa-trash"></i>
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       );
@@ -3467,7 +3463,7 @@ export default function App() {
                     const campStyle = getCampaignStyle(camp, theme);
                     return (
                       <div className="campaign-header-timeline" style={{ backgroundColor: campStyle.backgroundColor, borderBottom: `1px solid ${campStyle.borderColor}`, borderLeft: `6px solid ${camp.color}` }}>
-                        <h3 style={{ fontSize: '17px', fontWeight: '700', color: camp.color }}>
+                        <h3 style={{ fontSize: '16px', fontWeight: '700', color: camp.color }}>
                           {camp.name}
                         </h3>
                       </div>
@@ -3499,52 +3495,61 @@ export default function App() {
                                   backgroundColor: task.status === 'done' ? camp.color : 'var(--surface)' 
                                 }}
                               >
-                                {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '9px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
+                                {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '8px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
                               </div>
                               <div className="timeline-time-line"></div>
                             </div>
                             
                             <div className="timeline-content-side">
-                              <h4 className="timeline-task-title">{task.title}</h4>
-                              <div className="timeline-task-detail-box" style={{ borderLeft: `4px solid ${camp.color}` }}>
-                                <p style={{ fontSize: '14px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>{task.detail}</p>
+                              {(() => {
+                                const campStyle = getCampaignStyle(camp, theme);
+                                const checklist = task.checklist || [];
+                                const completedItems = checklist.filter(i => i.completed).length;
+                                const totalItems = checklist.length;
+                                const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : (task.status === 'done' ? 100 : 0);
+                                const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
+                                const displayAvatars = responsibleList.slice(0, 2);
+                                const extraCount = Math.max(0, responsibleList.length - 2);
                                 
-                                {/* Checklist component */}
-                                {renderInlineChecklist(task)}
-
-                                <div className="timeline-actions-row">
-                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                                    {renderResponsibleTags(task.responsible)}
-                                    {renderChannelTags(task.channel)}
-                                    {task.priority && (
-                                      <span className="timeline-responsible-tag" style={{ 
-                                        backgroundColor: task.priority === 'high' ? 'rgba(239, 68, 68, 0.15)' : task.priority === 'low' ? 'rgba(16, 185, 129, 0.15)' : 'var(--border)', 
-                                        color: task.priority === 'high' ? 'var(--danger)' : task.priority === 'low' ? 'var(--success)' : 'var(--text-muted)' 
-                                      }}>
-                                        <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: '4px' }}></i>
-                                        {task.priority === 'high' ? 'สูง' : task.priority === 'low' ? 'ต่ำ' : 'ปานกลาง'}
-                                      </span>
-                                    )}
+                                return (
+                                  <div className="timeline-task-card-modern">
+                                    <div className="timeline-card-indicator" style={{ backgroundColor: camp.color, borderRadius: '14px 0 0 14px' }}></div>
+                                    <div className="timeline-card-body" onClick={() => openEditTask(task)}>
+                                      <div className="timeline-card-header">
+                                        <span className="timeline-card-date">{day} {month} {year}</span>
+                                        <div className="timeline-card-avatars">
+                                          {displayAvatars.map((name, i) => (
+                                            <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
+                                              {name.charAt(0)}
+                                            </div>
+                                          ))}
+                                          {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
+                                        </div>
+                                      </div>
+                                      <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
+                                      <div className="timeline-card-footer">
+                                        <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
+                                          <div className="timeline-card-progress-bar">
+                                            <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: camp.color }}></div>
+                                          </div>
+                                          <span className="timeline-card-progress-text">{progress}%</span>
+                                        </div>
+                                        <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                                          {camp.name.split(':')[0]}
+                                        </span>
+                                      </div>
+                                      <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
+                                        <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
+                                          <i className="fa-solid fa-trash-can"></i>
+                                        </button>
+                                        <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
+                                          <i className="fa-solid fa-pencil"></i>
+                                        </button>
+                                      </div>
+                                    </div>
                                   </div>
-
-                                  <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button 
-                                      className="btn" 
-                                      style={{ padding: '4px 8px', fontSize: '12px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}
-                                      onClick={() => toggleTaskCompletion(task)}
-                                    >
-                                      <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
-                                      {task.status === 'done' ? 'สำเร็จแล้ว' : 'ทำเครื่องหมายสำเร็จ'}
-                                    </button>
-                                    <button className="btn" style={{ padding: '4px 8px', fontSize: '12.5px' }} onClick={() => openEditTask(task)}>
-                                      <i className="fa-solid fa-pencil"></i>
-                                    </button>
-                                    <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '12.5px' }} onClick={() => deleteTask(task.id)}>
-                                      <i className="fa-solid fa-trash"></i>
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
+                                );
+                              })()}
                             </div>
                           </div>
                         );
@@ -3802,7 +3807,7 @@ export default function App() {
                 {filteredAuditLogs.length === 0 ? (
                   <tr>
                     <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      <i className="fa-solid fa-circle-info" style={{ fontSize: '25px', display: 'block', marginBottom: '8px' }}></i>
+                      <i className="fa-solid fa-circle-info" style={{ fontSize: '24px', display: 'block', marginBottom: '8px' }}></i>
                       ไม่พบประวัติตามเงื่อนไขที่เลือก
                     </td>
                   </tr>
@@ -3934,7 +3939,7 @@ export default function App() {
                       <input
                         type="text"
                         className="form-input"
-                        style={{ flexGrow: 1, padding: '4px 6px', fontSize: '13px' }}
+                        style={{ flexGrow: 1, padding: '4px 6px', fontSize: '12px' }}
                         value={item.text}
                         disabled={userRole !== 'admin'}
                         onChange={(e) => {
@@ -3948,7 +3953,7 @@ export default function App() {
                         <button
                           type="button"
                           className="btn btn-danger"
-                          style={{ padding: '3px 6px', fontSize: '12px' }}
+                          style={{ padding: '3px 6px', fontSize: '11px' }}
                           onClick={() => {
                             const updatedChecklist = taskForm.checklist.filter(ch => ch.id !== item.id);
                             setTaskForm({ ...taskForm, checklist: updatedChecklist });
@@ -3960,7 +3965,7 @@ export default function App() {
                     </div>
                   ))}
                   {(taskForm.checklist || []).length === 0 && (
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>ไม่มีงานย่อยในขณะนี้</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ไม่มีงานย่อยในขณะนี้</div>
                   )}
                 </div>
                 {userRole === 'admin' && (
@@ -3970,7 +3975,7 @@ export default function App() {
                       id="new-modal-subtodo"
                       placeholder="เพิ่มหัวข้องานย่อย..."
                       className="form-input"
-                      style={{ flexGrow: 1, padding: '5px 10px', fontSize: '13px' }}
+                      style={{ flexGrow: 1, padding: '5px 10px', fontSize: '12px' }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -3986,7 +3991,7 @@ export default function App() {
                     <button
                       type="button"
                       className="btn"
-                      style={{ padding: '5px 10px', fontSize: '12px' }}
+                      style={{ padding: '5px 10px', fontSize: '11px' }}
                       onClick={() => {
                         const input = document.getElementById('new-modal-subtodo');
                         const val = input.value.trim();
@@ -4009,7 +4014,7 @@ export default function App() {
                   {(taskForm.attachments || []).map(attachment => (
                     <div className="support-row" key={attachment.id}>
                       {attachment.url ? (
-                        <a href={attachment.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontSize: '14px' }}>{attachment.label}</a>
+                        <a href={attachment.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontSize: '13px' }}>{attachment.label}</a>
                       ) : (
                         <span>{attachment.label}</span>
                       )}
@@ -4023,8 +4028,8 @@ export default function App() {
                 </div>
                 {userRole === 'admin' && (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '6px' }}>
-                    <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" style={{ padding: '6px 10px', fontSize: '13px' }} />
-                    <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" style={{ padding: '6px 10px', fontSize: '13px' }} />
+                    <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" style={{ padding: '6px 10px', fontSize: '12px' }} />
+                    <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" style={{ padding: '6px 10px', fontSize: '12px' }} />
                     <button
                       type="button"
                       className="btn"
@@ -4260,12 +4265,12 @@ export default function App() {
             </div>
             
             <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-              <p style={{ fontSize: '14.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <p style={{ fontSize: '13.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
                 รายการที่ถูกลบจะถูกเก็บไว้ที่นี่ชั่วคราว คุณสามารถเลือกกู้คืนข้อมูลกลับไปยังระบบหลัก หรือเลือกลบทิ้งแบบถาวร (ทิ้งให้สิ้นซาก) ได้
               </p>
               {trashItems.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--text-muted)' }}>
-                  <i className="fa-regular fa-folder-open" style={{ fontSize: '33px', marginBottom: '12px', display: 'block' }}></i>
+                  <i className="fa-regular fa-folder-open" style={{ fontSize: '32px', marginBottom: '12px', display: 'block' }}></i>
                   ถังขยะว่างเปล่า ไม่มีข้อมูลที่ถูกลบ
                 </div>
               ) : (
@@ -4303,7 +4308,7 @@ export default function App() {
                         return (
                           <tr key={item.id}>
                             <td>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '13.5px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border)' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border)' }}>
                                 <i className={`fa-solid ${typeIcon}`} style={{ color: 'var(--primary)' }}></i>
                                 {typeLabel}
                               </span>
@@ -4311,7 +4316,7 @@ export default function App() {
                             <td style={{ fontWeight: '600', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
                               {item.name}
                             </td>
-                            <td style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                            <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                               {new Date(item.deletedAt).toLocaleString('th-TH')}
                             </td>
                             <td style={{ textAlign: 'center' }}>
