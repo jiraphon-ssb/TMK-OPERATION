@@ -706,7 +706,6 @@ export default function App() {
   const [timelineFilter, setTimelineFilter] = useState('master');
   const [timelineSearch, setTimelineSearch] = useState('');
   const [timelinePriority, setTimelinePriority] = useState('all');
-  const [expandedTimelineTasks, setExpandedTimelineTasks] = useState(new Set());
 
   // Main Data States
   const [campaigns, setCampaigns] = useState([]);
@@ -1301,29 +1300,6 @@ export default function App() {
     return [...filtered].sort((a, b) => new Date(a.date) - new Date(b.date));
   };
 
-  const toggleTimelineTaskExpand = (taskId) => {
-    setExpandedTimelineTasks(prev => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
-  };
-
-  const groupTasksByDate = (taskList) => {
-    const groups = {};
-    taskList.forEach(task => {
-      const key = task.date || 'no-date';
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(task);
-    });
-    return Object.keys(groups).sort((a, b) => {
-      if (a === 'no-date') return 1;
-      if (b === 'no-date') return -1;
-      return new Date(a) - new Date(b);
-    }).map(key => ({ date: key, tasks: groups[key] }));
-  };
-
   const renderInlineChecklist = (task) => {
     const list = task.checklist || [];
     const completed = list.filter(item => item.completed).length;
@@ -1463,55 +1439,6 @@ export default function App() {
         </span>
       );
     });
-  };
-
-  const renderTimelineTaskCard = (task, camp) => {
-    const isExpanded = expandedTimelineTasks.has(task.id);
-    const statusDotColor = task.status === 'done' ? 'var(--success)' : task.status === 'in-progress' ? 'var(--warning)' : 'var(--text-light)';
-    return (
-      <div key={task.id} className={`timeline-task-card ${isExpanded ? 'expanded' : ''}`} onClick={() => toggleTimelineTaskExpand(task.id)}>
-        <div className="timeline-task-card-main">
-          <div className="timeline-task-card-status-dot" style={{ backgroundColor: statusDotColor }}></div>
-          <div className={`timeline-task-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-          <div className="timeline-task-card-badges">
-            {camp && (
-              <span className="timeline-task-card-badge" style={{ backgroundColor: camp.bg || '#f1f5f9', color: camp.color, border: `1px solid ${camp.border || '#e2e8f0'}` }}>
-                {camp.name.split(':')[0]}
-              </span>
-            )}
-            {task.priority === 'high' && (
-              <span className="timeline-task-card-badge" style={{ backgroundColor: 'rgba(239, 68, 68, 0.12)', color: 'var(--danger)' }}>
-                สูง
-              </span>
-            )}
-          </div>
-          <div className="timeline-task-card-expand-icon">
-            <i className="fa-solid fa-chevron-down"></i>
-          </div>
-        </div>
-        <div className="timeline-task-card-body" onClick={(e) => e.stopPropagation()}>
-          {task.detail && <div className="timeline-task-card-detail">{task.detail}</div>}
-          {renderInlineChecklist(task)}
-          <div className="timeline-task-card-actions">
-            <div className="timeline-task-card-actions-tags">
-              {renderResponsibleTags(task.responsible)}
-              {renderChannelTags(task.channel)}
-            </div>
-            <div className="timeline-task-card-actions-btns">
-              <button className="btn" style={{ padding: '3px 7px', fontSize: '10.5px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }} onClick={() => toggleTaskCompletion(task)}>
-                <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
-              </button>
-              <button className="btn" style={{ padding: '3px 7px', fontSize: '10.5px' }} onClick={() => openEditTask(task)}>
-                <i className="fa-solid fa-pencil"></i>
-              </button>
-              <button className="btn btn-danger" style={{ padding: '3px 7px', fontSize: '10.5px' }} onClick={() => deleteTask(task.id)}>
-                <i className="fa-solid fa-trash"></i>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   // Task CRUD Handlers
@@ -3424,37 +3351,103 @@ export default function App() {
                 <div className="campaign-header-timeline" style={{ backgroundColor: 'var(--surface-hover)', borderLeft: '6px solid var(--kpi-blue)' }}>
                   <h3 style={{ fontSize: '15px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <i className="fa-solid fa-list-ol" style={{ color: 'var(--kpi-blue)' }}></i>
-                    ลำดับแผนปฏิบัติงานภาพรวมตามช่วงเวลา
+                    ลำดับแผนปฏิบัติงานภาพรวมตามช่วงเวลา (Master Timeline View)
                   </h3>
                 </div>
                 <div className="timeline-list">
                   {(() => {
                     const tasksInView = getTimelineTasks('master');
+                    const nextUpTask = tasksInView.find(t => t.status !== 'done');
+                    
                     if (tasksInView.length === 0) {
                       return (
-                        <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px', fontSize: '13px' }}>
-                          <i className="fa-regular fa-inbox" style={{ fontSize: '28px', display: 'block', marginBottom: '8px', opacity: 0.4 }}></i>
+                        <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
                           ไม่มีงานสอดคล้องกับตัวกรองที่เลือก
                         </div>
                       );
                     }
-                    const grouped = groupTasksByDate(tasksInView);
-                    return grouped.map(group => {
-                      const { day, month, year } = getTimelineDateParts(group.date);
+                    
+                    return tasksInView.map(task => {
+                      const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
+                      const { day, month, year } = getTimelineDateParts(task.date);
+                      const isNextUp = nextUpTask && nextUpTask.id === task.id;
+                      
                       return (
-                        <div key={group.date} className="timeline-date-group">
-                          <div className="timeline-date-header">
-                            <div className="timeline-date-header-icon">
-                              <i className="fa-regular fa-calendar"></i>
-                            </div>
-                            <span className="timeline-date-header-text">{day} {month} {year}</span>
-                            <div className="timeline-date-header-line"></div>
-                            <span className="timeline-date-header-count">{group.tasks.length} งาน</span>
+                        <div key={task.id} className="timeline-item-vertical">
+                          <div className="timeline-time-side">
+                            <div className="timeline-time-date">{day} {month}</div>
+                            <div className="timeline-time-month">{year}</div>
                           </div>
-                          {group.tasks.map(task => {
-                            const campObj = campaigns.find(c => c.id === task.camp) || { name: '', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
-                            return renderTimelineTaskCard(task, campObj);
-                          })}
+                          
+                          <div className="timeline-node-side">
+                            <div 
+                              className={`timeline-time-dot ${isNextUp ? 'pulse' : ''}`} 
+                              style={{ 
+                                borderColor: campObj.color, 
+                                color: campObj.color, 
+                                backgroundColor: task.status === 'done' ? campObj.color : 'var(--surface)' 
+                              }}
+                            >
+                              {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '8px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
+                            </div>
+                            <div className="timeline-time-line"></div>
+                          </div>
+                          
+                          <div className="timeline-content-side">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
+                              <h4 className="timeline-task-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {task.title}
+                              </h4>
+                              {(() => {
+                                const campStyle = getCampaignStyle(campObj, theme);
+                                return (
+                                  <span className="campaign-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                                    {campObj.name.split(':')[0]}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                            
+                            <div className="timeline-task-detail-box" style={{ borderLeft: `4px solid ${campObj.color}` }}>
+                              <p style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>{task.detail}</p>
+                              
+                              {/* Checklist component */}
+                              {renderInlineChecklist(task)}
+
+                              <div className="timeline-actions-row">
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                  {renderResponsibleTags(task.responsible)}
+                                  {renderChannelTags(task.channel)}
+                                  {task.priority && (
+                                    <span className="timeline-responsible-tag" style={{ 
+                                      backgroundColor: task.priority === 'high' ? 'rgba(239, 68, 68, 0.15)' : task.priority === 'low' ? 'rgba(16, 185, 129, 0.15)' : 'var(--border)', 
+                                      color: task.priority === 'high' ? 'var(--danger)' : task.priority === 'low' ? 'var(--success)' : 'var(--text-muted)' 
+                                    }}>
+                                      <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: '4px' }}></i>
+                                      {task.priority === 'high' ? 'สูง' : task.priority === 'low' ? 'ต่ำ' : 'ปานกลาง'}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                  <button 
+                                    className="btn" 
+                                    style={{ padding: '4px 8px', fontSize: '11px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}
+                                    onClick={() => toggleTaskCompletion(task)}
+                                  >
+                                    <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
+                                    {task.status === 'done' ? 'สำเร็จแล้ว' : 'ทำเครื่องหมายสำเร็จ'}
+                                  </button>
+                                  <button className="btn" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => openEditTask(task)}>
+                                    <i className="fa-solid fa-pencil"></i>
+                                  </button>
+                                  <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => deleteTask(task.id)}>
+                                    <i className="fa-solid fa-trash"></i>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     });
@@ -3466,6 +3459,8 @@ export default function App() {
             {/* Case B: Stacked or Individual Campaigns */}
             {timelineFilter !== 'master' && campaigns.filter(c => timelineFilter === 'stacked' || c.id === timelineFilter).map(camp => {
               const tasksInView = getTimelineTasks(camp.id);
+              const nextUpTask = tasksInView.find(t => t.status !== 'done');
+              
               return (
                 <div key={camp.id} className="campaign-card-timeline">
                   {(() => {
@@ -3480,30 +3475,80 @@ export default function App() {
                   })()}
                   <div className="timeline-list">
                     {tasksInView.length === 0 ? (
-                      <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '30px', fontSize: '13px' }}>
-                        <i className="fa-regular fa-inbox" style={{ fontSize: '24px', display: 'block', marginBottom: '6px', opacity: 0.4 }}></i>
+                      <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '30px' }}>
                         ไม่มีงานสอดคล้องกับตัวกรองที่เลือกสำหรับแคมเปญนี้
                       </div>
                     ) : (
-                      (() => {
-                        const grouped = groupTasksByDate(tasksInView);
-                        return grouped.map(group => {
-                          const { day, month, year } = getTimelineDateParts(group.date);
-                          return (
-                            <div key={group.date} className="timeline-date-group">
-                              <div className="timeline-date-header">
-                                <div className="timeline-date-header-icon" style={{ borderColor: camp.color, color: camp.color }}>
-                                  <i className="fa-regular fa-calendar"></i>
-                                </div>
-                                <span className="timeline-date-header-text">{day} {month} {year}</span>
-                                <div className="timeline-date-header-line"></div>
-                                <span className="timeline-date-header-count">{group.tasks.length} งาน</span>
-                              </div>
-                              {group.tasks.map(task => renderTimelineTaskCard(task, null))}
+                      tasksInView.map(task => {
+                        const { day, month, year } = getTimelineDateParts(task.date);
+                        const isNextUp = nextUpTask && nextUpTask.id === task.id;
+                        
+                        return (
+                          <div key={task.id} className="timeline-item-vertical">
+                            <div className="timeline-time-side">
+                              <div className="timeline-time-date" style={{ color: camp.color }}>{day} {month}</div>
+                              <div className="timeline-time-month">{year}</div>
                             </div>
-                          );
-                        });
-                      })()
+                            
+                            <div className="timeline-node-side">
+                              <div 
+                                className={`timeline-time-dot ${isNextUp ? 'pulse' : ''}`} 
+                                style={{ 
+                                  borderColor: camp.color, 
+                                  color: camp.color, 
+                                  backgroundColor: task.status === 'done' ? camp.color : 'var(--surface)' 
+                                }}
+                              >
+                                {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '8px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
+                              </div>
+                              <div className="timeline-time-line"></div>
+                            </div>
+                            
+                            <div className="timeline-content-side">
+                              <h4 className="timeline-task-title">{task.title}</h4>
+                              <div className="timeline-task-detail-box" style={{ borderLeft: `4px solid ${camp.color}` }}>
+                                <p style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'pre-wrap' }}>{task.detail}</p>
+                                
+                                {/* Checklist component */}
+                                {renderInlineChecklist(task)}
+
+                                <div className="timeline-actions-row">
+                                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    {renderResponsibleTags(task.responsible)}
+                                    {renderChannelTags(task.channel)}
+                                    {task.priority && (
+                                      <span className="timeline-responsible-tag" style={{ 
+                                        backgroundColor: task.priority === 'high' ? 'rgba(239, 68, 68, 0.15)' : task.priority === 'low' ? 'rgba(16, 185, 129, 0.15)' : 'var(--border)', 
+                                        color: task.priority === 'high' ? 'var(--danger)' : task.priority === 'low' ? 'var(--success)' : 'var(--text-muted)' 
+                                      }}>
+                                        <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: '4px' }}></i>
+                                        {task.priority === 'high' ? 'สูง' : task.priority === 'low' ? 'ต่ำ' : 'ปานกลาง'}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button 
+                                      className="btn" 
+                                      style={{ padding: '4px 8px', fontSize: '11px', color: task.status === 'done' ? 'var(--success)' : 'var(--text-muted)' }}
+                                      onClick={() => toggleTaskCompletion(task)}
+                                    >
+                                      <i className={task.status === 'done' ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle'}></i>
+                                      {task.status === 'done' ? 'สำเร็จแล้ว' : 'ทำเครื่องหมายสำเร็จ'}
+                                    </button>
+                                    <button className="btn" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => openEditTask(task)}>
+                                      <i className="fa-solid fa-pencil"></i>
+                                    </button>
+                                    <button className="btn btn-danger" style={{ padding: '4px 8px', fontSize: '11.5px' }} onClick={() => deleteTask(task.id)}>
+                                      <i className="fa-solid fa-trash"></i>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>

@@ -1184,185 +1184,130 @@ body {
 }
 
 .timeline-list {
-  padding: 16px 20px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 20px;
+  max-width: 720px;
 }
 
-/* Date-Grouped Timeline Cards */
-.timeline-date-group {
-  margin-bottom: 20px;
-}
-
-.timeline-date-group:last-child {
-  margin-bottom: 0;
-}
-
-.timeline-date-header {
+.timeline-item-vertical {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  padding: 0 2px;
+  gap: 16px;
+  align-items: stretch;
+  animation: fadeSlideRight 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
-.timeline-date-header-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  background: var(--surface-hover);
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+.timeline-time-side {
+  width: 80px;
+  text-align: right;
   flex-shrink: 0;
+  padding-top: 4px;
 }
 
-.timeline-date-header-text {
-  font-size: 12.5px;
+.timeline-time-date {
   font-weight: 700;
+  font-size: 13px;
   color: var(--text-main);
-  white-space: nowrap;
 }
 
-.timeline-date-header-line {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, var(--border), transparent);
-}
-
-.timeline-date-header-count {
-  font-size: 10px;
-  color: var(--text-light);
-  background: var(--surface-hover);
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Task Card */
-.timeline-task-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 5px;
-  cursor: pointer;
-  overflow: hidden;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.timeline-task-card:hover {
-  border-color: var(--border-focus);
-  box-shadow: var(--shadow-sm);
-}
-
-.timeline-task-card-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-}
-
-.timeline-task-card-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.timeline-task-card-title {
-  flex: 1;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-main);
-  line-height: 1.4;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.timeline-task-card-title.done {
-  text-decoration: line-through;
-  color: var(--text-light);
-}
-
-.timeline-task-card-badges {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.timeline-task-card-badge {
-  font-size: 9.5px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 4px;
-  white-space: nowrap;
-  line-height: 1.5;
-  letter-spacing: 0.2px;
-}
-
-.timeline-task-card-expand-icon {
-  width: 18px;
-  height: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  color: var(--text-light);
-  flex-shrink: 0;
-  transition: transform 0.2s ease;
-}
-
-.timeline-task-card.expanded .timeline-task-card-expand-icon {
-  transform: rotate(180deg);
-  color: var(--primary);
-}
-
-.timeline-task-card-body {
-  display: none;
-  padding: 0 12px 10px;
-  border-top: 1px solid var(--border);
-}
-
-.timeline-task-card.expanded .timeline-task-card-body {
+.timeline-time-month {
   display: block;
-}
-
-.timeline-task-card-detail {
-  font-size: 11.5px;
+  font-size: 10px;
   color: var(--text-muted);
-  white-space: pre-wrap;
-  margin-top: 8px;
-  line-height: 1.5;
 }
 
-.timeline-task-card-actions {
+.timeline-node-side {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px;
+  width: 18px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.timeline-time-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 99px;
+  background-color: var(--surface);
+  border: 3px solid var(--text-light);
+  z-index: 2;
   margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border);
+  position: relative;
 }
 
-.timeline-task-card-actions-tags {
+.timeline-time-dot.pulse::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 99px;
+  border: 2px solid currentColor;
+  animation: pulse-ring 1.5s infinite ease-out;
+  opacity: 0;
+}
+
+.timeline-time-line {
+  width: 2px;
+  background-color: var(--border);
+  position: absolute;
+  top: 20px;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+}
+
+.timeline-item-vertical:last-child .timeline-time-line {
+  display: none;
+}
+
+.timeline-content-side {
+  flex-grow: 1;
+  padding-bottom: 8px;
+  min-width: 0;
+}
+
+.timeline-task-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.timeline-task-detail-box {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background-color: var(--surface-accent);
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-top: 6px;
+  border: 1px solid var(--border);
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timeline-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.timeline-task-card-actions-btns {
-  display: flex;
-  gap: 3px;
+.timeline-responsible-tag {
+  display: inline-block;
+  background-color: var(--border);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
 }
 
 /* Compact Campaign Health Cards */
@@ -1809,6 +1754,31 @@ body {
     padding: 1px 2px;
   }
   
+  .timeline-item-vertical {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .timeline-time-side {
+    width: auto;
+    text-align: left;
+    display: flex;
+    gap: 8px;
+  }
+  
+  .timeline-node-side {
+    display: none;
+  }
+  
+  .timeline-content-side {
+    border-left: 2px solid var(--border);
+    padding-left: 14px;
+  }
+  
+  .timeline-list {
+    padding: 16px;
+  }
+
   /* Modal responsive for mobile */
   .modal-dialog {
     max-width: 95vw;
