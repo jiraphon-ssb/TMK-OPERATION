@@ -659,7 +659,15 @@ export default function App() {
       };
     }));
     setProducts(remoteData.products);
-    setTasks(remoteData.tasks);
+    setTasks((remoteData.tasks || []).map(task => {
+      if (!task.camp || task.camp === 'null') {
+        const matchingInitial = initialTasks.find(it => it.id === task.id || (it.title === task.title && it.date === task.date));
+        if (matchingInitial) {
+          return { ...task, camp: matchingInitial.camp };
+        }
+      }
+      return task;
+    }));
     setPoTracker(remoteData.poTracker);
     setTotalUnitsTarget(remoteData.totalUnitsTarget);
     window.setTimeout(() => {

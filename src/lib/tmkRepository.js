@@ -98,11 +98,22 @@ const groupByTask = (rows, mapper) => rows.reduce((acc, row) => {
 }, {});
 
 const replaceTable = async (table, rows) => {
-  const { error: deleteError } = await supabase.from(table).delete().neq('id', '__never__');
-  if (deleteError) throw deleteError;
-  if (!rows.length) return;
-  const { error: insertError } = await supabase.from(table).insert(rows);
-  if (insertError) throw insertError;
+  if (!rows || rows.length === 0) {
+    const { error: deleteError } = await supabase.from(table).delete().neq('id', '__never__');
+    if (deleteError) throw deleteError;
+    return;
+  }
+
+  // 1. Upsert to insert new rows or update existing ones, preventing foreign key cascading nulls/deletes
+  const { error: upsertError } = await supabase.from(table).upsert(rows);
+  if (upsertError) throw upsertError;
+
+  // 2. Safely delete only the rows that are not in the new set
+  const incomingIds = rows.map(r => r.id).filter(Boolean);
+  if (incomingIds.length > 0) {
+    const { error: deleteError } = await supabase.from(table).delete().not('id', 'in', incomingIds);
+    if (deleteError) throw deleteError;
+  }
 };
 
 const replaceTaskChildren = async (tasks) => {
