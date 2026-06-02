@@ -1436,7 +1436,7 @@ export default function App() {
 
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase' }}>สัดส่วนเป้าตามช่องทาง</h4>
+                  <h4 style={{ fontSize: '13px', fontWeight: '700', textTransform: 'uppercase' }}>สัดส่วนตามช่องทาง</h4>
                   <button className="btn" style={{ padding: '4px 8px', fontSize: '11px' }} onClick={openAddChannel}>
                     <i className="fa-solid fa-plus"></i> เพิ่มช่องทาง
                   </button>
@@ -1459,7 +1459,7 @@ export default function App() {
                           <div className="progress-bar-fill" style={{ width: `${Math.min(100, Math.max(0, channelProgress))}%`, backgroundColor: ch.color }}></div>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-light)', marginTop: '2px' }}>
-                          <span>เป้า: {Math.round((ch.percentage / 100) * totalTarget).toLocaleString()} ฿</span>
+                          <span>{Math.round((ch.percentage / 100) * totalTarget).toLocaleString()} ฿</span>
                           <div style={{ display: 'flex', gap: '8px' }}>
                             <span style={{ cursor: 'pointer', color: 'var(--kpi-blue)' }} onClick={() => openEditChannel(ch)}>แก้ไข</span>
                             <span style={{ cursor: 'pointer', color: 'var(--danger)' }} onClick={() => deleteChannel(ch.id)}>ลบ</span>
