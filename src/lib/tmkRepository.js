@@ -128,10 +128,24 @@ const replaceTable = async (table, rows) => {
   // 2. Safely delete only the rows that are not in the new set
   const incomingIds = rows.map(r => r.id).filter(Boolean);
   if (incomingIds.length > 0) {
-    const { data: deletedRows, error: deleteError } = await supabase.from(table).delete().not('id', 'in', incomingIds).select('id');
-    if (deleteError) throw deleteError;
-    if (deletedRows && deletedRows.length > 0) {
-      console.warn(`🗑️ ${table}: deleted ${deletedRows.length} rows not in incoming set:`, deletedRows.map(r => r.id));
+    // Fetch existing IDs from DB, then diff against incoming set
+    // (Using .not('id', 'in', ...) breaks with hyphens in IDs or large sets)
+    const { data: existingRows, error: fetchError } = await supabase
+      .from(table)
+      .select('id');
+    if (fetchError) throw fetchError;
+    const existingIds = (existingRows || []).map(r => r.id);
+    const idsToDelete = existingIds.filter(id => !incomingIds.includes(id));
+    if (idsToDelete.length > 0) {
+      const { data: deletedRows, error: deleteError } = await supabase
+        .from(table)
+        .delete()
+        .in('id', idsToDelete)
+        .select('id');
+      if (deleteError) throw deleteError;
+      if (deletedRows && deletedRows.length > 0) {
+        console.warn(`🗑️ ${table}: deleted ${deletedRows.length} rows not in incoming set:`, deletedRows.map(r => r.id));
+      }
     }
   }
 };
