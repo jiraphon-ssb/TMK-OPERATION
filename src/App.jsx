@@ -916,6 +916,7 @@ export default function App() {
       await saveFn();
     } catch (error) {
       console.error(`Supabase save failed: ${label}`, error);
+      alert(`ไม่สามารถบันทึกข้อมูล "${label}" ไปยังเซิร์ฟเวอร์ได้: ${error.message || error}`);
     } finally {
       // Small timeout to allow Supabase postgres changes channel broadcast to be received and skipped
       window.setTimeout(() => {
@@ -1508,7 +1509,7 @@ export default function App() {
     setShowTaskModal(false);
   };
 
-  const deleteTask = (taskId) => {
+  const deleteTask = async (taskId) => {
     if (userRole !== 'admin') {
       alert('คุณไม่มีสิทธิ์ลบงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
       return;
@@ -1534,7 +1535,15 @@ export default function App() {
           before: taskToDelete
         }));
       }
+      // Remove from local state immediately
       setTasks(prev => prev.filter(t => t.id !== taskId));
+      // Directly delete from Supabase (belt-and-suspenders with the saveTasks effect)
+      try {
+        await tmkRepository.deleteTaskById(taskId);
+      } catch (error) {
+        console.error('Supabase direct delete failed:', error);
+        alert(`เกิดข้อผิดพลาดในการลบข้อมูลกับเซิร์ฟเวอร์: ${error.message || error}`);
+      }
     }
   };
 

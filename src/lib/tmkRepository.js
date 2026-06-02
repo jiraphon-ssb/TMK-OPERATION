@@ -259,6 +259,18 @@ export const tmkRepository = {
     await replaceTable(TABLES.tasks, tasks.map(mapTaskToDb));
   },
 
+  async deleteTaskById(taskId) {
+    if (!isSupabaseConfigured) return;
+    const { error: err1 } = await supabase.from(TABLES.checklist).delete().eq('task_id', taskId);
+    if (err1) throw err1;
+    const { error: err2 } = await supabase.from(TABLES.comments).delete().eq('task_id', taskId);
+    if (err2) throw err2;
+    const { error: err3 } = await supabase.from(TABLES.attachments).delete().eq('task_id', taskId);
+    if (err3) throw err3;
+    const { error: err4 } = await supabase.from(TABLES.tasks).delete().eq('id', taskId);
+    if (err4) throw err4;
+  },
+
   async savePurchaseOrders(poTracker) {
     if (!isSupabaseConfigured) return;
     await replaceTable(TABLES.purchaseOrders, poTracker.map(mapPoToDb));
