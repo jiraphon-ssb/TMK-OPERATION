@@ -308,6 +308,7 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
   const [loginLoading, setLoginLoading] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -329,6 +330,10 @@ export default function App() {
 
   const signInWithGoogle = async () => {
     if (!supabase) return;
+    if (!acceptTerms) {
+      alert('กรุณากดยอมรับระเบียบและกฎการใช้งานระบบก่อนเข้าสู่ระบบ');
+      return;
+    }
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -346,6 +351,10 @@ export default function App() {
   const handleEmailAuth = async (e) => {
     e.preventDefault();
     if (!supabase) return;
+    if (!acceptTerms) {
+      alert('กรุณากดยอมรับระเบียบและกฎการใช้งานระบบก่อนเข้าสู่ระบบ');
+      return;
+    }
     if (!email.trim() || !password) {
       alert('กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน');
       return;
@@ -1402,8 +1411,31 @@ export default function App() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+
+              {/* Scrollable Terms & Regulations */}
+              <div className="terms-container">
+                <strong>ข้อตกลงและกฎระเบียบการใช้งานระบบ</strong>
+                <ul>
+                  <li>ข้อมูลแผนงาน แคมเปญ และเป้ายอดขายในระบบนี้เป็นความลับขั้นสูงสุดของบริษัท TMK Group ห้ามเผยแพร่ภายนอก</li>
+                  <li>กิจกรรมและการแก้ไขข้อมูลทั้งหมดจะถูกบันทึกเพื่อตรวจสอบและรักษาความปลอดภัย</li>
+                  <li>ผู้ใช้ต้องรักษาข้อมูลการล็อกอินและรหัสผ่านไว้เป็นความลับ ห้ามแบ่งปันบัญชีผู้ใช้ร่วมกัน</li>
+                </ul>
+              </div>
+
+              {/* Terms Checkbox */}
+              <div className="terms-checkbox-wrapper">
+                <input
+                  id="login-terms-checkbox"
+                  type="checkbox"
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                />
+                <label htmlFor="login-terms-checkbox">
+                  ฉันยอมรับข้อตกลงและกฎระเบียบการใช้งานระบบ
+                </label>
+              </div>
               
-              <button type="submit" className="primary-login-btn" disabled={loginLoading}>
+              <button type="submit" className="primary-login-btn" disabled={loginLoading || !acceptTerms}>
                 {loginLoading ? (
                   <span>กำลังดำเนินการ...</span>
                 ) : (
@@ -1434,7 +1466,13 @@ export default function App() {
               <span>หรือลงชื่อเข้าใช้ผ่านช่องทางอื่น</span>
             </div>
 
-            <button className="google-login-btn" type="button" onClick={signInWithGoogle}>
+            <button 
+              className="google-login-btn" 
+              type="button" 
+              onClick={signInWithGoogle} 
+              disabled={!acceptTerms}
+              style={{ opacity: acceptTerms ? 1 : 0.6, cursor: acceptTerms ? 'pointer' : 'not-allowed' }}
+            >
               <i className="fa-brands fa-google"></i>
               <span>ลงชื่อเข้าใช้ด้วย Google Account</span>
             </button>
