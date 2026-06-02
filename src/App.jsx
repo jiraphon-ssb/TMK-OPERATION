@@ -3753,59 +3753,71 @@ export default function App() {
       {/* 1. Add/Edit Task Modal */}
       {showTaskModal && (
         <div className="modal-overlay">
-          <form className="modal-dialog" onSubmit={saveTask}>
+          <form className="modal-dialog modal-dialog--wide" onSubmit={saveTask}>
             <div className="modal-header">
               <h2>{taskModalMode === 'add' ? 'เพิ่มแผนงานปฏิบัติการรายวัน' : (userRole === 'admin' ? 'แก้ไขแผนงานปฏิบัติการ' : 'รายละเอียดแผนงานปฏิบัติการ')}</h2>
               <button type="button" className="modal-close-btn" onClick={() => setShowTaskModal(false)}>&times;</button>
             </div>
             
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">วันที่ปฏิบัติงาน</label>
-                <input type="date" className="form-input" required disabled={userRole !== 'admin'} value={taskForm.date} onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })} />
+            <div className="modal-body modal-body--grid">
+              {/* Row 1: Dates side-by-side */}
+              <div className="form-row form-row--2col">
+                <div className="form-group">
+                  <label className="form-label">วันที่ปฏิบัติงาน</label>
+                  <input type="date" className="form-input" required disabled={userRole !== 'admin'} value={taskForm.date} onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">วันที่สิ้นสุด <span className="form-label-opt">(ไม่บังคับ)</span></label>
+                  <input type="date" className="form-input" value={taskForm.dateEnd || ''} onChange={(e) => setTaskForm({ ...taskForm, dateEnd: e.target.value })} />
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">วันที่สิ้นสุด (ไม่บังคับ)</label>
-                <input type="date" className="form-input" value={taskForm.dateEnd || ''} onChange={(e) => setTaskForm({ ...taskForm, dateEnd: e.target.value })} />
-              </div>
+
+              {/* Row 2: Title */}
               <div className="form-group">
                 <label className="form-label">หัวข้องานหลัก</label>
                 <input type="text" className="form-input" required disabled={userRole !== 'admin'} placeholder="เช่น บรีฟงาน Graphic / แจ้งเตือนก่อนเปิดตัว" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
               </div>
+
+              {/* Row 3: Description */}
               <div className="form-group">
                 <label className="form-label">รายละเอียดของงาน</label>
-                <textarea className="form-input" style={{ minHeight: '80px', resize: 'vertical' }} disabled={userRole !== 'admin'} placeholder="ระบุเนื้อหารายละเอียดขั้นตอนทำงาน..." value={taskForm.detail} onChange={(e) => setTaskForm({ ...taskForm, detail: e.target.value })} />
+                <textarea className="form-input" style={{ minHeight: '70px', resize: 'vertical' }} disabled={userRole !== 'admin'} placeholder="ระบุเนื้อหารายละเอียดขั้นตอนทำงาน..." value={taskForm.detail} onChange={(e) => setTaskForm({ ...taskForm, detail: e.target.value })} />
               </div>
-              <div className="form-group">
-                <label className="form-label">ผู้รับผิดชอบงาน</label>
-                <SearchableMultiSelect
-                  placeholder="เลือกผู้รับผิดชอบงาน..."
-                  options={staffList}
-                  defaultOptions={['มัง', 'ฝ้าย', 'บีม', 'แตงโม', 'Graphic', 'MKT', 'Admin']}
-                  selectedValues={taskForm.responsible ? taskForm.responsible.split(',').map(s => s.trim()).filter(Boolean) : []}
-                  onChange={(newVals) => setTaskForm({ ...taskForm, responsible: newVals.join(', ') })}
-                  onAddOption={(newVal) => setStaffList(prev => [...prev, newVal])}
-                  onDeleteOption={(val) => setStaffList(prev => prev.filter(v => v !== val))}
-                  addPlaceholder="เพิ่มผู้รับผิดชอบใหม่..."
-                  disabled={userRole !== 'admin'}
-                />
+
+              {/* Row 4: Assignee + Channels side-by-side */}
+              <div className="form-row form-row--2col">
+                <div className="form-group">
+                  <label className="form-label">ผู้รับผิดชอบงาน</label>
+                  <SearchableMultiSelect
+                    placeholder="เลือกผู้รับผิดชอบ..."
+                    options={staffList}
+                    defaultOptions={['มัง', 'ฝ้าย', 'บีม', 'แตงโม', 'Graphic', 'MKT', 'Admin']}
+                    selectedValues={taskForm.responsible ? taskForm.responsible.split(',').map(s => s.trim()).filter(Boolean) : []}
+                    onChange={(newVals) => setTaskForm({ ...taskForm, responsible: newVals.join(', ') })}
+                    onAddOption={(newVal) => setStaffList(prev => [...prev, newVal])}
+                    onDeleteOption={(val) => setStaffList(prev => prev.filter(v => v !== val))}
+                    addPlaceholder="เพิ่มผู้รับผิดชอบใหม่..."
+                    disabled={userRole !== 'admin'}
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">ช่องทางโปรโมต</label>
+                  <SearchableMultiSelect
+                    placeholder="เลือกช่องทางโปรโมต..."
+                    options={promoChannels}
+                    defaultOptions={['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม', 'Line/FB Broadcast', 'ทุกแพลตฟอร์ม + BC (Line OA/FB)']}
+                    selectedValues={taskForm.channel ? taskForm.channel.split(',').map(s => s.trim()).filter(Boolean) : []}
+                    onChange={(newVals) => setTaskForm({ ...taskForm, channel: newVals.join(', ') })}
+                    onAddOption={(newVal) => setPromoChannels(prev => [...prev, newVal])}
+                    onDeleteOption={(val) => setPromoChannels(prev => prev.filter(v => v !== val))}
+                    addPlaceholder="เพิ่มช่องทางโปรโมตใหม่..."
+                    disabled={userRole !== 'admin'}
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">ช่องทางโปรโมต</label>
-                <SearchableMultiSelect
-                  placeholder="เลือกช่องทางโปรโมต..."
-                  options={promoChannels}
-                  defaultOptions={['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม', 'Line/FB Broadcast', 'ทุกแพลตฟอร์ม + BC (Line OA/FB)']}
-                  selectedValues={taskForm.channel ? taskForm.channel.split(',').map(s => s.trim()).filter(Boolean) : []}
-                  onChange={(newVals) => setTaskForm({ ...taskForm, channel: newVals.join(', ') })}
-                  onAddOption={(newVal) => setPromoChannels(prev => [...prev, newVal])}
-                  onDeleteOption={(val) => setPromoChannels(prev => prev.filter(v => v !== val))}
-                  addPlaceholder="เพิ่มช่องทางโปรโมตใหม่..."
-                  disabled={userRole !== 'admin'}
-                />
-              </div>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+
+              {/* Row 5: Campaign + Status side-by-side */}
+              <div className="form-row form-row--2col">
                 <div className="form-group">
                   <label className="form-label">เชื่อมโยงแคมเปญ</label>
                   <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.camp} onChange={(e) => setTaskForm({ ...taskForm, camp: e.target.value })}>
@@ -3823,18 +3835,21 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="modal-subsection">
+              {/* Row 6: Attachments */}
+              <div className="form-section">
                 <label className="form-label">ไฟล์ / ลิงก์อ้างอิง</label>
-                <div className="support-list">
+                <div className="attach-list">
                   {(taskForm.attachments || []).map(attachment => (
-                    <div className="support-row" key={attachment.id}>
+                    <div className="attach-item" key={attachment.id}>
                       {attachment.url ? (
-                        <a href={attachment.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'underline', fontSize: '15px' }}>{attachment.label}</a>
+                        <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="attach-link">
+                          <i className="fa-solid fa-link"></i> {attachment.label}
+                        </a>
                       ) : (
-                        <span>{attachment.label}</span>
+                        <span className="attach-link"><i className="fa-regular fa-file-lines"></i> {attachment.label}</span>
                       )}
                       {userRole === 'admin' && (
-                        <button type="button" onClick={() => setTaskForm({ ...taskForm, attachments: taskForm.attachments.filter(item => item.id !== attachment.id) })}>
+                        <button type="button" className="attach-remove" onClick={() => setTaskForm({ ...taskForm, attachments: taskForm.attachments.filter(item => item.id !== attachment.id) })}>
                           <i className="fa-solid fa-xmark"></i>
                         </button>
                       )}
@@ -3842,12 +3857,12 @@ export default function App() {
                   ))}
                 </div>
                 {userRole === 'admin' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '6px' }}>
-                    <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" style={{ padding: '6px 10px', fontSize: '14px' }} />
-                    <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" style={{ padding: '6px 10px', fontSize: '14px' }} />
+                  <div className="attach-add-row">
+                    <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" />
+                    <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" />
                     <button
                       type="button"
-                      className="btn"
+                      className="btn btn-sm"
                       onClick={() => {
                         const labelInput = document.getElementById('new-modal-attachment-label');
                         const urlInput = document.getElementById('new-modal-attachment-url');
@@ -3860,7 +3875,7 @@ export default function App() {
                         }
                       }}
                     >
-                      เพิ่ม
+                      <i className="fa-solid fa-plus"></i> เพิ่ม
                     </button>
                   </div>
                 )}
@@ -3870,7 +3885,7 @@ export default function App() {
             <div className="modal-footer">
               <button type="button" className="btn" onClick={() => setShowTaskModal(false)}>{userRole === 'admin' ? 'ยกเลิก' : 'ปิด'}</button>
               {userRole === 'admin' && (
-                <button type="submit" className="btn btn-primary">บันทึกข้อมูล</button>
+                <button type="submit" className="btn btn-primary"><i className="fa-solid fa-check"></i> บันทึกข้อมูล</button>
               )}
             </div>
           </form>
