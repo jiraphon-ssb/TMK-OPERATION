@@ -147,7 +147,7 @@ function SearchableMultiSelect({
           </span>
         ))}
         {selectedValues.length === 0 && (
-          <span style={{ color: 'var(--text-muted)', fontSize: '15px' }}>{placeholder}</span>
+          <span className="text-body text-caption">{placeholder}</span>
         )}
         <i
           className="fa-solid fa-chevron-down"
@@ -156,7 +156,7 @@ function SearchableMultiSelect({
             right: '12px',
             top: '50%',
             transform: 'translateY(-50%)',
-            fontSize: '14px',
+            fontSize: 'var(--text-body)',
             color: 'var(--text-muted)',
             pointerEvents: 'none'
           }}
@@ -225,7 +225,7 @@ function SearchableMultiSelect({
                 e.stopPropagation();
                 handleAdd();
               }}>
-                <span style={{ color: 'var(--primary)', fontWeight: '800' }}>
+                <span style={{ color: 'var(--primary)', fontWeight: 'var(--fw-semibold)' }}>
                   <i className="fa-solid fa-plus" style={{ marginRight: '6px' }}></i>
                   เพิ่ม "{searchTerm}"
                 </span>
@@ -755,6 +755,11 @@ export default function App() {
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [taskForm, setTaskForm] = useState({ date: '', title: '', detail: '', responsible: 'มัง', channel: 'หลังบ้าน', camp: 'c1', status: 'todo', comments: [], attachments: [], reminderDays: 1 });
   const [showDataMenu, setShowDataMenu] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  const toggleDataMenu = () => { setShowDataMenu(prev => { if (!prev) setShowProfileMenu(false); return !prev; }); };
+  const toggleProfileMenu = () => { setShowProfileMenu(prev => { if (!prev) setShowDataMenu(false); return !prev; }); };
+
   const [draggedOverCol, setDraggedOverCol] = useState(null);
 
   const [showChannelModal, setShowChannelModal] = useState(false);
@@ -1900,35 +1905,52 @@ export default function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
       
-      {/* Top Command Header */}
+      {/* ================================================================ */}
+      {/* ENTERPRISE STICKY NAVIGATION HEADER — 3-ZONE FLEX LAYOUT      */}
+      {/* ================================================================ */}
+      {/* [LEFT: Brand + Status] | [CENTER: Flexible Space] | [RIGHT: Global Action Hub] */}
       <header className="app-header">
-        <div className="header-brand-block">
-          <div className="brand-mark">TMK</div>
-          <div className="brand-copy">
-            <div className="brand-eyebrow">
-              <span className="live-dot"></span>
-              Operations Hub
+        
+        {/* ---------- LEFT ZONE: Branding & System Status ---------- */}
+        <div className="header-left">
+          <div className="brand-group">
+            <div className="brand-mark">TMK</div>
+            <div className="brand-text">
+              <h1>Campaign Control Room</h1>
+              <span className={`sync-status ${tmkRepository.isConfigured ? 'remote' : 'local'}`}>
+                <i className={`fa-solid ${tmkRepository.isConfigured ? 'fa-database' : 'fa-laptop'}`}></i>
+                {remoteStatus}
+              </span>
             </div>
-            <h1>Campaign Control Room</h1>
-            <p>Sales target, launch work, team execution, and factory PO in one place.</p>
-            <span className={`sync-status ${tmkRepository.isConfigured ? 'remote' : 'local'}`}>
-              <i className={`fa-solid ${tmkRepository.isConfigured ? 'fa-database' : 'fa-laptop'}`}></i>
-              {remoteStatus}
-            </span>
           </div>
         </div>
 
-        <div className="header-actions">
-          {user && (
-            <>
-              {/* Notification Center */}
+        {/* ---------- CENTER ZONE: Flexible Spacer — inject global search / breadcrumbs here ---------- */}
+        <div className="header-center" />
+
+        {/* ---------- RIGHT ZONE: User & Global Actions Hub ---------- */}
+        <div className="header-right">
+          
+          {/* Action Toolbar — add more icon buttons here in the future */}
+          <div className="action-toolbar">
+            <button
+              className="icon-btn"
+              onClick={refreshRemoteData}
+              disabled={!tmkRepository.isConfigured || isRefreshingRemote}
+              title="รีเฟรชข้อมูล"
+              aria-label="รีเฟรชข้อมูล"
+            >
+              <i className={`fa-solid fa-rotate ${isRefreshingRemote ? 'fa-spin' : ''}`}></i>
+            </button>
+
+            {/* Notification Bell — wrapped for dropdown positioning */}
+            {user && (
               <div className="notifications-wrapper" style={{ position: 'relative' }}>
                 <button 
-                  className="icon-btn notification-bell-btn" 
+                  className="icon-btn" 
                   onClick={() => setShowNotifications(!showNotifications)}
                   title="การแจ้งเตือน"
                   aria-label="การแจ้งเตือน"
-                  style={{ marginRight: '8px' }}
                 >
                   <i className="fa-solid fa-bell"></i>
                   {notifications.length > 0 && (
@@ -1998,37 +2020,88 @@ export default function App() {
                   </div>
                 )}
               </div>
+            )}
+          </div>
 
-              <div className="user-profile-badge" title={`เข้าสู่ระบบด้วย: ${user.email}`}>
+          {/* Primary CTA — currently single button, future split-zone for "Create Campaign", "Add Member", etc. */}
+          <div className="primary-cta-group" style={{ position: 'relative' }}>
+            {userRole === 'admin' && (
+              <>
+                <button className="btn btn-primary" onClick={() => openAddTask(todayStr)}>
+                  <i className="fa-solid fa-plus"></i>
+                  <span>เพิ่มงานวันนี้</span>
+                </button>
+                {/* 
+                  FUTURE: Uncomment to activate split-button dropdown:
+                  <button className="primary-cta-split" onClick={() => setShowCtaMenu(!showCtaMenu)}>
+                    <i className="fa-solid fa-chevron-down"></i>
+                  </button>
+                  {showCtaMenu && (
+                    <div className="primary-cta-dropdown">
+                      <button onClick={() => { openAddCampaign(); setShowCtaMenu(false); }}>
+                        <i className="fa-solid fa-flag"></i> สร้างแคมเปญ
+                      </button>
+                      <button onClick={() => { openAddTask(todayStr); setShowCtaMenu(false); }}>
+                        <i className="fa-solid fa-plus"></i> เพิ่มงาน
+                      </button>
+                      <button onClick={() => { openAddChannel(); setShowCtaMenu(false); }}>
+                        <i className="fa-solid fa-store"></i> เพิ่มช่องทางขาย
+                      </button>
+                    </div>
+                  )}
+                */}
+              </>
+            )}
+          </div>
+
+          {/* User Profile Avatar — click to open account/workspace switcher */}
+          {user && (
+            <div style={{ position: 'relative' }}>
+              <button
+                className={`user-profile-btn ${showProfileMenu ? 'active' : ''}`}
+                onClick={toggleProfileMenu}
+                title={user.email}
+                aria-label="โปรไฟล์ผู้ใช้"
+              >
                 <img 
                   src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
-                  alt="User Avatar" 
-                  className="user-avatar"
+                  alt="" 
+                  className="user-profile-avatar"
                 />
-                <span className="user-name-span">{user.user_metadata?.full_name || user.email.split('@')[0]}</span>
-                <span className={`role-badge ${userRole}`}>
-                  {userRole === 'admin' ? 'Admin' : 'Viewer'}
-                </span>
-              </div>
-            </>
+                <span className="user-profile-dot" />
+              </button>
+              {showProfileMenu && (
+                <div className="user-profile-dropdown">
+                  <div className="profile-header">
+                    <img 
+                      src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
+                      alt="" 
+                    />
+                    <div>
+                      <div className="profile-name">{user.user_metadata?.full_name || user.email.split('@')[0]}</div>
+                      <div className="profile-email">{user.email}</div>
+                    </div>
+                  </div>
+                  <button onClick={() => { setActiveTab('user_roles'); setShowProfileMenu(false); }}>
+                    <i className="fa-solid fa-user-shield"></i>
+                    <span>ตั้งค่าสิทธิ์</span>
+                  </button>
+                  <button onClick={() => { setTheme(prev => prev === 'light' ? 'dark' : 'light'); setShowProfileMenu(false); }}>
+                    <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'}`}></i>
+                    <span>{theme === 'light' ? 'โหมดมืด' : 'โหมดสว่าง'}</span>
+                  </button>
+                  <button className="danger-row" onClick={() => { handleSignOut(); setShowProfileMenu(false); }}>
+                    <i className="fa-solid fa-right-from-bracket"></i>
+                    <span>ออกจากระบบ</span>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-          <button
-            className="icon-btn"
-            onClick={refreshRemoteData}
-            disabled={!tmkRepository.isConfigured || isRefreshingRemote}
-            title="รีเฟรชข้อมูลจาก Supabase"
-            aria-label="รีเฟรชข้อมูลจาก Supabase"
-          >
-            <i className={`fa-solid fa-rotate ${isRefreshingRemote ? 'fa-spin' : ''}`}></i>
-          </button>
-          {userRole === 'admin' && (
-            <button className="btn btn-primary header-main-action" onClick={() => openAddTask(todayStr)}>
-              <i className="fa-solid fa-plus"></i>
-              <span>เพิ่มงานวันนี้</span>
-            </button>
-          )}
+
+          {/* Data Menu (hamburger) — secondary settings & tools */}
           <div className="data-menu-wrapper">
-            <button className={`icon-btn ${showDataMenu ? 'active' : ''}`} onClick={() => setShowDataMenu(prev => !prev)} title="จัดการข้อมูล" aria-label="จัดการข้อมูล">
+            <button className={`icon-btn ${showDataMenu ? 'active' : ''}`} onClick={toggleDataMenu} title="จัดการข้อมูล" aria-label="จัดการข้อมูล">
               <i className="fa-solid fa-ellipsis-vertical"></i>
             </button>
             {showDataMenu && (
@@ -2063,15 +2136,6 @@ export default function App() {
                     <small>กู้คืนข้อมูล หรือลบทิ้งถาวร</small>
                   </span>
                 </button>
-                {user && (
-                  <button type="button" className="danger" onClick={() => { handleSignOut(); setShowDataMenu(false); }}>
-                    <i className="fa-solid fa-right-from-bracket" style={{ color: 'var(--danger)' }}></i>
-                    <span>
-                      <strong>ออกจากระบบ (Log Out)</strong>
-                      <small>ออกจากระบบบัญชี Google</small>
-                    </span>
-                  </button>
-                )}
               </div>
             )}
           </div>
@@ -2131,7 +2195,7 @@ export default function App() {
 
             {user && (
               <div className="filter-checkbox-wrapper" style={{ display: 'flex', alignItems: 'center' }}>
-                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '15px', fontWeight: '900', color: 'var(--text-main)', cursor: 'pointer', userSelect: 'none', marginLeft: '8px' }}>
+                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-heading)', cursor: 'pointer', userSelect: 'none', marginLeft: '8px' }}>
                   <input 
                     type="checkbox" 
                     checked={showOnlyMyTasks} 
@@ -2171,138 +2235,120 @@ export default function App() {
           
           {/* Target Sidebar */}
           <aside className="sidebar-targets">
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <h3 style={{ fontSize: '17px', textTransform: 'uppercase', letterSpacing: '1px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
-                <i className="fa-solid fa-bullseye" style={{ color: 'var(--kpi-blue)', marginRight: '6px' }}></i>
-                Sales Target Overview
-              </h3>
-              
-              {!isEditingTargets ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div className="target-kpi-card">
-                    <div className="target-kpi-info">
-                      <div className="label">เป้ายอดขายรวม</div>
-                      <div className="value">{totalTarget.toLocaleString()} ฿</div>
-                      <div className="label" style={{ marginTop: '4px' }}>เป้าชิ้น: {totalUnitsTarget.toLocaleString()} ตัว</div>
-                      <div className="sub-label" style={{ marginTop: '4px' }}>ยอดขายจริง: {totalActualSales.toLocaleString()} ฿</div>
+            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div>
+                <h3 className="text-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <i className="fa-solid fa-bullseye" style={{ color: 'var(--kpi-blue)' }}></i>
+                  Sales Target Overview
+                </h3>
+                
+                {!isEditingTargets ? (
+                  <>
+                    <div className="target-kpi-card-refined">
+                      <div className="target-kpi-info">
+                        <div className="label">เป้ายอดขายรวม</div>
+                        <div className="value">{totalTarget.toLocaleString()} ฿</div>
+                        <div className="label" style={{ marginTop: '4px' }}>เป้าชิ้น: {totalUnitsTarget.toLocaleString()} ตัว</div>
+                        <div className="sub-label" style={{ marginTop: '4px' }}>ยอดขายจริง: {totalActualSales.toLocaleString()} ฿</div>
+                      </div>
+                      <div className="circular-progress-wrapper">
+                        <svg width="72" height="72">
+                          <circle className="circular-progress-bg" cx="36" cy="36" r="28" />
+                          <circle 
+                            className="circular-progress-fill" 
+                            cx="36" 
+                            cy="36" 
+                            r="28" 
+                            strokeDasharray={2 * Math.PI * 28} 
+                            strokeDashoffset={2 * Math.PI * 28 - (Math.min(targetCompletedPercent, 100) / 100) * (2 * Math.PI * 28)} 
+                          />
+                        </svg>
+                        <div className="circular-progress-text">{targetCompletedLabel}</div>
+                      </div>
                     </div>
-                    <div className="circular-progress-wrapper">
-                      <svg width="72" height="72">
-                        <circle className="circular-progress-bg" cx="36" cy="36" r="28" />
-                        <circle 
-                          className="circular-progress-fill" 
-                          cx="36" 
-                          cy="36" 
-                          r="28" 
-                          strokeDasharray={2 * Math.PI * 28} 
-                          strokeDashoffset={2 * Math.PI * 28 - (Math.min(targetCompletedPercent, 100) / 100) * (2 * Math.PI * 28)} 
-                        />
-                      </svg>
-                      <div className="circular-progress-text">{targetCompletedLabel}</div>
+                    {userRole === 'admin' && (
+                      <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '12px' }} onClick={() => setIsEditingTargets(true)}>
+                        <i className="fa-solid fa-pencil"></i> แก้ไขเป้าหมายหลัก
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div className="target-kpi-card" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label className="form-label">เป้ายอดขายรวม (บาท) [คำนวณอัตโนมัติจากช่องทาง]</label>
+                      <input type="text" className="form-input" disabled value={`${totalTarget.toLocaleString()} ฿`} />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: '12px' }}>
+                      <label className="form-label">เป้าจำนวนสินค้า (ตัว)</label>
+                      <input type="number" className="form-input" value={totalUnitsTarget} onChange={(e) => setTotalUnitsTarget(Number(e.target.value))} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button className="btn btn-success" style={{ flexGrow: 1, justifyContent: 'center' }} onClick={() => setIsEditingTargets(false)}>
+                        บันทึก
+                      </button>
                     </div>
                   </div>
-                  {userRole === 'admin' && (
-                    <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsEditingTargets(true)}>
-                      <i className="fa-solid fa-pencil"></i> แก้ไขเป้าหมายหลัก
-                    </button>
-                  )}
+                )}
 
-                  {/* Calibration Audit Card */}
-                  <div style={{
-                    backgroundColor: 'var(--surface-hover)',
-                    border: '1px solid var(--border)',
-                    borderRadius: '12px',
-                    padding: '12px 14px',
-                    fontSize: '14.5px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    marginTop: '4px'
-                  }}>
-                    <div style={{ fontWeight: '900', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <i className="fa-solid fa-scale-balanced" style={{ color: 'var(--primary)' }}></i>
-                      ตรวจสอบเป้าหมาย (Calibration Audit)
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                      <span>เป้าหมายช่องทางรวม:</span>
-                      <strong style={{ color: 'var(--text-main)' }}>{totalTarget.toLocaleString()} ฿</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)' }}>
-                      <span>เป้าหมายสินค้า (Price × Qty):</span>
-                      <strong style={{ color: 'var(--text-main)' }}>{totalProductTargetRevenue.toLocaleString()} ฿</strong>
-                    </div>
-                    
-                    {(() => {
-                      const diff = totalTarget - totalProductTargetRevenue;
-                      const isBalanced = diff === 0;
-                      return (
-                        <div style={{
-                          borderTop: '1px solid var(--border)',
-                          paddingTop: '8px',
-                          marginTop: '4px',
-                          color: isBalanced ? 'var(--success)' : (diff > 0 ? 'var(--primary)' : 'var(--danger)'),
-                          fontWeight: '900',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: '4px'
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span>สถานะแผนเป้าหมาย:</span>
-                            <span>
-                              {isBalanced ? 'สมดุล (Balanced)' : (diff > 0 ? 'เป้าช่องทางเกิน' : 'เป้าช่องทางขาด')}
-                            </span>
-                          </div>
-                          {!isBalanced && (
-                            <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                              {diff < 0 ? (
-                                <span>⚠️ เป้าหมายตามช่องทางขาดไปอีก <strong>{Math.abs(diff).toLocaleString()} ฿</strong> เพื่อให้ครอบคลุมเป้าหมายของสินค้าทั้งหมด</span>
-                              ) : (
-                                <span>💡 เป้าหมายตามช่องทางรวมมีมูลค่ามากกว่าเป้าหมายสินค้าอยู่ <strong>{diff.toLocaleString()} ฿</strong></span>
-                              )}
-                            </div>
+                {/* Soft Calibration Audit Alert */}
+                {(() => {
+                  const diff = totalTarget - totalProductTargetRevenue;
+                  const isBalanced = diff === 0;
+                  return (
+                    <div className="alert-soft alert-warning" style={{ marginTop: '12px' }}>
+                      <div className="alert-title">
+                        <i className="fa-solid fa-scale-balanced"></i>
+                        ตรวจสอบเป้าหมาย (Calibration Audit)
+                      </div>
+                      <div className="alert-row">
+                        <span>เป้าหมายช่องทางรวม:</span>
+                        <strong>{totalTarget.toLocaleString()} ฿</strong>
+                      </div>
+                      <div className="alert-row">
+                        <span>เป้าหมายสินค้า (Price × Qty):</span>
+                        <strong>{totalProductTargetRevenue.toLocaleString()} ฿</strong>
+                      </div>
+                      <div className="sidebar-section-divider"></div>
+                      <div className="alert-row">
+                        <span>สถานะแผนเป้าหมาย:</span>
+                        <span>
+                          {isBalanced ? 'สมดุล ✓' : (diff > 0 ? 'เป้าช่องทางเกิน' : 'เป้าช่องทางขาด')}
+                        </span>
+                      </div>
+                      {!isBalanced && (
+                        <div style={{ fontSize: 'var(--text-small-md)', lineHeight: '1.4', color: 'var(--text-caption)' }}>
+                          {diff < 0 ? (
+                            <span>เป้าหมายตามช่องทางขาดไปอีก <strong>{Math.abs(diff).toLocaleString()} ฿</strong> เพื่อให้ครอบคลุมเป้าหมายของสินค้าทั้งหมด</span>
+                          ) : (
+                            <span>เป้าหมายตามช่องทางรวมมีมูลค่ามากกว่าเป้าหมายสินค้าอยู่ <strong>{diff.toLocaleString()} ฿</strong></span>
                           )}
                         </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              ) : (
-                <div className="target-kpi-card" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label className="form-label">เป้ายอดขายรวม (บาท) [คำนวณอัตโนมัติจากช่องทาง]</label>
-                    <input type="text" className="form-input" disabled value={`${totalTarget.toLocaleString()} ฿`} />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label className="form-label">เป้าจำนวนสินค้า (ตัว)</label>
-                    <input type="number" className="form-input" value={totalUnitsTarget} onChange={(e) => setTotalUnitsTarget(Number(e.target.value))} />
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button className="btn btn-success" style={{ flexGrow: 1, justifyContent: 'center' }} onClick={() => setIsEditingTargets(false)}>
-                      บันทึก
-                    </button>
-                  </div>
-                </div>
-              )}
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
 
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+              <div className="sidebar-section-divider"></div>
+
+              <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 style={{ fontSize: '15px', fontWeight: '900', textTransform: 'uppercase' }}>ยอดขายตามช่องทาง</h4>
+                  <h4 className="text-body fw-semibold" style={{ color: 'var(--text-caption)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>ยอดขายตามช่องทาง</h4>
                   {userRole === 'admin' && (
-                    <button className="btn" style={{ padding: '4px 8px', fontSize: '13px' }} onClick={openAddChannel}>
-                      <i className="fa-solid fa-plus"></i> เพิ่มช่องทาง
+                    <button className="btn" style={{ padding: '4px 8px', fontSize: 'var(--text-small)' }} onClick={openAddChannel}>
+                      <i className="fa-solid fa-plus"></i> เพิ่ม
                     </button>
                   )}
                 </div>
                 {totalTarget > 0 && (
-                  <div style={{
+                  <div className="pastel-bar" style={{
                     display: 'flex',
-                    height: '10px',
+                    height: '8px',
                     width: '100%',
                     borderRadius: '99px',
                     overflow: 'hidden',
                     marginBottom: '16px',
-                    backgroundColor: 'var(--border)',
-                    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)'
+                    backgroundColor: 'var(--border)'
                   }} title="สัดส่วนเป้าหมายช่องทางทั้งหมด">
                     {channels.map(ch => {
                       const share = totalTarget > 0 ? (ch.target / totalTarget) * 100 : 0;
@@ -2310,11 +2356,11 @@ export default function App() {
                       return (
                         <div
                           key={ch.id}
+                          className="progress-bar-fill"
                           style={{
                             width: `${share}%`,
                             backgroundColor: ch.color,
-                            height: '100%',
-                            transition: 'width 0.5s ease'
+                            borderRadius: 0
                           }}
                           title={`${ch.name}: เป้า ${ch.target.toLocaleString()} ฿ (${Math.round(share)}%)`}
                         />
@@ -2326,39 +2372,41 @@ export default function App() {
                   {channels.map(ch => {
                     const progressPercent = ch.target > 0 ? Math.round((ch.actual / ch.target) * 100) : 0;
                     const targetSharePercent = totalTarget > 0 ? Math.round((ch.target / totalTarget) * 100) : 0;
+                    const isGoodProgress = progressPercent >= 80;
+                    const isMidProgress = progressPercent >= 40;
                     return (
                       <div key={ch.id} className="channel-item">
                         <div className="channel-header">
-                          <span className="channel-info" style={{ fontSize: '16px', fontWeight: '900' }}>
-                            <span className="channel-dot" style={{ backgroundColor: ch.color, boxShadow: `0 0 8px ${ch.color}80` }}></span>
+                          <span className="channel-info fw-semibold">
+                            <span className="channel-dot" style={{ backgroundColor: ch.color }}></span>
                             {ch.name}
-                            <span style={{ fontSize: '12.5px', fontWeight: '800', color: 'var(--text-muted)', marginLeft: '8px', backgroundColor: 'var(--surface-accent)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>
-                              สัดส่วนเป้า: {targetSharePercent}%
+                            <span className="pill pill-info" style={{ fontSize: '11px', padding: '0 6px' }}>
+                              {targetSharePercent}%
                             </span>
                           </span>
-                          <span style={{ fontSize: '13px', fontWeight: '800', color: 'var(--text-light)' }}>
-                            เป้าหมาย: <strong style={{ color: 'var(--text-main)', fontSize: '16.5px' }}>{ch.target.toLocaleString()} ฿</strong>
+                          <span className="text-small" style={{ color: 'var(--text-caption)' }}>
+                            เป้า <strong className="fw-semibold" style={{ color: 'var(--text-body-color)' }}>{ch.target.toLocaleString()} ฿</strong>
                           </span>
                         </div>
-                        <div className="progress-bar-bg" style={{ height: '6px', margin: '2px 0' }}>
+                        <div className="progress-bar-bg" style={{ height: '6px' }}>
                           <div className="progress-bar-fill" style={{ width: `${Math.min(100, progressPercent)}%`, backgroundColor: ch.color }}></div>
                         </div>
-                        <div className="channel-meta" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div className="channel-meta">
                           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <span className="channel-badge" style={{ backgroundColor: 'var(--primary-light)', color: 'var(--primary)', borderColor: 'rgba(99,102,241,0.1)' }}>
+                            <span className="channel-badge" style={{ color: 'var(--text-body-color)' }}>
                               ขายจริง: {ch.actual.toLocaleString()} ฿
                             </span>
-                            <span className="channel-badge" style={{ backgroundColor: 'var(--success-light)', color: 'var(--success)', borderColor: 'rgba(52,211,153,0.1)' }}>
-                              สำเร็จ {progressPercent}%
+                            <span className={`pill ${isGoodProgress ? 'pill-success' : isMidProgress ? 'pill-warning' : 'pill-info'}`}>
+                              {progressPercent}%
                             </span>
                           </div>
                           {userRole === 'admin' && (
                             <div className="channel-actions">
-                              <button className="channel-action-btn edit" onClick={() => openEditChannel(ch)}>
-                                <i className="fa-solid fa-pencil"></i> แก้ไข
+                              <button className="channel-action-btn" title="แก้ไข" onClick={() => openEditChannel(ch)}>
+                                <i className="fa-solid fa-pencil"></i>
                               </button>
-                              <button className="channel-action-btn delete" onClick={() => deleteChannel(ch.id)}>
-                                <i className="fa-solid fa-trash"></i> ลบ
+                              <button className="channel-action-btn" title="ลบ" onClick={() => deleteChannel(ch.id)}>
+                                <i className="fa-solid fa-trash"></i>
                               </button>
                             </div>
                           )}
@@ -2376,27 +2424,37 @@ export default function App() {
             
             {/* Monthly Highlight Summary */}
             <div className="card">
-              <h3 style={{ fontSize: '18px', fontWeight: '900', marginBottom: '16px' }}>
-                <i className="fa-solid fa-star" style={{ color: '#facc15', marginRight: '8px' }}></i>
+              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <i className="fa-solid fa-star" style={{ color: '#facc15' }}></i>
                 สรุปแผนงานและกิจกรรมแคมเปญประจำเดือนนี้
               </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px' }}>
-                {campaigns.map((camp, index) => {
+              <div className="campaign-health-grid">
+                {campaigns.map(camp => {
                   const campTasksCount = tasks.filter(t => t.camp === camp.id).length;
                   const doneTasksCount = tasks.filter(t => t.camp === camp.id && t.status === 'done').length;
-                  const campStyle = getCampaignStyle(camp, theme);
+                  const progressPercent = campTasksCount > 0 ? Math.round((doneTasksCount / campTasksCount) * 100) : 0;
                   return (
-                    <div key={camp.id} style={{ backgroundColor: campStyle.backgroundColor, border: `1px solid ${campStyle.borderColor}`, padding: '16px', borderRadius: '12px' }}>
-                      <span style={{ backgroundColor: camp.color, color: 'white', padding: '3px 8px', borderRadius: '20px', fontSize: '12px', fontWeight: '900', textTransform: 'uppercase' }}>
-                        Campaign {index + 1}
-                      </span>
-                      <h4 style={{ marginTop: '10px', fontSize: '17px', fontWeight: '800' }}>{camp.name}</h4>
-                      <div style={{ marginTop: '10px', fontSize: '14px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>ความคืบหน้าแผนงาน:</span>
-                        <strong>{doneTasksCount}/{campTasksCount} งานสำเร็จ</strong>
+                    <div key={camp.id} className="campaign-health-card">
+                      <div className="campaign-health-card-info">
+                        <span className="campaign-health-card-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: camp.color, flexShrink: 0 }}></span>
+                          {camp.name}
+                        </span>
+                        <div className="campaign-health-card-progress">{doneTasksCount}/{campTasksCount} งานสำเร็จ</div>
+                        <div className="progress-bar-bg" style={{ marginTop: '4px', height: '4px' }}>
+                          <div className="progress-bar-fill" style={{ width: `${progressPercent}%`, backgroundColor: camp.color }}></div>
+                        </div>
                       </div>
-                      <div className="progress-bar-bg" style={{ marginTop: '6px', height: '6px' }}>
-                        <div className="progress-bar-fill" style={{ width: `${(doneTasksCount / (campTasksCount || 1)) * 100}%`, backgroundColor: camp.color }}></div>
+                      <div className="campaign-health-card-ring">
+                        <svg width="40" height="40">
+                          <circle cx="20" cy="20" r="17" fill="none" stroke="var(--border)" strokeWidth="3" />
+                          <circle cx="20" cy="20" r="17" fill="none" stroke={camp.color} strokeWidth="3" strokeLinecap="round"
+                            strokeDasharray={2 * Math.PI * 17}
+                            strokeDashoffset={2 * Math.PI * 17 - (Math.min(progressPercent, 100) / 100) * (2 * Math.PI * 17)}
+                            style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%', transition: 'stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                          />
+                        </svg>
+                        <div className="campaign-health-card-ring-value">{progressPercent}%</div>
                       </div>
                     </div>
                   );
@@ -2406,11 +2464,11 @@ export default function App() {
 
             {/* Staff Workload & Performance Tracker */}
             <div className="card">
-              <h3 style={{ fontSize: '18px', fontWeight: '900', marginBottom: '12px' }}>
-                <i className="fa-solid fa-users-gear" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
-                ประเมินภาระงานและผลงานรายบุคคล (Staff Workload Dashboard)
+              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <i className="fa-solid fa-users-gear" style={{ color: 'var(--kpi-blue)' }}></i>
+                ประเมินภาระงานและผลงานรายบุคคล
               </h3>
-              <p style={{ fontSize: '15px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <p className="text-small" style={{ color: 'var(--text-caption)', marginBottom: '16px' }}>
                 วิเคราะห์การกระจายงาน ความคืบหน้าของงานทั้งหมดที่แต่ละคนดูแล เพื่อประสิทธิภาพในการจัดสรรงาน
               </p>
               
@@ -2426,19 +2484,21 @@ export default function App() {
                   return (
                     <div key={staff} className="staff-card">
                       <div className="staff-name">
-                        <i className="fa-solid fa-user-circle" style={{ color: 'var(--kpi-blue)', fontSize: '20px' }}></i>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--text-small)', fontWeight: 'var(--fw-bold)', color: 'var(--primary)', flexShrink: 0 }}>
+                          {staff.charAt(0)}
+                        </div>
                         <span>{staff}</span>
                       </div>
-                      <div className="staff-stat-row" style={{ marginTop: '4px' }}>
+                      <div className="staff-stat-row">
                         <span>งานทั้งหมด:</span>
-                        <strong>{total} งาน</strong>
+                        <strong style={{ color: 'var(--text-heading)' }}>{total} งาน</strong>
                       </div>
-                      <div className="progress-bar-bg" style={{ height: '6px', margin: '4px 0' }}>
+                      <div className="progress-bar-bg" style={{ height: '5px' }}>
                         <div className="progress-bar-fill" style={{ width: `${percent}%`, backgroundColor: 'var(--success)' }}></div>
                       </div>
-                      <div className="staff-stat-row" style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                        <span>สำเร็จ {completed} | กำลังทำ {inProgress} | รอทำ/ตรวจ {pending}</span>
-                        <strong>{percent}%</strong>
+                      <div className="staff-stat-row text-small">
+                        <span>✅ {completed} · 🔄 {inProgress} · ⏳ {pending}</span>
+                        <span className={`pill ${percent >= 80 ? 'pill-success' : percent >= 40 ? 'pill-warning' : 'pill-info'}`}>{percent}%</span>
                       </div>
                     </div>
                   );
@@ -2449,7 +2509,7 @@ export default function App() {
             {/* Product Matrix Overview Table */}
             <div className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ fontSize: '18px', fontWeight: '900' }}>
+                <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)' }}>
                   <i className="fa-solid fa-gem" style={{ color: '#0284c7', marginRight: '8px' }}></i>
                   สัดส่วนและเป้ายอดขายตามกลุ่มสินค้า
                 </h3>
@@ -2462,48 +2522,54 @@ export default function App() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>กลุ่มสินค้า</th>
-                      <th style={{ textAlign: 'right' }}>ราคาขาย (บาท)</th>
-                      <th style={{ textAlign: 'right' }}>เป้าจำหน่าย (ตัว)</th>
-                      <th style={{ textAlign: 'right' }}>ยอดขายจำหน่ายจริง (ตัว)</th>
+                      <th style={{ minWidth: '140px' }}>กลุ่มสินค้า</th>
+                      <th style={{ textAlign: 'right' }}>ราคาขาย</th>
+                      <th style={{ textAlign: 'right' }}>เป้าจำหน่าย</th>
+                      <th style={{ textAlign: 'right' }}>ขายจริง</th>
                       <th style={{ textAlign: 'right' }}>สต็อกใช้ได้</th>
-                      <th style={{ textAlign: 'right' }}>ยอดขายเป้าหมาย (บาท)</th>
-                      <th style={{ textAlign: 'right' }}>คิดเป็น % จากเป้า</th>
-                      <th>กลยุทธ์หลัก</th>
-                      <th style={{ textAlign: 'center' }}>จัดการ</th>
+                      <th style={{ textAlign: 'right' }}>ยอดขายเป้าหมาย</th>
+                      <th style={{ textAlign: 'right' }}>% จากเป้า</th>
+                      <th style={{ minWidth: '100px' }}>กลยุทธ์</th>
+                      <th style={{ textAlign: 'center', width: '70px' }}>จัดการ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {products.map(prod => {
                       const prodTargetSales = prod.price * prod.targetUnits;
-                      const targetPercent = Math.round((prodTargetSales / totalTarget) * 100) || 0;
+                      const actualUnits = Number(prod.actualUnits || 0);
+                      const targetUnits = Number(prod.targetUnits || 0);
+                      const fulfillmentPercent = targetUnits > 0 ? Math.round((actualUnits / targetUnits) * 100) : 0;
                       const availableStock = Number(prod.stockOnHand || 0) - Number(prod.reservedUnits || 0);
                       const isLowStock = availableStock <= Number(prod.reorderPoint || 0);
                       return (
                         <tr key={prod.id}>
-                          <td style={{ fontWeight: '800' }}>{prod.name}</td>
-                          <td style={{ textAlign: 'right' }}>{prod.price.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right' }}>{prod.targetUnits.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right', fontWeight: '800', color: 'var(--success)' }}>{prod.actualUnits.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right', fontWeight: '900', color: isLowStock ? 'var(--danger)' : 'var(--text-main)' }}>
-                            {availableStock.toLocaleString()} ตัว
+                          <td style={{ fontWeight: 'var(--fw-semibold)' }}>{prod.name}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{prod.price.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{targetUnits.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 'var(--fw-semibold)', color: actualUnits >= targetUnits ? 'var(--success)' : 'var(--text-body-color)' }}>{actualUnits.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 'var(--fw-semibold)', color: isLowStock ? 'var(--danger)' : 'var(--text-body-color)' }}>
+                            {availableStock.toLocaleString()}
                           </td>
-                          <td style={{ textAlign: 'right', fontWeight: '900' }}>{prodTargetSales.toLocaleString()} ฿</td>
-                          <td style={{ textAlign: 'right', color: 'var(--kpi-blue)', fontWeight: '800' }}>{targetPercent}%</td>
-                          <td style={{ fontSize: '14.5px', color: 'var(--text-muted)' }}>{prod.strategy}</td>
+                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 'var(--fw-semibold)' }}>{prodTargetSales.toLocaleString()}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            <span className={`pill ${fulfillmentPercent >= 80 ? 'pill-success' : fulfillmentPercent >= 40 ? 'pill-warning' : 'pill-info'}`}>
+                              {fulfillmentPercent}%
+                            </span>
+                          </td>
+                          <td style={{ fontSize: 'var(--text-body)', color: 'var(--text-caption)' }}>{prod.strategy}</td>
                           <td style={{ textAlign: 'center' }}>
                             {userRole === 'admin' ? (
-                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                                <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditProduct(prod)}>
+                              <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                                <button className="channel-action-btn" title="แก้ไข" onClick={() => openEditProduct(prod)}>
                                   <i className="fa-solid fa-pencil"></i>
                                 </button>
-                                <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deleteProduct(prod.id)}>
+                                <button className="channel-action-btn" title="ลบ" onClick={() => deleteProduct(prod.id)}>
                                   <i className="fa-solid fa-trash"></i>
                                 </button>
                               </div>
                             ) : (
-                              <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditProduct(prod)}>
-                                <i className="fa-solid fa-eye"></i> ดูรายละเอียด
+                              <button className="btn" style={{ padding: '4px 8px', fontSize: 'var(--text-small)' }} onClick={() => openEditProduct(prod)}>
+                                <i className="fa-solid fa-eye"></i> ดู
                               </button>
                             )}
                           </td>
@@ -2512,15 +2578,17 @@ export default function App() {
                     })}
                     
                     {/* Summary Row */}
-                    <tr style={{ backgroundColor: 'var(--surface-hover)', fontWeight: '900' }}>
+                    <tr style={{ backgroundColor: 'var(--surface-hover)', fontWeight: 'var(--fw-bold)' }}>
                       <td>รวมทั้งหมด</td>
                       <td style={{ textAlign: 'right' }}>-</td>
-                      <td style={{ textAlign: 'right' }}>{products.reduce((acc, p) => acc + p.targetUnits, 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', color: 'var(--success)' }}>{totalActualUnits.toLocaleString()}</td>
-                      <td style={{ textAlign: 'right' }}>{products.reduce((acc, p) => acc + (Number(p.stockOnHand || 0) - Number(p.reservedUnits || 0)), 0).toLocaleString()} ตัว</td>
-                      <td style={{ textAlign: 'right' }}>{products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0).toLocaleString()} ฿</td>
-                      <td style={{ textAlign: 'right', color: 'var(--success)' }}>
-                        {Math.round((products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0) / totalTarget) * 100)}%
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{products.reduce((acc, p) => acc + p.targetUnits, 0).toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)' }}>{totalActualUnits.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{products.reduce((acc, p) => acc + (Number(p.stockOnHand || 0) - Number(p.reservedUnits || 0)), 0).toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0).toLocaleString()}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span className="pill pill-info">
+                          {Math.round((products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0) / totalTarget) * 100)}%
+                        </span>
                       </td>
                       <td>-</td>
                       {userRole === 'admin' && <td style={{ textAlign: 'center' }}>-</td>}
@@ -2575,7 +2643,7 @@ export default function App() {
 
             <div className="tasks-container">
               {getFilteredTasks(selectedDate).length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px 10px', fontSize: '15px' }}>
+                <div style={{ textAlign: 'center', color: 'var(--text-caption)', padding: '40px 10px', fontSize: 'var(--text-body)' }}>
                   ไม่มีกำหนดการแคมเปญในวันนี้
                 </div>
               ) : (
@@ -2605,17 +2673,17 @@ export default function App() {
                           </div>
                         </div>
                         <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                        {task.detail && <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
+                        {task.detail && <div style={{ fontSize: 'var(--text-body)', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
                         <div className="timeline-card-footer">
                           <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
                             {campObj.name.split(':')[0]}
                           </span>
                           <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
+                            <button className="btn" style={{ padding: '2px 8px' }} onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
                               <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดู'}
                             </button>
                             {userRole === 'admin' && (
-                              <button className="btn btn-danger" style={{ padding: '2px 8px', fontSize: '13px' }} onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
+                              <button className="btn btn-danger" style={{ padding: '2px 8px' }} onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
                                 <i className="fa-solid fa-trash"></i>
                               </button>
                             )}
@@ -2649,7 +2717,7 @@ export default function App() {
                     {monthNames[currentMonth]} {currentYear}
                   </span>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: '800', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
+                    <span style={{ fontSize: 'var(--text-body)', color: 'var(--text-muted)', fontWeight: 'var(--fw-semibold)', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
                       <i className="fa-solid fa-list-check" style={{ marginRight: '4px', color: 'var(--primary)' }}></i>
                       {tasks.filter(t => {
                         const taskMonth = parseInt(t.date?.split('-')[1]) - 1;
@@ -2859,7 +2927,7 @@ export default function App() {
                 >
                   <div className="kanban-column-header">
                     <div className="kanban-column-title-row">
-                      <i className={statusMeta.icon} style={{ fontSize: '15px' }}></i>
+                      <i className={statusMeta.icon} style={{ fontSize: 'var(--text-body)' }}></i>
                       <span className="kanban-column-title">{statusMeta.label}</span>
                       <span className="kanban-column-count">{columnTasks.length}</span>
                     </div>
@@ -2870,7 +2938,7 @@ export default function App() {
                     {columnTasks.length === 0 ? (
                       <div className="kanban-empty">
                         <i className="fa-regular fa-folder-open" style={{ fontSize: '28px', color: 'var(--text-muted)', opacity: 0.4 }}></i>
-                        <span style={{ fontSize: '13px', color: 'var(--text-muted)', opacity: 0.6 }}>ไม่มีงานในคอลัมน์นี้</span>
+                        <span className="text-small" style={{ opacity: 0.6 }}>ไม่มีงานในคอลัมน์นี้</span>
                       </div>
                     ) : (
                       columnTasks.map(task => {
@@ -2938,7 +3006,7 @@ export default function App() {
           {/* Production PO Tracker */}
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '900' }}>
+              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)' }}>
                 <i className="fa-solid fa-box" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 ใบสั่งผลิต & เปิด PO โรงงาน (PO Tracker)
               </h3>
@@ -2964,7 +3032,7 @@ export default function App() {
                 <tbody>
                   {poTracker.map(po => (
                     <tr key={po.id}>
-                      <td style={{ fontWeight: '800' }}>{po.product}</td>
+                      <td style={{ fontWeight: 'var(--fw-semibold)' }}>{po.product}</td>
                       <td style={{ textAlign: 'right' }}>{po.quantity.toLocaleString()}</td>
                       <td>{po.orderDate}</td>
                       <td>{po.arrivalDate}</td>
@@ -2974,8 +3042,8 @@ export default function App() {
                           color: po.status === 'Completed' ? 'var(--success)' : '#d97706',
                           padding: '4px 10px',
                           borderRadius: '20px',
-                          fontSize: '13.5px',
-                          fontWeight: '900'
+                          fontSize: 'var(--text-small-md)',
+                          fontWeight: 'var(--fw-bold)'
                         }}>
                           {po.status === 'Completed' ? 'ของเข้าแล้ว' : 'กำลังผลิต'}
                         </span>
@@ -2984,7 +3052,7 @@ export default function App() {
                         {userRole === 'admin' ? (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                             {po.status !== 'Completed' && (
-                              <button className="btn btn-success" style={{ padding: '4px 8px', fontSize: '13.5px' }} onClick={() => markPoReceived(po)}>
+                              <button className="btn btn-success" style={{ padding: '4px 8px' }} onClick={() => markPoReceived(po)}>
                                 <i className="fa-solid fa-check"></i> รับสินค้าแล้ว
                               </button>
                             )}
@@ -3013,7 +3081,7 @@ export default function App() {
 
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
-              <h3 style={{ fontSize: '18px', fontWeight: '900' }}>
+              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)' }}>
                 <i className="fa-solid fa-warehouse" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                 Stock Watch
               </h3>
@@ -3042,10 +3110,10 @@ export default function App() {
                     const isLowStock = availableStock <= Number(prod.reorderPoint || 0);
                     return (
                       <tr key={prod.id}>
-                        <td style={{ fontWeight: '900' }}>{prod.name}</td>
+                        <td style={{ fontWeight: 'var(--fw-bold)' }}>{prod.name}</td>
                         <td style={{ textAlign: 'right' }}>{Number(prod.stockOnHand || 0).toLocaleString()}</td>
                         <td style={{ textAlign: 'right' }}>{Number(prod.reservedUnits || 0).toLocaleString()}</td>
-                        <td style={{ textAlign: 'right', fontWeight: '900', color: isLowStock ? 'var(--danger)' : 'var(--success)' }}>{availableStock.toLocaleString()}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 'var(--fw-bold)', color: isLowStock ? 'var(--danger)' : 'var(--success)' }}>{availableStock.toLocaleString()}</td>
                         <td style={{ textAlign: 'right' }}>{Number(prod.reorderPoint || 0).toLocaleString()}</td>
                         <td>
                           <span className={`stock-badge ${isLowStock ? 'low' : 'ok'}`}>
@@ -3072,7 +3140,7 @@ export default function App() {
       {activeTab === 'campaigns' && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: '20px', fontWeight: '900' }}>
+            <h2 style={{ fontSize: 'var(--text-title-lg)', fontWeight: 'var(--fw-bold)' }}>
               <i className="fa-solid fa-layer-group" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
               ตั้งค่าแคมเปญการตลาด (Campaign Settings)
             </h2>
@@ -3081,7 +3149,7 @@ export default function App() {
             </button>
           </div>
 
-          <p style={{ fontSize: '15.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+          <p className="text-body" style={{ color: 'var(--text-caption)', marginBottom: '16px' }}>
             ตั้งค่าแคมเปญและสีประจำแคมเปญ เพื่อให้ระบบนำไปวาดและจำแนกจุดกำหนดการบนปฏิทินปฏิบัติงาน และคำนวณข้อมูลผลงานรายแคมเปญ
           </p>
 
@@ -3101,7 +3169,7 @@ export default function App() {
                 {campaigns.map(camp => (
                   <tr key={camp.id}>
                     <td style={{ fontFamily: 'monospace' }}>{camp.id}</td>
-                    <td style={{ fontWeight: '800' }}>{camp.name}</td>
+                    <td style={{ fontWeight: 'var(--fw-semibold)' }}>{camp.name}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: camp.color, border: '1px solid var(--border)' }}></span>
@@ -3146,11 +3214,11 @@ export default function App() {
           <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               <div>
-                <h2 style={{ fontSize: '20px', fontWeight: '900' }}>
+                <h2 style={{ fontSize: 'var(--text-title-lg)', fontWeight: 'var(--fw-bold)' }}>
                   <i className="fa-solid fa-route" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
                   ไทม์ไลน์แผนปฏิบัติงานแนวตั้ง (Campaign Roadmap)
                 </h2>
-                <p style={{ fontSize: '15px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <p className="text-body" style={{ color: 'var(--text-caption)', marginTop: '4px' }}>
                   ติดตาม กำหนดการ และขั้นตอนย่อยของทุกแคมเปญ เพื่อให้ทีมทำงานร่วมกันได้อย่างเป็นระบบ
                 </p>
               </div>
@@ -4088,7 +4156,7 @@ export default function App() {
             </div>
             
             <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-              <p style={{ fontSize: '15.5px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              <p className="text-body" style={{ color: 'var(--text-caption)', marginBottom: '16px' }}>
                 รายการที่ถูกลบจะถูกเก็บไว้ที่นี่ชั่วคราว คุณสามารถเลือกกู้คืนข้อมูลกลับไปยังระบบหลัก หรือเลือกลบทิ้งแบบถาวร (ทิ้งให้สิ้นซาก) ได้
               </p>
               {trashItems.length === 0 ? (
@@ -4131,15 +4199,15 @@ export default function App() {
                         return (
                           <tr key={item.id}>
                             <td>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '14.5px', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border)' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-body)', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border)' }}>
                                 <i className={`fa-solid ${typeIcon}`} style={{ color: 'var(--primary)' }}></i>
                                 {typeLabel}
                               </span>
                             </td>
-                            <td style={{ fontWeight: '800', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
+                            <td style={{ fontWeight: 'var(--fw-semibold)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
                               {item.name}
                             </td>
-                            <td style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                            <td style={{ fontSize: 'var(--text-body)', color: 'var(--text-muted)' }}>
                               {new Date(item.deletedAt).toLocaleString('th-TH')}
                             </td>
                             <td style={{ textAlign: 'center' }}>
