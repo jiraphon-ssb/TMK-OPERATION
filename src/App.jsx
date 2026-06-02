@@ -805,19 +805,30 @@ export default function App() {
       setRemoteStatus('Supabase not configured');
       return false;
     }
+    if (!user) {
+      setRemoteStatus('รอเข้าสู่ระบบก่อนโหลดข้อมูล Supabase...');
+      return false;
+    }
     try {
       const remoteData = await tmkRepository.loadAll();
       if (!remoteData) return false;
 
       applyRemoteData(remoteData);
-      setRemoteStatus(statusLabel);
+      const isRemoteEmpty = [
+        remoteData.campaigns,
+        remoteData.channels,
+        remoteData.products,
+        remoteData.tasks,
+        remoteData.poTracker
+      ].every(list => !list || list.length === 0);
+      setRemoteStatus(isRemoteEmpty ? 'Supabase connected แต่ยังอ่านไม่พบข้อมูลหลัก' : statusLabel);
       return true;
     } catch (error) {
       console.error('Failed to load/sync Supabase data:', error);
       setRemoteStatus('Supabase error: ไม่สามารถโหลดข้อมูลได้');
       return false;
     }
-  }, [applyRemoteData]);
+  }, [applyRemoteData, user]);
 
   const refreshRemoteData = async () => {
     if (!tmkRepository.isConfigured || isRefreshingRemote) return;
@@ -841,7 +852,10 @@ export default function App() {
     let cancelled = false;
 
     const bootstrapRemoteData = async () => {
-      if (!tmkRepository.isConfigured) return;
+      if (!tmkRepository.isConfigured || !user) {
+        setRemoteReady(false);
+        return;
+      }
       try {
         const loaded = await loadRemoteData();
         if (loaded && !cancelled) setRemoteReady(true);
@@ -852,6 +866,12 @@ export default function App() {
     };
 
     bootstrapRemoteData();
+
+    if (!tmkRepository.isConfigured || !user) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const unsubscribe = tmkRepository.subscribeToChanges(async () => {
       if (cancelled) return;
@@ -872,7 +892,7 @@ export default function App() {
       cancelled = true;
       unsubscribe();
     };
-  }, [loadRemoteData]);
+  }, [loadRemoteData, user]);
 
   const saveRemote = useCallback(async (label, saveFn) => {
     if (!remoteReady || !tmkRepository.isConfigured) return;
