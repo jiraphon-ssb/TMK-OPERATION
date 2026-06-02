@@ -419,10 +419,49 @@ export default function App() {
 
   const loadRemoteData = useCallback(async (statusLabel = 'Supabase connected') => {
     if (!tmkRepository.isConfigured) return;
-    const remoteData = await tmkRepository.loadAll();
-    if (!remoteData) return;
-    applyRemoteData(remoteData);
-    setRemoteStatus(statusLabel);
+    try {
+      const remoteData = await tmkRepository.loadAll();
+      if (!remoteData) return;
+
+      const isRemoteEmpty = (!remoteData.campaigns || remoteData.campaigns.length === 0) &&
+                            (!remoteData.tasks || remoteData.tasks.length === 0);
+
+      if (isRemoteEmpty) {
+        // Read local state from localStorage or initial mock data to seed DB
+        const localCampaigns = safeReadJson('tmk_campaigns', initialCampaigns);
+        const localChannels = safeReadJson('tmk_channels', initialChannels);
+        const localProducts = normalizeStoredProducts(safeReadJson('tmk_products', initialProducts));
+        const localTasks = safeReadJson('tmk_tasks', initialTasks);
+        const localPoTracker = safeReadJson('tmk_pos', initialPOs);
+        const localTotalTarget = Number(localStorage.getItem('tmk_total_target')) || initialChannels.reduce((sum, ch) => sum + (Number(ch.actual) || 0), 0);
+        const localTotalUnitsTarget = Number(localStorage.getItem('tmk_total_units')) || 3850;
+
+        console.log('Supabase is empty. Seeding with local backup data...');
+        setRemoteStatus('กำลังบันทึกข้อมูลเริ่มต้นไปยัง Supabase...');
+        await tmkRepository.seedIfEmpty({
+          campaigns: localCampaigns,
+          channels: localChannels,
+          products: localProducts,
+          tasks: localTasks,
+          poTracker: localPoTracker,
+          totalTarget: localTotalTarget,
+          totalUnitsTarget: localTotalUnitsTarget
+        });
+        
+        // After seeding, reload the seeded data
+        const reloadedData = await tmkRepository.loadAll();
+        if (reloadedData) {
+          applyRemoteData(reloadedData);
+        }
+        setRemoteStatus(statusLabel);
+      } else {
+        applyRemoteData(remoteData);
+        setRemoteStatus(statusLabel);
+      }
+    } catch (error) {
+      console.error('Failed to load/sync Supabase data:', error);
+      setRemoteStatus('Supabase error: ใช้ข้อมูลในเครื่องชั่วคราว');
+    }
   }, [applyRemoteData]);
 
   const refreshRemoteData = async () => {
