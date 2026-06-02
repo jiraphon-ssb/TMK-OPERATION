@@ -158,6 +158,19 @@ export const tmkRepository = {
     ]);
 
     const results = [campaigns, channels, products, tasks, checklist, comments, attachments, purchaseOrders, settings];
+    const tableNames = ['campaigns', 'channels', 'products', 'tasks', 'checklist', 'comments', 'attachments', 'purchaseOrders', 'settings'];
+    console.group('📊 TMK Supabase loadAll() results');
+    results.forEach((result, i) => {
+      const name = tableNames[i];
+      if (result.error) {
+        console.error(`  ❌ ${name}: ERROR`, result.error.message, result.error);
+      } else if (name === 'settings') {
+        console.log(`  ✅ ${name}:`, result.data ? JSON.stringify(result.data) : 'null (no settings row)');
+      } else {
+        console.log(`  ✅ ${name}: ${(result.data || []).length} rows`);
+      }
+    });
+    console.groupEnd();
     const failed = results.find(result => result.error);
     if (failed) throw failed.error;
 

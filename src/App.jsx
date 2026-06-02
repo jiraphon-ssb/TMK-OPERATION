@@ -810,8 +810,19 @@ export default function App() {
       return false;
     }
     try {
+      console.log('🔄 TMK: Loading remote data from Supabase... (user:', user.email, ')');
       const remoteData = await tmkRepository.loadAll();
       if (!remoteData) return false;
+
+      console.log('📦 TMK: Remote data received:', {
+        campaigns: remoteData.campaigns?.length || 0,
+        channels: remoteData.channels?.length || 0,
+        products: remoteData.products?.length || 0,
+        tasks: remoteData.tasks?.length || 0,
+        poTracker: remoteData.poTracker?.length || 0,
+        totalTarget: remoteData.totalTarget,
+        totalUnitsTarget: remoteData.totalUnitsTarget
+      });
 
       applyRemoteData(remoteData);
       const isRemoteEmpty = [
@@ -821,10 +832,13 @@ export default function App() {
         remoteData.tasks,
         remoteData.poTracker
       ].every(list => !list || list.length === 0);
+      if (isRemoteEmpty) {
+        console.warn('⚠️ TMK: All Supabase tables returned empty. Check if schema has been run and data exists.');
+      }
       setRemoteStatus(isRemoteEmpty ? `Supabase ${supabaseProjectRef || ''} connected แต่ยังอ่านไม่พบข้อมูลหลัก` : `${statusLabel}${supabaseProjectRef ? ` (${supabaseProjectRef})` : ''}`);
       return true;
     } catch (error) {
-      console.error('Failed to load/sync Supabase data:', error);
+      console.error('❌ TMK: Failed to load/sync Supabase data:', error);
       setRemoteStatus('Supabase error: ไม่สามารถโหลดข้อมูลได้');
       return false;
     }
