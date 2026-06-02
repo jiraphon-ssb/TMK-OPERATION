@@ -165,22 +165,32 @@ function SearchableMultiSelect({
 
       {isOpen && (
         <div className="custom-select-dropdown">
-          <input
-            type="text"
-            className="dropdown-search-input"
-            placeholder={addPlaceholder}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                e.stopPropagation();
-                handleAdd();
-              }
-            }}
-            autoFocus
-          />
+          <div className="dropdown-search-wrap">
+            <input
+              type="text"
+              className="dropdown-search-input"
+              placeholder={addPlaceholder}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleAdd();
+                }
+              }}
+              autoFocus
+            />
+            <button
+              type="button"
+              className="dropdown-add-btn"
+              onClick={(e) => { e.stopPropagation(); handleAdd(); }}
+              title="เพิ่มรายการ"
+            >
+              <i className="fa-solid fa-plus"></i>
+            </button>
+          </div>
 
           <div className="dropdown-options-list">
             {filteredOptions.map(opt => {
@@ -221,18 +231,16 @@ function SearchableMultiSelect({
               );
             })}
             {filteredOptions.length === 0 && searchTerm.trim() && (
-              <div className="dropdown-option-item add-new-option" onClick={(e) => {
+              <div className="dropdown-add-new" onClick={(e) => {
                 e.stopPropagation();
                 handleAdd();
               }}>
-                <span style={{ color: 'var(--primary)', fontWeight: 'var(--fw-semibold)' }}>
-                  <i className="fa-solid fa-plus" style={{ marginRight: '6px' }}></i>
-                  เพิ่ม "{searchTerm}"
-                </span>
+                <i className="fa-solid fa-plus"></i>
+                <span>เพิ่ม "{searchTerm}"</span>
               </div>
             )}
             {filteredOptions.length === 0 && !searchTerm.trim() && (
-              <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-caption)', fontSize: 'var(--text-small)' }}>
                 ไม่พบข้อมูล
               </div>
             )}
@@ -754,11 +762,9 @@ export default function App() {
   const [taskModalMode, setTaskModalMode] = useState('add'); // 'add' | 'edit'
   const [editingTaskId, setEditingTaskId] = useState(null);
   const [taskForm, setTaskForm] = useState({ date: '', title: '', detail: '', responsible: 'มัง', channel: 'หลังบ้าน', camp: 'c1', status: 'todo', comments: [], attachments: [], reminderDays: 1 });
-  const [showDataMenu, setShowDataMenu] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
-  const toggleDataMenu = () => { setShowDataMenu(prev => { if (!prev) setShowProfileMenu(false); return !prev; }); };
-  const toggleProfileMenu = () => { setShowProfileMenu(prev => { if (!prev) setShowDataMenu(false); return !prev; }); };
+  const toggleProfileMenu = () => { setShowProfileMenu(prev => !prev); };
 
   const [draggedOverCol, setDraggedOverCol] = useState(null);
 
@@ -2054,7 +2060,7 @@ export default function App() {
             )}
           </div>
 
-          {/* User Profile Avatar — click to open account/workspace switcher */}
+          {/* User Profile Avatar — click to open unified menu */}
           {user && (
             <div style={{ position: 'relative' }}>
               <button
@@ -2072,6 +2078,7 @@ export default function App() {
               </button>
               {showProfileMenu && (
                 <div className="user-profile-dropdown">
+                  {/* Section 1: User Identity */}
                   <div className="profile-header">
                     <img 
                       src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
@@ -2082,63 +2089,55 @@ export default function App() {
                       <div className="profile-email">{user.email}</div>
                     </div>
                   </div>
+                  <div className="menu-divider" />
+
+                  {/* Section 2: Workspace & System Settings */}
+                  <div className="menu-section-label">จัดการระบบ</div>
                   <button onClick={() => { setActiveTab('user_roles'); setShowProfileMenu(false); }}>
-                    <i className="fa-solid fa-user-shield"></i>
-                    <span>ตั้งค่าสิทธิ์</span>
+                    <i className="fa-solid fa-users-gear menu-item-icon"></i>
+                    <span className="menu-item-text">
+                      <span className="menu-item-title">ตั้งค่าสิทธิ์ (User Role Settings)</span>
+                      <span className="menu-item-desc">มอบสิทธิ์ Admin / Viewer ให้ทีม</span>
+                    </span>
                   </button>
+                  <button onClick={() => { setActiveTab('campaigns'); setShowProfileMenu(false); }}>
+                    <i className="fa-solid fa-palette menu-item-icon"></i>
+                    <span className="menu-item-text">
+                      <span className="menu-item-title">ตั้งค่าแคมเปญ (Campaign Settings)</span>
+                      <span className="menu-item-desc">จัดการชื่อและสีแคมเปญ</span>
+                    </span>
+                  </button>
+                  <div className="menu-divider" />
+
+                  {/* Section 3: Preferences & Utilities */}
+                  <div className="menu-section-label">การตั้งค่าส่วนตัว</div>
                   <button onClick={() => { setTheme(prev => prev === 'light' ? 'dark' : 'light'); setShowProfileMenu(false); }}>
-                    <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'}`}></i>
-                    <span>{theme === 'light' ? 'โหมดมืด' : 'โหมดสว่าง'}</span>
+                    <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'} menu-item-icon`}></i>
+                    <span className="menu-item-text">
+                      <span className="menu-item-title">{theme === 'light' ? 'โหมดมืด (Dark Mode)' : 'โหมดสว่าง (Light Mode)'}</span>
+                      <span className="menu-item-desc">เปลี่ยนหน้าจอเป็นสีเข้ม</span>
+                    </span>
                   </button>
-                  <button className="danger-row" onClick={() => { handleSignOut(); setShowProfileMenu(false); }}>
-                    <i className="fa-solid fa-right-from-bracket"></i>
-                    <span>ออกจากระบบ</span>
+                  <button className="danger-item" onClick={() => { setShowTrashModal(true); setShowProfileMenu(false); }}>
+                    <i className="fa-solid fa-trash-can menu-item-icon"></i>
+                    <span className="menu-item-text">
+                      <span className="menu-item-title">ถังขยะ (Recycle Bin)</span>
+                      <span className="menu-item-desc">กู้คืนข้อมูล หรือลบทิ้งถาวร</span>
+                    </span>
+                  </button>
+                  <div className="menu-divider" />
+
+                  {/* Section 4: Sign Out */}
+                  <button className="danger-item" onClick={() => { handleSignOut(); setShowProfileMenu(false); }}>
+                    <i className="fa-solid fa-right-from-bracket menu-item-icon"></i>
+                    <span className="menu-item-text">
+                      <span className="menu-item-title">ออกจากระบบ (Log Out)</span>
+                    </span>
                   </button>
                 </div>
               )}
             </div>
           )}
-
-          {/* Data Menu (hamburger) — secondary settings & tools */}
-          <div className="data-menu-wrapper">
-            <button className={`icon-btn ${showDataMenu ? 'active' : ''}`} onClick={toggleDataMenu} title="จัดการข้อมูล" aria-label="จัดการข้อมูล">
-              <i className="fa-solid fa-ellipsis-vertical"></i>
-            </button>
-            {showDataMenu && (
-              <div className="data-menu">
-                {userRole === 'admin' && (
-                  <button type="button" onClick={() => { setActiveTab('user_roles'); setShowDataMenu(false); }}>
-                    <i className="fa-solid fa-user-shield"></i>
-                    <span>
-                      <strong>User Role Settings</strong>
-                      <small>มอบสิทธิ์ Admin / Viewer ให้ทีม</small>
-                    </span>
-                  </button>
-                )}
-                <button type="button" onClick={() => { setActiveTab('campaigns'); setShowDataMenu(false); }}>
-                  <i className="fa-solid fa-layer-group"></i>
-                  <span>
-                    <strong>Campaign Settings</strong>
-                    <small>จัดการชื่อและสีแคมเปญ</small>
-                  </span>
-                </button>
-                <button type="button" onClick={() => { setTheme(prev => prev === 'light' ? 'dark' : 'light'); setShowDataMenu(false); }}>
-                  <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'}`}></i>
-                  <span>
-                    <strong>{theme === 'light' ? 'โหมดมืด (Dark Mode)' : 'โหมดสว่าง (Light Mode)'}</strong>
-                    <small>{theme === 'light' ? 'เปลี่ยนหน้าจอเป็นสีเข้ม' : 'เปลี่ยนหน้าจอเป็นสีสว่าง'}</small>
-                  </span>
-                </button>
-                <button type="button" className="danger" onClick={() => { setShowTrashModal(true); setShowDataMenu(false); }}>
-                  <i className="fa-solid fa-trash-can"></i>
-                  <span>
-                    <strong>ถังขยะ (Recycle Bin)</strong>
-                    <small>กู้คืนข้อมูล หรือลบทิ้งถาวร</small>
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </header>
 
@@ -2380,7 +2379,7 @@ export default function App() {
                           <span className="channel-info fw-semibold">
                             <span className="channel-dot" style={{ backgroundColor: ch.color }}></span>
                             {ch.name}
-                            <span className="pill pill-info" style={{ fontSize: '11px', padding: '0 6px' }}>
+                            <span className="pill pill-info" style={{ fontSize: 'var(--text-xs)', padding: '0 6px' }}>
                               {targetSharePercent}%
                             </span>
                           </span>
@@ -3375,43 +3374,43 @@ export default function App() {
                               const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
                               
                               return (
-                                <div className="timeline-task-card-modern">
-                                  <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
-                                  <div className="timeline-card-body" onClick={() => openEditTask(task)}>
-                                    <div className="timeline-card-header">
-                                      <span className="timeline-card-date">{displayDate}</span>
-                                      <div className="timeline-card-avatars">
-                                        {displayAvatars.map((name, i) => (
-                                          <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
-                                            {name.charAt(0)}
-                                          </div>
-                                        ))}
-                                        {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
-                                      </div>
-                                    </div>
-                                    <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                                    <div className="timeline-card-footer">
-                                      <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
-                                        <div className="timeline-card-progress-bar">
-                                          <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: campObj.color }}></div>
-                                        </div>
-                                        <span className="timeline-card-progress-text">{progress}%</span>
-                                      </div>
-                                      <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                                        {campObj.name.split(':')[0]}
-                                      </span>
-                                    </div>
-                                    <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
-                                      <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
-                                        <i className="fa-solid fa-trash-can"></i>
-                                      </button>
-                                      <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
-                                        <i className="fa-solid fa-pencil"></i>
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
+                                 <div className="timeline-task-card-modern">
+                                   <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
+                                   <div className="timeline-card-body" onClick={() => openEditTask(task)}>
+                                     <div className="timeline-card-header">
+                                       <span className="timeline-card-date">{displayDate}</span>
+                                     </div>
+                                     <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
+                                     <div className="timeline-card-footer">
+                                       <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
+                                         <div className="timeline-card-progress-bar">
+                                           <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: campObj.color }}></div>
+                                         </div>
+                                         <span className="timeline-card-progress-text">{progress}%</span>
+                                       </div>
+                                       <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                                         {campObj.name.split(':')[0]}
+                                       </span>
+                                     </div>
+                                     <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
+                                       <div className="timeline-card-avatars">
+                                         {displayAvatars.map((name, i) => (
+                                           <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
+                                             {name.charAt(0)}
+                                           </div>
+                                         ))}
+                                         {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
+                                       </div>
+                                       <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
+                                         <i className="fa-solid fa-trash-can"></i>
+                                       </button>
+                                       <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
+                                         <i className="fa-solid fa-pencil"></i>
+                                       </button>
+                                     </div>
+                                   </div>
+                                 </div>
+                               );
                             })()}
                           </div>
                         </div>
@@ -3481,43 +3480,43 @@ export default function App() {
                                 const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
                                 
                                 return (
-                                  <div className="timeline-task-card-modern">
-                                    <div className="timeline-card-indicator" style={{ backgroundColor: camp.color, borderRadius: '14px 0 0 14px' }}></div>
-                                    <div className="timeline-card-body" onClick={() => openEditTask(task)}>
-                                      <div className="timeline-card-header">
-                                        <span className="timeline-card-date">{displayDate}</span>
-                                        <div className="timeline-card-avatars">
-                                          {displayAvatars.map((name, i) => (
-                                            <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
-                                              {name.charAt(0)}
-                                            </div>
-                                          ))}
-                                          {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
-                                        </div>
-                                      </div>
-                                      <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                                      <div className="timeline-card-footer">
-                                        <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
-                                          <div className="timeline-card-progress-bar">
-                                            <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: camp.color }}></div>
-                                          </div>
-                                          <span className="timeline-card-progress-text">{progress}%</span>
-                                        </div>
-                                        <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                                          {camp.name.split(':')[0]}
-                                        </span>
-                                      </div>
-                                      <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
-                                        <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
-                                          <i className="fa-solid fa-trash-can"></i>
-                                        </button>
-                                        <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
-                                          <i className="fa-solid fa-pencil"></i>
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
+                                   <div className="timeline-task-card-modern">
+                                     <div className="timeline-card-indicator" style={{ backgroundColor: camp.color, borderRadius: '14px 0 0 14px' }}></div>
+                                     <div className="timeline-card-body" onClick={() => openEditTask(task)}>
+                                       <div className="timeline-card-header">
+                                         <span className="timeline-card-date">{displayDate}</span>
+                                       </div>
+                                       <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
+                                       <div className="timeline-card-footer">
+                                         <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
+                                           <div className="timeline-card-progress-bar">
+                                             <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: camp.color }}></div>
+                                           </div>
+                                           <span className="timeline-card-progress-text">{progress}%</span>
+                                         </div>
+                                         <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
+                                           {camp.name.split(':')[0]}
+                                         </span>
+                                       </div>
+                                       <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
+                                         <div className="timeline-card-avatars">
+                                           {displayAvatars.map((name, i) => (
+                                             <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
+                                               {name.charAt(0)}
+                                             </div>
+                                           ))}
+                                           {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
+                                         </div>
+                                         <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
+                                           <i className="fa-solid fa-trash-can"></i>
+                                         </button>
+                                         <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
+                                           <i className="fa-solid fa-pencil"></i>
+                                         </button>
+                                       </div>
+                                     </div>
+                                   </div>
+                                 );
                               })()}
                             </div>
                           </div>
@@ -3776,7 +3775,7 @@ export default function App() {
                 {filteredAuditLogs.length === 0 ? (
                   <tr>
                     <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      <i className="fa-solid fa-circle-info" style={{ fontSize: '26px', display: 'block', marginBottom: '8px' }}></i>
+                      <i className="fa-solid fa-circle-info" style={{ fontSize: 'var(--text-hero-lg)', display: 'block', marginBottom: '8px' }}></i>
                       ไม่พบประวัติตามเงื่อนไขที่เลือก
                     </td>
                   </tr>
