@@ -929,8 +929,7 @@ body {
   flex-direction: column;
   gap: 4px;
   margin-top: 6px;
-  max-height: 52px;
-  overflow-y: auto;
+  overflow: hidden;
   width: 100%;
 }
 
@@ -980,9 +979,8 @@ body {
   font-weight: 800;
   color: var(--text-main);
   line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .btn-text-responsive {
