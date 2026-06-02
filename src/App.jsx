@@ -466,7 +466,7 @@ export default function App() {
     product: 'สินค้า',
     campaign: 'แคมเปญ',
     po: 'PO',
-    checklist: 'เช็คลิสต์',
+
     trash: 'ถังขยะ',
     target: 'เป้าหมาย',
     user_role: 'สิทธิ์ผู้ใช้'
@@ -545,7 +545,7 @@ export default function App() {
         statusText,
         severity,
         responsible: task.responsible || '-',
-        priority: task.priority || 'medium',
+
         task
       };
     }).sort((a, b) => {
@@ -705,7 +705,6 @@ export default function App() {
   // Timeline Filter & Search States
   const [timelineFilter, setTimelineFilter] = useState('master');
   const [timelineSearch, setTimelineSearch] = useState('');
-  const [timelinePriority, setTimelinePriority] = useState('all');
 
   // Main Data States
   const [campaigns, setCampaigns] = useState([]);
@@ -744,7 +743,7 @@ export default function App() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [taskModalMode, setTaskModalMode] = useState('add'); // 'add' | 'edit'
   const [editingTaskId, setEditingTaskId] = useState(null);
-  const [taskForm, setTaskForm] = useState({ date: '', title: '', detail: '', responsible: 'มัง', channel: 'หลังบ้าน', camp: 'c1', status: 'todo', priority: 'medium', checklist: [], comments: [], attachments: [], reminderDays: 1 });
+  const [taskForm, setTaskForm] = useState({ date: '', title: '', detail: '', responsible: 'มัง', channel: 'หลังบ้าน', camp: 'c1', status: 'todo', comments: [], attachments: [], reminderDays: 1 });
   const [showDataMenu, setShowDataMenu] = useState(false);
   const [draggedOverCol, setDraggedOverCol] = useState(null);
 
@@ -1061,8 +1060,6 @@ export default function App() {
       const isDate = task.date === dateStr;
       const isCamp = campFilter === 'all' || task.camp === campFilter;
       const isRole = roleFilter === 'all' || new RegExp(roleFilter, 'i').test(task.responsible);
-      const isPriority = timelinePriority === 'all' || (task.priority || 'medium') === timelinePriority;
-      
       let isSearch = true;
       if (timelineSearch.trim()) {
         const q = timelineSearch.toLowerCase();
@@ -1080,7 +1077,7 @@ export default function App() {
         isMyTask = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
       }
 
-      return isDate && isCamp && isRole && isPriority && isSearch && isMyTask;
+      return isDate && isCamp && isRole && isSearch && isMyTask;
     });
   };
 
@@ -1090,7 +1087,6 @@ export default function App() {
       const isStatus = task.status === status;
       const isCamp = campFilter === 'all' || task.camp === campFilter;
       const isRole = roleFilter === 'all' || new RegExp(roleFilter, 'i').test(task.responsible);
-      const isPriority = timelinePriority === 'all' || (task.priority || 'medium') === timelinePriority;
       
       let isSearch = true;
       if (timelineSearch.trim()) {
@@ -1109,20 +1105,8 @@ export default function App() {
         isMyTask = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
       }
 
-      return isStatus && isCamp && isRole && isPriority && isSearch && isMyTask;
+      return isStatus && isCamp && isRole && isSearch && isMyTask;
     });
-  };
-
-  // Render Priority Badge
-  const renderPriorityBadge = (priority) => {
-    const p = priority || 'medium';
-    if (p === 'high') {
-      return <span className="priority-badge high"><i className="fa-solid fa-fire"></i> สูง</span>;
-    }
-    if (p === 'low') {
-      return <span className="priority-badge low"><i className="fa-solid fa-moon"></i> ต่ำ</span>;
-    }
-    return <span className="priority-badge medium"><i className="fa-solid fa-bolt"></i> กลาง</span>;
   };
 
   // Drag and Drop (Kanban)
@@ -1195,77 +1179,6 @@ export default function App() {
     )));
   };
 
-  // Checklist handlers
-  const toggleChecklistItem = (taskId, itemId) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ทำรายการนี้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const checklist = (t.checklist || []).map(item => {
-          if (item.id === itemId) {
-            logAction('แก้ไขรายการตรวจสอบย่อย', buildAuditDetails({
-              entityType: 'checklist',
-              entityName: item.text,
-              summary: `${item.completed ? 'ทำเครื่องหมายว่ายังไม่เสร็จ' : 'ทำเครื่องหมายว่าเสร็จแล้ว'} ในงาน "${t.title}"`,
-              before: { completed: item.completed },
-              after: { completed: !item.completed }
-            }));
-            return { ...item, completed: !item.completed };
-          }
-          return item;
-        });
-        return { ...t, checklist };
-      }
-      return t;
-    }));
-  };
-
-  const addChecklistItem = (taskId, text) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ทำรายการนี้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (!text || !text.trim()) return;
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const newItem = { id: generateId('sub'), text: text.trim(), completed: false };
-        logAction('สร้างรายการตรวจสอบย่อย', buildAuditDetails({
-          entityType: 'checklist',
-          entityName: text.trim(),
-          summary: `เพิ่มรายการย่อยในงาน "${t.title}"`,
-          after: newItem
-        }));
-        return { ...t, checklist: [...(t.checklist || []), newItem] };
-      }
-      return t;
-    }));
-  };
-
-  const deleteChecklistItem = (taskId, itemId) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ทำรายการนี้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const itemToDelete = (t.checklist || []).find(item => item.id === itemId);
-        if (itemToDelete) {
-          logAction('ลบรายการตรวจสอบย่อย', buildAuditDetails({
-            entityType: 'checklist',
-            entityName: itemToDelete.text,
-            summary: `ลบรายการย่อยออกจากงาน "${t.title}"`,
-            before: itemToDelete
-          }));
-        }
-        const checklist = (t.checklist || []).filter(item => item.id !== itemId);
-        return { ...t, checklist };
-      }
-      return t;
-    }));
-  };
-
   const getTimelineDateParts = (dateStr) => {
     if (!dateStr) return { day: '--', month: '---', year: '----' };
     const parts = dateStr.split('-');
@@ -1295,80 +1208,10 @@ export default function App() {
         t.channel.toLowerCase().includes(q)
       );
     }
-    if (timelinePriority !== 'all') {
-      filtered = filtered.filter(t => (t.priority || 'medium') === timelinePriority);
-    }
     return [...filtered].sort((a, b) => new Date(a.date) - new Date(b.date));
   };
 
-  const renderInlineChecklist = (task) => {
-    const list = task.checklist || [];
-    const completed = list.filter(item => item.completed).length;
-    const total = list.length;
-    
-    return (
-      <div className="checklist-container" onClick={(e) => e.stopPropagation()}>
-        <div className="checklist-title">
-          <span>เช็คลิสต์งานย่อย</span>
-          <span>{completed}/{total}</span>
-        </div>
-        {list.map(item => (
-          <div key={item.id} className="checklist-item">
-            <input 
-              type="checkbox" 
-              className="checklist-checkbox" 
-              checked={item.completed} 
-              disabled={userRole !== 'admin'}
-              onChange={() => toggleChecklistItem(task.id, item.id)} 
-            />
-            <span className={`checklist-text ${item.completed ? 'crossed' : ''}`}>
-              {item.text}
-            </span>
-            {userRole === 'admin' && (
-              <button 
-                type="button" 
-                style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', marginLeft: 'auto', padding: '2px 4px' }}
-                onClick={() => deleteChecklistItem(task.id, item.id)}
-                title="ลบงานย่อย"
-              >
-                <i className="fa-solid fa-trash-can" style={{ fontSize: '13px' }}></i>
-              </button>
-            )}
-          </div>
-        ))}
-        {userRole === 'admin' && (
-          <div className="checklist-add-row" style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-            <input 
-              type="text" 
-              placeholder="เพิ่มงานย่อย แล้วกด Enter..." 
-              className="checklist-input" 
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addChecklistItem(task.id, e.target.value);
-                  e.target.value = '';
-                }
-              }}
-            />
-            <button 
-              type="button" 
-              className="btn" 
-              style={{ padding: '4px 10px', fontSize: '13px' }}
-              onClick={(e) => {
-                const input = e.currentTarget.previousSibling;
-                if (input && input.value) {
-                  addChecklistItem(task.id, input.value);
-                  input.value = '';
-                }
-              }}
-            >
-              เพิ่ม
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  };
+
 
   const getHashColor = (str, isChannel = false) => {
     const colors = [
@@ -1436,8 +1279,6 @@ export default function App() {
       channel: 'หลังบ้าน', 
       camp: campaigns[0]?.id || 'c1', 
       status: 'todo',
-      
-      
       comments: [],
       attachments: [],
       reminderDays: 1
@@ -2117,7 +1958,6 @@ export default function App() {
                           >
                             <div className="noti-topline">
                               <span className="noti-status">{notif.statusText}</span>
-                              {renderPriorityBadge(notif.priority)}
                             </div>
                             <div className="noti-title">{notif.title}</div>
                             <div className="noti-desc">
@@ -2273,17 +2113,6 @@ export default function App() {
               <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
                 <option value="all">ทุกคน</option>
                 {getStaffList().map(staff => <option key={staff} value={staff}>{staff}</option>)}
-              </select>
-            </div>
-
-            <div className="filter-select-wrapper">
-              <i className="fa-solid fa-triangle-exclamation" style={{ color: 'var(--warning)' }}></i>
-              <span>ความสำคัญ:</span>
-              <select value={timelinePriority} onChange={(e) => setTimelinePriority(e.target.value)}>
-                <option value="all">ทุกระดับ</option>
-                <option value="high">🔥 สูง (High)</option>
-                <option value="medium">⚡ ปานกลาง (Medium)</option>
-                <option value="low">💤 ต่ำ (Low)</option>
               </select>
             </div>
 
@@ -2846,7 +2675,6 @@ export default function App() {
                         </div>
                         <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
                         {task.detail && <div style={{ fontSize: '14px', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
-                        {renderInlineChecklist(task)}
                         <div className="timeline-card-footer">
                           <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
                             {campObj.name.split(':')[0]}
@@ -2896,10 +2724,6 @@ export default function App() {
               const statusName = status === 'todo' ? 'To-Do (รอกระทำ)' : status === 'inprogress' ? 'In Progress (กำลังทำ)' : status === 'review' ? 'Review (ส่งตรวจสอบ)' : 'Done (สำเร็จ)';
               const columnTasks = getFilteredKanbanTasks(status);
               
-              // Sum of all subtasks and completed ones in this column
-              const totalSubtasks = columnTasks.reduce((sum, t) => sum + (t.checklist || []).length, 0);
-              const completedSubtasks = columnTasks.reduce((sum, t) => sum + (t.checklist || []).filter(item => item.completed).length, 0);
-              
               return (
                 <div 
                   key={status} 
@@ -2918,15 +2742,7 @@ export default function App() {
                   onDrop={(e) => handleDrop(e, status)}
                 >
                   <div className="kanban-column-header">
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <span style={{ fontSize: '15.5px', fontWeight: '900' }}>{statusName}</span>
-                      {totalSubtasks > 0 && (
-                        <span style={{ fontSize: '12.5px', color: 'var(--text-muted)', fontWeight: '700' }}>
-                          <i className="fa-solid fa-list-check" style={{ marginRight: '4px' }}></i>
-                          งานย่อยสำเร็จ: {completedSubtasks}/{totalSubtasks}
-                        </span>
-                      )}
-                    </div>
+                    <span style={{ fontSize: '15.5px', fontWeight: '900' }}>{statusName}</span>
                     <span className="kanban-column-count">{columnTasks.length}</span>
                   </div>
 
@@ -2945,33 +2761,11 @@ export default function App() {
                             <span style={{ fontSize: '12px', color: campObj.color, fontWeight: '900', textTransform: 'uppercase' }}>
                               {campObj.name.split(':')[0]}
                             </span>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              {renderPriorityBadge(task.priority)}
-                              <span style={{ fontSize: '12.5px', color: 'var(--text-light)' }}>{task.date}</span>
-                            </div>
+                            <span style={{ fontSize: '12.5px', color: 'var(--text-light)' }}>{task.date}</span>
                           </div>
                           
                           <h4 style={{ fontSize: '15.5px', fontWeight: '800' }}>{task.title}</h4>
                           <p style={{ fontSize: '14px', color: 'var(--text-muted)', lineSelf: 'stretch' }}>{task.detail}</p>
-                          
-                          {/* Subtask checklist progress bar */}
-                          {task.checklist && task.checklist.length > 0 && (() => {
-                            const completed = task.checklist.filter(item => item.completed).length;
-                            const total = task.checklist.length;
-                            const pct = Math.round((completed / total) * 100);
-                            return (
-                              <div style={{ marginTop: '8px', borderTop: '1px solid var(--border)', paddingTop: '8px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12.5px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                                  <span><i className="fa-solid fa-list-check" style={{ marginRight: '4px' }}></i>ความคืบหน้า</span>
-                                  <span>{completed}/{total} ({pct}%)</span>
-                                </div>
-                                <div style={{ height: '4px', width: '100%', backgroundColor: 'var(--border)', borderRadius: '2px', overflow: 'hidden' }}>
-                                  <div style={{ height: '100%', width: `${pct}%`, backgroundColor: pct === 100 ? 'var(--success)' : 'var(--primary)', transition: 'width 0.3s ease' }}></div>
-                                </div>
-                              </div>
-                            );
-                          })()}
-
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '4px' }}>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                               {renderResponsibleTags(task.responsible)}
@@ -3281,25 +3075,8 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Priority and Search Filters */}
+              {/* Search Filters */}
               <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '50px', backgroundColor: 'var(--surface)' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '900', color: 'var(--text-muted)' }}>
-                    <i className="fa-solid fa-triangle-exclamation"></i> ความสำคัญ:
-                  </span>
-                  <select 
-                    className="form-input" 
-                    style={{ border: 'none', padding: '0', fontWeight: '800', fontSize: '14.5px' }} 
-                    value={timelinePriority} 
-                    onChange={(e) => setTimelinePriority(e.target.value)}
-                  >
-                    <option value="all">ทั้งหมด</option>
-                    <option value="high">สูง (High)</option>
-                    <option value="medium">ปานกลาง (Medium)</option>
-                    <option value="low">ต่ำ (Low)</option>
-                  </select>
-                </div>
-
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '50px', backgroundColor: 'var(--surface)' }}>
                   <i className="fa-solid fa-magnifying-glass" style={{ color: 'var(--text-muted)', fontSize: '14px' }}></i>
                   <input 
@@ -3400,10 +3177,7 @@ export default function App() {
                           <div className="timeline-content-side">
                             {(() => {
                               const campStyle = getCampaignStyle(campObj, theme);
-                              const checklist = task.checklist || [];
-                              const completedItems = checklist.filter(i => i.completed).length;
-                              const totalItems = checklist.length;
-                              const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : (task.status === 'done' ? 100 : 0);
+                              const progress = task.status === 'done' ? 100 : 0;
                               const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
                               const displayAvatars = responsibleList.slice(0, 2);
                               const extraCount = Math.max(0, responsibleList.length - 2);
@@ -3509,10 +3283,7 @@ export default function App() {
                             <div className="timeline-content-side">
                               {(() => {
                                 const campStyle = getCampaignStyle(camp, theme);
-                                const checklist = task.checklist || [];
-                                const completedItems = checklist.filter(i => i.completed).length;
-                                const totalItems = checklist.length;
-                                const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : (task.status === 'done' ? 100 : 0);
+                                const progress = task.status === 'done' ? 100 : 0;
                                 const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
                                 const displayAvatars = responsibleList.slice(0, 2);
                                 const extraCount = Math.max(0, responsibleList.length - 2);
@@ -3921,103 +3692,6 @@ export default function App() {
                     <option value="done">Done (สำเร็จแล้ว)</option>
                   </select>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">ความสำคัญ (Priority)</label>
-                  <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.priority || 'medium'} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })}>
-                    <option value="low">ต่ำ (Low)</option>
-                    <option value="medium">ปานกลาง (Medium)</option>
-                    <option value="high">สูง / วิกฤต (High)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Task Modal Checklist section */}
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '4px' }}>
-                <label className="form-label" style={{ marginBottom: '6px', display: 'block' }}>เช็คลิสต์งานย่อย (Sub-todos)</label>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '120px', overflowY: 'auto', marginBottom: '10px' }}>
-                  {(taskForm.checklist || []).map((item) => (
-                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <input
-                        type="checkbox"
-                        checked={item.completed}
-                        disabled={userRole !== 'admin'}
-                        onChange={() => {
-                          const updatedChecklist = taskForm.checklist.map(ch => 
-                            ch.id === item.id ? { ...ch, completed: !ch.completed } : ch
-                          );
-                          setTaskForm({ ...taskForm, checklist: updatedChecklist });
-                        }}
-                      />
-                      <input
-                        type="text"
-                        className="form-input"
-                        style={{ flexGrow: 1, padding: '4px 6px', fontSize: '14px' }}
-                        value={item.text}
-                        disabled={userRole !== 'admin'}
-                        onChange={(e) => {
-                          const updatedChecklist = taskForm.checklist.map(ch => 
-                            ch.id === item.id ? { ...ch, text: e.target.value } : ch
-                          );
-                          setTaskForm({ ...taskForm, checklist: updatedChecklist });
-                        }}
-                      />
-                      {userRole === 'admin' && (
-                        <button
-                          type="button"
-                          className="btn btn-danger"
-                          style={{ padding: '3px 6px', fontSize: '13px' }}
-                          onClick={() => {
-                            const updatedChecklist = taskForm.checklist.filter(ch => ch.id !== item.id);
-                            setTaskForm({ ...taskForm, checklist: updatedChecklist });
-                          }}
-                        >
-                          <i className="fa-solid fa-trash-can"></i>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {(taskForm.checklist || []).length === 0 && (
-                    <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>ไม่มีงานย่อยในขณะนี้</div>
-                  )}
-                </div>
-                {userRole === 'admin' && (
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <input
-                      type="text"
-                      id="new-modal-subtodo"
-                      placeholder="เพิ่มหัวข้องานย่อย..."
-                      className="form-input"
-                      style={{ flexGrow: 1, padding: '5px 10px', fontSize: '14px' }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          const val = e.target.value.trim();
-                          if (val) {
-                            const newItem = { id: generateId('sub'), text: val, completed: false };
-                            setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
-                            e.target.value = '';
-                          }
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ padding: '5px 10px', fontSize: '13px' }}
-                      onClick={() => {
-                        const input = document.getElementById('new-modal-subtodo');
-                        const val = input.value.trim();
-                        if (val) {
-                          const newItem = { id: generateId('sub'), text: val, completed: false };
-                          setTaskForm({ ...taskForm, checklist: [...(taskForm.checklist || []), newItem] });
-                          input.value = '';
-                        }
-                      }}
-                    >
-                      เพิ่ม
-                    </button>
-                  </div>
-                )}
               </div>
 
               <div className="modal-subsection">

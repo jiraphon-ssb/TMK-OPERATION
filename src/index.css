@@ -48,14 +48,6 @@
   --danger: #f43f5e;
   --danger-light: #fff1f2;
 
-  /* Priority Palette */
-  --priority-high: #f43f5e;
-  --priority-high-bg: #fff1f2;
-  --priority-med: #f59e0b;
-  --priority-med-bg: #fffbeb;
-  --priority-low: #64748b;
-  --priority-low-bg: #f1f5f9;
-
   /* Typography */
   --font-family: 'TH Sarabun New', 'Inter', 'Kanit', -apple-system, BlinkMacSystemFont, sans-serif;
   
@@ -94,14 +86,6 @@
   --warning-light: rgba(251, 191, 36, 0.1);
   --danger: #fb7185;
   --danger-light: rgba(251, 113, 133, 0.1);
-
-  /* Dark Theme Priority Palette */
-  --priority-high: #fb7185;
-  --priority-high-bg: rgba(251, 113, 133, 0.15);
-  --priority-med: #fbbf24;
-  --priority-med-bg: rgba(251, 191, 36, 0.15);
-  --priority-low: #9ca3af;
-  --priority-low-bg: rgba(156, 163, 175, 0.15);
 
   /* Scrollbar */
   --scrollbar-thumb: #374151;
@@ -849,34 +833,6 @@ body {
   background-color: var(--surface-hover);
 }
 
-/* Priority Badges */
-.priority-badge {
-  font-size: 13px;
-  font-weight: 900;
-  padding: 2px 8px;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  width: fit-content;
-  text-transform: uppercase;
-}
-
-.priority-badge.high {
-  background-color: var(--priority-high-bg);
-  color: var(--priority-high);
-}
-
-.priority-badge.medium {
-  background-color: var(--priority-med-bg);
-  color: var(--priority-med);
-}
-
-.priority-badge.low {
-  background-color: var(--priority-low-bg);
-  color: var(--priority-low);
-}
-
 /* Calendar Container */
 .calendar-view-container {
   display: grid;
@@ -1554,26 +1510,6 @@ body {
   display: block;
 }
 
-/* Checklist mini preview */
-.timeline-card-checklist-mini {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12.5px;
-  color: var(--text-light);
-  font-weight: 800;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: transparent;
-  border: none;
-  transition: color 0.15s ease;
-}
-
-.timeline-card-checklist-mini:hover {
-  color: var(--text-muted);
-}
-
 /* Old unused classes keep for stacking view */
 .timeline-task-title {
   display: none;
@@ -1652,67 +1588,6 @@ body {
   font-size: 11.5px;
   font-weight: 900;
   color: var(--text-main);
-}
-
-/* Custom Checklist UI Components */
-.checklist-container {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.checklist-title {
-  font-size: 13px;
-  font-weight: 900;
-  text-transform: uppercase;
-  color: var(--text-light);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.checklist-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14.5px;
-}
-
-.checklist-checkbox {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-  accent-color: var(--primary);
-}
-
-.checklist-text.crossed {
-  text-decoration: line-through;
-  color: var(--text-light);
-}
-
-.checklist-add-row {
-  display: flex;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.checklist-input {
-  font-family: var(--font-family);
-  font-size: 13.5px;
-  padding: 4px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background-color: var(--surface);
-  color: var(--text-main);
-  flex-grow: 1;
-  outline: none;
-}
-
-.checklist-input:focus {
-  border-color: var(--border-focus);
 }
 
 /* Modals Overlay & Layouts */
