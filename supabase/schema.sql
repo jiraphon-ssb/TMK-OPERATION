@@ -35,6 +35,7 @@ create table if not exists public.tmk_products (
 create table if not exists public.tmk_tasks (
   id text primary key,
   date date not null,
+  date_end date,
   camp text references public.tmk_campaigns(id) on delete set null,
   title text not null,
   detail text not null default '',

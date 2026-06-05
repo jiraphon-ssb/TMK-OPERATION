@@ -46,6 +46,7 @@ const mapProductFromDb = (product) => ({
 const mapTaskToDb = (task) => ({
   id: task.id,
   date: task.date,
+  date_end: task.dateEnd || null,
   camp: task.camp || null,
   title: task.title,
   detail: task.detail || '',
@@ -59,6 +60,7 @@ const mapTaskToDb = (task) => ({
 const mapTaskFromDb = (task, checklistByTask, commentsByTask, attachmentsByTask) => ({
   id: task.id,
   date: task.date,
+  dateEnd: task.date_end || '',
   camp: task.camp,
   title: task.title,
   detail: task.detail || '',
@@ -133,11 +135,16 @@ const replaceTable = async (table, rows) => {
   const idsToDelete = existingIds.filter(id => !incomingIds.includes(id));
   if (idsToDelete.length === 0) return;
 
-  // Safety: if a single save would delete more than half of the existing rows,
-  // refuse — almost certainly a stale-state save, not a deliberate bulk action.
-  if (existingIds.length >= 4 && idsToDelete.length > existingIds.length / 2) {
-    console.error(`🛑 Refused mass delete in ${table}: would remove ${idsToDelete.length}/${existingIds.length} rows. ` +
-      `IDs: ${idsToDelete.join(', ')}`);
+  // Safety guards against stale-state saves:
+  // (a) Never delete every existing row via diff — that's effectively the empty-incoming case.
+  // (b) For tables with 3+ rows, refuse to delete more than half in a single save.
+  // Legitimate per-row deletes should use a dedicated delete API (see deleteTaskById).
+  if (idsToDelete.length === existingIds.length) {
+    console.error(`🛑 Refused full-wipe via diff in ${table}: incoming ${incomingIds.length} rows would orphan all ${existingIds.length} existing rows. IDs: ${idsToDelete.join(', ')}`);
+    return;
+  }
+  if (existingIds.length >= 3 && idsToDelete.length > existingIds.length / 2) {
+    console.error(`🛑 Refused mass delete in ${table}: would remove ${idsToDelete.length}/${existingIds.length} rows. IDs: ${idsToDelete.join(', ')}`);
     return;
   }
 
@@ -239,8 +246,11 @@ export const tmkRepository = {
       products: (products.data || []).map(mapProductFromDb),
       tasks: (tasks.data || []).map(task => mapTaskFromDb(task, checklistByTask, commentsByTask, attachmentsByTask)),
       poTracker: (purchaseOrders.data || []).map(mapPoFromDb),
-      totalTarget: Number(settings.data?.total_target || 0),
-      totalUnitsTarget: Number(settings.data?.total_units_target || 0)
+      // Returns null (not 0) when the settings row is missing, so the UI can
+      // tell "no settings yet" apart from "user set this to zero" and avoid
+      // silently overwriting a real value with 0 on the next save effect.
+      totalTarget: settings.data?.total_target != null ? Number(settings.data.total_target) : null,
+      totalUnitsTarget: settings.data?.total_units_target != null ? Number(settings.data.total_units_target) : null
     };
   },
 

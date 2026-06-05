@@ -791,30 +791,17 @@ export default function App() {
     if (!remoteData) return;
     syncingFromRemoteRef.current = true;
     setCampaigns(remoteData.campaigns);
-    setChannels(remoteData.channels.map(ch => {
-      let targetVal = ch.target;
-      let actualVal = ch.actual;
-      
-      if ((targetVal === undefined || targetVal <= 100) && actualVal > 100) {
-        targetVal = actualVal;
-        actualVal = 0;
-      }
-      
-      if ((targetVal === undefined || targetVal <= 100) && ch.percentage) {
-        targetVal = Math.round((ch.percentage / 100) * (Number(remoteData.totalTarget) || 1000000));
-        actualVal = 0;
-      }
-      
-      return {
-        ...ch,
-        target: Number(targetVal || 0),
-        actual: Number(actualVal || 0)
-      };
-    }));
+    setChannels(remoteData.channels.map(ch => ({
+      ...ch,
+      target: Number(ch.target || 0),
+      actual: Number(ch.actual || 0)
+    })));
     setProducts(remoteData.products);
     setTasks(remoteData.tasks || []);
     setPoTracker(remoteData.poTracker);
-    setTotalUnitsTarget(remoteData.totalUnitsTarget);
+    // Skip when remote returns null (settings row missing) — keep local default
+    // rather than zeroing it out and persisting that 0 back on the next save.
+    if (remoteData.totalUnitsTarget != null) setTotalUnitsTarget(remoteData.totalUnitsTarget);
     window.setTimeout(() => {
       syncingFromRemoteRef.current = false;
     }, 500);
