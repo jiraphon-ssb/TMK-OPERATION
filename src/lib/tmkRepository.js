@@ -103,50 +103,52 @@ const replaceTable = async (table, rows) => {
     return;
   }
 
-  // Empty incoming set: delete ALL rows from the table
+  // Refuse to wipe a table from an empty incoming set. A bulk delete should be
+  // an explicit per-row call, never a side effect of state being momentarily empty.
+  // Why: caused full data loss (incl. 3 campaigns on 2026-06-05) when client state
+  // was empty on mount/error and a save effect fired before realtime sync.
   if (rows.length === 0) {
-    console.log(`🗑️ Deleting ALL rows from ${table} (empty incoming set)`);
-    const { data: deletedRows, error: deleteError } = await supabase
-      .from(table)
-      .delete()
-      .not('id', 'is', null)
-      .select('id');
-    if (deleteError) throw deleteError;
-    if (deletedRows && deletedRows.length > 0) {
-      console.warn(`🗑️ ${table}: deleted ALL ${deletedRows.length} rows`);
+    const { data: existingRows } = await supabase.from(table).select('id');
+    const existing = existingRows?.length || 0;
+    if (existing > 0) {
+      console.error(`🛑 Refused to wipe ${table}: incoming is empty but DB has ${existing} rows. ` +
+        `If you really need to delete every row, use a per-row delete API.`);
     }
     return;
   }
 
-  // Safety: log what we're about to save
   console.log(`💾 Saving ${table}: ${rows.length} rows`, rows.map(r => r.id || r.name || '?'));
 
-  // 1. Upsert to insert new rows or update existing ones
   const { error: upsertError } = await supabase.from(table).upsert(rows);
   if (upsertError) throw upsertError;
 
-  // 2. Safely delete only the rows that are not in the new set
   const incomingIds = rows.map(r => r.id).filter(Boolean);
-  if (incomingIds.length > 0) {
-    // Fetch existing IDs from DB, then diff against incoming set
-    // (Using .not('id', 'in', ...) breaks with hyphens in IDs or large sets)
-    const { data: existingRows, error: fetchError } = await supabase
-      .from(table)
-      .select('id');
-    if (fetchError) throw fetchError;
-    const existingIds = (existingRows || []).map(r => r.id);
-    const idsToDelete = existingIds.filter(id => !incomingIds.includes(id));
-    if (idsToDelete.length > 0) {
-      const { data: deletedRows, error: deleteError } = await supabase
-        .from(table)
-        .delete()
-        .in('id', idsToDelete)
-        .select('id');
-      if (deleteError) throw deleteError;
-      if (deletedRows && deletedRows.length > 0) {
-        console.warn(`🗑️ ${table}: deleted ${deletedRows.length} rows not in incoming set:`, deletedRows.map(r => r.id));
-      }
-    }
+  if (incomingIds.length === 0) return;
+
+  const { data: existingRows, error: fetchError } = await supabase
+    .from(table)
+    .select('id');
+  if (fetchError) throw fetchError;
+  const existingIds = (existingRows || []).map(r => r.id);
+  const idsToDelete = existingIds.filter(id => !incomingIds.includes(id));
+  if (idsToDelete.length === 0) return;
+
+  // Safety: if a single save would delete more than half of the existing rows,
+  // refuse — almost certainly a stale-state save, not a deliberate bulk action.
+  if (existingIds.length >= 4 && idsToDelete.length > existingIds.length / 2) {
+    console.error(`🛑 Refused mass delete in ${table}: would remove ${idsToDelete.length}/${existingIds.length} rows. ` +
+      `IDs: ${idsToDelete.join(', ')}`);
+    return;
+  }
+
+  const { data: deletedRows, error: deleteError } = await supabase
+    .from(table)
+    .delete()
+    .in('id', idsToDelete)
+    .select('id');
+  if (deleteError) throw deleteError;
+  if (deletedRows && deletedRows.length > 0) {
+    console.warn(`🗑️ ${table}: deleted ${deletedRows.length} rows not in incoming set:`, deletedRows.map(r => r.id));
   }
 };
 
