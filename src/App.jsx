@@ -1,4234 +1,581 @@
+/* ============================================================
+   TMK Operation — App shell, navigation, routing
+   ============================================================ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { tmkRepository } from './lib/tmkRepository';
-import { supabase, supabaseProjectRef } from './lib/supabaseClient';
+import { TMK } from './data.js';
+import { Icon, B, Bk, N, Avatar } from './components.jsx';
+import { HomeView, SalesView } from './views-1.jsx';
+import { PlannerView, CatalogView, SettingsView, ProfileView } from './views-2.jsx';
+import { HelpCenter, GuideOverlay } from './onboarding.jsx';
+import { EntryView } from './views-entry.jsx';
+import { RecordSalesModal, TaskModal, ProductModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
+import { LangProvider, useLang } from './i18n.jsx';
+import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
+import { Onboarding, HelpButton, Tooltip } from './onboarding.jsx';
+import { DataProvider, useData } from './dataContext.jsx';
+import tmkLogo from './assets/tmk-logo.png';
+import tmkLogoWhite from './assets/tmk-logo-white.png';
 
-const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
-const dayLabels = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
+/* ---- Spotlight Search ---- */
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+const modKey = isMac ? '⌘' : 'Ctrl+';
 
-const getLocalDateString = (date = new Date()) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+function Spotlight({ onClose, onGo }) {
+  const { t } = useLang();
+  const [q, setQ] = useState('');
+  const [idx, setIdx] = useState(0);
+  const inputRef = useRef(null);
 
-let generatedIdCounter = 0;
-const generateId = (prefix) => {
-  generatedIdCounter += 1;
-  return `${prefix}-${generatedIdCounter}-${crypto.randomUUID()}`;
-};
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => { setIdx(0); }, [q]);
 
-const getCampaignStyle = (camp, currentTheme) => {
-  if (!camp) return { backgroundColor: 'var(--surface-hover)', borderColor: 'var(--border)', color: 'var(--text-main)' };
-  
-  const color = camp.color || '#64748b';
-  
-  if (currentTheme === 'dark') {
-    const hexToRgba = (hex, alpha) => {
-      let c = String(hex).trim().replace('#', '');
-      if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
-      const r = parseInt(c.substring(0, 2), 16) || 0;
-      const g = parseInt(c.substring(2, 4), 16) || 0;
-      const b = parseInt(c.substring(4, 6), 16) || 0;
-      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-    };
-    
-    try {
-      return {
-        backgroundColor: hexToRgba(color, 0.12),
-        borderColor: hexToRgba(color, 0.35),
-        color: color
-      };
-    } catch {
-      return {
-        backgroundColor: 'rgba(99, 102, 241, 0.12)',
-        borderColor: 'rgba(99, 102, 241, 0.35)',
-        color: color
-      };
-    }
-  } else {
-    return {
-      backgroundColor: camp.bg || '#f1f5f9',
-      borderColor: camp.border || '#e2e8f0',
-      color: color
-    };
+  const ql = q.toLowerCase().trim();
+  const results = [];
+
+  if (ql) {
+    // Tasks
+    TMK.tasks.filter(t => t.title.toLowerCase().includes(ql) || t.detail.toLowerCase().includes(ql)).slice(0, 5).forEach(t => {
+      const c = TMK.campaigns.find(x => x.id === t.camp);
+      results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, action: () => { onGo('planner', 'kanban'); onClose(); } });
+    });
+    // Products
+    TMK.products.filter(p => p.name.toLowerCase().includes(ql)).slice(0, 3).forEach(p => {
+      results.push({ cat: 'สินค้า', icon: 'bag', label: p.name, sub: `${B(p.price)} · ขาย ${N(p.units)} ชิ้น`, color: 'var(--accent)', action: () => { onGo('catalog', 'products'); onClose(); } });
+    });
+    // Campaigns
+    TMK.campaigns.filter(c => c.name.toLowerCase().includes(ql)).slice(0, 3).forEach(c => {
+      results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, action: () => { onGo('catalog', 'campaigns'); onClose(); } });
+    });
+    // Staff
+    TMK.staff.filter(s => s.name.toLowerCase().includes(ql) || s.role.toLowerCase().includes(ql)).forEach(s => {
+      results.push({ cat: 'ทีม', icon: 'users', label: s.name, sub: s.role, color: s.color, action: () => { onGo('system', 'roles'); onClose(); } });
+    });
+    // Channels
+    TMK.channels.filter(c => c.name.toLowerCase().includes(ql)).forEach(c => {
+      results.push({ cat: 'ช่องทาง', icon: 'layers', label: c.name, sub: `เป้า ${Bk(c.target)}`, color: c.hex, action: () => { onGo('sales', 'channels'); onClose(); } });
+    });
+    // Navigation
+    [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'planner', sub: 'calendar' }, { l: 'Kanban', s: 'planner', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'planner', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'catalog', sub: 'campaigns' }]
+      .filter(n => n.l.toLowerCase().includes(ql)).forEach(n => {
+        results.push({ cat: 'นำทาง', icon: 'arrowR', label: `ไปที่ ${n.l}`, sub: '', color: 'var(--ink-3)', action: () => { onGo(n.s, n.sub); onClose(); } });
+      });
   }
-};
 
-function SearchableMultiSelect({
-  placeholder,
-  options,
-  selectedValues,
-  onChange,
-  onAddOption,
-  onDeleteOption,
-  addPlaceholder = "เพิ่มรายการใหม่...",
-  disabled = false
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const containerRef = React.useRef(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) {
-      document.addEventListener('mousedown', handleOutsideClick);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-    };
-  }, [isOpen]);
-
-  const filteredOptions = options.filter(opt =>
-    opt.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const toggleOption = (val) => {
-    if (selectedValues.includes(val)) {
-      onChange(selectedValues.filter(v => v !== val));
-    } else {
-      onChange([...selectedValues, val]);
-    }
+  const onKey = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setIdx(i => Math.min(i + 1, results.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter' && results[idx]) { results[idx].action(); }
+    else if (e.key === 'Escape') { onClose(); }
   };
 
-  const handleAdd = () => {
-    const trimmed = searchTerm.trim();
-    if (trimmed) {
-      const exists = options.some(o => o.toLowerCase() === trimmed.toLowerCase());
-      if (!exists) {
-        onAddOption(trimmed);
-        onChange([...selectedValues, trimmed]);
-        setSearchTerm('');
-      } else {
-        const existingName = options.find(o => o.toLowerCase() === trimmed.toLowerCase());
-        if (!selectedValues.includes(existingName)) {
-          onChange([...selectedValues, existingName]);
-        }
-        setSearchTerm('');
-      }
-    }
-  };
+  // Group by cat
+  const grouped = {};
+  results.forEach((r, i) => { r._i = i; grouped[r.cat] = grouped[r.cat] || []; grouped[r.cat].push(r); });
 
   return (
-    <div className="custom-select-container" ref={containerRef}>
-      <div
-        className={`custom-select-trigger ${disabled ? 'disabled' : ''}`}
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        style={disabled ? { pointerEvents: 'none', opacity: 0.8, background: 'var(--surface-hover)' } : {}}
-      >
-        {selectedValues.map(val => (
-          <span
-            key={val}
-            className="select-tag"
-            onClick={(e) => {
-              if (disabled) return;
-              e.stopPropagation();
-              toggleOption(val);
-            }}
-          >
-            {val}
-            {!disabled && (
-              <button
-                type="button"
-                className="tag-remove-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleOption(val);
-                }}
-              >
-                &times;
-              </button>
-            )}
-          </span>
-        ))}
-        {selectedValues.length === 0 && (
-          <span className="text-body text-caption">{placeholder}</span>
-        )}
-        <i
-          className="fa-solid fa-chevron-down"
-          style={{
-            position: 'absolute',
-            right: '12px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            fontSize: 'var(--text-body)',
-            color: 'var(--text-muted)',
-            pointerEvents: 'none'
-          }}
-        ></i>
-      </div>
-
-      {isOpen && (
-        <div className="custom-select-dropdown">
-          <div className="dropdown-search-wrap">
-            <input
-              type="text"
-              className="dropdown-search-input"
-              placeholder={addPlaceholder}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  handleAdd();
-                }
-              }}
-              autoFocus
-            />
-            <button
-              type="button"
-              className="dropdown-add-btn"
-              onClick={(e) => { e.stopPropagation(); handleAdd(); }}
-              title="เพิ่มรายการ"
-            >
-              <i className="fa-solid fa-plus"></i>
-            </button>
-          </div>
-
-          <div className="dropdown-options-list">
-            {filteredOptions.map(opt => {
-              const checked = selectedValues.includes(opt);
-              return (
-                <div
-                  key={opt}
-                  className={`dropdown-option-item ${checked ? 'selected' : ''}`}
-                  onClick={() => toggleOption(opt)}
-                >
-                  <label className="dropdown-option-checkbox-label" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleOption(opt)}
-                    />
-                    <span>{opt}</span>
-                  </label>
-                  {onDeleteOption && (
-                    <button
-                      type="button"
-                      className="dropdown-option-delete-btn"
-                      title="ลบตัวเลือกนี้ออกจากระบบ"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm(`ต้องการลบ "${opt}" ออกจากรายการใช่หรือไม่?`)) {
-                          onDeleteOption(opt);
-                          if (checked) {
-                            onChange(selectedValues.filter(v => v !== opt));
-                          }
-                        }
-                      }}
-                    >
-                      <i className="fa-solid fa-trash-can"></i>
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            {filteredOptions.length === 0 && searchTerm.trim() && (
-              <div className="dropdown-add-new" onClick={(e) => {
-                e.stopPropagation();
-                handleAdd();
-              }}>
-                <i className="fa-solid fa-plus"></i>
-                <span>เพิ่ม "{searchTerm}"</span>
-              </div>
-            )}
-            {filteredOptions.length === 0 && !searchTerm.trim() && (
-              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-caption)', fontSize: 'var(--text-small)' }}>
-                ไม่พบข้อมูล
-              </div>
-            )}
-          </div>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', justifyContent: 'center', paddingTop: '12vh' }} onClick={onClose}>
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(8,18,32,0.45)', backdropFilter: 'blur(8px)' }}></div>
+      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: '100%', maxWidth: 580, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--sh-pop)', overflow: 'hidden', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Input */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ width: 20, height: 20, flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="search" /></span>
+          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
+            placeholder="ค้นหางาน สินค้า แคมเปญ ทีม..."
+            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--ink)', fontFamily: 'var(--font)' }} />
+          <kbd style={{ fontFamily: 'var(--mono)', fontSize: 'var(--fs-micro)', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 6px', background: 'var(--surface-2)' }}>ESC</kbd>
         </div>
-      )}
+
+        {/* Results */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {!ql && (
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--ink-3)' }}>
+              <div style={{ fontSize: 'var(--fs-sm)', marginBottom: 4 }}>พิมพ์เพื่อค้นหา</div>
+              <div className="cap">งาน · สินค้า · แคมเปญ · ทีม · ช่องทาง · นำทาง</div>
+            </div>
+          )}
+          {ql && results.length === 0 && (
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--ink-3)' }}>
+              <div style={{ fontSize: 'var(--fs-sm)' }}>ไม่พบผลลัพธ์สำหรับ "{q}"</div>
+            </div>
+          )}
+          {Object.entries(grouped).map(([cat, items]) => (
+            <div key={cat}>
+              <div className="eyebrow" style={{ padding: '10px 20px 4px' }}>{cat}</div>
+              {items.map(r => (
+                <button key={r._i} onClick={r.action} onMouseEnter={() => setIdx(r._i)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '10px 20px', border: 'none', background: idx === r._i ? 'var(--accent-soft)' : 'transparent', color: 'var(--ink)', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--font)', transition: 'background 0.08s' }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', background: (r.color || 'var(--ink-3)') + '18', color: r.color || 'var(--ink-3)', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon name={r.icon} /></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</div>
+                    {r.sub && <div className="cap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</div>}
+                  </div>
+                  {idx === r._i && <span className="cap" style={{ flexShrink: 0 }}>↵ เปิด</span>}
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        {results.length > 0 && (
+          <div style={{ padding: '8px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 16, justifyContent: 'center' }}>
+            <span className="cap row" style={{ gap: 4 }}><kbd style={{ fontFamily: 'var(--mono)', fontSize: 9, border: '1px solid var(--line)', borderRadius: 3, padding: '1px 4px' }}>↑↓</kbd> เลือก</span>
+            <span className="cap row" style={{ gap: 4 }}><kbd style={{ fontFamily: 'var(--mono)', fontSize: 9, border: '1px solid var(--line)', borderRadius: 3, padding: '1px 4px' }}>↵</kbd> เปิด</span>
+            <span className="cap row" style={{ gap: 4 }}><kbd style={{ fontFamily: 'var(--mono)', fontSize: 9, border: '1px solid var(--line)', borderRadius: 3, padding: '1px 4px' }}>esc</kbd> ปิด</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
+const NAV_DEF = [
+  { id: 'home', labelKey: 'navHome', icon: 'home' },
+  { id: 'sales', labelKey: 'navSales', icon: 'sales', subs: [
+    { id: 'overview', labelKey: 'subOverview', icon: 'sales' },
+    { id: 'channels', labelKey: 'subChannels', icon: 'layers' },
+    { id: 'ads', labelKey: 'subAds', icon: 'zap' },
+    { id: 'customers', labelKey: 'subCustomers', icon: 'users' },
+    { id: 'daily', labelKey: 'subDaily', icon: 'pencil' },
+    { id: 'monthly', labelKey: 'subMonthly', icon: 'target' },
+    { id: 'status', labelKey: 'subStatus', icon: 'listChecks' },
+  ]},
+  { id: 'planner', labelKey: 'navPlanner', icon: 'planner', subs: [
+    { id: 'calendar', labelKey: 'subCalendar', icon: 'calendarDays' },
+    { id: 'kanban', labelKey: 'subKanban', icon: 'listChecks' },
+    { id: 'timeline', labelKey: 'subTimeline', icon: 'route' },
+  ]},
+  { id: 'catalog', labelKey: 'navCatalog', icon: 'catalog', subs: [
+    { id: 'products', labelKey: 'subProducts', icon: 'bag' },
+    { id: 'po', labelKey: 'subPO', icon: 'box' },
+  ]},
+];
+// Resolve labels from i18n at render time
+function useNav() {
+  const { t } = useLang();
+  return NAV_DEF.map(n => ({
+    ...n, label: t(n.labelKey),
+    subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
+  }));
+}
+const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'products', settings: 'general' };
+const ACCENTS = { '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
+
+// Hardcoded defaults (no tweaks panel)
+const navStyle = 'panel';
+const accent = '#0a5aa0';
+const mobilePreview = false;
+
 export default function App() {
-  // Authentication State
-  const [user, setUser] = useState(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [authMode, setAuthMode] = useState('login'); // 'login' or 'signup'
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [acceptTerms, setAcceptTerms] = useState(false);
+  return (
+    <LangProvider>
+      <ToastProvider>
+        <DataProvider>
+          <AppInner />
+        </DataProvider>
+      </ToastProvider>
+    </LangProvider>
+  );
+}
 
-  // Theme & Page States
-  const [theme, setTheme] = useState(() => localStorage.getItem('tmk_theme') || 'light');
-  const [activeTab, setActiveTab] = useState(() => {
-    const savedTab = localStorage.getItem('tmk_active_tab');
-    return savedTab && savedTab !== 'today' ? savedTab : 'dashboard';
+function AppInner() {
+  const { t, lang, setLang } = useLang();
+  const { toast } = useToast();
+  const { data: liveData, loading: dataLoading, source: dataSource, error: dataError } = useData();
+  const NAV = useNav();
+
+  const [dark, setDark] = useState(() => {
+    try { return localStorage.getItem('tmk-dark') === 'true'; } catch { return false; }
   });
+  const [authed, setAuthed] = useState(false);
+  const [modal, setModal] = useState(null);
+  const [confirmClose, setConfirmClose] = useState(null); // for unsaved changes
+  const [spotlight, setSpotlight] = useState(false);
+  const [section, setSection] = useState('home');
+  const [subMap, setSubMap] = useState(DEFAULT_SUB);
+  const [tasks, setTasks] = useState(TMK.tasks);
+  const [drawer, setDrawer] = useState(false);
+  const [notif, setNotif] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [guide, setGuide] = useState(null); // { topicId, steps, current, onDone }
+  const contentRef = useRef(null);
 
-  // Multi-user Roles, Audit Logs, and Notifications States
-  const BOOTSTRAP_ADMIN_EMAILS = ['jiraphon.e@saisabuygroup.co'];
-  const normalizeEmail = (value) => String(value || '').trim().toLowerCase();
-  const currentUserEmail = normalizeEmail(user?.email);
+  const nav = NAV.find(n => n.id === section);
+  const sub = nav?.subs ? subMap[section] : null;
 
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [auditSearch, setAuditSearch] = useState('');
-  const [auditFilter, setAuditFilter] = useState('all');
-  const [userRoles, setUserRoles] = useState([]);
-  const [roleForm, setRoleForm] = useState({ email: '', role: 'viewer' });
-  const [roleLoading, setRoleLoading] = useState(false);
-  const [roleSaving, setRoleSaving] = useState(false);
-  const [roleError, setRoleError] = useState('');
-  const [showOnlyMyTasks, setShowOnlyMyTasks] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const assignedUserRole = userRoles.find(item => normalizeEmail(item.email) === currentUserEmail)?.role;
-  const isBootstrapAdmin = BOOTSTRAP_ADMIN_EMAILS.includes(currentUserEmail);
-  const userRole = user && (assignedUserRole === 'admin' || isBootstrapAdmin) ? 'admin' : 'viewer';
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dark', !!dark);
+    root.style.setProperty('--accent', accent);
+    root.style.setProperty('--accent-2', dark ? `color-mix(in srgb, ${accent} 48%, white)` : (ACCENTS[accent] || accent));
+    try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch {}
+  }, [dark]);
 
-  // Fetch Audit Logs
-  const fetchAuditLogs = async () => {
-    if (!supabase) return;
-    try {
-      const { data, error } = await supabase
-        .from('tmk_audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      setAuditLogs(data || []);
-    } catch (err) {
-      console.warn('Audit logs fetch failed (table might not exist yet):', err);
+  useEffect(() => {
+    window.__openModal = (type, data) => setModal({ type, data });
+    window.__toast = toast;
+    window.__goSection = (sec, s) => go(sec, s);
+    window.__startGuide = (topicId, steps, onDone) => {
+      // Navigate to first step
+      const first = steps[0];
+      if (first.nav) go(first.nav[0], first.nav[1]);
+      setGuide({ topicId, steps, current: 0, onDone });
+    };
+  }, [toast]);
+
+  // Show onboarding on first login
+  useEffect(() => {
+    if (authed) {
+      try {
+        const seen = localStorage.getItem('tmk-onboarded');
+        if (!seen) setShowOnboarding(true);
+      } catch {}
+    }
+  }, [authed]);
+
+  const completeOnboarding = useCallback(() => {
+    setShowOnboarding(false);
+    try { localStorage.setItem('tmk-onboarded', 'true'); } catch {}
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSpotlight(s => !s); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const closeModal = () => { setModal(null); setConfirmClose(null); };
+  const logout = () => { setMenu(false); setDrawer(false); setAuthed(false); };
+
+  const go = (sec, s) => {
+    setSection(sec);
+    if (s) setSubMap(m => ({ ...m, [sec]: s }));
+    setDrawer(false); setNotif(false); setMenu(false);
+    if (contentRef.current) contentRef.current.scrollTop = 0;
+  };
+
+  // notifications from tasks — navigate on click
+  const notifs = tasks.filter(x => x.status !== 'done').map(x => {
+    const d = +x.date.match(/^(\d+)/)[1];
+    const diff = d - 18;
+    let sev = 'soon', txt = t('dueIn', Math.abs(diff));
+    if (diff < 0) { sev = 'overdue'; txt = t('overdueBy', -diff); }
+    else if (diff === 0) { sev = 'today'; txt = t('dueToday'); }
+    return { ...x, sev, txt };
+  }).sort((a,b) => ({overdue:0,today:1,soon:2})[a.sev] - ({overdue:0,today:1,soon:2})[b.sev]).slice(0, 6);
+
+  const onNotifClick = (n) => {
+    setNotif(false);
+    go('planner', 'kanban');
+    setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
+  };
+
+  const renderView = () => {
+    switch (section) {
+      case 'home': return <HomeView go={go} />;
+      case 'sales': return ['daily','monthly','status'].includes(sub) ? <EntryView sub={sub} /> : <SalesView sub={sub} />;
+      case 'planner': return <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />;
+      case 'catalog': return <CatalogView sub={sub} />;
+      case 'settings': return <SettingsView sub={sub} dark={dark} setDark={setDark} />;
+      case 'profile': return <ProfileView tasks={tasks} />;
+      default: return null;
     }
   };
 
-  // Helper to log action in Database
-  const logAction = async (action, details) => {
-    if (!supabase || !user) return;
-    try {
-      await supabase.from('tmk_audit_logs').insert({
-        user_email: user.email,
-        action,
-        details: typeof details === 'string' ? details : JSON.stringify(details)
-      });
-    } catch (err) {
-      console.warn('Failed to insert audit log (table might not exist yet):', err);
-    }
-  };
+  const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
 
-  const fetchUserRoles = async () => {
-    if (!supabase) return;
-    try {
-      setRoleLoading(true);
-      setRoleError('');
-      const { data, error } = await supabase
-        .from('tmk_user_roles')
-        .select('*')
-        .order('role', { ascending: true })
-        .order('email', { ascending: true });
-      if (error) throw error;
-      setUserRoles(data || []);
-    } catch (err) {
-      console.warn('User roles fetch failed:', err);
-      setRoleError('ยังโหลดสิทธิ์ผู้ใช้ไม่ได้ หากเพิ่งเพิ่มระบบนี้ กรุณารัน SQL schema ล่าสุดใน Supabase ก่อน');
-    } finally {
-      setRoleLoading(false);
-    }
-  };
+  // Special sections not in NAV (profile, settings, help)
+  const SPECIAL_LABELS = { profile: 'โปรไฟล์', settings: 'ตั้งค่า' };
+  const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
+  const topnav = navStyle === 'topnav';
 
-  const saveUserRole = async (e) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์จัดการผู้ใช้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    const emailToSave = normalizeEmail(roleForm.email);
-    if (!emailToSave || !emailToSave.includes('@')) {
-      alert('กรุณากรอกอีเมลให้ถูกต้อง');
-      return;
-    }
-    if (emailToSave === currentUserEmail && roleForm.role !== 'admin') {
-      alert('ไม่สามารถลดสิทธิ์บัญชีที่กำลังใช้งานอยู่ได้ เพื่อป้องกันการล็อกตัวเองออกจากระบบ');
-      return;
-    }
-
-    try {
-      setRoleSaving(true);
-      setRoleError('');
-      const rolePayload = {
-        email: emailToSave,
-        role: roleForm.role,
-        created_by: currentUserEmail
-      };
-      const { error } = await supabase
-        .from('tmk_user_roles')
-        .upsert(rolePayload, { onConflict: 'email' });
-      if (error) throw error;
-
-      await fetchUserRoles();
-      setRoleForm({ email: '', role: 'viewer' });
-      logAction('บันทึกสิทธิ์ผู้ใช้', buildAuditDetails({
-        entityType: 'user_role',
-        entityName: emailToSave,
-        summary: `ตั้งสิทธิ์ ${emailToSave} เป็น ${roleForm.role}`,
-        after: rolePayload
-      }));
-    } catch (err) {
-      console.error('User role save failed:', err);
-      setRoleError('บันทึกสิทธิ์ไม่สำเร็จ กรุณาตรวจสอบว่ามีตาราง tmk_user_roles ใน Supabase แล้ว');
-    } finally {
-      setRoleSaving(false);
-    }
-  };
-
-  const deleteUserRole = async (roleItem) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์จัดการผู้ใช้ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    const emailToDelete = normalizeEmail(roleItem.email);
-    if (emailToDelete === currentUserEmail) {
-      alert('ไม่สามารถลบสิทธิ์บัญชีที่กำลังใช้งานอยู่ได้ เพื่อป้องกันการล็อกตัวเองออกจากระบบ');
-      return;
-    }
-    if (!confirm(`ต้องการลบสิทธิ์ของ ${emailToDelete} ใช่หรือไม่?`)) return;
-
-    try {
-      setRoleSaving(true);
-      setRoleError('');
-      const { error } = await supabase
-        .from('tmk_user_roles')
-        .delete()
-        .eq('email', emailToDelete);
-      if (error) throw error;
-
-      await fetchUserRoles();
-      logAction('ลบสิทธิ์ผู้ใช้', buildAuditDetails({
-        entityType: 'user_role',
-        entityName: emailToDelete,
-        summary: `ลบสิทธิ์ของ ${emailToDelete}`,
-        before: roleItem
-      }));
-    } catch (err) {
-      console.error('User role delete failed:', err);
-      setRoleError('ลบสิทธิ์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
-    } finally {
-      setRoleSaving(false);
-    }
-  };
-
-  const getLogBadgeClass = (action) => {
-    if (action.includes('สร้าง') || action.includes('กู้คืน')) return 'create';
-    if (action.includes('แก้ไข') || action.includes('บันทึก')) return 'update';
-    if (action.includes('ลบ')) return 'delete';
-    return 'default';
-  };
-
-  const getAuditType = (action = '') => {
-    if (action.includes('สร้าง') || action.includes('กู้คืน')) return 'create';
-    if (action.includes('แก้ไข') || action.includes('บันทึก') || action.includes('ย้ายสถานะ') || action.includes('รับสินค้า')) return 'update';
-    if (action.includes('ลบ') || action.includes('ถังขยะ')) return 'delete';
-    return 'system';
-  };
-
-  const parseAuditDetails = (details) => {
-    if (!details) return { summary: '-' };
-    if (typeof details === 'object') return details;
-    try {
-      const parsed = JSON.parse(details);
-      return parsed && typeof parsed === 'object' ? parsed : { summary: String(details) };
-    } catch {
-      return { summary: String(details) };
-    }
-  };
-
-  const formatAuditValue = (value) => {
-    if (value === null || value === undefined || value === '') return '-';
-    if (Array.isArray(value)) return `${value.length} รายการ`;
-    if (typeof value === 'object') return JSON.stringify(value);
-    return String(value);
-  };
-
-  const getObjectChanges = (before = {}, after = {}) => {
-    const keys = Array.from(new Set([...Object.keys(before || {}), ...Object.keys(after || {})]));
-    return keys
-      .filter(key => JSON.stringify(before?.[key]) !== JSON.stringify(after?.[key]))
-      .map(key => ({
-        field: key,
-        before: formatAuditValue(before?.[key]),
-        after: formatAuditValue(after?.[key])
-      }));
-  };
-
-  const buildAuditDetails = ({ entityType, entityName, summary, before, after, extra = {} }) => ({
-    entityType,
-    entityName,
-    summary,
-    changes: before || after ? getObjectChanges(before, after) : [],
-    ...extra
-  });
-
-  const getEntityLabel = (type) => ({
-    task: 'งาน',
-    channel: 'ช่องทางขาย',
-    product: 'สินค้า',
-    campaign: 'แคมเปญ',
-    po: 'PO',
-
-    trash: 'ถังขยะ',
-    target: 'เป้าหมาย',
-    user_role: 'สิทธิ์ผู้ใช้'
-  }[type] || type || 'ระบบ');
-
-  const renderAuditDetails = (log) => {
-    const detail = parseAuditDetails(log.details);
-    const changes = detail.changes || [];
-    return (
-      <div className="audit-detail-stack">
-        <div className="audit-detail-summary">{detail.summary || log.details || '-'}</div>
-        {(detail.entityType || detail.entityName) && (
-          <div className="audit-entity-line">
-            <span>{getEntityLabel(detail.entityType)}</span>
-            {detail.entityName && <strong>{detail.entityName}</strong>}
+  const Shell = ({ forced }) => (
+    <div className={'app' + (forced ? ' force-mobile' : '')}>
+      {spotlight && <Spotlight onClose={() => setSpotlight(false)} onGo={go} />}
+      {/* ---------- Icon Rail (desktop) ---------- */}
+      <nav className="rail desktop-only">
+        <div className="rail-brand"><img src={tmkLogoWhite} alt="TMK" /></div>
+        <div className="rail-items">
+          {NAV.map(n => (
+            <button key={n.id} className={'rail-btn' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
+              <Icon name={n.icon} />
+              <span className="rail-btn-label">{n.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="rail-foot">
+          <button className="rail-icon-sm" onClick={() => setShowHelp(true)} title="ช่วยเหลือ">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+              <line x1="12" y1="17" x2="12.01" y2="17" />
+            </svg>
+          </button>
+          <div style={{ position: 'relative' }}>
+            <button className="rail-avatar" onClick={() => setMenu(m => !m)}>
+              <img src={tmkLogoWhite} alt="" />
+            </button>
+            {menu && <ProfileMenu go={go} dark={dark} setDark={setDark} close={() => setMenu(false)} onLogout={logout} />}
           </div>
-        )}
-        {changes.length > 0 && (
-          <div className="audit-change-grid">
-            {changes.slice(0, 4).map(change => (
-              <div className="audit-change-row" key={change.field}>
-                <span className="audit-field">{change.field}</span>
-                <span className="audit-before">{change.before}</span>
-                <i className="fa-solid fa-arrow-right-long"></i>
-                <span className="audit-after">{change.after}</span>
+        </div>
+      </nav>
+
+      {/* ---------- Context Panel (panel variation) ---------- */}
+      {!topnav && nav?.subs && (
+        <aside className="panel desktop-only">
+          <div className="panel-head">
+            <div className="panel-title">{nav.label}</div>
+            <div className="panel-sub">{t(nav.id === 'sales' ? 'panelSalesSub' : nav.id === 'planner' ? 'panelPlannerSub' : nav.id === 'catalog' ? 'panelCatalogSub' : 'panelSystemSub')}</div>
+          </div>
+          <div className="panel-group">
+            {nav.subs.map(s => (
+              <button key={s.id} className={'panel-item' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
+                <Icon name={s.icon} />{s.label}
+                {counts[s.id] != null && <span className="count">{counts[s.id]}</span>}
+              </button>
+            ))}
+          </div>
+        </aside>
+      )}
+
+      {/* ---------- Main ---------- */}
+      <div className="main">
+        <header className="topbar">
+          <button className="icon-btn mobile-only" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
+          <div className="topbar-titles">
+            {!forced && nav?.subs && <div className="topbar-crumb desktop-only">{nav.label} <Icon name="chevR" /> {subLabel}</div>}
+            <div className="topbar-title">{subLabel || nav?.label || SPECIAL_LABELS[section] || ''}</div>
+          </div>
+          <div className="topbar-spacer"></div>
+          <div className="topbar-actions">
+            <button className="search desktop-only" onClick={() => setSpotlight(true)} style={{ cursor: 'pointer' }}>
+              <Icon name="search" /><span style={{ flex: 1, color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' }}>{t('search')}...</span><kbd>{modKey}K</kbd>
+            </button>
+            <button className="icon-btn" onClick={() => setNotif(n => !n)}>
+              <Icon name="bell" />{notifs.length > 0 && <span className="dot"></span>}
+            </button>
+          </div>
+        </header>
+
+        {/* sub tabs inside .content */}
+        <div className="content" ref={contentRef}>
+          {topnav && nav?.subs && (
+            <div className="desktop-only content-inner" style={{ marginBottom: 16 }}>
+              <div className="segbar" style={{ display: 'inline-flex', maxWidth: '100%' }}>
+                {nav.subs.map(s => (
+                  <button key={s.id} className={'seg' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
+                    <Icon name={s.icon} />{s.label}
+                    {counts[s.id] != null && <span className="chip" style={{ marginLeft: 2 }}>{counts[s.id]}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {nav?.subs && (
+            <div className="mobile-only content-inner" style={{ marginBottom: 16 }}>
+              <div className="segbar">
+                {nav.subs.map(s => (
+                  <button key={s.id} className={'seg' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
+                    <Icon name={s.icon} />{s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {renderView()}
+        </div>
+      </div>
+
+      {/* notifications — click navigates to task */}
+      {notif && (
+        <>
+          <div className="scrim" style={{ background: 'transparent' }} onClick={() => setNotif(false)}></div>
+          <div className="notif-pop">
+            <div className="row between" style={{ padding: '6px 10px 10px' }}>
+              <span className="h3">{t('notifications')}</span><span className="chip chip-accent">{notifs.length}</span>
+            </div>
+            {notifs.map(n => {
+              const sc = n.sev === 'overdue' ? 'var(--bad)' : n.sev === 'today' ? 'var(--warn)' : 'var(--info)';
+              return (
+                <div key={n.id} className="row" onClick={() => onNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'background 0.1s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sc, flexShrink: 0 }}></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</div>
+                    <div className="cap">{n.responsible.join(', ')}</div>
+                  </div>
+                  <span className="cap" style={{ color: sc, fontWeight: 600 }}>{n.txt}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* mobile drawer */}
+      {drawer && (
+        <>
+          <div className="scrim" onClick={() => setDrawer(false)}></div>
+          <div className="drawer">
+            <div className="row between" style={{ marginBottom: 18, padding: '0 6px' }}>
+              <div className="row" style={{ gap: 10 }}>
+                <div className="rail-brand" style={{ margin: 0, width: 38, height: 38 }}><img src={tmkLogoWhite} alt="TMK" /></div>
+                <div><div className="h3">TMK Operation</div><div className="cap">ศูนย์ปฏิบัติการ</div></div>
+              </div>
+              <button className="icon-btn" onClick={() => setDrawer(false)}><Icon name="x" /></button>
+            </div>
+            {NAV.map(n => (
+              <div key={n.id} style={{ marginBottom: 2 }}>
+                <button className={'panel-item' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
+                  <Icon name={n.icon} />{n.label}
+                </button>
+                {section === n.id && n.subs && (
+                  <div style={{ paddingLeft: 16 }}>
+                    {n.subs.map(s => (
+                      <button key={s.id} className={'panel-item' + (sub === s.id ? ' active' : '')} onClick={() => go(n.id, s.id)} style={{ fontSize: 'var(--fs-sm)' }}>
+                        <Icon name={s.icon} />{s.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
-            {changes.length > 4 && <div className="audit-more">+{changes.length - 4} รายการที่เปลี่ยนเพิ่ม</div>}
+            <div className="divider" style={{ margin: '12px 0' }}></div>
+            <button className="panel-item" onClick={() => go('profile')}><Icon name="users" />โปรไฟล์</button>
+            <button className="panel-item" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
+            <button className="panel-item" onClick={() => { setDrawer(false); setShowHelp(true); }}><svg className="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>ช่วยเหลือ</button>
+            <button className="panel-item" style={{ color: 'var(--bad)' }} onClick={logout}><Icon name="external" />ออกจากระบบ</button>
           </div>
-        )}
-      </div>
-    );
-  };
-
-  // Notification generator for tasks assigned to user due within 7 days
-  const getMyNotifications = () => {
-    if (!user) return [];
-    const userPrefix = user.email.split('@')[0].toLowerCase();
-    const fullName = user.user_metadata?.full_name?.toLowerCase();
-    
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const sevenDaysMillis = 7 * 24 * 60 * 60 * 1000;
-
-    return tasks.filter(task => {
-      const resp = (task.responsible || '').toLowerCase();
-      const isAssigned = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
-      if (!isAssigned) return false;
-      if (task.status === 'done') return false;
-
-      const taskTime = new Date(task.date).getTime();
-      if (isNaN(taskTime)) return false;
-
-      const diff = taskTime - todayStart;
-      return diff <= sevenDaysMillis;
-    }).map(task => {
-      const taskTime = new Date(task.date).getTime();
-      const diff = taskTime - todayStart;
-      const daysUntilDue = Math.ceil(diff / (24 * 60 * 60 * 1000));
-      let statusText = `อีก ${daysUntilDue} วัน`;
-      let severity = 'upcoming';
-      if (diff < 0) {
-        statusText = `ค้างส่ง ${Math.abs(daysUntilDue)} วัน`;
-        severity = 'overdue';
-      } else if (diff === 0) {
-        statusText = 'ครบกำหนดวันนี้';
-        severity = 'today';
-      } else if (daysUntilDue <= 2) {
-        statusText = `ใกล้ครบกำหนด อีก ${daysUntilDue} วัน`;
-        severity = 'soon';
-      }
-      return {
-        id: task.id,
-        title: task.title,
-        date: task.date,
-        statusText,
-        severity,
-        responsible: task.responsible || '-',
-
-        task
-      };
-    }).sort((a, b) => {
-      const severityRank = { overdue: 0, today: 1, soon: 2, upcoming: 3 };
-      return severityRank[a.severity] - severityRank[b.severity] || new Date(a.date) - new Date(b.date);
-    });
-  };
-
-  // Realtime subscription for Audit Logs
-  useEffect(() => {
-    if (!supabase || !user) return;
-    const fetchTimer = window.setTimeout(fetchAuditLogs, 0);
-
-    const channel = supabase
-      .channel('audit-logs-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'tmk_audit_logs' },
-        (payload) => {
-          setAuditLogs(prev => [payload.new, ...prev].slice(0, 100));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      window.clearTimeout(fetchTimer);
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // Fetch audit logs on active tab changes
-  useEffect(() => {
-    if (activeTab === 'audit_logs') {
-      const fetchTimer = window.setTimeout(fetchAuditLogs, 0);
-      return () => window.clearTimeout(fetchTimer);
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (!supabase || !user) return;
-    const fetchTimer = window.setTimeout(fetchUserRoles, 0);
-
-    const channel = supabase
-      .channel('user-roles-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'tmk_user_roles' },
-        () => fetchUserRoles()
-      )
-      .subscribe();
-
-    return () => {
-      window.clearTimeout(fetchTimer);
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  useEffect(() => {
-    if (!supabase) return;
-    
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-    });
-
-    // Listen to changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => {
-      if (subscription) subscription.unsubscribe();
-    };
-  }, []);
-
-  const signInWithGoogle = async () => {
-    if (!supabase) return;
-    if (!acceptTerms) {
-      alert('กรุณากดยอมรับระเบียบและกฎการใช้งานระบบก่อนเข้าสู่ระบบ');
-      return;
-    }
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
-      });
-      if (error) throw error;
-    } catch (error) {
-      console.error('OAuth login failed:', error);
-      alert('เข้าสู่ระบบไม่สำเร็จ: ' + error.message);
-    }
-  };
-
-  const handleEmailAuth = async (e) => {
-    e.preventDefault();
-    if (!supabase) return;
-    if (!acceptTerms) {
-      alert('กรุณากดยอมรับระเบียบและกฎการใช้งานระบบก่อนเข้าสู่ระบบ');
-      return;
-    }
-    if (!email.trim() || !password) {
-      alert('กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน');
-      return;
-    }
-    try {
-      setLoginLoading(true);
-      if (authMode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password: password,
-        });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password: password,
-        });
-        if (error) throw error;
-        alert('สมัครสมาชิกสำเร็จแล้ว! หากระบบ Supabase ของคุณเปิดใช้งาน Email Confirmation ไว้ กรุณาตรวจสอบอีเมลของคุณเพื่อยืนยันบัญชี หรือลองลงชื่อเข้าใช้งานได้ทันที');
-        setAuthMode('login');
-      }
-    } catch (error) {
-      console.error('Email authentication failed:', error);
-      alert('เข้าสู่ระบบ/สมัครสมาชิกไม่สำเร็จ: ' + error.message);
-    } finally {
-      setLoginLoading(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    if (!supabase) return;
-    if (confirm('คุณต้องการออกจากระบบใช่หรือไม่?')) {
-      try {
-        const { error } = await supabase.auth.signOut();
-        if (error) throw error;
-        setUser(null);
-      } catch (error) {
-        console.error('Signout failed:', error);
-        alert('ออกจากระบบไม่สำเร็จ: ' + error.message);
-      }
-    }
-  };
-  const todayStr = getLocalDateString();
-  
-  // Responsive Screen Width State
-  const [windowWidth, setWindowWidth] = useState(() => typeof window !== 'undefined' ? window.innerWidth : 1200);
-
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    localStorage.removeItem('tmk_staff_list');
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Timeline Filter & Search States
-  const [timelineFilter, setTimelineFilter] = useState('master');
-  const [timelineSearch, setTimelineSearch] = useState('');
-
-  // Main Data States
-  const [campaigns, setCampaigns] = useState([]);
-  const [channels, setChannels] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [tasks, setTasks] = useState([]);
-  const [poTracker, setPoTracker] = useState([]);
-  const [remoteReady, setRemoteReady] = useState(false);
-  const [remoteStatus, setRemoteStatus] = useState(tmkRepository.isConfigured ? 'กำลังเชื่อมต่อ Supabase...' : 'Supabase not configured');
-  const [isRefreshingRemote, setIsRefreshingRemote] = useState(false);
-
-  // Dynamic staff list state
-  const [staffList, setStaffList] = useState(['มัง', 'MKT', 'Graphic', 'Admin']);
-
-  // Dynamic promo channels list state
-  const [promoChannels, setPromoChannels] = useState(['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม', 'Line/FB Broadcast', 'ทุกแพลตฟอร์ม + BC (Line OA/FB)']);
-
-  // Recycle Bin State
-  const [trashItems, setTrashItems] = useState([]);
-  const [showTrashModal, setShowTrashModal] = useState(false);
-  
-  
-  // Dashboard & Target States
-  const totalTarget = channels.reduce((sum, ch) => sum + (Number(ch.target) || 0), 0);
-  const [totalUnitsTarget, setTotalUnitsTarget] = useState(0);
-  const [isEditingTargets, setIsEditingTargets] = useState(false);
-
-  // Calendar State
-  const [currentYear, setCurrentYear] = useState(() => new Date().getFullYear());
-  const [currentMonth, setCurrentMonth] = useState(() => new Date().getMonth());
-  const [selectedDate, setSelectedDate] = useState(() => getLocalDateString());
-  const [campFilter, setCampFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [calendarViewMode, setCalendarViewMode] = useState('month');
-  const getWeekStart = (date = new Date()) => {
-    const d = new Date(date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  };
-  const [weekStart, setWeekStart] = useState(() => getWeekStart());
-
-  // Modals & Forms States
-  const [showTaskModal, setShowTaskModal] = useState(false);
-  const [taskModalMode, setTaskModalMode] = useState('add'); // 'add' | 'edit'
-  const [editingTaskId, setEditingTaskId] = useState(null);
-  const [taskForm, setTaskForm] = useState({ date: '', title: '', detail: '', responsible: 'มัง', channel: 'หลังบ้าน', camp: 'c1', status: 'todo', comments: [], attachments: [], reminderDays: 1 });
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-
-  const toggleProfileMenu = () => { setShowProfileMenu(prev => !prev); };
-
-  const [draggedOverCol, setDraggedOverCol] = useState(null);
-
-  const [showChannelModal, setShowChannelModal] = useState(false);
-  const [channelForm, setChannelForm] = useState({ id: '', name: '', target: 0, actual: 0, color: '#3b82f6' });
-  const [isChannelEditMode, setIsChannelEditMode] = useState(false);
-
-  const [showProductModal, setShowProductModal] = useState(false);
-  const [productForm, setProductForm] = useState({ id: '', name: '', price: 0, targetUnits: 0, actualUnits: 0, stockOnHand: 0, reservedUnits: 0, reorderPoint: 0, strategy: '' });
-  const [isProductEditMode, setIsProductEditMode] = useState(false);
-
-  const [showCampaignModal, setShowCampaignModal] = useState(false);
-  const [campaignForm, setCampaignForm] = useState({ id: '', name: '', color: '#3b82f6', bg: '#eff6ff', border: '#bfdbfe' });
-  const [isCampaignEditMode, setIsCampaignEditMode] = useState(false);
-
-  const [showPoModal, setShowPoModal] = useState(false);
-  const [poForm, setPoForm] = useState({ id: '', product: '', quantity: 0, orderDate: '', arrivalDate: '', status: 'Pending' });
-  const [isPoEditMode, setIsPoEditMode] = useState(false);
-  const syncingFromRemoteRef = useRef(false);
-  const hasRestoredScrollRef = useRef(false);
-  const savingRef = useRef(false);
-
-  const applyRemoteData = useCallback((remoteData) => {
-    if (!remoteData) return;
-    syncingFromRemoteRef.current = true;
-    setCampaigns(remoteData.campaigns);
-    setChannels(remoteData.channels.map(ch => ({
-      ...ch,
-      target: Number(ch.target || 0),
-      actual: Number(ch.actual || 0)
-    })));
-    setProducts(remoteData.products);
-    setTasks(remoteData.tasks || []);
-    setPoTracker(remoteData.poTracker);
-    // Skip when remote returns null (settings row missing) — keep local default
-    // rather than zeroing it out and persisting that 0 back on the next save.
-    if (remoteData.totalUnitsTarget != null) setTotalUnitsTarget(remoteData.totalUnitsTarget);
-    window.setTimeout(() => {
-      syncingFromRemoteRef.current = false;
-    }, 500);
-  }, []);
-
-  const loadRemoteData = useCallback(async (statusLabel = 'Supabase connected') => {
-    if (!tmkRepository.isConfigured) {
-      setRemoteStatus('Supabase not configured');
-      return false;
-    }
-    if (!user) {
-      setRemoteStatus('รอเข้าสู่ระบบก่อนโหลดข้อมูล Supabase...');
-      return false;
-    }
-    try {
-      console.log('🔄 TMK: Loading remote data from Supabase... (user:', user.email, ')');
-      const remoteData = await tmkRepository.loadAll();
-      if (!remoteData) return false;
-
-      console.log('📦 TMK: Remote data received:', {
-        campaigns: remoteData.campaigns?.length || 0,
-        channels: remoteData.channels?.length || 0,
-        products: remoteData.products?.length || 0,
-        tasks: remoteData.tasks?.length || 0,
-        poTracker: remoteData.poTracker?.length || 0,
-        totalTarget: remoteData.totalTarget,
-        totalUnitsTarget: remoteData.totalUnitsTarget
-      });
-
-      applyRemoteData(remoteData);
-      const isRemoteEmpty = [
-        remoteData.campaigns,
-        remoteData.channels,
-        remoteData.products,
-        remoteData.tasks,
-        remoteData.poTracker
-      ].every(list => !list || list.length === 0);
-      if (isRemoteEmpty) {
-        console.warn('⚠️ TMK: All Supabase tables returned empty. Check if schema has been run and data exists.');
-      }
-      setRemoteStatus(isRemoteEmpty ? `Supabase ${supabaseProjectRef || ''} connected แต่ยังอ่านไม่พบข้อมูลหลัก` : `${statusLabel}${supabaseProjectRef ? ` (${supabaseProjectRef})` : ''}`);
-      return true;
-    } catch (error) {
-      console.error('❌ TMK: Failed to load/sync Supabase data:', error);
-      setRemoteStatus('Supabase error: ไม่สามารถโหลดข้อมูลได้');
-      return false;
-    }
-  }, [applyRemoteData, user]);
-
-  const refreshRemoteData = async () => {
-    if (!tmkRepository.isConfigured || isRefreshingRemote) return;
-    const scrollY = window.scrollY;
-    setIsRefreshingRemote(true);
-    try {
-      const loaded = await loadRemoteData('Supabase refreshed');
-      if (loaded) {
-        setRemoteReady(true);
-        window.requestAnimationFrame(() => window.scrollTo(0, scrollY));
-      }
-    } catch (error) {
-      console.error('Supabase manual refresh failed:', error);
-      setRemoteStatus('Supabase refresh error');
-    } finally {
-      setIsRefreshingRemote(false);
-    }
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const bootstrapRemoteData = async () => {
-      if (!tmkRepository.isConfigured || !user) {
-        setRemoteReady(false);
-        return;
-      }
-      try {
-        const loaded = await loadRemoteData();
-        if (loaded && !cancelled) setRemoteReady(true);
-      } catch (error) {
-        console.error('Supabase load failed:', error);
-        setRemoteStatus('Supabase error: ไม่สามารถโหลดข้อมูลได้');
-      }
-    };
-
-    bootstrapRemoteData();
-
-    if (!tmkRepository.isConfigured || !user) {
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const unsubscribe = tmkRepository.subscribeToChanges(async () => {
-      if (cancelled) return;
-      if (savingRef.current) {
-        console.log('Ignoring real-time refresh because we initiated the database change.');
-        return;
-      }
-      try {
-        const loaded = await loadRemoteData('Supabase realtime synced');
-        if (loaded) setRemoteReady(true);
-      } catch (error) {
-        console.error('Supabase realtime refresh failed:', error);
-        setRemoteStatus('Supabase realtime error');
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [loadRemoteData, user]);
-
-  const saveRemote = useCallback(async (label, saveFn) => {
-    if (!remoteReady || !tmkRepository.isConfigured) return;
-    if (syncingFromRemoteRef.current) return;
-    try {
-      savingRef.current = true;
-      await saveFn();
-    } catch (error) {
-      console.error(`Supabase save failed: ${label}`, error);
-      alert(`ไม่สามารถบันทึกข้อมูล "${label}" ไปยังเซิร์ฟเวอร์ได้: ${error.message || error}`);
-    } finally {
-      // Small timeout to allow Supabase postgres changes channel broadcast to be received and skipped
-      window.setTimeout(() => {
-        savingRef.current = false;
-      }, 1000);
-    }
-  }, [remoteReady]);
-
-  // Sync to local storage and Supabase when configured.
-  useEffect(() => {
-    localStorage.setItem('tmk_theme', theme);
-    document.documentElement.classList.toggle('dark-theme', theme === 'dark');
-  }, [theme]);
-
-  useEffect(() => {
-    saveRemote('campaigns', () => tmkRepository.saveCampaigns(campaigns));
-  }, [campaigns, saveRemote]);
-
-  useEffect(() => {
-    saveRemote('channels', () => tmkRepository.saveChannels(channels));
-  }, [channels, saveRemote]);
-
-  useEffect(() => {
-    saveRemote('products', () => tmkRepository.saveProducts(products));
-  }, [products, saveRemote]);
-
-  useEffect(() => {
-    saveRemote('tasks', () => tmkRepository.saveTasks(tasks));
-  }, [tasks, saveRemote]);
-
-  useEffect(() => {
-    localStorage.setItem('tmk_active_tab', activeTab);
-    const savedScroll = sessionStorage.getItem(`tmk_scroll_${activeTab}`);
-    if (!hasRestoredScrollRef.current && savedScroll) {
-      hasRestoredScrollRef.current = true;
-      window.requestAnimationFrame(() => window.scrollTo(0, Number(savedScroll) || 0));
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
-    const saveScroll = () => {
-      sessionStorage.setItem(`tmk_scroll_${activeTab}`, String(window.scrollY));
-    };
-    window.addEventListener('beforeunload', saveScroll);
-    return () => {
-      saveScroll();
-      window.removeEventListener('beforeunload', saveScroll);
-    };
-  }, [activeTab]);
-
-  useEffect(() => {
-    saveRemote('purchase orders', () => tmkRepository.savePurchaseOrders(poTracker));
-  }, [poTracker, saveRemote]);
-
-  useEffect(() => {
-    saveRemote('target', () => tmkRepository.saveSettings({ totalTarget, totalUnitsTarget }));
-  }, [totalTarget, totalUnitsTarget, saveRemote]);
-
-  // Extract staff and channel options dynamically from tasks to prevent empty lists on fresh browser/Vercel load
-  useEffect(() => {
-    if (!tasks || tasks.length === 0) return;
-
-    // 1. Merge staff from tasks
-    const currentStaffSet = new Set(staffList);
-    let staffUpdated = false;
-    tasks.forEach(t => {
-      if (t.responsible) {
-        t.responsible.split(/[,/+\s]+/).forEach(s => {
-          const name = s.trim();
-          if (name && !currentStaffSet.has(name)) {
-            currentStaffSet.add(name);
-            staffUpdated = true;
-          }
-        });
-      }
-    });
-    // 2. Merge promo channels from tasks
-    const currentChannelsSet = new Set(promoChannels);
-    let channelsUpdated = false;
-    tasks.forEach(t => {
-      if (t.channel) {
-        t.channel.split(/[,/+\s]+/).forEach(c => {
-          const name = c.trim();
-          if (name && !currentChannelsSet.has(name)) {
-            currentChannelsSet.add(name);
-            channelsUpdated = true;
-          }
-        });
-      }
-    });
-    const staffTimer = staffUpdated
-      ? window.setTimeout(() => setStaffList(Array.from(currentStaffSet)), 0)
-      : null;
-    const channelsTimer = channelsUpdated
-      ? window.setTimeout(() => setPromoChannels(Array.from(currentChannelsSet)), 0)
-      : null;
-
-    return () => {
-      if (staffTimer) window.clearTimeout(staffTimer);
-      if (channelsTimer) window.clearTimeout(channelsTimer);
-    };
-  }, [tasks, staffList, promoChannels]);
-
-  // Calc summaries
-  const totalActualSales = channels.reduce((sum, ch) => sum + ch.actual, 0);
-  const totalActualUnits = products.reduce((sum, prod) => sum + prod.actualUnits, 0);
-  const totalProductTargetRevenue = products.reduce((sum, p) => sum + (Number(p.price) || 0) * (Number(p.targetUnits) || 0), 0);
-  const targetCompletedPercent = totalTarget > 0 ? Math.min(999, Number(((totalActualSales / totalTarget) * 100).toFixed(1))) : 0;
-  const targetCompletedLabel = Number.isInteger(targetCompletedPercent) ? `${targetCompletedPercent}%` : `${targetCompletedPercent.toFixed(1)}%`;
-
-  // Change Month Nav
-  const handlePrevMonth = () => {
-    if (currentMonth === 0) {
-      setCurrentMonth(11);
-      setCurrentYear(prev => prev - 1);
-    } else {
-      setCurrentMonth(prev => prev - 1);
-    }
-  };
-
-  const handleNextMonth = () => {
-    if (currentMonth === 11) {
-      setCurrentMonth(0);
-      setCurrentYear(prev => prev + 1);
-    } else {
-      setCurrentMonth(prev => prev + 1);
-    }
-  };
-
-  const goToPrevWeek = () => {
-    setWeekStart(prev => {
-      const d = new Date(prev);
-      d.setDate(d.getDate() - 7);
-      return d;
-    });
-  };
-
-  const goToNextWeek = () => {
-    setWeekStart(prev => {
-      const d = new Date(prev);
-      d.setDate(d.getDate() + 7);
-      return d;
-    });
-  };
-
-  const goToTodayWeek = () => {
-    setWeekStart(getWeekStart());
-    setSelectedDate(getLocalDateString());
-  };
-
-  // Generate Month Grid
-  const getDaysInMonth = (yr, mo) => {
-    const firstDayIndex = new Date(yr, mo, 1).getDay();
-    const totalDays = new Date(yr, mo + 1, 0).getDate();
-    return { firstDayIndex, totalDays };
-  };
-
-  const { firstDayIndex, totalDays } = getDaysInMonth(currentYear, currentMonth);
-
-  // Filter Tasks
-  const getFilteredTasks = (dateStr) => {
-    return tasks.filter(task => {
-      const isDate = task.date === dateStr;
-      const isCamp = campFilter === 'all' || task.camp === campFilter;
-      const isRole = roleFilter === 'all' || new RegExp(roleFilter, 'i').test(task.responsible);
-      let isSearch = true;
-      if (timelineSearch.trim()) {
-        const q = timelineSearch.toLowerCase();
-        isSearch = task.title.toLowerCase().includes(q) || 
-                   task.detail.toLowerCase().includes(q) || 
-                   task.responsible.toLowerCase().includes(q) ||
-                   (task.channel || '').toLowerCase().includes(q);
-      }
-
-      let isMyTask = true;
-      if (showOnlyMyTasks && user) {
-        const userPrefix = user.email.split('@')[0].toLowerCase();
-        const resp = (task.responsible || '').toLowerCase();
-        const fullName = user.user_metadata?.full_name?.toLowerCase();
-        isMyTask = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
-      }
-
-      return isDate && isCamp && isRole && isSearch && isMyTask;
-    });
-  };
-
-  // Filter Kanban Tasks
-  const getFilteredKanbanTasks = (status) => {
-    return tasks.filter(task => {
-      const isStatus = task.status === status;
-      const isCamp = campFilter === 'all' || task.camp === campFilter;
-      const isRole = roleFilter === 'all' || new RegExp(roleFilter, 'i').test(task.responsible);
-      
-      let isSearch = true;
-      if (timelineSearch.trim()) {
-        const q = timelineSearch.toLowerCase();
-        isSearch = task.title.toLowerCase().includes(q) || 
-                   task.detail.toLowerCase().includes(q) || 
-                   task.responsible.toLowerCase().includes(q) ||
-                   (task.channel || '').toLowerCase().includes(q);
-      }
-
-      let isMyTask = true;
-      if (showOnlyMyTasks && user) {
-        const userPrefix = user.email.split('@')[0].toLowerCase();
-        const resp = (task.responsible || '').toLowerCase();
-        const fullName = user.user_metadata?.full_name?.toLowerCase();
-        isMyTask = resp.includes(userPrefix) || (fullName && resp.includes(fullName));
-      }
-
-      return isStatus && isCamp && isRole && isSearch && isMyTask;
-    });
-  };
-
-  // Drag and Drop (Kanban)
-  const handleDragStart = (e, taskId) => {
-    if (userRole !== 'admin') {
-      e.preventDefault();
-      return;
-    }
-    e.dataTransfer.setData('text/plain', taskId);
-  };
-
-  const handleDrop = (e, status) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ย้ายสถานะงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    const taskId = e.dataTransfer.getData('text/plain');
-    const movedTask = tasks.find(t => t.id === taskId);
-    if (movedTask) {
-      logAction('ย้ายสถานะงาน', buildAuditDetails({
-        entityType: 'task',
-        entityName: movedTask.title,
-        summary: `ย้ายงานไปสถานะ ${status}`,
-        before: { status: movedTask.status },
-        after: { status }
-      }));
-    }
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status } : t));
-    setDraggedOverCol(null);
-  };
-
-  const changeTaskStatus = (task, status) => {
-    if (!task || task.status === status) return;
-    logAction('แก้ไขสถานะงาน', buildAuditDetails({
-      entityType: 'task',
-      entityName: task.title,
-      summary: `เปลี่ยนสถานะงาน "${task.title}"`,
-      before: { status: task.status },
-      after: { status }
-    }));
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status } : t));
-  };
-
-  const toggleTaskCompletion = (task) => {
-    changeTaskStatus(task, task.status === 'done' ? 'todo' : 'done');
-  };
-
-  const markPoReceived = (po) => {
-    if (!po || po.status === 'Completed') return;
-    const updatedPo = { ...po, status: 'Completed' };
-    const matchedProducts = products.filter(prod => po.product.includes(prod.name) || prod.name.includes(po.product));
-
-    logAction('รับสินค้าเข้า Stock', buildAuditDetails({
-      entityType: 'po',
-      entityName: po.product,
-      summary: `รับสินค้าเข้าโกดังจาก PO "${po.product}" จำนวน ${Number(po.quantity || 0).toLocaleString()} ตัว`,
-      before: po,
-      after: updatedPo,
-      extra: {
-        stockUpdatedProducts: matchedProducts.map(prod => prod.name)
-      }
-    }));
-
-    setPoTracker(prev => prev.map(p => p.id === po.id ? updatedPo : p));
-    setProducts(prev => prev.map(prod => (
-      po.product.includes(prod.name) || prod.name.includes(po.product)
-        ? { ...prod, stockOnHand: Number(prod.stockOnHand || 0) + Number(po.quantity || 0) }
-        : prod
-    )));
-  };
-
-  const getTimelineDateParts = (dateStr) => {
-    if (!dateStr) return { day: '--', month: '---', year: '----' };
-    const parts = dateStr.split('-');
-    if (parts.length < 3) return { day: '00', month: 'ม.ค.', year: '2026' };
-    const day = parts[2];
-    const monthIndex = parseInt(parts[1]) - 1;
-    const shortMonths = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-    const month = shortMonths[monthIndex] || '';
-    return { day, month, year: parts[0] };
-  };
-
-  const getStaffList = () => {
-    return staffList;
-  };
-
-  const getTimelineTasks = (campId) => {
-    let filtered = tasks;
-    if (campId && campId !== 'master' && campId !== 'stacked') {
-      filtered = filtered.filter(t => t.camp === campId);
-    }
-    if (timelineSearch.trim()) {
-      const q = timelineSearch.toLowerCase();
-      filtered = filtered.filter(t => 
-        t.title.toLowerCase().includes(q) || 
-        t.detail.toLowerCase().includes(q) || 
-        t.responsible.toLowerCase().includes(q) ||
-        t.channel.toLowerCase().includes(q)
-      );
-    }
-    return [...filtered].sort((a, b) => new Date(a.date) - new Date(b.date));
-  };
-
-
-
-  const getHashColor = (str, isChannel = false) => {
-    const colors = [
-      { bg: 'rgba(99, 102, 241, 0.12)', border: 'rgba(99, 102, 241, 0.3)', text: 'var(--primary)' }, // Indigo
-      { bg: 'rgba(16, 185, 129, 0.12)', border: 'rgba(16, 185, 129, 0.3)', text: 'var(--success)' }, // Green/Emerald
-      { bg: 'rgba(14, 165, 233, 0.12)', border: 'rgba(14, 165, 233, 0.3)', text: 'var(--kpi-blue)' }, // Sky Blue
-      { bg: 'rgba(245, 158, 11, 0.12)', border: 'rgba(245, 158, 11, 0.3)', text: 'var(--warning)' }, // Amber
-      { bg: 'rgba(217, 70, 239, 0.12)', border: 'rgba(217, 70, 239, 0.3)', text: '#d946ef' }, // Fuchsia
-      { bg: 'rgba(239, 68, 68, 0.12)', border: 'rgba(239, 68, 68, 0.3)', text: 'var(--danger)' }, // Red
-      { bg: 'rgba(139, 92, 246, 0.12)', border: 'rgba(139, 92, 246, 0.3)', text: '#8b5cf6' }, // Purple
-      { bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(20, 184, 166, 0.3)', text: '#14b8a6' }, // Teal
-    ];
-    
-    if (!isChannel) {
-      if (str === 'มัง') return colors[0];
-      if (str === 'ฝ้าย') return colors[1];
-      if (str === 'บีม') return colors[2];
-      if (str === 'แตงโม') return colors[4];
-      if (str === 'Graphic') return colors[6];
-      if (str === 'MKT') return colors[3];
-      if (str === 'Admin') return colors[7];
-    } else {
-      if (str === 'หลังบ้าน') return colors[0];
-      if (str === 'Line Broadcast') return colors[2];
-      if (str === 'FB Post') return colors[3];
-      if (str === 'TikTok Shop') return colors[4];
-      if (str === 'ทุกแพลตฟอร์ม') return colors[1];
-    }
-    
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  };
-
-  // Task CRUD Handlers
-  const openAddTask = (dateStr) => {
-    setTaskModalMode('add');
-    setTaskForm({ 
-      date: dateStr || '',
-      dateEnd: '', 
-      title: '', 
-      detail: '', 
-      responsible: 'มัง', 
-      channel: 'หลังบ้าน', 
-      camp: campaigns[0]?.id || 'c1', 
-      status: 'todo',
-      comments: [],
-      attachments: [],
-      reminderDays: 1
-    });
-    setShowTaskModal(true);
-  };
-
-  const openEditTask = (task) => {
-    setTaskModalMode('edit');
-    setEditingTaskId(task.id);
-    setTaskForm({ 
-      
-      dateEnd: task.dateEnd || '',
-      comments: [],
-      attachments: [],
-      reminderDays: 1,
-      ...task 
-    });
-    setShowTaskModal(true);
-  };
-
-  const saveTask = (e) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์บันทึกงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (taskModalMode === 'add') {
-      const newTask = {
-        ...taskForm,
-        id: generateId('t'),
-        dateEnd: taskForm.dateEnd || taskForm.date,
-      };
-      setTasks(prev => [...prev, newTask]);
-      logAction('สร้างงานหลัก', buildAuditDetails({
-        entityType: 'task',
-        entityName: newTask.title,
-        summary: `สร้างงานใหม่ให้ ${newTask.responsible || '-'}`,
-        after: newTask
-      }));
-    } else {
-      const beforeTask = tasks.find(t => t.id === editingTaskId);
-      const updatedTask = { ...taskForm, id: editingTaskId, dateEnd: taskForm.dateEnd || taskForm.date };
-      setTasks(prev => prev.map(t => t.id === editingTaskId ? updatedTask : t));
-      logAction('แก้ไขงานหลัก', buildAuditDetails({
-        entityType: 'task',
-        entityName: updatedTask.title,
-        summary: `แก้ไขงาน "${updatedTask.title}"`,
-        before: beforeTask,
-        after: updatedTask
-      }));
-    }
-    setShowTaskModal(false);
-  };
-
-  const deleteTask = async (taskId) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ลบงาน (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (confirm('ยืนยันที่จะลบหัวข้องานปฏิบัตินี้ออกใช่หรือไม่?')) {
-      const taskToDelete = tasks.find(t => t.id === taskId);
-      if (taskToDelete) {
-        setTrashItems(prev => [
-          ...prev,
-          {
-            id: generateId('trash'),
-            originalId: taskToDelete.id,
-            type: 'task',
-            name: taskToDelete.title || 'ไม่มีหัวข้อ',
-            deletedAt: new Date().toISOString(),
-            data: taskToDelete
-          }
-        ]);
-        logAction('ย้ายงานไปถังขยะ', buildAuditDetails({
-          entityType: 'task',
-          entityName: taskToDelete.title,
-          summary: `ย้ายงาน "${taskToDelete.title}" ไปที่ถังขยะ`,
-          before: taskToDelete
-        }));
-      }
-      // Remove from local state immediately
-      setTasks(prev => prev.filter(t => t.id !== taskId));
-      // Directly delete from Supabase (belt-and-suspenders with the saveTasks effect)
-      try {
-        await tmkRepository.deleteTaskById(taskId);
-      } catch (error) {
-        console.error('Supabase direct delete failed:', error);
-        alert(`เกิดข้อผิดพลาดในการลบข้อมูลกับเซิร์ฟเวอร์: ${error.message || error}`);
-      }
-    }
-  };
-
-  // Channel CRUD Handlers
-  const openAddChannel = () => {
-    setIsChannelEditMode(false);
-    setChannelForm({ id: '', name: '', target: 0, actual: 0, color: '#3b82f6' });
-    setShowChannelModal(true);
-  };
-
-  const openEditChannel = (ch) => {
-    setIsChannelEditMode(true);
-    setChannelForm({ ...ch });
-    setShowChannelModal(true);
-  };
-
-  const saveChannel = (e) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์แก้ไขช่องทางขาย (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (!isChannelEditMode) {
-      const newCh = { ...channelForm, id: generateId('ch') };
-      setChannels(prev => [...prev, newCh]);
-      logAction('สร้างช่องทางขาย', buildAuditDetails({
-        entityType: 'channel',
-        entityName: newCh.name,
-        summary: `สร้างช่องทางขาย "${newCh.name}"`,
-        after: newCh
-      }));
-    } else {
-      const beforeChannel = channels.find(ch => ch.id === channelForm.id);
-      setChannels(prev => prev.map(ch => ch.id === channelForm.id ? channelForm : ch));
-      logAction('แก้ไขช่องทางขาย', buildAuditDetails({
-        entityType: 'channel',
-        entityName: channelForm.name,
-        summary: `แก้ไขช่องทางขาย "${channelForm.name}"`,
-        before: beforeChannel,
-        after: channelForm
-      }));
-    }
-    setShowChannelModal(false);
-  };
-
-  const deleteChannel = (id) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ลบช่องทางขาย (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (confirm('คุณต้องการลบช่องทางการขายนี้ใช่หรือไม่?')) {
-      const channelToDelete = channels.find(ch => ch.id === id);
-      if (channelToDelete) {
-        setTrashItems(prev => [
-          ...prev,
-          {
-            id: generateId('trash'),
-            originalId: channelToDelete.id,
-            type: 'channel',
-            name: channelToDelete.name || 'ไม่มีชื่อช่องทาง',
-            deletedAt: new Date().toISOString(),
-            data: channelToDelete
-          }
-        ]);
-        logAction('ย้ายช่องทางขายไปถังขยะ', buildAuditDetails({
-          entityType: 'channel',
-          entityName: channelToDelete.name,
-          summary: `ย้ายช่องทางขาย "${channelToDelete.name}" ไปที่ถังขยะ`,
-          before: channelToDelete
-        }));
-      }
-      setChannels(prev => prev.filter(ch => ch.id !== id));
-    }
-  };
-
-  // Product CRUD Handlers
-  const openAddProduct = () => {
-    setIsProductEditMode(false);
-    setProductForm({ id: '', name: '', price: 0, targetUnits: 0, actualUnits: 0, stockOnHand: 0, reservedUnits: 0, reorderPoint: 0, strategy: '' });
-    setShowProductModal(true);
-  };
-
-  const openEditProduct = (prod) => {
-    setIsProductEditMode(true);
-    setProductForm({ ...prod });
-    setShowProductModal(true);
-  };
-
-  const saveProduct = (e) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์แก้ไขข้อมูลสินค้า (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (!isProductEditMode) {
-      const newProd = { ...productForm, id: generateId('p') };
-      setProducts(prev => [...prev, newProd]);
-      logAction('สร้างสินค้า', buildAuditDetails({
-        entityType: 'product',
-        entityName: newProd.name,
-        summary: `สร้างสินค้า "${newProd.name}"`,
-        after: newProd
-      }));
-    } else {
-      const beforeProduct = products.find(p => p.id === productForm.id);
-      setProducts(prev => prev.map(p => p.id === productForm.id ? productForm : p));
-      logAction('แก้ไขสินค้า', buildAuditDetails({
-        entityType: 'product',
-        entityName: productForm.name,
-        summary: `แก้ไขสินค้า "${productForm.name}"`,
-        before: beforeProduct,
-        after: productForm
-      }));
-    }
-    setShowProductModal(false);
-  };
-
-  const deleteProduct = (id) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ลบสินค้า (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (confirm('คุณต้องการลบสินค้านี้ใช่หรือไม่?')) {
-      const productToDelete = products.find(p => p.id === id);
-      if (productToDelete) {
-        setTrashItems(prev => [
-          ...prev,
-          {
-            id: generateId('trash'),
-            originalId: productToDelete.id,
-            type: 'product',
-            name: productToDelete.name || 'ไม่มีชื่อสินค้า',
-            deletedAt: new Date().toISOString(),
-            data: productToDelete
-          }
-        ]);
-        logAction('ย้ายสินค้าไปถังขยะ', buildAuditDetails({
-          entityType: 'product',
-          entityName: productToDelete.name,
-          summary: `ย้ายสินค้า "${productToDelete.name}" ไปที่ถังขยะ`,
-          before: productToDelete
-        }));
-      }
-      setProducts(prev => prev.filter(p => p.id !== id));
-    }
-  };
-
-  // Campaign CRUD Handlers
-  const openAddCampaign = () => {
-    setIsCampaignEditMode(false);
-    setCampaignForm({ id: '', name: '', color: '#3b82f6', bg: '#f0f9ff', border: '#bae6fd' });
-    setShowCampaignModal(true);
-  };
-
-  const openEditCampaign = (camp) => {
-    setIsCampaignEditMode(true);
-    setCampaignForm({ ...camp });
-    setShowCampaignModal(true);
-  };
-
-  const saveCampaign = (e) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์แก้ไขแคมเปญ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (!isCampaignEditMode) {
-      const newCamp = { ...campaignForm, id: generateId('c') };
-      setCampaigns(prev => [...prev, newCamp]);
-      logAction('สร้างแคมเปญ', buildAuditDetails({
-        entityType: 'campaign',
-        entityName: newCamp.name,
-        summary: `สร้างแคมเปญ "${newCamp.name}"`,
-        after: newCamp
-      }));
-    } else {
-      const beforeCampaign = campaigns.find(c => c.id === campaignForm.id);
-      setCampaigns(prev => prev.map(c => c.id === campaignForm.id ? campaignForm : c));
-      logAction('แก้ไขแคมเปญ', buildAuditDetails({
-        entityType: 'campaign',
-        entityName: campaignForm.name,
-        summary: `แก้ไขแคมเปญ "${campaignForm.name}"`,
-        before: beforeCampaign,
-        after: campaignForm
-      }));
-    }
-    setShowCampaignModal(false);
-  };
-
-  const deleteCampaign = (id) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ลบแคมเปญ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (confirm('ลบแคมเปญนี้ จะทำให้งานทั้งหมดที่ผูกอยู่ไม่มีสีแคมเปญ ต้องการลบใช่หรือไม่?')) {
-      const campaignToDelete = campaigns.find(c => c.id === id);
-      if (campaignToDelete) {
-        setTrashItems(prev => [
-          ...prev,
-          {
-            id: generateId('trash'),
-            originalId: campaignToDelete.id,
-            type: 'campaign',
-            name: campaignToDelete.name || 'ไม่มีชื่อแคมเปญ',
-            deletedAt: new Date().toISOString(),
-            data: campaignToDelete
-          }
-        ]);
-        logAction('ย้ายแคมเปญไปถังขยะ', buildAuditDetails({
-          entityType: 'campaign',
-          entityName: campaignToDelete.name,
-          summary: `ย้ายแคมเปญ "${campaignToDelete.name}" ไปที่ถังขยะ`,
-          before: campaignToDelete
-        }));
-      }
-      setCampaigns(prev => prev.filter(c => c.id !== id));
-    }
-  };
-
-  // PO CRUD Handlers
-  const openAddPo = () => {
-    setIsPoEditMode(false);
-    setPoForm({ id: '', product: '', quantity: 0, orderDate: '', arrivalDate: '', status: 'Pending' });
-    setShowPoModal(true);
-  };
-
-  const openEditPo = (po) => {
-    setIsPoEditMode(true);
-    setPoForm({ ...po });
-    setShowPoModal(true);
-  };
-
-  const savePo = (e) => {
-    e.preventDefault();
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์สร้าง/แก้ไขใบสั่งซื้อ PO (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (!isPoEditMode) {
-      const newPo = { ...poForm, id: generateId('po') };
-      setPoTracker(prev => [...prev, newPo]);
-      logAction('สร้างใบสั่งซื้อ PO', buildAuditDetails({
-        entityType: 'po',
-        entityName: newPo.product,
-        summary: `สร้าง PO สินค้า "${newPo.product}"`,
-        after: newPo
-      }));
-    } else {
-      const beforePo = poTracker.find(p => p.id === poForm.id);
-      setPoTracker(prev => prev.map(p => p.id === poForm.id ? poForm : p));
-      logAction('แก้ไขใบสั่งซื้อ PO', buildAuditDetails({
-        entityType: 'po',
-        entityName: poForm.product,
-        summary: `แก้ไข PO สินค้า "${poForm.product}"`,
-        before: beforePo,
-        after: poForm
-      }));
-    }
-    setShowPoModal(false);
-  };
-
-  const deletePo = (id) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ลบใบสั่งซื้อ PO (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (confirm('ต้องการลบประวัติ PO นี้ออกใช่หรือไม่?')) {
-      const poToDelete = poTracker.find(p => p.id === id);
-      if (poToDelete) {
-        setTrashItems(prev => [
-          ...prev,
-          {
-            id: generateId('trash'),
-            originalId: poToDelete.id,
-            type: 'po',
-            name: `PO: ${poToDelete.product} (${poToDelete.quantity} ชิ้น)`,
-            deletedAt: new Date().toISOString(),
-            data: poToDelete
-          }
-        ]);
-        logAction('ย้ายใบสั่งซื้อ PO ไปถังขยะ', buildAuditDetails({
-          entityType: 'po',
-          entityName: poToDelete.product,
-          summary: `ย้าย PO สินค้า "${poToDelete.product}" ไปที่ถังขยะ`,
-          before: poToDelete
-        }));
-      }
-      setPoTracker(prev => prev.filter(p => p.id !== id));
-    }
-  };
-
-  const restoreTrashItem = (item) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์กู้คืนข้อมูล (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (!item || !item.data) return;
-    const type = item.type;
-    const data = item.data;
-    
-    if (type === 'task') {
-      setTasks(prev => {
-        if (prev.some(t => t.id === data.id)) return prev;
-        return [...prev, data];
-      });
-    } else if (type === 'product') {
-      setProducts(prev => {
-        if (prev.some(p => p.id === data.id)) return prev;
-        return [...prev, data];
-      });
-    } else if (type === 'campaign') {
-      setCampaigns(prev => {
-        if (prev.some(c => c.id === data.id)) return prev;
-        return [...prev, data];
-      });
-    } else if (type === 'po') {
-      setPoTracker(prev => {
-        if (prev.some(p => p.id === data.id)) return prev;
-        return [...prev, data];
-      });
-    } else if (type === 'channel') {
-      setChannels(prev => {
-        if (prev.some(c => c.id === data.id)) return prev;
-        return [...prev, data];
-      });
-    }
-    
-    setTrashItems(prev => prev.filter(t => t.id !== item.id));
-    logAction('กู้คืนข้อมูลจากถังขยะ', buildAuditDetails({
-      entityType: item.type,
-      entityName: item.name,
-      summary: `กู้คืน "${item.name}" จากถังขยะ`,
-      after: data
-    }));
-    alert(`กู้คืน "${item.name}" เรียบร้อยแล้ว`);
-  };
-
-  const deleteTrashItemPermanently = (itemId) => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ลบข้อมูลถาวร (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    const item = trashItems.find(t => t.id === itemId);
-    if (!item) return;
-    if (confirm(`คุณต้องการลบ "${item.name}" ทิ้งให้สิ้นซาก (ถาวร) ใช่หรือไม่?`)) {
-      setTrashItems(prev => prev.filter(t => t.id !== itemId));
-      logAction('ลบข้อมูลถาวรจากถังขยะ', buildAuditDetails({
-        entityType: item.type,
-        entityName: item.name,
-        summary: `ลบ "${item.name}" ออกจากถังขยะแบบถาวร`,
-        before: item.data
-      }));
-    }
-  };
-
-  const emptyTrash = () => {
-    if (userRole !== 'admin') {
-      alert('คุณไม่มีสิทธิ์ล้างถังขยะ (สิทธิ์ผู้เข้าชมเท่านั้น)');
-      return;
-    }
-    if (confirm('คุณต้องการล้างถังขยะทั้งหมด (ทิ้งให้สิ้นซาก) ใช่หรือไม่?')) {
-      const removedCount = trashItems.length;
-      setTrashItems([]);
-      logAction('ล้างถังขยะทั้งหมด', buildAuditDetails({
-        entityType: 'trash',
-        entityName: 'ถังขยะ',
-        summary: `ล้างข้อมูลในถังขยะ ${removedCount} รายการ`,
-        before: { count: removedCount },
-        after: { count: 0 }
-      }));
-    }
-  };
-
-  const notifications = getMyNotifications();
-  const notificationStats = notifications.reduce((acc, item) => {
-    acc[item.severity] = (acc[item.severity] || 0) + 1;
-    return acc;
-  }, { overdue: 0, today: 0, soon: 0, upcoming: 0 });
-  const filteredAuditLogs = auditLogs.filter(log => {
-    const detail = parseAuditDetails(log.details);
-    const type = getAuditType(log.action);
-    const searchText = [
-      log.user_email,
-      log.action,
-      detail.summary,
-      detail.entityName,
-      getEntityLabel(detail.entityType)
-    ].filter(Boolean).join(' ').toLowerCase();
-
-    const matchesFilter = auditFilter === 'all' || type === auditFilter;
-    const matchesSearch = !auditSearch.trim() || searchText.includes(auditSearch.trim().toLowerCase());
-    return matchesFilter && matchesSearch;
-  });
-  const auditStats = auditLogs.reduce((acc, log) => {
-    const type = getAuditType(log.action);
-    acc[type] = (acc[type] || 0) + 1;
-    return acc;
-  }, { create: 0, update: 0, delete: 0, system: 0 });
-  const roleStats = userRoles.reduce((acc, item) => {
-    acc[item.role] = (acc[item.role] || 0) + 1;
-    return acc;
-  }, { admin: 0, viewer: 0 });
-
-  if (tmkRepository.isConfigured && !user) {
-    return (
-      <div className="login-overlay-portal">
-        <div className="login-card-portal">
-          <div className="login-card-header">
-            <div className="brand-logo">TMK</div>
-            <h1>TMK PLAN</h1>
-            <p>ระบบควบคุมแผนงานและการตลาดส่วนกลาง</p>
-          </div>
-          
-          <div className="login-card-body">
-            <form className="login-form" onSubmit={handleEmailAuth}>
-              <div className="form-group">
-                <label className="form-label text-left-align" htmlFor="login-email">อีเมลผู้ใช้งาน (Email)</label>
-                <input
-                  id="login-email"
-                  type="email"
-                  className="form-input"
-                  required
-                  placeholder="name@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              
-              <div className="form-group">
-                <label className="form-label text-left-align" htmlFor="login-password">รหัสผ่าน (Password)</label>
-                <input
-                  id="login-password"
-                  type="password"
-                  className="form-input"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-
-              {/* Scrollable Terms & Regulations */}
-              <div className="terms-container">
-                <strong>ข้อตกลงและกฎระเบียบการใช้งานระบบ</strong>
-                <ul>
-                  <li>ข้อมูลแผนงาน แคมเปญ และเป้ายอดขายในระบบนี้เป็นความลับขั้นสูงสุดของบริษัท TMK Group ห้ามเผยแพร่ภายนอก</li>
-                  <li>กิจกรรมและการแก้ไขข้อมูลทั้งหมดจะถูกบันทึกเพื่อตรวจสอบและรักษาความปลอดภัย</li>
-                  <li>ผู้ใช้ต้องรักษาข้อมูลการล็อกอินและรหัสผ่านไว้เป็นความลับ ห้ามแบ่งปันบัญชีผู้ใช้ร่วมกัน</li>
-                </ul>
-              </div>
-
-              {/* Terms Checkbox */}
-              <div className="terms-checkbox-wrapper">
-                <input
-                  id="login-terms-checkbox"
-                  type="checkbox"
-                  checked={acceptTerms}
-                  onChange={(e) => setAcceptTerms(e.target.checked)}
-                />
-                <label htmlFor="login-terms-checkbox">
-                  ฉันยอมรับข้อตกลงและกฎระเบียบการใช้งานระบบ
-                </label>
-              </div>
-              
-              <button type="submit" className="primary-login-btn" disabled={loginLoading || !acceptTerms}>
-                {loginLoading ? (
-                  <span>กำลังดำเนินการ...</span>
-                ) : (
-                  <span>{authMode === 'login' ? 'เข้าสู่ระบบ (Sign In)' : 'สมัครสมาชิก (Sign Up)'}</span>
-                )}
-              </button>
-            </form>
-
-            <div className="auth-toggle-link">
-              {authMode === 'login' ? (
-                <span>
-                  ยังไม่มีบัญชีผู้ใช้?{' '}
-                  <button type="button" className="text-btn" onClick={() => setAuthMode('signup')}>
-                    สมัครสมาชิกใหม่
-                  </button>
-                </span>
-              ) : (
-                <span>
-                  มีบัญชีผู้ใช้งานแล้ว?{' '}
-                  <button type="button" className="text-btn" onClick={() => setAuthMode('login')}>
-                    ย้อนกลับไปเข้าสู่ระบบ
-                  </button>
-                </span>
-              )}
-            </div>
-
-            <div className="login-divider">
-              <span>หรือลงชื่อเข้าใช้ผ่านช่องทางอื่น</span>
-            </div>
-
-            <button 
-              className="google-login-btn" 
-              type="button" 
-              onClick={signInWithGoogle} 
-              disabled={!acceptTerms}
-              style={{ opacity: acceptTerms ? 1 : 0.6, cursor: acceptTerms ? 'pointer' : 'not-allowed' }}
-            >
-              <i className="fa-brands fa-google"></i>
-              <span>ลงชื่อเข้าใช้ด้วย Google Account</span>
+        </>
+      )}
+
+      {/* mobile bottom tab bar */}
+      <nav className="tabbar mobile-only">
+        <div className="tabbar-inner">
+          {NAV.map(n => (
+            <button key={n.id} className={'tab' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
+              <Icon name={n.icon} /><span className="tab-label">{n.label}</span>
             </button>
-          </div>
-          
-          <div className="login-card-footer">
-            <span>© 2026 TMK Group. ระบบรักษาความปลอดภัยข้อมูลภายใน.</span>
-          </div>
+          ))}
         </div>
-      </div>
-    );
-  }
+      </nav>
+      <button className="fab mobile-only" onClick={() => { go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100); }}><Icon name="plus" /></button>
+    </div>
+  );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      
-      {/* ================================================================ */}
-      {/* ENTERPRISE STICKY NAVIGATION HEADER — 3-ZONE FLEX LAYOUT      */}
-      {/* ================================================================ */}
-      {/* [LEFT: Brand + Status] | [CENTER: Flexible Space] | [RIGHT: Global Action Hub] */}
-      <header className="app-header">
-        
-        {/* ---------- LEFT ZONE: Branding & System Status ---------- */}
-        <div className="header-left">
-          <div className="brand-group">
-            <div className="brand-mark">TMK</div>
-            <div className="brand-text">
-              <h1>Campaign Control Room</h1>
-              <span className={`sync-status ${tmkRepository.isConfigured ? 'remote' : 'local'}`}>
-                <i className={`fa-solid ${tmkRepository.isConfigured ? 'fa-database' : 'fa-laptop'}`}></i>
-                {remoteStatus}
+    <>
+      {!authed && <LoginScreen onLogin={() => setAuthed(true)} />}
+      {authed && Shell({ forced: false })}
+
+      {/* Onboarding tour */}
+      {authed && showOnboarding && <Onboarding onComplete={completeOnboarding} />}
+
+      {/* Help Center popup */}
+      {authed && showHelp && !guide && (
+        <div className="modal-scrim" onClick={() => setShowHelp(false)} style={{ zIndex: 9980 }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            position: 'relative', width: '90%', maxWidth: 640, maxHeight: '80vh',
+            background: 'var(--surface)', borderRadius: 'var(--r-xl)',
+            boxShadow: 'var(--sh-pop)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+          }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center' }}>
+                <Icon name="sparkle" />
               </span>
+              <div style={{ flex: 1 }}><div className="h3">ช่วยเหลือ</div><div className="cap">คู่มือการใช้งาน TMK Operation</div></div>
+              <button className="icon-btn" onClick={() => setShowHelp(false)}><Icon name="x" /></button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+              <HelpCenter onStartGuide={(topicId, steps, onDone) => {
+                setShowHelp(false);
+                const first = steps[0];
+                if (first.nav) go(first.nav[0], first.nav[1]);
+                setGuide({ topicId, steps, current: 0, onDone });
+              }} />
             </div>
           </div>
         </div>
+      )}
 
-        {/* ---------- CENTER ZONE: Flexible Spacer — inject global search / breadcrumbs here ---------- */}
-        <div className="header-center" />
+      {/* Interactive Guide Overlay */}
+      {authed && guide && (
+        <GuideOverlay
+          steps={guide.steps}
+          current={guide.current}
+          onNext={() => {
+            const nextIdx = guide.current + 1;
+            if (nextIdx < guide.steps.length) {
+              const nextStep = guide.steps[nextIdx];
+              if (nextStep.nav) go(nextStep.nav[0], nextStep.nav[1]);
+              setGuide({ ...guide, current: nextIdx });
+            }
+          }}
+          onPrev={() => {
+            if (guide.current > 0) {
+              const prevIdx = guide.current - 1;
+              const prevStep = guide.steps[prevIdx];
+              if (prevStep.nav) go(prevStep.nav[0], prevStep.nav[1]);
+              setGuide({ ...guide, current: prevIdx });
+            }
+          }}
+          onClose={() => { setGuide(null); setShowHelp(true); }}
+          onDone={() => { if (guide.onDone) guide.onDone(); setGuide(null); setShowHelp(true); }}
+        />
+      )}
 
-        {/* ---------- RIGHT ZONE: User & Global Actions Hub ---------- */}
-        <div className="header-right">
-          
-          {/* Action Toolbar — add more icon buttons here in the future */}
-          <div className="action-toolbar">
-            <button
-              className="icon-btn"
-              onClick={refreshRemoteData}
-              disabled={!tmkRepository.isConfigured || isRefreshingRemote}
-              title="รีเฟรชข้อมูล"
-              aria-label="รีเฟรชข้อมูล"
-            >
-              <i className={`fa-solid fa-rotate ${isRefreshingRemote ? 'fa-spin' : ''}`}></i>
-            </button>
+      {/* Help button removed — now in rail */}
 
-            {/* Notification Bell — wrapped for dropdown positioning */}
-            {user && (
-              <div className="notifications-wrapper" style={{ position: 'relative' }}>
-                <button 
-                  className="icon-btn" 
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  title="การแจ้งเตือน"
-                  aria-label="การแจ้งเตือน"
-                >
-                  <i className="fa-solid fa-bell"></i>
-                  {notifications.length > 0 && (
-                    <span className="notification-badge">{notifications.length}</span>
-                  )}
-                </button>
-                
-                {showNotifications && (
-                  <div className="notifications-dropdown">
-                    <div className="notifications-dropdown-header">
-                      <div>
-                        <strong>การแจ้งเตือนงานของคุณ</strong>
-                        <span>{notifications.length} รายการที่ต้องติดตาม</span>
-                      </div>
-                      <button type="button" className="close-dropdown-btn" onClick={() => setShowNotifications(false)} aria-label="ปิดการแจ้งเตือน">×</button>
-                    </div>
-                    <div className="notification-summary-strip">
-                      <span className="danger">{notificationStats.overdue} ค้างส่ง</span>
-                      <span className="warning">{notificationStats.today} วันนี้</span>
-                      <span>{notificationStats.soon} ใกล้ครบกำหนด</span>
-                    </div>
-                    <div className="notifications-list">
-                      {notifications.length === 0 ? (
-                        <div className="notifications-dropdown-empty">
-                          <i className="fa-regular fa-circle-check"></i>
-                          ไม่มีงานใกล้ครบกำหนดใน 7 วัน
-                        </div>
-                      ) : (
-                        notifications.map(notif => (
-                          <div 
-                            key={notif.id} 
-                            className={`notification-item severity-${notif.severity}`}
-                            onClick={() => {
-                              setEditingTaskId(notif.id);
-                              setTaskForm({ ...notif.task });
-                              setTaskModalMode('edit');
-                              setShowTaskModal(true);
-                              setShowNotifications(false);
-                            }}
-                          >
-                            <div className="noti-topline">
-                              <span className="noti-status">{notif.statusText}</span>
-                            </div>
-                            <div className="noti-title">{notif.title}</div>
-                            <div className="noti-desc">
-                              <span><i className="fa-solid fa-calendar-day"></i> {notif.date}</span>
-                              <span><i className="fa-solid fa-user"></i> {notif.responsible}</span>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <div className="notifications-footer">
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        onClick={() => {
-                          setShowOnlyMyTasks(true);
-                          setActiveTab('kanban');
-                          setShowNotifications(false);
-                        }}
-                      >
-                        <i className="fa-solid fa-list-check"></i>
-                        ดูงานของฉันทั้งหมด
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+      {/* Confirm dialog for unsaved changes */}
+      {confirmClose && (
+        <ConfirmDialog
+          title={t('unsavedTitle')}
+          message={t('unsavedMsg')}
+          confirmLabel={t('discardClose')}
+          cancelLabel={t('goBack')}
+          onConfirm={() => { closeModal(); }}
+          onCancel={() => setConfirmClose(null)}
+          danger
+        />
+      )}
 
-          {/* Primary CTA — currently single button, future split-zone for "Create Campaign", "Add Member", etc. */}
-          <div className="primary-cta-group" style={{ position: 'relative' }}>
-            {userRole === 'admin' && (
-              <>
-                <button className="btn btn-primary" onClick={() => openAddTask(todayStr)}>
-                  <i className="fa-solid fa-plus"></i>
-                  <span>เพิ่มงานวันนี้</span>
-                </button>
-                {/* 
-                  FUTURE: Uncomment to activate split-button dropdown:
-                  <button className="primary-cta-split" onClick={() => setShowCtaMenu(!showCtaMenu)}>
-                    <i className="fa-solid fa-chevron-down"></i>
-                  </button>
-                  {showCtaMenu && (
-                    <div className="primary-cta-dropdown">
-                      <button onClick={() => { openAddCampaign(); setShowCtaMenu(false); }}>
-                        <i className="fa-solid fa-flag"></i> สร้างแคมเปญ
-                      </button>
-                      <button onClick={() => { openAddTask(todayStr); setShowCtaMenu(false); }}>
-                        <i className="fa-solid fa-plus"></i> เพิ่มงาน
-                      </button>
-                      <button onClick={() => { openAddChannel(); setShowCtaMenu(false); }}>
-                        <i className="fa-solid fa-store"></i> เพิ่มช่องทางขาย
-                      </button>
-                    </div>
-                  )}
-                */}
-              </>
-            )}
-          </div>
+      {authed && modal && (
+        modal.type === 'record' ? <RecordSalesModal onClose={closeModal} />
+        : modal.type === 'task' ? <TaskModal data={modal.data} onClose={closeModal}
+            onSubmit={(task) => {
+              setTasks(ts => modal.data ? ts.map(x => x.id === task.id ? task : x) : [task, ...ts]);
+              closeModal();
+              toast(t('toastSaved'), 'success');
+            }} />
+        : modal.type === 'product' ? <ProductModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'campaign' ? <CampaignModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'po' ? <POModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'monthlyTarget' ? <MonthlyTargetModal onClose={closeModal} />
+        : modal.type === 'adCampaign' ? <AdCampaignModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'customerSegment' ? <CustomerSegmentModal onClose={closeModal} />
+        : modal.type === 'historical' ? <HistoricalEntryModal onClose={closeModal} />
+        : null
+      )}
+    </>
+  );
+}
 
-          {/* User Profile Avatar — click to open unified menu */}
-          {user && (
-            <div style={{ position: 'relative' }}>
-              <button
-                className={`user-profile-btn ${showProfileMenu ? 'active' : ''}`}
-                onClick={toggleProfileMenu}
-                title={user.email}
-                aria-label="โปรไฟล์ผู้ใช้"
-              >
-                <img 
-                  src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
-                  alt="" 
-                  className="user-profile-avatar"
-                />
-                <span className="user-profile-dot" />
-              </button>
-              {showProfileMenu && (
-                <div className="user-profile-dropdown">
-                  {/* Section 1: User Identity */}
-                  <div className="profile-header">
-                    <img 
-                      src={user.user_metadata?.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} 
-                      alt="" 
-                    />
-                    <div>
-                      <div className="profile-name">{user.user_metadata?.full_name || user.email.split('@')[0]}</div>
-                      <div className="profile-email">{user.email}</div>
-                    </div>
-                  </div>
-                  <div className="menu-divider" />
-
-                  {/* Section 2: Workspace & System Settings */}
-                  <div className="menu-section-label">จัดการระบบ</div>
-                  <button onClick={() => { setActiveTab('user_roles'); setShowProfileMenu(false); }}>
-                    <i className="fa-solid fa-users-gear menu-item-icon"></i>
-                    <span className="menu-item-text">
-                      <span className="menu-item-title">ตั้งค่าสิทธิ์ (User Role Settings)</span>
-                      <span className="menu-item-desc">มอบสิทธิ์ Admin / Viewer ให้ทีม</span>
-                    </span>
-                  </button>
-                  <button onClick={() => { setActiveTab('campaigns'); setShowProfileMenu(false); }}>
-                    <i className="fa-solid fa-palette menu-item-icon"></i>
-                    <span className="menu-item-text">
-                      <span className="menu-item-title">ตั้งค่าแคมเปญ (Campaign Settings)</span>
-                      <span className="menu-item-desc">จัดการชื่อและสีแคมเปญ</span>
-                    </span>
-                  </button>
-                  <div className="menu-divider" />
-
-                  {/* Section 3: Preferences & Utilities */}
-                  <div className="menu-section-label">การตั้งค่าส่วนตัว</div>
-                  <button onClick={() => { setTheme(prev => prev === 'light' ? 'dark' : 'light'); setShowProfileMenu(false); }}>
-                    <i className={`fa-solid ${theme === 'light' ? 'fa-moon' : 'fa-sun'} menu-item-icon`}></i>
-                    <span className="menu-item-text">
-                      <span className="menu-item-title">{theme === 'light' ? 'โหมดมืด (Dark Mode)' : 'โหมดสว่าง (Light Mode)'}</span>
-                      <span className="menu-item-desc">เปลี่ยนหน้าจอเป็นสีเข้ม</span>
-                    </span>
-                  </button>
-                  <button className="danger-item" onClick={() => { setShowTrashModal(true); setShowProfileMenu(false); }}>
-                    <i className="fa-solid fa-trash-can menu-item-icon"></i>
-                    <span className="menu-item-text">
-                      <span className="menu-item-title">ถังขยะ (Recycle Bin)</span>
-                      <span className="menu-item-desc">กู้คืนข้อมูล หรือลบทิ้งถาวร</span>
-                    </span>
-                  </button>
-                  <div className="menu-divider" />
-
-                  {/* Section 4: Sign Out */}
-                  <button className="danger-item" onClick={() => { handleSignOut(); setShowProfileMenu(false); }}>
-                    <i className="fa-solid fa-right-from-bracket menu-item-icon"></i>
-                    <span className="menu-item-text">
-                      <span className="menu-item-title">ออกจากระบบ (Log Out)</span>
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+function ProfileMenu({ go, dark, setDark, close, onLogout }) {
+  return (
+    <>
+      <div className="scrim" style={{ background: 'transparent', zIndex: 94 }} onClick={close}></div>
+      <div className="menu-pop">
+        <div className="row" style={{ gap: 10, padding: '8px 10px 12px' }}>
+          <img src={tmkLogo} style={{ width: 38, height: 38, borderRadius: 10 }} alt="" />
+          <div><div className="sm" style={{ fontWeight: 700 }}>มัง</div><div className="cap">jiraphon.e@tmk.co</div></div>
         </div>
-      </header>
-
-      {/* Main Tab Links */}
-      <div className="nav-tabs-wrapper">
-        <nav className="nav-tabs">
-          <button className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-            <i className="fa-solid fa-chart-pie"></i> แดชบอร์ดเป้าหมาย
-          </button>
-          <button className={`tab-btn ${activeTab === 'timelines' ? 'active' : ''}`} onClick={() => setActiveTab('timelines')}>
-            <i className="fa-solid fa-route"></i> ไทม์ไลน์แคมเปญ (Timelines)
-          </button>
-          <button className={`tab-btn ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>
-            <i className="fa-solid fa-calendar-days"></i> ปฏิทินปฏิบัติงาน
-          </button>
-          <button className={`tab-btn ${activeTab === 'kanban' ? 'active' : ''}`} onClick={() => setActiveTab('kanban')}>
-            <i className="fa-solid fa-list-check"></i> บอร์ดคุมงาน (Kanban)
-          </button>
-          <button className={`tab-btn ${activeTab === 'products' ? 'active' : ''}`} onClick={() => setActiveTab('products')}>
-            <i className="fa-solid fa-shirt"></i> แผนสินค้า / PO
-          </button>
-          <button className={`tab-btn ${activeTab === 'audit_logs' ? 'active' : ''}`} onClick={() => setActiveTab('audit_logs')}>
-            <i className="fa-solid fa-clock-rotate-left"></i> ประวัติการใช้งาน
-          </button>
-          {userRole === 'admin' && (
-            <button className={`tab-btn ${activeTab === 'user_roles' ? 'active' : ''}`} onClick={() => setActiveTab('user_roles')}>
-              <i className="fa-solid fa-user-shield"></i> สิทธิ์ผู้ใช้
-            </button>
-          )}
-        </nav>
+        <div className="divider"></div>
+        <button className="menu-row" onClick={() => go('profile')}><Icon name="users" />โปรไฟล์</button>
+        <button className="menu-row" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
+        <div className="divider"></div>
+        <button className="menu-row danger" onClick={onLogout}><Icon name="external" />ออกจากระบบ</button>
       </div>
-
-      {/* Global Unified Filters Bar for Calendar and Kanban */}
-      {(activeTab === 'calendar' || activeTab === 'kanban') && (
-        <div className="global-filter-bar">
-          <div className="filter-group">
-            <div className="filter-select-wrapper">
-              <i className="fa-solid fa-flag" style={{ color: 'var(--primary)' }}></i>
-              <span>แคมเปญ:</span>
-              <select value={campFilter} onChange={(e) => setCampFilter(e.target.value)}>
-                <option value="all">ทั้งหมด</option>
-                {campaigns.map(c => <option key={c.id} value={c.id}>{c.name.split(':')[0]}</option>)}
-              </select>
-            </div>
-
-            <div className="filter-select-wrapper">
-              <i className="fa-solid fa-users" style={{ color: 'var(--success)' }}></i>
-              <span>ผู้รับผิดชอบ:</span>
-              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
-                <option value="all">ทุกคน</option>
-                {getStaffList().map(staff => <option key={staff} value={staff}>{staff}</option>)}
-              </select>
-            </div>
-
-            {user && (
-              <div className="filter-checkbox-wrapper" style={{ display: 'flex', alignItems: 'center' }}>
-                <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--text-heading)', cursor: 'pointer', userSelect: 'none', marginLeft: '8px' }}>
-                  <input 
-                    type="checkbox" 
-                    checked={showOnlyMyTasks} 
-                    onChange={(e) => setShowOnlyMyTasks(e.target.checked)} 
-                    style={{ cursor: 'pointer', width: '16px', height: '16px', margin: 0 }}
-                  />
-                  <span>🎯 งานของฉัน</span>
-                </label>
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div className="search-input-wrapper">
-              <i className="fa-solid fa-magnifying-glass"></i>
-              <input 
-                type="text" 
-                placeholder="ค้นหางาน (หัวข้อ, รายละเอียด)..." 
-                value={timelineSearch} 
-                onChange={(e) => setTimelineSearch(e.target.value)} 
-              />
-            </div>
-            {activeTab === 'calendar' && userRole === 'admin' && (
-              <button className="btn btn-primary" onClick={() => openAddTask(selectedDate)}>
-                <i className="fa-solid fa-plus"></i> เพิ่มงานในวันที่เลือก
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* RENDER ACTIVE TAB */}
-
-      {/* 1. Dashboard Tab */}
-      {activeTab === 'dashboard' && (
-        <div className="dashboard-grid">
-          
-          {/* Target Sidebar */}
-          <aside className="sidebar-targets">
-            <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <div>
-                <h3 className="text-title" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                  <i className="fa-solid fa-bullseye" style={{ color: 'var(--kpi-blue)' }}></i>
-                  Sales Target Overview
-                </h3>
-                
-                {!isEditingTargets ? (
-                  <>
-                    <div className="target-kpi-card-refined">
-                      <div className="target-kpi-info">
-                        <div className="label">เป้ายอดขายรวม</div>
-                        <div className="value">{totalTarget.toLocaleString()} ฿</div>
-                        <div className="label" style={{ marginTop: '4px' }}>เป้าชิ้น: {totalUnitsTarget.toLocaleString()} ตัว</div>
-                        <div className="sub-label" style={{ marginTop: '4px' }}>ยอดขายจริง: {totalActualSales.toLocaleString()} ฿</div>
-                      </div>
-                      <div className="circular-progress-wrapper">
-                        <svg width="72" height="72">
-                          <circle className="circular-progress-bg" cx="36" cy="36" r="28" />
-                          <circle 
-                            className="circular-progress-fill" 
-                            cx="36" 
-                            cy="36" 
-                            r="28" 
-                            strokeDasharray={2 * Math.PI * 28} 
-                            strokeDashoffset={2 * Math.PI * 28 - (Math.min(targetCompletedPercent, 100) / 100) * (2 * Math.PI * 28)} 
-                          />
-                        </svg>
-                        <div className="circular-progress-text">{targetCompletedLabel}</div>
-                      </div>
-                    </div>
-                    {userRole === 'admin' && (
-                      <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', marginTop: '12px' }} onClick={() => setIsEditingTargets(true)}>
-                        <i className="fa-solid fa-pencil"></i> แก้ไขเป้าหมายหลัก
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <div className="target-kpi-card" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
-                    <div className="form-group" style={{ marginBottom: '12px' }}>
-                      <label className="form-label">เป้ายอดขายรวม (บาท) [คำนวณอัตโนมัติจากช่องทาง]</label>
-                      <input type="text" className="form-input" disabled value={`${totalTarget.toLocaleString()} ฿`} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: '12px' }}>
-                      <label className="form-label">เป้าจำนวนสินค้า (ตัว)</label>
-                      <input type="number" className="form-input" value={totalUnitsTarget} onChange={(e) => setTotalUnitsTarget(Number(e.target.value))} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button className="btn btn-success" style={{ flexGrow: 1, justifyContent: 'center' }} onClick={() => setIsEditingTargets(false)}>
-                        บันทึก
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Soft Calibration Audit Alert */}
-                {(() => {
-                  const diff = totalTarget - totalProductTargetRevenue;
-                  const isBalanced = diff === 0;
-                  return (
-                    <div className="alert-soft alert-warning" style={{ marginTop: '12px' }}>
-                      <div className="alert-title">
-                        <i className="fa-solid fa-scale-balanced"></i>
-                        ตรวจสอบเป้าหมาย (Calibration Audit)
-                      </div>
-                      <div className="alert-row">
-                        <span>เป้าหมายช่องทางรวม:</span>
-                        <strong>{totalTarget.toLocaleString()} ฿</strong>
-                      </div>
-                      <div className="alert-row">
-                        <span>เป้าหมายสินค้า (Price × Qty):</span>
-                        <strong>{totalProductTargetRevenue.toLocaleString()} ฿</strong>
-                      </div>
-                      <div className="sidebar-section-divider"></div>
-                      <div className="alert-row">
-                        <span>สถานะแผนเป้าหมาย:</span>
-                        <span>
-                          {isBalanced ? 'สมดุล ✓' : (diff > 0 ? 'เป้าช่องทางเกิน' : 'เป้าช่องทางขาด')}
-                        </span>
-                      </div>
-                      {!isBalanced && (
-                        <div style={{ fontSize: 'var(--text-small-md)', lineHeight: '1.4', color: 'var(--text-caption)' }}>
-                          {diff < 0 ? (
-                            <span>เป้าหมายตามช่องทางขาดไปอีก <strong>{Math.abs(diff).toLocaleString()} ฿</strong> เพื่อให้ครอบคลุมเป้าหมายของสินค้าทั้งหมด</span>
-                          ) : (
-                            <span>เป้าหมายตามช่องทางรวมมีมูลค่ามากกว่าเป้าหมายสินค้าอยู่ <strong>{diff.toLocaleString()} ฿</strong></span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              <div className="sidebar-section-divider"></div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h4 className="text-body fw-semibold" style={{ color: 'var(--text-caption)', textTransform: 'uppercase', letterSpacing: '0.3px' }}>ยอดขายตามช่องทาง</h4>
-                  {userRole === 'admin' && (
-                    <button className="btn" style={{ padding: '4px 8px', fontSize: 'var(--text-small)' }} onClick={openAddChannel}>
-                      <i className="fa-solid fa-plus"></i> เพิ่ม
-                    </button>
-                  )}
-                </div>
-                {totalTarget > 0 && (
-                  <div className="pastel-bar" style={{
-                    display: 'flex',
-                    height: '8px',
-                    width: '100%',
-                    borderRadius: '99px',
-                    overflow: 'hidden',
-                    marginBottom: '16px',
-                    backgroundColor: 'var(--border)'
-                  }} title="สัดส่วนเป้าหมายช่องทางทั้งหมด">
-                    {channels.map(ch => {
-                      const share = totalTarget > 0 ? (ch.target / totalTarget) * 100 : 0;
-                      if (share <= 0) return null;
-                      return (
-                        <div
-                          key={ch.id}
-                          className="progress-bar-fill"
-                          style={{
-                            width: `${share}%`,
-                            backgroundColor: ch.color,
-                            borderRadius: 0
-                          }}
-                          title={`${ch.name}: เป้า ${ch.target.toLocaleString()} ฿ (${Math.round(share)}%)`}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="channel-stats">
-                  {channels.map(ch => {
-                    const progressPercent = ch.target > 0 ? Math.round((ch.actual / ch.target) * 100) : 0;
-                    const targetSharePercent = totalTarget > 0 ? Math.round((ch.target / totalTarget) * 100) : 0;
-                    const isGoodProgress = progressPercent >= 80;
-                    const isMidProgress = progressPercent >= 40;
-                    return (
-                      <div key={ch.id} className="channel-item">
-                        <div className="channel-header">
-                          <span className="channel-info fw-semibold">
-                            <span className="channel-dot" style={{ backgroundColor: ch.color }}></span>
-                            {ch.name}
-                            <span className="pill pill-info" style={{ fontSize: 'var(--text-xs)', padding: '0 6px' }}>
-                              {targetSharePercent}%
-                            </span>
-                          </span>
-                          <span className="text-small" style={{ color: 'var(--text-caption)' }}>
-                            เป้า <strong className="fw-semibold" style={{ color: 'var(--text-body-color)' }}>{ch.target.toLocaleString()} ฿</strong>
-                          </span>
-                        </div>
-                        <div className="progress-bar-bg" style={{ height: '6px' }}>
-                          <div className="progress-bar-fill" style={{ width: `${Math.min(100, progressPercent)}%`, backgroundColor: ch.color }}></div>
-                        </div>
-                        <div className="channel-meta">
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <span className="channel-badge" style={{ color: 'var(--text-body-color)' }}>
-                              ขายจริง: {ch.actual.toLocaleString()} ฿
-                            </span>
-                            <span className={`pill ${isGoodProgress ? 'pill-success' : isMidProgress ? 'pill-warning' : 'pill-info'}`}>
-                              {progressPercent}%
-                            </span>
-                          </div>
-                          {userRole === 'admin' && (
-                            <div className="channel-actions">
-                              <button className="channel-action-btn" title="แก้ไข" onClick={() => openEditChannel(ch)}>
-                                <i className="fa-solid fa-pencil"></i>
-                              </button>
-                              <button className="channel-action-btn" title="ลบ" onClick={() => deleteChannel(ch.id)}>
-                                <i className="fa-solid fa-trash"></i>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          {/* Main Dashboard Content */}
-          <main style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            
-            {/* Monthly Highlight Summary */}
-            <div className="card">
-              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <i className="fa-solid fa-star" style={{ color: '#facc15' }}></i>
-                สรุปแผนงานและกิจกรรมแคมเปญประจำเดือนนี้
-              </h3>
-              <div className="campaign-health-grid">
-                {campaigns.map(camp => {
-                  const campTasksCount = tasks.filter(t => t.camp === camp.id).length;
-                  const doneTasksCount = tasks.filter(t => t.camp === camp.id && t.status === 'done').length;
-                  const progressPercent = campTasksCount > 0 ? Math.round((doneTasksCount / campTasksCount) * 100) : 0;
-                  return (
-                    <div key={camp.id} className="campaign-health-card">
-                      <div className="campaign-health-card-info">
-                        <span className="campaign-health-card-name" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: camp.color, flexShrink: 0 }}></span>
-                          {camp.name}
-                        </span>
-                        <div className="campaign-health-card-progress">{doneTasksCount}/{campTasksCount} งานสำเร็จ</div>
-                        <div className="progress-bar-bg" style={{ marginTop: '4px', height: '4px' }}>
-                          <div className="progress-bar-fill" style={{ width: `${progressPercent}%`, backgroundColor: camp.color }}></div>
-                        </div>
-                      </div>
-                      <div className="campaign-health-card-ring">
-                        <svg width="40" height="40">
-                          <circle cx="20" cy="20" r="17" fill="none" stroke="var(--border)" strokeWidth="3" />
-                          <circle cx="20" cy="20" r="17" fill="none" stroke={camp.color} strokeWidth="3" strokeLinecap="round"
-                            strokeDasharray={2 * Math.PI * 17}
-                            strokeDashoffset={2 * Math.PI * 17 - (Math.min(progressPercent, 100) / 100) * (2 * Math.PI * 17)}
-                            style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%', transition: 'stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1)' }}
-                          />
-                        </svg>
-                        <div className="campaign-health-card-ring-value">{progressPercent}%</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Staff Workload & Performance Tracker */}
-            <div className="card">
-              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <i className="fa-solid fa-users-gear" style={{ color: 'var(--kpi-blue)' }}></i>
-                ประเมินภาระงานและผลงานรายบุคคล
-              </h3>
-              <p className="text-small" style={{ color: 'var(--text-caption)', marginBottom: '16px' }}>
-                วิเคราะห์การกระจายงาน ความคืบหน้าของงานทั้งหมดที่แต่ละคนดูแล เพื่อประสิทธิภาพในการจัดสรรงาน
-              </p>
-              
-              <div className="staff-workload-grid">
-                {getStaffList().map(staff => {
-                  const staffTasks = tasks.filter(t => new RegExp(`\\b${staff}\\b|${staff}`, 'i').test(t.responsible || ''));
-                  const total = staffTasks.length;
-                  const completed = staffTasks.filter(t => t.status === 'done').length;
-                  const inProgress = staffTasks.filter(t => t.status === 'inprogress').length;
-                  const pending = staffTasks.filter(t => t.status === 'todo' || t.status === 'review').length;
-                  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-                  
-                  return (
-                    <div key={staff} className="staff-card">
-                      <div className="staff-name">
-                        <div style={{ width: '28px', height: '28px', borderRadius: '8px', backgroundColor: 'var(--primary-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 'var(--text-small)', fontWeight: 'var(--fw-bold)', color: 'var(--primary)', flexShrink: 0 }}>
-                          {staff.charAt(0)}
-                        </div>
-                        <span>{staff}</span>
-                      </div>
-                      <div className="staff-stat-row">
-                        <span>งานทั้งหมด:</span>
-                        <strong style={{ color: 'var(--text-heading)' }}>{total} งาน</strong>
-                      </div>
-                      <div className="progress-bar-bg" style={{ height: '5px' }}>
-                        <div className="progress-bar-fill" style={{ width: `${percent}%`, backgroundColor: 'var(--success)' }}></div>
-                      </div>
-                      <div className="staff-stat-row text-small">
-                        <span>✅ {completed} · 🔄 {inProgress} · ⏳ {pending}</span>
-                        <span className={`pill ${percent >= 80 ? 'pill-success' : percent >= 40 ? 'pill-warning' : 'pill-info'}`}>{percent}%</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Product Matrix Overview Table */}
-            <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)' }}>
-                  <i className="fa-solid fa-gem" style={{ color: '#0284c7', marginRight: '8px' }}></i>
-                  สัดส่วนและเป้ายอดขายตามกลุ่มสินค้า
-                </h3>
-                <button className="btn btn-primary" onClick={openAddProduct}>
-                  <i className="fa-solid fa-plus"></i> เพิ่มกลุ่มสินค้า
-                </button>
-              </div>
-              
-              <div className="table-container">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th style={{ minWidth: '140px' }}>กลุ่มสินค้า</th>
-                      <th style={{ textAlign: 'right' }}>ราคาขาย</th>
-                      <th style={{ textAlign: 'right' }}>เป้าจำหน่าย</th>
-                      <th style={{ textAlign: 'right' }}>ขายจริง</th>
-                      <th style={{ textAlign: 'right' }}>สต็อกใช้ได้</th>
-                      <th style={{ textAlign: 'right' }}>ยอดขายเป้าหมาย</th>
-                      <th style={{ textAlign: 'right' }}>% จากเป้า</th>
-                      <th style={{ minWidth: '100px' }}>กลยุทธ์</th>
-                      <th style={{ textAlign: 'center', width: '70px' }}>จัดการ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map(prod => {
-                      const prodTargetSales = prod.price * prod.targetUnits;
-                      const actualUnits = Number(prod.actualUnits || 0);
-                      const targetUnits = Number(prod.targetUnits || 0);
-                      const fulfillmentPercent = targetUnits > 0 ? Math.round((actualUnits / targetUnits) * 100) : 0;
-                      const availableStock = Number(prod.stockOnHand || 0) - Number(prod.reservedUnits || 0);
-                      const isLowStock = availableStock <= Number(prod.reorderPoint || 0);
-                      return (
-                        <tr key={prod.id}>
-                          <td style={{ fontWeight: 'var(--fw-semibold)' }}>{prod.name}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{prod.price.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{targetUnits.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 'var(--fw-semibold)', color: actualUnits >= targetUnits ? 'var(--success)' : 'var(--text-body-color)' }}>{actualUnits.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 'var(--fw-semibold)', color: isLowStock ? 'var(--danger)' : 'var(--text-body-color)' }}>
-                            {availableStock.toLocaleString()}
-                          </td>
-                          <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 'var(--fw-semibold)' }}>{prodTargetSales.toLocaleString()}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            <span className={`pill ${fulfillmentPercent >= 80 ? 'pill-success' : fulfillmentPercent >= 40 ? 'pill-warning' : 'pill-info'}`}>
-                              {fulfillmentPercent}%
-                            </span>
-                          </td>
-                          <td style={{ fontSize: 'var(--text-body)', color: 'var(--text-caption)' }}>{prod.strategy}</td>
-                          <td style={{ textAlign: 'center' }}>
-                            {userRole === 'admin' ? (
-                              <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
-                                <button className="channel-action-btn" title="แก้ไข" onClick={() => openEditProduct(prod)}>
-                                  <i className="fa-solid fa-pencil"></i>
-                                </button>
-                                <button className="channel-action-btn" title="ลบ" onClick={() => deleteProduct(prod.id)}>
-                                  <i className="fa-solid fa-trash"></i>
-                                </button>
-                              </div>
-                            ) : (
-                              <button className="btn" style={{ padding: '4px 8px', fontSize: 'var(--text-small)' }} onClick={() => openEditProduct(prod)}>
-                                <i className="fa-solid fa-eye"></i> ดู
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    
-                    {/* Summary Row */}
-                    <tr style={{ backgroundColor: 'var(--surface-hover)', fontWeight: 'var(--fw-bold)' }}>
-                      <td>รวมทั้งหมด</td>
-                      <td style={{ textAlign: 'right' }}>-</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{products.reduce((acc, p) => acc + p.targetUnits, 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--success)' }}>{totalActualUnits.toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{products.reduce((acc, p) => acc + (Number(p.stockOnHand || 0) - Number(p.reservedUnits || 0)), 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0).toLocaleString()}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        <span className="pill pill-info">
-                          {Math.round((products.reduce((acc, p) => acc + (p.price * p.targetUnits), 0) / totalTarget) * 100)}%
-                        </span>
-                      </td>
-                      <td>-</td>
-                      {userRole === 'admin' && <td style={{ textAlign: 'center' }}>-</td>}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </main>
-        </div>
-      )}
-
-      {/* 2. Operations Calendar Tab */}
-      {activeTab === 'calendar' && (
-        <div className="calendar-view-container card">
-          
-          {/* View Mode Toggle + Navigation */}
-          <div className="cal-view-header">
-            <div className="cal-view-toggle">
-              <button className={`btn btn-sm ${calendarViewMode === 'month' ? 'btn-primary' : ''}`} onClick={() => setCalendarViewMode('month')}>
-                <i className="fa-solid fa-calendar-days"></i> เดือน
-              </button>
-              <button className={`btn btn-sm ${calendarViewMode === 'week' ? 'btn-primary' : ''}`} onClick={() => setCalendarViewMode('week')}>
-                <i className="fa-solid fa-calendar-week"></i> สัปดาห์
-              </button>
-            </div>
-            {calendarViewMode === 'week' && (
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button className="btn btn-sm" onClick={goToTodayWeek}><i className="fa-solid fa-circle-dot"></i> วันนี้</button>
-                <button className="btn btn-sm" onClick={goToPrevWeek}><i className="fa-solid fa-chevron-left"></i></button>
-                <button className="btn btn-sm" onClick={goToNextWeek}><i className="fa-solid fa-chevron-right"></i></button>
-              </div>
-            )}
-          </div>
-
-          {/* Side Drawer Daily Detail panel */}
-          <aside className="details-panel">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fa-solid fa-clipboard-list" style={{ color: 'var(--kpi-blue)' }}></i>
-              รายละเอียดงานรายวัน
-            </h3>
-            
-            <div className="date-selected-badge">
-              {(() => {
-                const parts = selectedDate.split('-');
-                if (parts.length < 3) return 'กรุณาเลือกวันที่';
-                const d = parseInt(parts[2]);
-                const m = monthNames[parseInt(parts[1]) - 1];
-                return `${d} ${m} ${parts[0]}`;
-              })()}
-            </div>
-
-            <div className="tasks-container">
-              {getFilteredTasks(selectedDate).length === 0 ? (
-                <div style={{ textAlign: 'center', color: 'var(--text-caption)', padding: '40px 10px', fontSize: 'var(--text-body)' }}>
-                  ไม่มีกำหนดการแคมเปญในวันนี้
-                </div>
-              ) : (
-                getFilteredTasks(selectedDate).map(task => {
-                  const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
-                  const campStyle = getCampaignStyle(campObj, theme);
-                  const { day, month, year } = getTimelineDateParts(task.date);
-                  const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
-                  const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
-                  const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
-                  const displayAvatars = responsibleList.slice(0, 2);
-                  const extraCount = Math.max(0, responsibleList.length - 2);
-                  
-                  return (
-                    <div key={task.id} className="timeline-task-card-modern" style={{ marginBottom: '8px' }}>
-                      <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
-                      <div className="timeline-card-body" onClick={() => openEditTask(task)}>
-                        <div className="timeline-card-header">
-                          <span className="timeline-card-date">{displayDate}</span>
-                          <div className="timeline-card-avatars">
-                            {displayAvatars.map((name, i) => (
-                              <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
-                                {name.charAt(0)}
-                              </div>
-                            ))}
-                            {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
-                          </div>
-                        </div>
-                        <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                        {task.detail && <div style={{ fontSize: 'var(--text-body)', color: 'var(--text-muted)', marginTop: '4px' }}>{task.detail}</div>}
-                        <div className="timeline-card-footer">
-                          <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                            {campObj.name.split(':')[0]}
-                          </span>
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <button className="btn" style={{ padding: '2px 8px' }} onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
-                              <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดู'}
-                            </button>
-                            {userRole === 'admin' && (
-                              <button className="btn btn-danger" style={{ padding: '2px 8px' }} onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }}>
-                                <i className="fa-solid fa-trash"></i>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {userRole === 'admin' && (
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => openAddTask(selectedDate)}>
-                <i className="fa-solid fa-plus"></i> เพิ่มงานในวันนี้
-              </button>
-            )}
-          </aside>
-
-          {/* Main Calendar Area */}
-          <div className="cal-main-area">
-
-          {/* Month View */}
-          {calendarViewMode === 'month' && (
-            <>
-              <div>
-                <div style={{ marginBottom: '10px' }}></div>
-
-                <div className="month-nav-header">
-                  <span className="month-title">
-                    {monthNames[currentMonth]} {currentYear}
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span style={{ fontSize: 'var(--text-body)', color: 'var(--text-muted)', fontWeight: 'var(--fw-semibold)', background: 'var(--surface-hover)', padding: '4px 10px', borderRadius: '999px', border: '1px solid var(--border)' }}>
-                      <i className="fa-solid fa-list-check" style={{ marginRight: '4px', color: 'var(--primary)' }}></i>
-                      {tasks.filter(t => {
-                        const taskMonth = parseInt(t.date?.split('-')[1]) - 1;
-                        const taskYear = parseInt(t.date?.split('-')[0]);
-                        return taskMonth === currentMonth && taskYear === currentYear;
-                      }).length} งานในเดือนนี้ (ทั้งหมด {tasks.length} งาน)
-                    </span>
-                    <button className="btn" onClick={handlePrevMonth}>
-                      <i className="fa-solid fa-chevron-left"></i>
-                      <span className="btn-text-responsive"> ย้อนกลับ</span>
-                    </button>
-                    <button className="btn" onClick={handleNextMonth}>
-                      <span className="btn-text-responsive">ถัดไป </span>
-                      <i className="fa-solid fa-chevron-right"></i>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="calendar-grid-scroll-wrapper">
-                  <div className="calendar-grid">
-                    {dayLabels.map(day => <div key={day} className="cal-day-header">{day}</div>)}
-                    
-                    {Array.from({ length: firstDayIndex }).map((_, idx) => (
-                      <div key={`empty-${idx}`} className="cal-cell empty"></div>
-                    ))}
-
-                    {Array.from({ length: totalDays }).map((_, idx) => {
-                      const dayNum = idx + 1;
-                      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                      const dayTasks = getFilteredTasks(dateStr);
-                      const isSelected = selectedDate === dateStr;
-
-                      const channelsIcons = new Set();
-                      dayTasks.forEach(task => {
-                        const ch = (task.channel || '').toLowerCase();
-                        if (ch.includes('fb') || ch.includes('facebook')) channelsIcons.add(<i key="fb" className="fa-brands fa-facebook" style={{ color: '#1877F2' }}></i>);
-                        if (ch.includes('line')) channelsIcons.add(<i key="line" className="fa-brands fa-line" style={{ color: '#00B900' }}></i>);
-                        if (ch.includes('tiktok')) channelsIcons.add(<i key="tt" className="fa-brands fa-tiktok"></i>);
-                      });
-
-                      return (
-                        <div key={dateStr} className={`cal-cell ${isSelected ? 'active-selected' : ''}`} onClick={() => setSelectedDate(dateStr)}>
-                          <div className="cal-cell-top">
-                            <span className="cal-day-num">{dayNum}</span>
-                            <div className="cal-channels-icons">{Array.from(channelsIcons)}</div>
-                          </div>
-                          
-                          <div className="cal-events-list">
-                            {(() => {
-                              const maxVisibleTasks = windowWidth < 480 ? 2 : (windowWidth < 1024 ? 3 : 5);
-                              const visibleTasks = dayTasks.slice(0, maxVisibleTasks);
-                              const remainingTasks = dayTasks.length - maxVisibleTasks;
-                              return (
-                                <>
-                                  {visibleTasks.map(task => {
-                                    const camp = campaigns.find(c => c.id === task.camp);
-                                    const campFallback = { color: '#64748b', name: 'ไม่มีแคมเปญ' };
-                                    const campDisp = camp || campFallback;
-                                    return (
-                                      <div key={task.id} className="cal-task-card" style={{ borderLeft: `3px solid ${campDisp.color}` }}
-                                        onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
-                                        <div className="cal-task-card-title">{task.title}</div>
-                                      </div>
-                                    );
-                                  })}
-                                  {remainingTasks > 0 && (
-                                    <div className="cal-more-indicator">
-                                      + อีก {remainingTasks} งาน
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* Week View */}
-          {calendarViewMode === 'week' && (
-            <div className="week-view-wrapper">
-              <div className="week-view-container-inner">
-                {/* Week header with date range */}
-                <div className="week-range-header">
-                  {(() => {
-                    const start = new Date(weekStart);
-                    const end = new Date(weekStart);
-                    end.setDate(end.getDate() + 6);
-                    const sm = monthNames[start.getMonth()];
-                    const em = monthNames[end.getMonth()];
-                    const sy = start.getFullYear();
-                    const ey = end.getFullYear();
-                    if (sm === em && sy === ey) return `${start.getDate()} – ${end.getDate()} ${sm} ${sy}`;
-                    if (sy === ey) return `${start.getDate()} ${sm} – ${end.getDate()} ${em} ${ey}`;
-                    return `${start.getDate()} ${sm} ${sy} – ${end.getDate()} ${em} ${ey}`;
-                  })()}
-                </div>
-                <div className="week-grid-scroll">
-                  <div className="week-grid">
-                    {/* Corner cell */}
-                    <div className="week-corner"></div>
-                    {/* Day column headers */}
-                    {Array.from({ length: 7 }).map((_, i) => {
-                      const d = new Date(weekStart);
-                      d.setDate(d.getDate() + i);
-                      const dateStr = getLocalDateString(d);
-                      const dayName = ['จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส', 'อา'][i];
-                      const isToday = getLocalDateString() === dateStr;
-                      const isSelected = selectedDate === dateStr;
-                      return (
-                        <div key={i} className={`week-day-header ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`} onClick={() => setSelectedDate(dateStr)}>
-                          <span className="week-day-name">{dayName}</span>
-                          <span className="week-day-num">{d.getDate()}</span>
-                        </div>
-                      );
-                    })}
-                    {/* All-day events row */}
-                    <div className="week-time-slot all-day-row">
-                      <span className="week-time-label">ทุกวัน</span>
-                    </div>
-                    {Array.from({ length: 7 }).map((_, dayIdx) => {
-                      const d = new Date(weekStart);
-                      d.setDate(d.getDate() + dayIdx);
-                      const dateStr = getLocalDateString(d);
-                      const dayTasks = getFilteredTasks(dateStr);
-                      const isToday = getLocalDateString() === dateStr;
-                      return (
-                        <div key={dayIdx} className={`week-cell all-day-cell ${isToday ? 'today' : ''}`} onClick={() => setSelectedDate(dateStr)}>
-                          {dayTasks.map(task => {
-                            const taskCamp = campaigns.find(c => c.id === task.camp) || { color: '#64748b', name: 'ไม่มีแคมเปญ' };
-                            return (
-                              <div key={task.id} className="week-task-block" style={{ borderLeft: `3px solid ${taskCamp.color}` }}
-                                onClick={(e) => { e.stopPropagation(); openEditTask(task); }}>
-                                <div className="week-task-title">{task.title}</div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                    {/* Time grid rows */}
-                    {Array.from({ length: 10 }).map((_, hourIdx) => {
-                      const hour = hourIdx + 7;
-                      const label = hour > 12 ? `${hour - 12} PM` : hour === 12 ? '12 PM' : `${hour} AM`;
-                      return (
-                        <React.Fragment key={hourIdx}>
-                          <div className="week-time-slot">
-                            <span className="week-time-label">{label}</span>
-                          </div>
-                          {Array.from({ length: 7 }).map((_, dayIdx) => {
-                            const d = new Date(weekStart);
-                            d.setDate(d.getDate() + dayIdx);
-                            const dateStr = getLocalDateString(d);
-                            const isToday = getLocalDateString() === dateStr;
-                            return (
-                              <div key={dayIdx} className={`week-cell ${isToday ? 'today' : ''}`} onClick={() => setSelectedDate(dateStr)}>
-                              </div>
-                            );
-                          })}
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-            </div>{/* end cal-main-area */}
-
-        </div>
-      )}
-
-      {/* 3. Kanban Task Board Tab */}
-      {activeTab === 'kanban' && (
-        <div className="kanban-wrapper">
-          <div className="kanban-header">
-            <h2 className="kanban-title">
-              <i className="fa-solid fa-list-check" style={{ color: 'var(--kpi-blue)', marginRight: '10px' }}></i>
-              บอร์ดติดตามสถานะปฏิบัติการของทีม
-            </h2>
-          </div>
-
-          <div className="kanban-grid">
-            {['todo', 'inprogress', 'review', 'done'].map(status => {
-              const statusMeta = {
-                todo: { label: 'To-Do', sub: 'รอดำเนินการ', icon: 'fa-regular fa-circle' },
-                inprogress: { label: 'In Progress', sub: 'กำลังดำเนินการ', icon: 'fa-solid fa-spinner' },
-                review: { label: 'Review', sub: 'รอตรวจสอบ', icon: 'fa-solid fa-magnifying-glass' },
-                done: { label: 'Done', sub: 'สำเร็จแล้ว', icon: 'fa-solid fa-check-circle' }
-              }[status];
-              const columnTasks = getFilteredKanbanTasks(status);
-              
-              return (
-                <div 
-                  key={status} 
-                  className={`kanban-column ${draggedOverCol === status ? 'dragging-over' : ''} col-${status}`}
-                  onDragOver={(e) => { e.preventDefault(); if (draggedOverCol !== status) setDraggedOverCol(status); }}
-                  onDragEnter={(e) => { e.preventDefault(); setDraggedOverCol(status); }}
-                  onDragLeave={() => setDraggedOverCol(null)}
-                  onDrop={(e) => handleDrop(e, status)}
-                >
-                  <div className="kanban-column-header">
-                    <div className="kanban-column-title-row">
-                      <i className={statusMeta.icon} style={{ fontSize: 'var(--text-body)' }}></i>
-                      <span className="kanban-column-title">{statusMeta.label}</span>
-                      <span className="kanban-column-count">{columnTasks.length}</span>
-                    </div>
-                    <span className="kanban-column-sub">{statusMeta.sub}</span>
-                  </div>
-
-                  <div className="kanban-card-list">
-                    {columnTasks.length === 0 ? (
-                      <div className="kanban-empty">
-                        <i className="fa-regular fa-folder-open" style={{ fontSize: '28px', color: 'var(--text-muted)', opacity: 0.4 }}></i>
-                        <span className="text-small" style={{ opacity: 0.6 }}>ไม่มีงานในคอลัมน์นี้</span>
-                      </div>
-                    ) : (
-                      columnTasks.map(task => {
-                        const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b' };
-                        const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
-                        return (
-                          <div key={task.id} className="kanban-card" draggable={userRole === 'admin'} onDragStart={(e) => {
-                            if (userRole !== 'admin') { e.preventDefault(); return; }
-                            handleDragStart(e, task.id);
-                          }}>
-                            <div className="kanban-card-top">
-                              <span className="kanban-card-camp" style={{ backgroundColor: campObj.color + '18', color: campObj.color, border: `1px solid ${campObj.color}30` }}>
-                                {campObj.name.split(':')[0]}
-                              </span>
-                              <div className="kanban-card-actions">
-                                <button className="kanban-card-action-btn" onClick={(e) => { e.stopPropagation(); openEditTask(task); }} title={userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}>
-                                  <i className="fa-regular fa-pen-to-square"></i>
-                                </button>
-                                {userRole === 'admin' && (
-                                  <button className="kanban-card-action-btn" onClick={(e) => { e.stopPropagation(); deleteTask(task.id); }} title="ลบ">
-                                    <i className="fa-regular fa-trash-can"></i>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                            <div className="kanban-card-body">
-                              <h4 className="kanban-card-title">{task.title}</h4>
-                              {task.detail && <p className="kanban-card-detail">{task.detail}</p>}
-                            </div>
-                            <div className="kanban-card-footer">
-                              <span className="kanban-card-date"><i className="fa-regular fa-calendar"></i> {task.date}</span>
-                              <div className="kanban-card-assignees">
-                                {responsibleList.slice(0, 2).map((name) => {
-                                  const colors = getHashColor(name, false);
-                                  return (
-                                    <span key={name} className="kanban-card-pill" style={{ backgroundColor: colors.bg, color: colors.text, borderColor: colors.border }}>
-                                      {name}
-                                    </span>
-                                  );
-                                })}
-                                {responsibleList.length > 2 && (
-                                  <span className="kanban-card-pill" style={{ backgroundColor: 'var(--surface-hover)', color: 'var(--text-muted)' }}>
-                                    +{responsibleList.length - 2}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {task.status === 'done' && <div className="kanban-card-done-overlay"></div>}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 4. Products & Strategy Manager Tab */}
-      {activeTab === 'products' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
-          {/* Production PO Tracker */}
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)' }}>
-                <i className="fa-solid fa-box" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
-                ใบสั่งผลิต & เปิด PO โรงงาน (PO Tracker)
-              </h3>
-              {userRole === 'admin' && (
-                <button className="btn btn-primary" onClick={openAddPo}>
-                  <i className="fa-solid fa-plus"></i> บันทึกใบ PO การผลิตใหม่
-                </button>
-              )}
-            </div>
-            
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>รายการสินค้า</th>
-                    <th style={{ textAlign: 'right' }}>จำนวน (ตัว)</th>
-                    <th>วันที่ส่งคำสั่ง PO</th>
-                    <th>กำหนดเสร็จ/ของเข้า</th>
-                    <th>สถานะการสั่งผลิต</th>
-                    <th style={{ textAlign: 'center' }}>จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {poTracker.map(po => (
-                    <tr key={po.id}>
-                      <td style={{ fontWeight: 'var(--fw-semibold)' }}>{po.product}</td>
-                      <td style={{ textAlign: 'right' }}>{po.quantity.toLocaleString()}</td>
-                      <td>{po.orderDate}</td>
-                      <td>{po.arrivalDate}</td>
-                      <td>
-                        <span style={{
-                          backgroundColor: po.status === 'Completed' ? 'var(--success-light)' : '#fef3c7',
-                          color: po.status === 'Completed' ? 'var(--success)' : '#d97706',
-                          padding: '4px 10px',
-                          borderRadius: '20px',
-                          fontSize: 'var(--text-small-md)',
-                          fontWeight: 'var(--fw-bold)'
-                        }}>
-                          {po.status === 'Completed' ? 'ของเข้าแล้ว' : 'กำลังผลิต'}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        {userRole === 'admin' ? (
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
-                            {po.status !== 'Completed' && (
-                              <button className="btn btn-success" style={{ padding: '4px 8px' }} onClick={() => markPoReceived(po)}>
-                                <i className="fa-solid fa-check"></i> รับสินค้าแล้ว
-                              </button>
-                            )}
-                            <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditPo(po)}>
-                              <i className="fa-solid fa-pencil"></i>
-                            </button>
-                            <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deletePo(po.id)}>
-                              <i className="fa-solid fa-trash"></i>
-                            </button>
-                          </div>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {poTracker.length === 0 && (
-                    <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '20px' }}>ไม่มีข้อมูลการเปิด PO การผลิต</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
-              <h3 style={{ fontSize: 'var(--text-title)', fontWeight: 'var(--fw-bold)' }}>
-                <i className="fa-solid fa-warehouse" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
-                Stock Watch
-              </h3>
-              {userRole === 'admin' && (
-                <button className="btn btn-primary" onClick={openAddProduct}>
-                  <i className="fa-solid fa-plus"></i> เพิ่มสินค้า
-                </button>
-              )}
-            </div>
-            <div className="table-container">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>สินค้า</th>
-                    <th style={{ textAlign: 'right' }}>คงเหลือ</th>
-                    <th style={{ textAlign: 'right' }}>จอง/กันไว้</th>
-                    <th style={{ textAlign: 'right' }}>ใช้ได้</th>
-                    <th style={{ textAlign: 'right' }}>จุดเติม</th>
-                    <th>สถานะ</th>
-                    <th style={{ textAlign: 'center' }}>จัดการ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map(prod => {
-                    const availableStock = Number(prod.stockOnHand || 0) - Number(prod.reservedUnits || 0);
-                    const isLowStock = availableStock <= Number(prod.reorderPoint || 0);
-                    return (
-                      <tr key={prod.id}>
-                        <td style={{ fontWeight: 'var(--fw-bold)' }}>{prod.name}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(prod.stockOnHand || 0).toLocaleString()}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(prod.reservedUnits || 0).toLocaleString()}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 'var(--fw-bold)', color: isLowStock ? 'var(--danger)' : 'var(--success)' }}>{availableStock.toLocaleString()}</td>
-                        <td style={{ textAlign: 'right' }}>{Number(prod.reorderPoint || 0).toLocaleString()}</td>
-                        <td>
-                          <span className={`stock-badge ${isLowStock ? 'low' : 'ok'}`}>
-                            {isLowStock ? 'ควรเติมสต็อก' : 'พอขาย'}
-                          </span>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditProduct(prod)}>
-                            <i className="fa-solid fa-eye"></i> {userRole === 'admin' ? 'แก้ไข' : 'ดูรายละเอียด'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* 5. Campaign Config Tab */}
-      {activeTab === 'campaigns' && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h2 style={{ fontSize: 'var(--text-title-lg)', fontWeight: 'var(--fw-bold)' }}>
-              <i className="fa-solid fa-layer-group" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
-              ตั้งค่าแคมเปญการตลาด (Campaign Settings)
-            </h2>
-            <button className="btn btn-primary" onClick={openAddCampaign}>
-              <i className="fa-solid fa-plus"></i> เพิ่มแคมเปญใหม่
-            </button>
-          </div>
-
-          <p className="text-body" style={{ color: 'var(--text-caption)', marginBottom: '16px' }}>
-            ตั้งค่าแคมเปญและสีประจำแคมเปญ เพื่อให้ระบบนำไปวาดและจำแนกจุดกำหนดการบนปฏิทินปฏิบัติงาน และคำนวณข้อมูลผลงานรายแคมเปญ
-          </p>
-
-          <div className="table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>รหัสแคมเปญ</th>
-                  <th>ชื่อแคมเปญการตลาด</th>
-                  <th>สีหลัก</th>
-                  <th>สีพื้นหลังแท็ก</th>
-                  <th>สีเส้นขอบแท็ก</th>
-                  <th style={{ textAlign: 'center' }}>จัดการ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {campaigns.map(camp => (
-                  <tr key={camp.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{camp.id}</td>
-                    <td style={{ fontWeight: 'var(--fw-semibold)' }}>{camp.name}</td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: camp.color, border: '1px solid var(--border)' }}></span>
-                        {camp.color}
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: camp.bg, border: '1px solid var(--border)' }}></span>
-                        {camp.bg}
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ width: '16px', height: '16px', borderRadius: '4px', backgroundColor: camp.border, border: '1px solid var(--border)' }}></span>
-                        {camp.border}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        <button className="btn" style={{ padding: '4px 8px' }} onClick={() => openEditCampaign(camp)}>
-                          <i className="fa-solid fa-pencil"></i> แก้ไข
-                        </button>
-                        <button className="btn btn-danger" style={{ padding: '4px 8px' }} onClick={() => deleteCampaign(camp.id)}>
-                          <i className="fa-solid fa-trash"></i> ลบ
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* 6. Campaign Vertical Timelines Tab */}
-      {activeTab === 'timelines' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          
-          {/* Timeline Filter Controls Card */}
-          <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-              <div>
-                <h2 style={{ fontSize: 'var(--text-title-lg)', fontWeight: 'var(--fw-bold)' }}>
-                  <i className="fa-solid fa-route" style={{ color: 'var(--kpi-blue)', marginRight: '8px' }}></i>
-                  ไทม์ไลน์แผนปฏิบัติงานแนวตั้ง (Campaign Roadmap)
-                </h2>
-                <p className="text-body" style={{ color: 'var(--text-caption)', marginTop: '4px' }}>
-                  ติดตาม กำหนดการ และขั้นตอนย่อยของทุกแคมเปญ เพื่อให้ทีมทำงานร่วมกันได้อย่างเป็นระบบ
-                </p>
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn" onClick={() => window.print()}>
-                  <i className="fa-solid fa-print"></i> พิมพ์แผนงาน / PDF
-                </button>
-              </div>
-            </div>
-
-            <div className="timeline-filter-bar">
-              
-              {/* Campaign Filter Buttons */}
-              <div className="timeline-filter-group">
-                <button 
-                  className={`timeline-filter-pill ${timelineFilter === 'master' ? 'active-pill' : ''}`}
-                  onClick={() => setTimelineFilter('master')}
-                >
-                  <i className="fa-solid fa-globe"></i> ภาพรวม (Master Timeline)
-                </button>
-                <button 
-                  className={`timeline-filter-pill ${timelineFilter === 'stacked' ? 'active-pill' : ''}`}
-                  onClick={() => setTimelineFilter('stacked')}
-                >
-                  <i className="fa-solid fa-cubes"></i> ดูแยกแคมเปญทั้งหมด (Stacked)
-                </button>
-                {campaigns.map(c => (
-                  <button 
-                    key={c.id}
-                    className={`timeline-filter-pill camp-pill ${timelineFilter === c.id ? 'active-pill' : ''}`}
-                    onClick={() => setTimelineFilter(c.id)}
-                    style={{ 
-                      borderColor: timelineFilter === c.id ? c.color : 'var(--border)',
-                      backgroundColor: timelineFilter === c.id ? c.color : 'var(--surface)'
-                    }}
-                  >
-                    <span style={{ 
-                      width: '8px', 
-                      height: '8px', 
-                      borderRadius: '50%', 
-                      backgroundColor: timelineFilter === c.id ? 'white' : c.color, 
-                      display: 'inline-block' 
-                    }}></span>
-                    {c.name.split(':')[0]}
-                  </button>
-                ))}
-              </div>
-
-              {/* Search Filters */}
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-                <div className="timeline-filter-search">
-                  <i className="fa-solid fa-magnifying-glass"></i>
-                  <input 
-                    type="text" 
-                    placeholder="ค้นหางาน..." 
-                    value={timelineSearch}
-                    onChange={(e) => setTimelineSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* Campaign Health Overview Grid */}
-          <div className="campaign-health-grid">
-            {campaigns.map(camp => {
-              const campTasks = tasks.filter(t => t.camp === camp.id);
-              const completedTasks = campTasks.filter(t => t.status === 'done').length;
-              const totalTasks = campTasks.length;
-              const healthPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
-              
-              return (
-                <div key={camp.id} className="campaign-health-card" style={{ borderLeft: `3px solid ${camp.color}` }}>
-                  <div className="campaign-health-card-info">
-                    <div className="campaign-health-card-name" style={{ color: camp.color }}>
-                      {camp.name.split(':')[0]}
-                    </div>
-                    <div className="campaign-health-card-progress">
-                      {completedTasks}/{totalTasks} งาน
-                    </div>
-                  </div>
-                  <div className="campaign-health-card-ring">
-                    <svg viewBox="0 0 40 40">
-                      <circle cx="20" cy="20" r="16" stroke="var(--border)" strokeWidth="3" fill="transparent" />
-                      <circle cx="20" cy="20" r="16" stroke={camp.color} strokeWidth="3" fill="transparent" strokeDasharray={`${2 * Math.PI * 16}`} strokeDashoffset={`${2 * Math.PI * 16 * (1 - healthPercent / 100)}`} strokeLinecap="round" style={{ transition: 'stroke-dashoffset 0.5s ease-in-out' }} />
-                    </svg>
-                    <span className="campaign-health-card-ring-value">{healthPercent}%</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Timeline Nodes Container */}
-          <div className="timeline-section-container">
-            
-            {/* Case A: Master Timeline (Single merged list) */}
-            {timelineFilter === 'master' && (
-              <div className="campaign-card-timeline">
-                <div className="campaign-header-timeline" style={{ backgroundColor: 'var(--surface-hover)', borderLeft: '6px solid var(--kpi-blue)' }}>
-                  <h3>
-                    <i className="fa-solid fa-list-ol" style={{ color: 'var(--kpi-blue)' }}></i>
-                    ลำดับแผนปฏิบัติงานภาพรวมตามช่วงเวลา (Master Timeline View)
-                  </h3>
-                </div>
-                <div className="timeline-list">
-                  {(() => {
-                    const tasksInView = getTimelineTasks('master');
-                    const nextUpTask = tasksInView.find(t => t.status !== 'done');
-                    
-                    if (tasksInView.length === 0) {
-                      return (
-                        <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
-                          ไม่มีงานสอดคล้องกับตัวกรองที่เลือก
-                        </div>
-                      );
-                    }
-                    
-                    return tasksInView.map(task => {
-                      const campObj = campaigns.find(c => c.id === task.camp) || { name: 'ไม่มีแคมเปญ', color: '#64748b', bg: '#f1f5f9', border: '#e2e8f0' };
-                      const { day, month, year } = getTimelineDateParts(task.date);
-                      const isNextUp = nextUpTask && nextUpTask.id === task.id;
-                      
-                      return (
-                        <div key={task.id} className="timeline-item-vertical">
-                          <div className="timeline-time-side">
-                            <div className="timeline-time-date">{day} {month}</div>
-                            <div className="timeline-time-month">{year}</div>
-                          </div>
-                          
-                          <div className="timeline-node-side">
-                            <div 
-                              className={`timeline-time-dot ${isNextUp ? 'pulse' : ''}`} 
-                              style={{ 
-                                borderColor: campObj.color, 
-                                color: campObj.color, 
-                                backgroundColor: task.status === 'done' ? campObj.color : 'var(--surface)' 
-                              }}
-                            >
-                              {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '10px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
-                            </div>
-                            <div className="timeline-time-line"></div>
-                          </div>
-                          
-                          <div className="timeline-content-side">
-                            {(() => {
-                              const campStyle = getCampaignStyle(campObj, theme);
-                              const progress = task.status === 'done' ? 100 : 0;
-                              const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
-                              const displayAvatars = responsibleList.slice(0, 2);
-                              const extraCount = Math.max(0, responsibleList.length - 2);
-                              const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
-                              const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
-                              
-                              return (
-                                 <div className="timeline-task-card-modern">
-                                   <div className="timeline-card-indicator" style={{ backgroundColor: campObj.color, borderRadius: '14px 0 0 14px' }}></div>
-                                   <div className="timeline-card-body" onClick={() => openEditTask(task)}>
-                                     <div className="timeline-card-header">
-                                       <span className="timeline-card-date">{displayDate}</span>
-                                     </div>
-                                     <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                                     <div className="timeline-card-footer">
-                                       <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
-                                         <div className="timeline-card-progress-bar">
-                                           <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: campObj.color }}></div>
-                                         </div>
-                                         <span className="timeline-card-progress-text">{progress}%</span>
-                                       </div>
-                                       <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                                         {campObj.name.split(':')[0]}
-                                       </span>
-                                     </div>
-                                     <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
-                                       <div className="timeline-card-avatars">
-                                         {displayAvatars.map((name, i) => (
-                                           <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
-                                             {name.charAt(0)}
-                                           </div>
-                                         ))}
-                                         {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
-                                       </div>
-                                       <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
-                                         <i className="fa-solid fa-trash-can"></i>
-                                       </button>
-                                       <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
-                                         <i className="fa-solid fa-pencil"></i>
-                                       </button>
-                                     </div>
-                                   </div>
-                                 </div>
-                               );
-                            })()}
-                          </div>
-                        </div>
-                      );
-                    });
-                  })()}
-                </div>
-              </div>
-            )}
-
-            {/* Case B: Stacked or Individual Campaigns */}
-            {timelineFilter !== 'master' && campaigns.filter(c => timelineFilter === 'stacked' || c.id === timelineFilter).map(camp => {
-              const tasksInView = getTimelineTasks(camp.id);
-              const nextUpTask = tasksInView.find(t => t.status !== 'done');
-              
-              return (
-                <div key={camp.id} className="campaign-card-timeline">
-                  {(() => {
-                    const campStyle = getCampaignStyle(camp, theme);
-                    return (
-                      <div className="campaign-header-timeline" style={{ backgroundColor: campStyle.backgroundColor, borderBottom: `1px solid ${campStyle.borderColor}`, borderLeft: `6px solid ${camp.color}` }}>
-                        <h3 style={{ color: camp.color }}>
-                          {camp.name}
-                        </h3>
-                      </div>
-                    );
-                  })()}
-                  <div className="timeline-list">
-                    {tasksInView.length === 0 ? (
-                      <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '30px' }}>
-                        ไม่มีงานสอดคล้องกับตัวกรองที่เลือกสำหรับแคมเปญนี้
-                      </div>
-                    ) : (
-                      tasksInView.map(task => {
-                        const { day, month, year } = getTimelineDateParts(task.date);
-                        const isNextUp = nextUpTask && nextUpTask.id === task.id;
-                        
-                        return (
-                          <div key={task.id} className="timeline-item-vertical">
-                            <div className="timeline-time-side">
-                              <div className="timeline-time-date" style={{ color: camp.color }}>{day} {month}</div>
-                              <div className="timeline-time-month">{year}</div>
-                            </div>
-                            
-                            <div className="timeline-node-side">
-                              <div 
-                                className={`timeline-time-dot ${isNextUp ? 'pulse' : ''}`} 
-                                style={{ 
-                                  borderColor: camp.color, 
-                                  color: camp.color, 
-                                  backgroundColor: task.status === 'done' ? camp.color : 'var(--surface)' 
-                                }}
-                              >
-                                {task.status === 'done' && <i className="fa-solid fa-check" style={{ fontSize: '10px', color: 'white', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}></i>}
-                              </div>
-                              <div className="timeline-time-line"></div>
-                            </div>
-                            
-                            <div className="timeline-content-side">
-                              {(() => {
-                                const campStyle = getCampaignStyle(camp, theme);
-                                const progress = task.status === 'done' ? 100 : 0;
-                                const responsibleList = (task.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
-                                const displayAvatars = responsibleList.slice(0, 2);
-                                const extraCount = Math.max(0, responsibleList.length - 2);
-                                const endDp = task.dateEnd && task.dateEnd !== task.date ? getTimelineDateParts(task.dateEnd) : null;
-                                const displayDate = endDp ? day + ' ' + month + ' ' + year + ' – ' + endDp.day + ' ' + endDp.month + ' ' + endDp.year : day + ' ' + month + ' ' + year;
-                                
-                                return (
-                                   <div className="timeline-task-card-modern">
-                                     <div className="timeline-card-indicator" style={{ backgroundColor: camp.color, borderRadius: '14px 0 0 14px' }}></div>
-                                     <div className="timeline-card-body" onClick={() => openEditTask(task)}>
-                                       <div className="timeline-card-header">
-                                         <span className="timeline-card-date">{displayDate}</span>
-                                       </div>
-                                       <div className={`timeline-card-title ${task.status === 'done' ? 'done' : ''}`}>{task.title}</div>
-                                       <div className="timeline-card-footer">
-                                         <div className="timeline-card-progress" onClick={(e) => { e.stopPropagation(); toggleTaskCompletion(task); }}>
-                                           <div className="timeline-card-progress-bar">
-                                             <div className="timeline-card-progress-fill" style={{ width: `${progress}%`, backgroundColor: camp.color }}></div>
-                                           </div>
-                                           <span className="timeline-card-progress-text">{progress}%</span>
-                                         </div>
-                                         <span className="timeline-card-tag" style={{ backgroundColor: campStyle.backgroundColor, color: campStyle.color, border: `1px solid ${campStyle.borderColor}` }}>
-                                           {camp.name.split(':')[0]}
-                                         </span>
-                                       </div>
-                                       <div className="timeline-card-actions-hover" onClick={(e) => e.stopPropagation()}>
-                                         <div className="timeline-card-avatars">
-                                           {displayAvatars.map((name, i) => (
-                                             <div key={name} className="timeline-card-avatar" style={{ backgroundColor: getHashColor(name, false).text, zIndex: 10 - i }}>
-                                               {name.charAt(0)}
-                                             </div>
-                                           ))}
-                                           {extraCount > 0 && <div className="timeline-card-avatar-more">+{extraCount}</div>}
-                                         </div>
-                                         <button className="timeline-card-action-btn" onClick={() => deleteTask(task.id)} title="ลบ">
-                                           <i className="fa-solid fa-trash-can"></i>
-                                         </button>
-                                         <button className="timeline-card-action-btn" onClick={() => openEditTask(task)} title="แก้ไข">
-                                           <i className="fa-solid fa-pencil"></i>
-                                         </button>
-                                       </div>
-                                     </div>
-                                   </div>
-                                 );
-                              })()}
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-        </div>
-      )}
-
-      {/* 7. User Role Settings Tab */}
-      {activeTab === 'user_roles' && userRole === 'admin' && (
-        <div className="role-page">
-          <div className="audit-header">
-            <div>
-              <h2>
-                <i className="fa-solid fa-user-shield"></i>
-                ตั้งค่าสิทธิ์ผู้ใช้
-              </h2>
-              <p>
-                เพิ่มอีเมลสมาชิกในทีมแล้วเลือกสิทธิ์ Admin หรือ Viewer ระบบจะใช้สิทธิ์นี้ทันทีเมื่อผู้ใช้งาน login ด้วยอีเมลนั้น
-              </p>
-            </div>
-            <div className="audit-header-actions">
-              <button className="btn" onClick={fetchUserRoles} disabled={roleLoading}>
-                <i className={`fa-solid fa-arrows-rotate ${roleLoading ? 'fa-spin' : ''}`}></i> รีเฟรช
-              </button>
-            </div>
-          </div>
-
-          <div className="audit-metrics">
-            <div className="audit-metric update">
-              <span>Admin จากตาราง</span>
-              <strong>{roleStats.admin || 0}</strong>
-            </div>
-            <div className="audit-metric">
-              <span>Viewer จากตาราง</span>
-              <strong>{roleStats.viewer || 0}</strong>
-            </div>
-            <div className="audit-metric create">
-              <span>Bootstrap Admin</span>
-              <strong>{BOOTSTRAP_ADMIN_EMAILS.length}</strong>
-            </div>
-            <div className="audit-metric">
-              <span>รวมที่ตั้งค่า</span>
-              <strong>{userRoles.length}</strong>
-            </div>
-          </div>
-
-          {roleError && (
-            <div className="role-alert">
-              <i className="fa-solid fa-circle-exclamation"></i>
-              <span>{roleError}</span>
-            </div>
-          )}
-
-          <div className="role-layout">
-            <form className="role-form-card" onSubmit={saveUserRole}>
-              <div className="role-card-title">
-                <i className="fa-solid fa-user-plus"></i>
-                <div>
-                  <strong>เพิ่มหรือแก้ไขสิทธิ์</strong>
-                  <span>กรอกอีเมลเดียวกับบัญชีที่ใช้ login</span>
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">อีเมลผู้ใช้งาน</label>
-                <input
-                  type="email"
-                  className="form-input"
-                  placeholder="name@company.com"
-                  value={roleForm.email}
-                  onChange={(e) => setRoleForm({ ...roleForm, email: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Role</label>
-                <select
-                  className="form-input"
-                  value={roleForm.role}
-                  onChange={(e) => setRoleForm({ ...roleForm, role: e.target.value })}
-                >
-                  <option value="viewer">Viewer - ดูข้อมูลได้</option>
-                  <option value="admin">Admin - เพิ่ม/แก้ไข/ลบ/มอบสิทธิ์ได้</option>
-                </select>
-              </div>
-              <button className="btn btn-primary" type="submit" disabled={roleSaving}>
-                <i className={`fa-solid ${roleSaving ? 'fa-spinner fa-spin' : 'fa-floppy-disk'}`}></i>
-                บันทึกสิทธิ์
-              </button>
-            </form>
-
-            <div className="role-table-card">
-              <div className="role-card-title">
-                <i className="fa-solid fa-users-gear"></i>
-                <div>
-                  <strong>รายชื่อสิทธิ์ใน Supabase</strong>
-                  <span>แก้ไขได้จากหน้านี้โดยไม่ต้อง deploy ใหม่</span>
-                </div>
-              </div>
-              <div className="role-bootstrap-note">
-                <i className="fa-solid fa-key"></i>
-                <span>บัญชี bootstrap admin: {BOOTSTRAP_ADMIN_EMAILS.join(', ')}</span>
-              </div>
-              <div className="audit-table-wrap">
-                <table className="role-table">
-                  <thead>
-                    <tr>
-                      <th>อีเมล</th>
-                      <th>สิทธิ์</th>
-                      <th>อัปเดตล่าสุด</th>
-                      <th style={{ textAlign: 'center' }}>จัดการ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {userRoles.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="role-empty">
-                          {roleLoading ? 'กำลังโหลดสิทธิ์ผู้ใช้...' : 'ยังไม่มี role ในตาราง Supabase'}
-                        </td>
-                      </tr>
-                    ) : (
-                      userRoles.map(roleItem => (
-                        <tr key={roleItem.email}>
-                          <td>
-                            <div className="audit-user-cell">
-                              <span>{normalizeEmail(roleItem.email).slice(0, 1).toUpperCase()}</span>
-                              <strong>{normalizeEmail(roleItem.email)}</strong>
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`role-pill ${roleItem.role}`}>
-                              <i className={`fa-solid ${roleItem.role === 'admin' ? 'fa-user-shield' : 'fa-eye'}`}></i>
-                              {roleItem.role}
-                            </span>
-                          </td>
-                          <td className="audit-time">
-                            {roleItem.updated_at ? new Date(roleItem.updated_at).toLocaleString('th-TH') : '-'}
-                          </td>
-                          <td>
-                            <div className="role-actions">
-                              <button
-                                type="button"
-                                className="btn"
-                                onClick={() => setRoleForm({ email: normalizeEmail(roleItem.email), role: roleItem.role })}
-                              >
-                                <i className="fa-solid fa-pencil"></i>
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-danger"
-                                disabled={normalizeEmail(roleItem.email) === currentUserEmail || roleSaving}
-                                onClick={() => deleteUserRole(roleItem)}
-                              >
-                                <i className="fa-solid fa-trash"></i>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. Audit Logs Tab */}
-      {activeTab === 'audit_logs' && (
-        <div className="audit-page">
-          <div className="audit-header">
-            <div>
-              <h2>
-                <i className="fa-solid fa-clock-rotate-left"></i>
-                ประวัติการใช้งานระบบ
-              </h2>
-              <p>
-                ตรวจสอบว่าใครเพิ่ม แก้ไข ลบ หรือย้ายสถานะข้อมูลใด พร้อมรายละเอียดการเปลี่ยนแปลงล่าสุดจาก Supabase
-              </p>
-            </div>
-            <div className="audit-header-actions">
-              <button className="btn" onClick={fetchAuditLogs}>
-                <i className="fa-solid fa-arrows-rotate"></i> รีเฟรช
-              </button>
-            </div>
-          </div>
-
-          <div className="audit-metrics">
-            <div className="audit-metric create">
-              <span>สร้าง</span>
-              <strong>{auditStats.create || 0}</strong>
-            </div>
-            <div className="audit-metric update">
-              <span>แก้ไข/ย้าย</span>
-              <strong>{auditStats.update || 0}</strong>
-            </div>
-            <div className="audit-metric delete">
-              <span>ลบ/ถังขยะ</span>
-              <strong>{auditStats.delete || 0}</strong>
-            </div>
-            <div className="audit-metric">
-              <span>ทั้งหมด</span>
-              <strong>{auditLogs.length}</strong>
-            </div>
-          </div>
-
-          <div className="audit-toolbar">
-            <div className="search-input-wrapper audit-search">
-              <i className="fa-solid fa-magnifying-glass"></i>
-              <input
-                type="text"
-                placeholder="ค้นหาผู้ใช้ กิจกรรม หรือชื่อข้อมูล..."
-                value={auditSearch}
-                onChange={(e) => setAuditSearch(e.target.value)}
-              />
-            </div>
-            <div className="audit-filter-tabs">
-              {[
-                ['all', 'ทั้งหมด'],
-                ['create', 'สร้าง'],
-                ['update', 'แก้ไข'],
-                ['delete', 'ลบ'],
-                ['system', 'ระบบ']
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  className={auditFilter === value ? 'active' : ''}
-                  onClick={() => setAuditFilter(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="audit-table-wrap">
-            <table className="audit-logs-table">
-              <thead>
-                <tr>
-                  <th>วัน-เวลา</th>
-                  <th>ผู้ดำเนินการ</th>
-                  <th>กิจกรรม</th>
-                  <th>รายละเอียด</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAuditLogs.length === 0 ? (
-                  <tr>
-                    <td colSpan="4" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      <i className="fa-solid fa-circle-info" style={{ fontSize: 'var(--text-hero-lg)', display: 'block', marginBottom: '8px' }}></i>
-                      ไม่พบประวัติตามเงื่อนไขที่เลือก
-                    </td>
-                  </tr>
-                ) : (
-                  filteredAuditLogs.map((log) => (
-                    <tr key={log.id}>
-                      <td className="audit-time">
-                        {new Date(log.created_at).toLocaleString('th-TH')}
-                      </td>
-                      <td>
-                        <div className="audit-user-cell">
-                          <span>{(log.user_email || '?').slice(0, 1).toUpperCase()}</span>
-                          <strong>{log.user_email || '-'}</strong>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`log-badge badge-${getLogBadgeClass(log.action)}`}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td>
-                        {renderAuditDetails(log)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ALL MODAL DIALOGS */}
-
-      {/* 1. Add/Edit Task Modal */}
-      {showTaskModal && (
-        <div className="modal-overlay">
-          <form className="modal-dialog modal-dialog--wide" onSubmit={saveTask}>
-            <div className="modal-header">
-              <h2>{taskModalMode === 'add' ? 'เพิ่มแผนงานปฏิบัติการรายวัน' : (userRole === 'admin' ? 'แก้ไขแผนงานปฏิบัติการ' : 'รายละเอียดแผนงานปฏิบัติการ')}</h2>
-              <button type="button" className="modal-close-btn" onClick={() => setShowTaskModal(false)}>&times;</button>
-            </div>
-            
-            <div className="modal-body modal-body--grid">
-              {/* Row 1: Dates side-by-side */}
-              <div className="form-row form-row--2col">
-                <div className="form-group">
-                  <label className="form-label">วันที่ปฏิบัติงาน</label>
-                  <input type="date" className="form-input" required disabled={userRole !== 'admin'} value={taskForm.date} onChange={(e) => setTaskForm({ ...taskForm, date: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">วันที่สิ้นสุด <span className="form-label-opt">(ไม่บังคับ)</span></label>
-                  <input type="date" className="form-input" value={taskForm.dateEnd || ''} onChange={(e) => setTaskForm({ ...taskForm, dateEnd: e.target.value })} />
-                </div>
-              </div>
-
-              {/* Row 2: Title */}
-              <div className="form-group">
-                <label className="form-label">หัวข้องานหลัก</label>
-                <input type="text" className="form-input" required disabled={userRole !== 'admin'} placeholder="เช่น บรีฟงาน Graphic / แจ้งเตือนก่อนเปิดตัว" value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} />
-              </div>
-
-              {/* Row 3: Description */}
-              <div className="form-group">
-                <label className="form-label">รายละเอียดของงาน</label>
-                <textarea className="form-input" style={{ minHeight: '70px', resize: 'vertical' }} disabled={userRole !== 'admin'} placeholder="ระบุเนื้อหารายละเอียดขั้นตอนทำงาน..." value={taskForm.detail} onChange={(e) => setTaskForm({ ...taskForm, detail: e.target.value })} />
-              </div>
-
-              {/* Row 4: Assignee + Channels side-by-side */}
-              <div className="form-row form-row--2col">
-                <div className="form-group">
-                  <label className="form-label">ผู้รับผิดชอบงาน</label>
-                  <SearchableMultiSelect
-                    placeholder="เลือกผู้รับผิดชอบ..."
-                    options={staffList}
-                    defaultOptions={['มัง', 'ฝ้าย', 'บีม', 'แตงโม', 'Graphic', 'MKT', 'Admin']}
-                    selectedValues={taskForm.responsible ? taskForm.responsible.split(',').map(s => s.trim()).filter(Boolean) : []}
-                    onChange={(newVals) => setTaskForm({ ...taskForm, responsible: newVals.join(', ') })}
-                    onAddOption={(newVal) => setStaffList(prev => [...prev, newVal])}
-                    onDeleteOption={(val) => setStaffList(prev => prev.filter(v => v !== val))}
-                    addPlaceholder="เพิ่มผู้รับผิดชอบใหม่..."
-                    disabled={userRole !== 'admin'}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">ช่องทางโปรโมต</label>
-                  <SearchableMultiSelect
-                    placeholder="เลือกช่องทางโปรโมต..."
-                    options={promoChannels}
-                    defaultOptions={['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม', 'Line/FB Broadcast', 'ทุกแพลตฟอร์ม + BC (Line OA/FB)']}
-                    selectedValues={taskForm.channel ? taskForm.channel.split(',').map(s => s.trim()).filter(Boolean) : []}
-                    onChange={(newVals) => setTaskForm({ ...taskForm, channel: newVals.join(', ') })}
-                    onAddOption={(newVal) => setPromoChannels(prev => [...prev, newVal])}
-                    onDeleteOption={(val) => setPromoChannels(prev => prev.filter(v => v !== val))}
-                    addPlaceholder="เพิ่มช่องทางโปรโมตใหม่..."
-                    disabled={userRole !== 'admin'}
-                  />
-                </div>
-              </div>
-
-              {/* Row 5: Campaign + Status side-by-side */}
-              <div className="form-row form-row--2col">
-                <div className="form-group">
-                  <label className="form-label">เชื่อมโยงแคมเปญ</label>
-                  <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.camp} onChange={(e) => setTaskForm({ ...taskForm, camp: e.target.value })}>
-                    {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">สถานะการทำ</label>
-                  <select className="form-input" disabled={userRole !== 'admin'} value={taskForm.status} onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value })}>
-                    <option value="todo">To-Do (รอทำงาน)</option>
-                    <option value="inprogress">In Progress (กำลังทำ)</option>
-                    <option value="review">Review (ตรวจสอบ)</option>
-                    <option value="done">Done (สำเร็จแล้ว)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Row 6: Attachments */}
-              <div className="form-section">
-                <label className="form-label">ไฟล์ / ลิงก์อ้างอิง</label>
-                <div className="attach-list">
-                  {(taskForm.attachments || []).map(attachment => (
-                    <div className="attach-item" key={attachment.id}>
-                      {attachment.url ? (
-                        <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="attach-link">
-                          <i className="fa-solid fa-link"></i> {attachment.label}
-                        </a>
-                      ) : (
-                        <span className="attach-link"><i className="fa-regular fa-file-lines"></i> {attachment.label}</span>
-                      )}
-                      {userRole === 'admin' && (
-                        <button type="button" className="attach-remove" onClick={() => setTaskForm({ ...taskForm, attachments: taskForm.attachments.filter(item => item.id !== attachment.id) })}>
-                          <i className="fa-solid fa-xmark"></i>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {userRole === 'admin' && (
-                  <div className="attach-add-row">
-                    <input id="new-modal-attachment-label" type="text" className="form-input" placeholder="ชื่อไฟล์/ลิงก์" />
-                    <input id="new-modal-attachment-url" type="text" className="form-input" placeholder="URL หรือ path" />
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={() => {
-                        const labelInput = document.getElementById('new-modal-attachment-label');
-                        const urlInput = document.getElementById('new-modal-attachment-url');
-                        const label = labelInput.value.trim();
-                        const url = urlInput.value.trim();
-                        if (label || url) {
-                          setTaskForm({ ...taskForm, attachments: [...(taskForm.attachments || []), { id: generateId('attach'), label: label || url, url }] });
-                          labelInput.value = '';
-                          urlInput.value = '';
-                        }
-                      }}
-                    >
-                      <i className="fa-solid fa-plus"></i> เพิ่ม
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowTaskModal(false)}>{userRole === 'admin' ? 'ยกเลิก' : 'ปิด'}</button>
-              {userRole === 'admin' && (
-                <button type="submit" className="btn btn-primary"><i className="fa-solid fa-check"></i> บันทึกข้อมูล</button>
-              )}
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* 2. Add/Edit Channel Modal */}
-      {showChannelModal && (
-        <div className="modal-overlay">
-          <form className="modal-dialog" onSubmit={saveChannel}>
-            <div className="modal-header">
-              <h2>{isChannelEditMode ? 'แก้ไขช่องทางการขาย' : 'เพิ่มช่องทางการขาย'}</h2>
-              <button type="button" className="modal-close-btn" onClick={() => setShowChannelModal(false)}>&times;</button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">ชื่อช่องทางขาย</label>
-                <input type="text" className="form-input" required placeholder="เช่น TikTok Shop, Shopee" value={channelForm.name} onChange={(e) => setChannelForm({ ...channelForm, name: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">เป้าหมายยอดขาย (บาท)</label>
-                <input type="number" className="form-input" required min="0" value={channelForm.target} onChange={(e) => setChannelForm({ ...channelForm, target: Number(e.target.value) })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">ยอดขายทำจริงขณะนี้ (บาท)</label>
-                <input type="number" className="form-input" required min="0" value={channelForm.actual} onChange={(e) => setChannelForm({ ...channelForm, actual: Number(e.target.value) })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">รหัสสีสัญลักษณ์</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="color" className="form-input" style={{ width: '50px', padding: '2px', height: '38px' }} value={channelForm.color} onChange={(e) => setChannelForm({ ...channelForm, color: e.target.value })} />
-                  <input type="text" className="form-input" style={{ flexGrow: 1 }} value={channelForm.color} onChange={(e) => setChannelForm({ ...channelForm, color: e.target.value })} />
-                </div>
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowChannelModal(false)}>ยกเลิก</button>
-              <button type="submit" className="btn btn-primary">บันทึก</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* 3. Add/Edit Product Modal */}
-      {showProductModal && (
-        <div className="modal-overlay">
-          <form className="modal-dialog" onSubmit={saveProduct}>
-            <div className="modal-header">
-              <h2>{isProductEditMode ? (userRole === 'admin' ? 'แก้ไขสินค้า / กลุ่มสินค้า' : 'รายละเอียดสินค้า / กลุ่มสินค้า') : 'เพิ่มกลุ่มสินค้าใหม่'}</h2>
-              <button type="button" className="modal-close-btn" onClick={() => setShowProductModal(false)}>&times;</button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">ชื่อกลุ่มสินค้า</label>
-                <input type="text" className="form-input" required disabled={userRole !== 'admin'} placeholder="เช่น สินค้าใหม่, ลายขายดี" value={productForm.name} onChange={(e) => setProductForm({ ...productForm, name: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">ราคาขายต่อหน่วย (บาท)</label>
-                <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.price} onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })} />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div className="form-group">
-                  <label className="form-label">เป้าจำนวนขาย (ตัว)</label>
-                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.targetUnits} onChange={(e) => setProductForm({ ...productForm, targetUnits: Number(e.target.value) })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">จำนวนที่ขายจริงได้แล้ว (ตัว)</label>
-                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.actualUnits} onChange={(e) => setProductForm({ ...productForm, actualUnits: Number(e.target.value) })} />
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
-                <div className="form-group">
-                  <label className="form-label">สต็อกคงเหลือ</label>
-                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.stockOnHand || 0} onChange={(e) => setProductForm({ ...productForm, stockOnHand: Number(e.target.value) })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">จอง/กันไว้</label>
-                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.reservedUnits || 0} onChange={(e) => setProductForm({ ...productForm, reservedUnits: Number(e.target.value) })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">จุดเติมสต็อก</label>
-                  <input type="number" className="form-input" required disabled={userRole !== 'admin'} min="0" value={productForm.reorderPoint || 0} onChange={(e) => setProductForm({ ...productForm, reorderPoint: Number(e.target.value) })} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">กลยุทธ์การขายสินค้า</label>
-                <input type="text" className="form-input" disabled={userRole !== 'admin'} placeholder="เช่น เน้นขายส่ง Line, ทำโปรโมชั่นซื้อ 2 แถม 1" value={productForm.strategy} onChange={(e) => setProductForm({ ...productForm, strategy: e.target.value })} />
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowProductModal(false)}>{userRole === 'admin' ? 'ยกเลิก' : 'ปิด'}</button>
-              {userRole === 'admin' && (
-                <button type="submit" className="btn btn-primary">บันทึก</button>
-              )}
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* 4. Add/Edit Campaign Modal */}
-      {showCampaignModal && (
-        <div className="modal-overlay">
-          <form className="modal-dialog" onSubmit={saveCampaign}>
-            <div className="modal-header">
-              <h2>{isCampaignEditMode ? 'แก้ไขรายละเอียดแคมเปญ' : 'เพิ่มแคมเปญการตลาดใหม่'}</h2>
-              <button type="button" className="modal-close-btn" onClick={() => setShowCampaignModal(false)}>&times;</button>
-            </div>
-            
-            <div className="modal-body">
-              {!isCampaignEditMode && (
-                <div className="form-group">
-                  <label className="form-label">รหัสแคมเปญ (ห้ามซ้ำ)</label>
-                  <input type="text" className="form-input" required placeholder="เช่น c4" value={campaignForm.id} onChange={(e) => setCampaignForm({ ...campaignForm, id: e.target.value.toLowerCase().trim() })} />
-                </div>
-              )}
-              <div className="form-group">
-                <label className="form-label">ชื่อแคมเปญการตลาด</label>
-                <input type="text" className="form-input" required placeholder="เช่น Campaign 4: เปิดตัวลายพิมพ์สามมิติ" value={campaignForm.name} onChange={(e) => setCampaignForm({ ...campaignForm, name: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">สีประจำแคมเปญ (Hex Color)</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="color" className="form-input" style={{ width: '50px', padding: '2px', height: '38px' }} value={campaignForm.color} onChange={(e) => setCampaignForm({ ...campaignForm, color: e.target.value })} />
-                  <input type="text" className="form-input" style={{ flexGrow: 1 }} value={campaignForm.color} onChange={(e) => setCampaignForm({ ...campaignForm, color: e.target.value })} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">สีพื้นหลังแท็กการแสดงผล (Hex Color)</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="color" className="form-input" style={{ width: '50px', padding: '2px', height: '38px' }} value={campaignForm.bg} onChange={(e) => setCampaignForm({ ...campaignForm, bg: e.target.value })} />
-                  <input type="text" className="form-input" style={{ flexGrow: 1 }} value={campaignForm.bg} onChange={(e) => setCampaignForm({ ...campaignForm, bg: e.target.value })} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">สีขอบแท็กการแสดงผล (Hex Color)</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input type="color" className="form-input" style={{ width: '50px', padding: '2px', height: '38px' }} value={campaignForm.border} onChange={(e) => setCampaignForm({ ...campaignForm, border: e.target.value })} />
-                  <input type="text" className="form-input" style={{ flexGrow: 1 }} value={campaignForm.border} onChange={(e) => setCampaignForm({ ...campaignForm, border: e.target.value })} />
-                </div>
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowCampaignModal(false)}>ยกเลิก</button>
-              <button type="submit" className="btn btn-primary">บันทึก</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* 5. Add/Edit PO Modal */}
-      {showPoModal && (
-        <div className="modal-overlay">
-          <form className="modal-dialog" onSubmit={savePo}>
-            <div className="modal-header">
-              <h2>{isPoEditMode ? 'แก้ไขรายละเอียดใบ PO' : 'บันทึกใบสั่งผลิต PO ใหม่'}</h2>
-              <button type="button" className="modal-close-btn" onClick={() => setShowPoModal(false)}>&times;</button>
-            </div>
-            
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">ชื่อสินค้าสั่งผลิต</label>
-                <input type="text" className="form-input" required placeholder="เช่น เสื้อลายใหม่ (1), เสื้อสีดำล้วน" value={poForm.product} onChange={(e) => setPoForm({ ...poForm, product: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">จำนวนสินค้าสั่งผลิต (ตัว)</label>
-                <input type="number" className="form-input" required min="1" value={poForm.quantity} onChange={(e) => setPoForm({ ...poForm, quantity: Number(e.target.value) })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">วันที่ส่งสั่งผลิต (PO Date)</label>
-                <input type="date" className="form-input" required value={poForm.orderDate} onChange={(e) => setPoForm({ ...poForm, orderDate: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">วันของเข้าโดยประมาณ (Delivery Date)</label>
-                <input type="date" className="form-input" required value={poForm.arrivalDate} onChange={(e) => setPoForm({ ...poForm, arrivalDate: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">สถานะการผลิต</label>
-                <select className="form-input" value={poForm.status} onChange={(e) => setPoForm({ ...poForm, status: e.target.value })}>
-                  <option value="Pending">กำลังผลิต (Pending)</option>
-                  <option value="Completed">ของเข้าโกดังแล้ว (Completed)</option>
-                </select>
-              </div>
-            </div>
-            
-            <div className="modal-footer">
-              <button type="button" className="btn" onClick={() => setShowPoModal(false)}>ยกเลิก</button>
-              <button type="submit" className="btn btn-primary">บันทึก</button>
-            </div>
-          </form>
-        </div>
-      )}
-      {/* 6. Recycle Bin Modal */}
-      {showTrashModal && (
-        <div className="modal-overlay">
-          <div className="modal-dialog" style={{ maxWidth: '800px', width: '90%' }}>
-            <div className="modal-header">
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <i className="fa-solid fa-trash-can" style={{ color: 'var(--danger)' }}></i>
-                ถังขยะ (Recycle Bin)
-              </h2>
-              <button type="button" className="modal-close-btn" onClick={() => setShowTrashModal(false)}>&times;</button>
-            </div>
-            
-            <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-              <p className="text-body" style={{ color: 'var(--text-caption)', marginBottom: '16px' }}>
-                รายการที่ถูกลบจะถูกเก็บไว้ที่นี่ชั่วคราว คุณสามารถเลือกกู้คืนข้อมูลกลับไปยังระบบหลัก หรือเลือกลบทิ้งแบบถาวร (ทิ้งให้สิ้นซาก) ได้
-              </p>
-              {trashItems.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px 10px', color: 'var(--text-muted)' }}>
-                  <i className="fa-regular fa-folder-open" style={{ fontSize: '34px', marginBottom: '12px', display: 'block' }}></i>
-                  ถังขยะว่างเปล่า ไม่มีข้อมูลที่ถูกลบ
-                </div>
-              ) : (
-                <div className="table-container">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>ประเภทข้อมูล</th>
-                        <th>ชื่อข้อมูล / รายละเอียด</th>
-                        <th>เวลาที่ลบ</th>
-                        <th style={{ textAlign: 'center' }}>การจัดการ</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trashItems.map(item => {
-                        let typeLabel = '';
-                        let typeIcon = '';
-                        if (item.type === 'task') {
-                          typeLabel = 'งานปฏิบัติการ';
-                          typeIcon = 'fa-list-check';
-                        } else if (item.type === 'product') {
-                          typeLabel = 'กลุ่มสินค้า';
-                          typeIcon = 'fa-shirt';
-                        } else if (item.type === 'campaign') {
-                          typeLabel = 'แคมเปญ';
-                          typeIcon = 'fa-layer-group';
-                        } else if (item.type === 'po') {
-                          typeLabel = 'ประวัติ PO';
-                          typeIcon = 'fa-receipt';
-                        } else if (item.type === 'channel') {
-                          typeLabel = 'ช่องทางขาย';
-                          typeIcon = 'fa-chart-pie';
-                        }
-                        
-                        return (
-                          <tr key={item.id}>
-                            <td>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: 'var(--text-body)', padding: '3px 8px', borderRadius: '4px', backgroundColor: 'var(--surface-hover)', border: '1px solid var(--border)' }}>
-                                <i className={`fa-solid ${typeIcon}`} style={{ color: 'var(--primary)' }}></i>
-                                {typeLabel}
-                              </span>
-                            </td>
-                            <td style={{ fontWeight: 'var(--fw-semibold)', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={item.name}>
-                              {item.name}
-                            </td>
-                            <td style={{ fontSize: 'var(--text-body)', color: 'var(--text-muted)' }}>
-                              {new Date(item.deletedAt).toLocaleString('th-TH')}
-                            </td>
-                            <td style={{ textAlign: 'center' }}>
-                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                <button type="button" className="btn btn-sm btn-success-light" onClick={() => restoreTrashItem(item)}>
-                                  <i className="fa-solid fa-rotate-left"></i> กู้คืน
-                                </button>
-                                <button type="button" className="btn btn-sm btn-danger" onClick={() => deleteTrashItemPermanently(item.id)}>
-                                  <i className="fa-solid fa-trash-can"></i> ทิ้งให้สิ้นซาก
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-            
-            <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
-              <div>
-                {trashItems.length > 0 && (
-                  <button type="button" className="btn btn-danger" onClick={emptyTrash}>
-                    <i className="fa-solid fa-dumpster"></i> ล้างถังขยะทั้งหมด
-                  </button>
-                )}
-              </div>
-              <button type="button" className="btn" onClick={() => setShowTrashModal(false)}>ปิดหน้าต่าง</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-    </div>
+    </>
   );
 }

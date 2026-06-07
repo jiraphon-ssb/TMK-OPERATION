@@ -1,0 +1,1016 @@
+/* ============================================================
+   TMK Operation — Views part 2: Planner + Catalog + System
+   ============================================================ */
+import React, { useState } from 'react';
+import { TMK } from './data.js';
+import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
+
+const DD = TMK;
+
+/* ====================  PLANNER  ==================== */
+const chHex = { shopee: '#ee4d2d', tiktok: '#00f2ea', lazada: '#0f1689', facebook: '#1877f2', line: '#06c755', crm: '#c08a3e' };
+const stDot = { done: 'var(--good)', review: 'var(--warn)', inprogress: 'var(--info)', todo: 'var(--ink-4)' };
+const stLabel = { done: 'เสร็จ', review: 'รอตรวจ', inprogress: 'กำลังทำ', todo: 'รอ' };
+const stCls = { done: 'chip-good', review: 'chip-warn', inprogress: 'chip-accent', todo: '' };
+
+function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStatus, search, setSearch }) {
+  return (
+    <div className="card card-pad-sm" style={{ marginBottom: 12 }}>
+      <div className="row between wrap" style={{ gap: 8, marginBottom: 8 }}>
+        <div className="row" style={{ gap: 6 }}>
+          {['all','active','done'].map(s => <button key={s} className={'pick' + (filterStatus === s ? ' on' : '')} onClick={() => setFilterStatus(s)}>{s === 'all' ? 'ทั้งหมด' : s === 'active' ? 'กำลังทำ' : 'เสร็จแล้ว'}</button>)}
+        </div>
+        <div className="search" style={{ width: 180 }}><Icon name="search" /><input placeholder="ค้นหางาน..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+      </div>
+      <div className="row wrap" style={{ gap: 5 }}>
+        <button className={'pick' + (!filterCamp ? ' on' : '')} onClick={() => setFilterCamp(null)}>ทั้งหมด</button>
+        {DD.campaigns.map(c => <button key={c.id} className={'pick' + (filterCamp === c.id ? ' on' : '')} onClick={() => setFilterCamp(filterCamp === c.id ? null : c.id)}><span className="dot-c" style={{ background: c.color }}></span>{c.name}</button>)}
+      </div>
+    </div>
+  );
+}
+
+function filterTasks(tasks, filterCamp, filterStatus, search) {
+  return tasks.filter(t => {
+    if (filterCamp && t.camp !== filterCamp) return false;
+    if (filterStatus === 'active' && t.status === 'done') return false;
+    if (filterStatus === 'done' && t.status !== 'done') return false;
+    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+}
+
+export function PlannerView({ sub, tasks, setTasks }) {
+  const [filterCamp, setFilterCamp] = useState(null);
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [search, setSearch] = useState('');
+  const fProps = { filterCamp, setFilterCamp, filterStatus, setFilterStatus, search, setSearch };
+  const filtered = filterTasks(tasks, filterCamp, filterStatus, search);
+
+  if (sub === 'kanban') return <KanbanBoard tasks={tasks} setTasks={setTasks} filtered={filtered} fProps={fProps} />;
+  if (sub === 'timeline') return <TimelineView filtered={filtered} fProps={fProps} />;
+  return <CalendarView tasks={tasks} filtered={filtered} fProps={fProps} />;
+}
+
+/* ---- Calendar (month navigation + week view) ---- */
+const MONTHS_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const MONTHS_TH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const DAY_LABELS = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+
+function CalendarView({ tasks, filtered, fProps }) {
+  const [ym, setYm] = useState({ y: 2569, m: 5 }); // June 2569
+  const [sel, setSel] = useState(18);
+
+  const greg = ym.y - 543;
+  const daysInMonth = new Date(greg, ym.m + 1, 0).getDate();
+  const firstWeekday = new Date(greg, ym.m, 1).getDay(); // Sun-first (0=Sun)
+  const isJune = ym.y === 2569 && ym.m === 5; // mock tasks live here
+  const todayDay = isJune ? 18 : -1;
+
+  const byDay = {};
+  if (isJune) filtered.forEach(t => { const mm = t.date.match(/^(\d+)/); if (mm) (byDay[+mm[1]] = byDay[+mm[1]] || []).push(t); });
+
+  const shiftMonth = (delta) => {
+    let m = ym.m + delta, y = ym.y;
+    if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+    setYm({ y, m }); setSel(1);
+  };
+  const goToday = () => { setYm({ y: 2569, m: 5 }); setSel(18); };
+
+  const cells = [];
+  for (let i = 0; i < firstWeekday; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const selTasks = byDay[sel] || [];
+
+  // Map task channel text → platform info
+  const chInfo = (ch) => {
+    if (!ch) return null;
+    const l = ch.toLowerCase();
+    if (l.includes('shopee')) return { color: '#ee4d2d', bg: '#ee4d2d', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2C9.2 2 7.3 4.1 7.1 6.6c-.1.6.4 1 .9 1h8c.5 0 1-.4.9-1C16.7 4.1 14.8 2 12 2zm-6.9 7c-.5 0-1 .4-1 1l1.2 10c.1.8.7 1.4 1.5 1.4h10.4c.8 0 1.4-.6 1.5-1.4l1.2-10c0-.6-.4-1-1-1H5.1z"/></svg> };
+    if (l.includes('tiktok')) return { color: '#000', bg: '#00f2ea', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#000" d="M16.6 5.8A4.3 4.3 0 0 1 13.4 2h-3v13.4a2.6 2.6 0 1 1-1.8-2.4V9.6a6 6 0 1 0 5.2 6V9.4a7.3 7.3 0 0 0 4.2 1.3V7.3a4.3 4.3 0 0 1-1.4-1.5z"/></svg> };
+    if (l.includes('lazada')) return { color: '#0f1689', bg: '#0f1689', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M3 5h18v14H3V5zm2 2v10h14V7H5zm3 2h8v2H8V9zm0 4h5v2H8v-2z"/></svg> };
+    if (l.includes('fb') || l.includes('facebook')) return { color: '#1877f2', bg: '#1877f2', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M22 12c0-5.5-4.5-10-10-10S2 6.5 2 12c0 5 3.7 9.1 8.4 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7C18.3 21.1 22 17 22 12z"/></svg> };
+    if (l.includes('line')) return { color: '#06c755', bg: '#06c755', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M22 10.6c0-4.7-4.5-8.6-10-8.6S2 5.9 2 10.6c0 4.2 3.7 7.8 8.7 8.5.3.1.8.2.9.5.1.3.1.6 0 .9l-.1.8c0 .3-.2 1 .9.6 1-.5 5.6-3.3 7.6-5.6 1.4-1.5 2-3.1 2-4.7z"/></svg> };
+    if (l.includes('crm')) return { color: '#c08a3e', bg: '#c08a3e', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M16 11c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm-8 0c1.7 0 3-1.3 3-3S9.7 5 8 5 5 6.3 5 8s1.3 3 3 3zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5c0-2.3-4.7-3.5-7-3.5zm8 0c-.3 0-.6 0-1 .1 1.2.9 2 2 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5z"/></svg> };
+    if (l.includes('ทุก')) return { color: '#b07d33', bg: '#b07d33', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> };
+    return { color: 'var(--ink-3)', bg: '#888', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="#fff"/></svg> };
+  };
+
+  const DayCell = ({ d }) => {
+    if (!d) return <div style={{ borderRadius: 'var(--r-sm)' }}></div>;
+    const ts = byDay[d] || [];
+    const isSel = d === sel, isToday = d === todayDay;
+    const show = ts.slice(0, 3);
+    const more = ts.length - 3;
+    // Unique channels for this day
+    const dayChannels = [...new Set(ts.map(t => t.channel))];
+    return (
+      <button onClick={() => setSel(d)} style={{
+        border: isSel ? '2px solid var(--accent)' : isToday ? '1px solid var(--accent-ring)' : '1px solid var(--line)',
+        background: isSel ? 'var(--accent-soft)' : 'var(--surface)',
+        borderRadius: 'var(--r-sm)', padding: '6px', display: 'flex', flexDirection: 'column',
+        gap: 2, textAlign: 'left', alignItems: 'stretch', height: '100%',
+        boxShadow: isSel ? '0 0 0 2px var(--accent-ring)' : 'none',
+        transition: 'all 0.15s var(--ease)', overflow: 'hidden',
+      }}>
+        <div className="row between" style={{ gap: 4, marginBottom: 1, flexShrink: 0 }}>
+          <span className="num sm" style={{
+            fontWeight: isToday || isSel ? 700 : 500,
+            color: isToday ? 'var(--accent-2)' : isSel ? 'var(--accent-2)' : 'var(--ink)',
+            fontSize: 'var(--fs-sm)',
+          }}>{d}</span>
+          {dayChannels.length > 0 && (
+            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+              {dayChannels.slice(0, 4).map((ch, i) => {
+                const info = chInfo(ch);
+                if (!info) return null;
+                return <span key={i} style={{ width: 15, height: 15, borderRadius: 4, background: info.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{info.icon(9)}</span>;
+              })}
+              {dayChannels.length > 4 && <span style={{ fontSize: 8, color: 'var(--ink-3)', fontWeight: 700, display: 'grid', placeItems: 'center' }}>+{dayChannels.length - 4}</span>}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden', flex: 1, minHeight: 0 }}>
+          {show.map(t => {
+            const c = DD.campaigns.find(x => x.id === t.camp);
+            return <span key={t.id} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 4, background: (c?.color || '#888') + '22', color: c?.color || '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3, flexShrink: 0 }}>{t.title}</span>;
+          })}
+        </div>
+        {more > 0 && <span style={{ fontSize: 'var(--fs-micro)', fontWeight: 'var(--fw-sem)', color: 'var(--accent-2)', textAlign: 'center', flexShrink: 0 }}>+{more} งาน</span>}
+      </button>
+    );
+  };
+
+  return (
+    <div className="content-inner rise">
+      <PlannerFilters {...fProps} />
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 14, alignItems: 'start' }}>
+        <div className="card">
+          <div className="card-head" style={{ flexWrap: 'wrap', gap: 10 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="icon-btn" onClick={() => shiftMonth(-1)} title="เดือนก่อน"><span style={{ transform: 'rotate(180deg)', display: 'grid' }}><Icon name="chevR" /></span></button>
+              <h3 style={{ minWidth: 150, textAlign: 'center' }}>{MONTHS_TH[ym.m]} {ym.y}</h3>
+              <button className="icon-btn" onClick={() => shiftMonth(1)} title="เดือนถัดไป"><Icon name="chevR" /></button>
+              <button className="btn btn-sm" onClick={goToday}>วันนี้</button>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5 }}>
+            {DAY_LABELS.map(d => <div key={d} className="cap" style={{ textAlign: 'center', padding: '6px 0', fontWeight: 'var(--fw-sem)' }}>{d}</div>)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gridAutoRows: '156px', gap: 5 }}>
+            {cells.map((d, i) => <DayCell key={i} d={d} />)}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 4 }}>{sel} {MONTHS_TH_SHORT[ym.m]} {ym.y}</div>
+          <div className="row between" style={{ marginBottom: 14 }}>
+            <h3>{selTasks.length} งาน</h3>
+            <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('task')}><Icon name="plus" /> เพิ่ม</button>
+          </div>
+          {selTasks.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}>
+              <span style={{ display: 'inline-block', width: 36, height: 36 }}><Icon name="calendarDays" /></span>
+              <div className="cap" style={{ marginTop: 8 }}>ไม่มีงานในวันนี้</div>
+            </div>
+          ) : selTasks.map(t => {
+            const c = DD.campaigns.find(x => x.id === t.camp);
+            const stLabel = { done: 'เสร็จ', review: 'รอตรวจ', inprogress: 'กำลังทำ', todo: 'รอ' };
+            const stCls = { done: 'chip-good', review: 'chip-warn', inprogress: 'chip-accent', todo: '' };
+            return (
+              <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', marginBottom: 8, borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
+                <div className="row between" style={{ marginBottom: 6 }}>
+                  <div>
+                    <div className="h3">{t.title}</div>
+                    {t.detail && <div className="cap" style={{ marginTop: 1 }}>{t.detail}</div>}
+                  </div>
+                </div>
+                <div className="row wrap" style={{ gap: 10, marginBottom: 8 }}>
+                  <div><div className="cap">แคมเปญ</div><span className="chip" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span></div>
+                  <div><div className="cap">ช่องทาง</div><div className="sm" style={{ fontWeight: 500 }}>{t.channel}</div></div>
+                  <div><div className="cap">สถานะ</div><span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span></div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <span className="cap">ผู้รับผิดชอบ:</span>
+                  {t.responsible.map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <span key={r} className="chip" style={{ background: s.color + '1c', color: s.color }}>{r}</span>; })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Kanban with drag & drop ---- */
+function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
+  const [over, setOver] = React.useState(null);
+  const dragId = React.useRef(null);
+  const onDrop = (status) => {
+    if (dragId.current) setTasks(ts => ts.map(t => t.id === dragId.current ? { ...t, status } : t));
+    dragId.current = null; setOver(null);
+  };
+  return (
+    <div className="content-inner rise">
+      <PlannerFilters {...fProps} />
+      <div className="grid g4" style={{ gap: 14, alignItems: 'start' }}>
+        {DD.kanbanMeta.map(col => {
+          const list = filtered.filter(t => t.status === col.id);
+          const tone = { todo: 'var(--ink-3)', inprogress: 'var(--info)', review: 'var(--warn)', done: 'var(--good)' }[col.id];
+          return (
+            <div key={col.id}
+              onDragOver={e => { e.preventDefault(); if (over !== col.id) setOver(col.id); }}
+              onDragLeave={() => setOver(o => o === col.id ? null : o)}
+              onDrop={() => onDrop(col.id)}
+              style={{ background: over === col.id ? 'var(--accent-soft)' : 'var(--surface-2)', borderRadius: 'var(--r-lg)', padding: 12, minHeight: 200, transition: 'background 0.15s', border: over===col.id?'1.5px dashed var(--accent)':'1.5px dashed transparent' }}>
+              <div className="row between" style={{ padding: '2px 4px 12px' }}>
+                <span className="row" style={{ gap: 8, fontWeight: 700, fontSize: 'var(--fs-sm)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone }}></span>{col.label}</span>
+                <span className="chip">{list.length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {list.map(t => {
+                  const c = DD.campaigns.find(x => x.id === t.camp) || { name: '', color: '#888' };
+                  return (
+                    <div key={t.id} draggable
+                      onDragStart={() => { dragId.current = t.id; }}
+                      onDragEnd={() => { dragId.current = null; setOver(null); }}
+                      onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
+                      className="card card-pad-sm" style={{ borderRadius: 'var(--r)', cursor: 'grab', boxShadow: 'var(--sh-sm)', padding: '12px 14px', borderLeft: `3px solid ${c.color}` }}>
+                      <div className="row between" style={{ marginBottom: 4 }}>
+                        <div>
+                          <div className="sm" style={{ fontWeight: 600, lineHeight: 1.35 }}>{t.title}</div>
+                          {t.detail && <div className="cap" style={{ marginTop: 2 }}>{t.detail}</div>}
+                        </div>
+                      </div>
+                      <div className="row wrap" style={{ gap: 6 }}>
+                        <span className="chip" style={{ background: c.color+'22', color: c.color }}>{c.name}</span>
+                        <span className="cap">{t.channel}</span>
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span className="cap">{t.date}</span>
+                          {t.responsible.slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {list.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: '16px 0', opacity: 0.6 }}>ลากการ์ดมาที่นี่</div>}
+                <button onClick={() => window.__openModal('task', { status: col.id })} style={{
+                  width: '100%', padding: '10px', border: '1.5px dashed var(--line)', borderRadius: 'var(--r-sm)',
+                  background: 'transparent', cursor: 'pointer', color: 'var(--ink-3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  fontSize: 'var(--fs-sm)', fontFamily: 'var(--font)', marginTop: 4,
+                }}>
+                  <Icon name="plus" /> เพิ่มงาน
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---- Smart Planner Timeline (vertical) ---- */
+function TimelineView({ filtered, fProps }) {
+  const parse = s => +s.match(/^(\d+)/)[1];
+  const TODAY = 18;
+  const stMeta = { live: { l: 'Live', cls: 'chip-good' }, upcoming: { l: 'เตรียม', cls: 'chip-accent' }, done: { l: 'จบ', cls: '' } };
+
+  // Campaign progress
+  const campTasks = {};
+  DD.tasks.forEach(t => { campTasks[t.camp] = campTasks[t.camp] || []; campTasks[t.camp].push(t); });
+
+  // Stats
+  const todayTasks = filtered.filter(t => parse(t.date) === TODAY).length;
+  const overdue = filtered.filter(t => parse(t.date) < TODAY && t.status !== 'done').length;
+
+  // Group filtered tasks by date, sorted
+  const byDate = {};
+  filtered.forEach(t => { const d = parse(t.date); byDate[d] = byDate[d] || []; byDate[d].push(t); });
+  const dates = Object.keys(byDate).map(Number).sort((a, b) => a - b);
+
+  return (
+    <div className="content-inner rise">
+      <PlannerFilters {...fProps} />
+
+      {/* Campaign progress cards */}
+      <div className="grid g3" style={{ marginBottom: 14, gap: 10 }}>
+        {DD.campaigns.filter(c => !fProps.filterCamp || c.id === fProps.filterCamp).map(c => {
+          const tasks = campTasks[c.id] || [];
+          const done = tasks.filter(t => t.status === 'done').length;
+          const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
+          const st = stMeta[c.status];
+          return (
+            <div key={c.id} className="card card-pad-sm" style={{ display: 'flex', alignItems: 'center', gap: 14, borderLeft: `3px solid ${c.color}`, cursor: 'pointer' }} onClick={() => fProps.setFilterCamp(fProps.filterCamp === c.id ? null : c.id)}>
+              <Ring pct={pct} size={48} stroke={5} color={c.color}><span className="num" style={{ fontSize: 'var(--fs-micro)', fontWeight: 700 }}>{pct}%</span></Ring>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                <div className="cap">{done}/{tasks.length} งาน · {c.start}–{c.end}</div>
+              </div>
+              <span className={`chip ${st.cls}`}>{st.l}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Vertical Timeline */}
+      <div className="card">
+        <div className="row between" style={{ marginBottom: 12 }}>
+          <span></span>
+          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('task')}><Icon name="plus" /> เพิ่มงาน</button>
+        </div>
+        {dates.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-3)' }}><Icon name="search" /><div className="cap" style={{ marginTop: 6 }}>ไม่พบงานตามเงื่อนไข</div></div>}
+        <div style={{ position: 'relative', paddingLeft: 32 }}>
+          {/* Vertical line */}
+          {dates.length > 0 && <div style={{ position: 'absolute', left: 14, top: 8, bottom: 8, width: 2, background: 'var(--line)', borderRadius: 1 }}></div>}
+
+          {dates.map((day, di) => {
+            const tasks = byDate[day];
+            const isToday = day === TODAY;
+            const isPast = day < TODAY;
+            return (
+              <div key={day} style={{ marginBottom: di < dates.length - 1 ? 20 : 0 }}>
+                {/* Date node */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, marginLeft: -32 }}>
+                  <div style={{ width: 28, display: 'flex', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>
+                    <div style={{ width: isToday ? 14 : 10, height: isToday ? 14 : 10, borderRadius: '50%', background: isToday ? 'var(--accent)' : isPast ? 'var(--good)' : 'var(--ink-4)', border: isToday ? '2px solid var(--accent-ring)' : 'none' }}></div>
+                  </div>
+                  <div>
+                    <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 700, color: isToday ? 'var(--accent-2)' : 'var(--ink)' }}>{String(day).padStart(2, '0')} มิ.ย.</span>
+                    {isToday && <span className="chip chip-accent" style={{ marginLeft: 8 }}>วันนี้</span>}
+                    <span className="cap" style={{ marginLeft: 8 }}>2569</span>
+                  </div>
+                </div>
+                {/* Task cards */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {tasks.map(t => {
+                    const c = DD.campaigns.find(x => x.id === t.camp);
+                    const isDone = t.status === 'done';
+                    const isOverdue = day < TODAY && !isDone;
+                    return (
+                      <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
+                        <div className="row between" style={{ marginBottom: 6 }}>
+                          <div>
+                            <div className="h3" style={{ textDecoration: isDone ? 'line-through' : 'none', color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>{t.title}</div>
+                            {t.detail && <div className="cap" style={{ marginTop: 1 }}>{t.detail}</div>}
+                          </div>
+                          {isOverdue && <span className="chip chip-bad">เกินกำหนด</span>}
+                        </div>
+                        <div className="row wrap" style={{ gap: 8 }}>
+                          <span className="chip" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span>
+                          <span className="cap">{t.channel}</span>
+                          <span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span>
+                          <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
+                            {t.responsible.map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Avatar key={r} name={r} color={s.color} size={22} />; })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================  CATALOG  ==================== */
+export function CatalogView({ sub }) {
+  if (sub === 'campaigns') return <CampaignsView />;
+  if (sub === 'po') return <POView />;
+  return <ProductsView />;
+}
+
+function ProductsView() {
+  return (
+    <div className="content-inner rise">
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h3><span style={{color:'var(--accent)'}}><Icon name="bag" /></span> สินค้าขายดี</h3>
+          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
+        </div>
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th style={{width:34}}>#</th><th>สินค้า</th><th style={{textAlign:'right'}}>ราคา</th><th style={{textAlign:'right'}}>ขายแล้ว</th><th style={{textAlign:'right'}}>รายได้</th><th style={{textAlign:'right'}}>คงเหลือ</th><th style={{textAlign:'right'}}>สถานะ</th></tr></thead>
+          <tbody>
+            {DD.products.map(p => {
+              const sm = stockMeta(p.stock);
+              return (
+                <tr key={p.rank} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
+                  <td className="num faint" style={{ fontWeight: 700 }}>{p.rank}</td>
+                  <td><div style={{ fontWeight: 600 }}>{p.name}</div><div className="cap">{p.strategy}</div></td>
+                  <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{N(p.units)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(p.rev)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: sm.c, fontWeight: 600 }}>{p.onHand}</td>
+                  <td style={{ textAlign: 'right' }}><span className={`chip ${sm.cls}`}>{sm.label}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+      </div>
+      <div className="grid g2">
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 14 }}>สีขายดี</div>
+          {DD.colorMix.map(c => (
+            <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
+              <span style={{ width: 18, height: 18, borderRadius: 5, background: c.hex, border: '1px solid var(--line)', flexShrink: 0 }}></span>
+              <span className="sm" style={{ flex: 1 }}>{c.name}</span>
+              <div className="bar" style={{ width: 110 }}><span style={{ width: `${c.pct*3}%`, background: c.hex }}></span></div>
+              <span className="num sm" style={{ width: 34, textAlign: 'right', fontWeight: 700 }}>{c.pct}%</span>
+            </div>
+          ))}
+        </div>
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 14 }}>ไซส์ขายดี</div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, height: 180, paddingTop: 10 }}>
+            {DD.sizeMix.map(s => (
+              <div key={s.s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
+                <span className="num cap" style={{ fontWeight: 700 }}>{s.pct}%</span>
+                <div style={{ width: '100%', maxWidth: 38, height: `${(s.pct/31)*130}px`, background: 'var(--accent)', borderRadius: '6px 6px 0 0' }}></div>
+                <span className="cap" style={{ fontWeight: 600 }}>{s.s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignsView() {
+  const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, done: { l: 'จบแล้ว', cls: '' } };
+  return (
+    <div className="content-inner rise">
+      <div className="row between" style={{ marginBottom: 16 }}>
+        <div className="eyebrow">{DD.campaigns.length} แคมเปญ</div>
+        <button className="btn btn-primary" onClick={() => window.__openModal('campaign')}><Icon name="plus" /> สร้างแคมเปญ</button>
+      </div>
+      <div className="grid g2">
+        {DD.campaigns.map(c => (
+          <div key={c.id} className="card" style={{ borderLeft: `4px solid ${c.color}`, cursor: 'pointer' }} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>
+            <div className="row between" style={{ marginBottom: 12 }}>
+              <div>
+                <h3>{c.name}</h3>
+                <div className="cap num" style={{ marginTop: 3 }}>{c.start} – {c.end}</div>
+              </div>
+              <span className={`chip ${stMeta[c.status].cls}`}>{stMeta[c.status].l}</span>
+            </div>
+            <div className="row between">
+              <div className="row" style={{ gap: 6 }}>
+                {c.channels.map(id => { const ch = DD.channels.find(x=>x.id===id); return ch ? <span key={id} style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }} title={ch.name}></span> : null; })}
+              </div>
+              <span className="cap row" style={{ gap: 5 }}><Icon name="listChecks" /> {c.tasks} งาน</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function POView() {
+  return (
+    <div className="content-inner rise">
+      <div className="card">
+        <div className="card-head">
+          <h3><span style={{color:'var(--accent)'}}><Icon name="box" /></span> ใบสั่งผลิต & PO โรงงาน</h3>
+          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('po')}><Icon name="plus" /> เปิด PO ใหม่</button>
+        </div>
+        <div className="table-wrap"><table className="table">
+          <thead><tr><th>สินค้า</th><th style={{textAlign:'right'}}>จำนวน</th><th>วันสั่ง</th><th>กำหนดเข้า</th><th style={{textAlign:'right'}}>สถานะ</th></tr></thead>
+          <tbody>
+            {DD.poTracker.map(po => (
+              <tr key={po.id}>
+                <td style={{ fontWeight: 600 }}>{po.product}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{N(po.quantity)} ตัว</td>
+                <td className="num cap">{po.orderDate}</td>
+                <td className="num cap">{po.arrivalDate}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <span className={`chip ${po.status==='Completed'?'chip-good':'chip-warn'}`}>{po.status==='Completed'?'ของเข้าแล้ว':'กำลังผลิต'}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================  SETTINGS (replaces System)  ==================== */
+export function SettingsView({ sub, dark, setDark }) {
+  const TABS = [
+    { id: 'general', label: 'ทั่วไป', icon: 'system' },
+    { id: 'campaigns', label: 'แคมเปญ', icon: 'megaphone' },
+    { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'shield' },
+    { id: 'audit', label: 'ประวัติการใช้งาน', icon: 'clock' },
+    { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
+    { id: 'updates', label: 'อัปเดต', icon: 'sparkle' },
+  ];
+  const [active, setActive] = useState(sub || 'general');
+  return (
+    <div className="content-inner rise">
+      <div className="segbar" style={{ marginBottom: 16, display: 'inline-flex', flexWrap: 'wrap' }}>
+        {TABS.map(t => (
+          <button key={t.id} className={'seg' + (active === t.id ? ' active' : '')}
+            onClick={() => setActive(t.id)}>
+            <Icon name={t.icon} />{t.label}
+          </button>
+        ))}
+      </div>
+      {active === 'general' && <GeneralSettings dark={dark} setDark={setDark} />}
+      {active === 'campaigns' && <CampaignsView />}
+      {active === 'roles' && <RolesView />}
+      {active === 'audit' && <AuditView />}
+      {active === 'trash' && <TrashView />}
+      {active === 'updates' && <UpdatesView />}
+    </div>
+  );
+}
+
+function GeneralSettings({ dark, setDark }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Appearance */}
+      <div className="card">
+        <div className="card-head"><h3><Icon name={dark ? 'moon' : 'sun'} /> ธีมและการแสดงผล</h3></div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div>
+            <div className="sm" style={{ fontWeight: 600 }}>โหมดมืด</div>
+            <div className="cap">เปลี่ยนธีมสีของระบบ</div>
+          </div>
+          <button className="btn btn-sm" onClick={() => setDark(d => !d)} style={{
+            background: dark ? 'var(--accent)' : 'var(--surface-3)',
+            color: dark ? '#fff' : 'var(--ink)',
+            minWidth: 80,
+          }}>
+            <Icon name={dark ? 'moon' : 'sun'} />{dark ? 'เปิดอยู่' : 'ปิดอยู่'}
+          </button>
+        </div>
+      </div>
+
+      {/* Notification settings */}
+      <div className="card">
+        <div className="card-head"><h3><Icon name="bell" /> การแจ้งเตือน</h3></div>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนงานเกินกำหนด</div><div className="cap">เตือนเมื่อมีงานเลยวันที่กำหนด</div></div>
+          <span className="chip chip-good">เปิด</span>
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนสต็อกใกล้หมด</div><div className="cap">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div></div>
+          <span className="chip chip-good">เปิด</span>
+        </div>
+      </div>
+
+      {/* Data */}
+      <div className="card">
+        <div className="card-head"><h3><Icon name="layers" /> ข้อมูลและการซิงค์</h3></div>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>ซิงค์ข้อมูลอัตโนมัติ</div><div className="cap">เชื่อมต่อกับ Supabase (ยังไม่เปิดใช้งาน)</div></div>
+          <span className="chip">รอเปิดใช้</span>
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>Export ข้อมูล</div><div className="cap">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV</div></div>
+          <button className="btn btn-sm btn-outline" onClick={() => { if (window.__toast) window.__toast('ส่งออกข้อมูลเรียบร้อย', 'success'); }}>
+            <Icon name="external" /> Export
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Updates / Changelog ---- */
+function UpdatesView() {
+  const updates = [
+    { ver: '1.4.0', date: '7 มิ.ย. 2569', type: 'feature', items: [
+      'เพิ่มระบบ Onboarding Tour สำหรับผู้ใช้ใหม่',
+      'เพิ่มระบบ Toast Notification หลังบันทึกข้อมูล',
+      'เพิ่ม Help Center — คู่มือการใช้งานแบบละเอียด 3 ระดับ',
+      'เพิ่มหน้าโปรไฟล์ — แก้ไขชื่อ/รูปโปรไฟล์ได้',
+      'ปรับ UI สิทธิ์ผู้ใช้ — แก้ชื่อ/รูปลิงก์กับงานอัตโนมัติ',
+    ]},
+    { ver: '1.3.0', date: '5 มิ.ย. 2569', type: 'feature', items: [
+      'เพิ่มระบบบันทึกยอดขาย 2 ขั้นตอน (กรอก → ตรวจสอบ)',
+      'เพิ่มระบบ Month Navigator + Quarter View',
+      'เพิ่ม Spotlight Search (⌘K)',
+      'เพิ่มปุ่ม "+ เพิ่มงาน" ในทุก Kanban column',
+    ]},
+    { ver: '1.2.0', date: '3 มิ.ย. 2569', type: 'improvement', items: [
+      'ปรับปรุงปฏิทิน — ช่องเท่ากัน, ไอคอนแพลตฟอร์ม, filter ทำงาน',
+      'ปรับ Timeline เป็น vertical + filter controls',
+      'ปรับ Kanban card style + drag-drop',
+      'แก้ letter-spacing ทั้งระบบ',
+    ]},
+    { ver: '1.1.0', date: '1 มิ.ย. 2569', type: 'feature', items: [
+      'เพิ่มหน้า Sales Dashboard ครบ 4 แท็บ',
+      'เพิ่มระบบ Data Entry (รายวัน/รายเดือน/สถานะ)',
+      'เพิ่ม Modal: เป้าหมายเดือน, แคมเปญแอด, กลุ่มลูกค้า, ย้อนหลัง',
+      'Port ทั้งระบบจาก vanilla script เป็น Vite + React ES modules',
+    ]},
+    { ver: '1.0.0', date: '28 พ.ค. 2569', type: 'release', items: [
+      'เปิดตัว TMK Operation',
+      'หน้าหลัก Executive Dashboard',
+      'ระบบจัดการงาน Planner (Calendar + Kanban)',
+      'แคตตาล็อก (สินค้า + แคมเปญ + PO)',
+      'ระบบ Login + Dark mode',
+    ]},
+  ];
+
+  const typeLabel = { feature: { l: 'ฟีเจอร์ใหม่', cls: 'chip-good' }, improvement: { l: 'ปรับปรุง', cls: 'chip-accent' }, fix: { l: 'แก้ไข', cls: 'chip-warn' }, release: { l: 'เปิดตัว', cls: '' } };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+        <div className="row" style={{ gap: 10 }}>
+          <Icon name="sparkle" />
+          <div>
+            <div className="h3">เวอร์ชันปัจจุบัน: {updates[0].ver}</div>
+            <div className="cap">อัปเดตล่าสุด {updates[0].date}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ position: 'relative', paddingLeft: 28 }}>
+        {/* Vertical line */}
+        <div style={{ position: 'absolute', left: 10, top: 0, bottom: 0, width: 2, background: 'var(--line)', borderRadius: 1 }}></div>
+
+        {updates.map((u, ui) => {
+          const t = typeLabel[u.type] || typeLabel.feature;
+          return (
+            <div key={u.ver} style={{ marginBottom: 24, position: 'relative' }}>
+              <div style={{ position: 'absolute', left: -28, top: 4, width: 20, height: 20, borderRadius: '50%', background: ui === 0 ? 'var(--accent)' : 'var(--surface-3)', border: '2px solid var(--surface)', zIndex: 1, display: 'grid', placeItems: 'center' }}>
+                {ui === 0 && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }}></span>}
+              </div>
+              <div className="card">
+                <div className="row between" style={{ marginBottom: 10 }}>
+                  <div className="row" style={{ gap: 8 }}>
+                    <span className="h3">v{u.ver}</span>
+                    <span className={`chip ${t.cls}`}>{t.l}</span>
+                  </div>
+                  <span className="cap">{u.date}</span>
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {u.items.map((item, i) => (
+                    <li key={i} className="sm" style={{ color: 'var(--ink-2)', lineHeight: 1.4 }}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ====================  PROFILE VIEW  ==================== */
+export function ProfileView({ tasks }) {
+  const ME = DD.staff[0]; // Current user = มัง
+  const myRole = DD.roles.find(r => r.name.includes('มัง'));
+  const [name, setName] = useState(ME.name);
+  const [avatar, setAvatar] = useState('');
+  const [tab, setTab] = useState('tasks'); // tasks | activity
+
+  const myTasks = (tasks || DD.tasks).filter(t => t.responsible.includes(ME.name));
+  const myDone = myTasks.filter(t => t.status === 'done').length;
+  const myActive = myTasks.filter(t => t.status !== 'done').length;
+  const myActivity = DD.audit.filter(a => a.user === ME.name);
+
+  const saveProfile = () => {
+    if (window.__toast) window.__toast('อัปเดตโปรไฟล์เรียบร้อย', 'success');
+  };
+
+  return (
+    <div className="content-inner rise">
+      {/* Profile Header */}
+      <div className="card" style={{ padding: 24, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+        <div style={{ position: 'relative' }}>
+          {avatar ? (
+            <img src={avatar} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} alt="" />
+          ) : (
+            <Avatar name={name} color={ME.color} size={80} />
+          )}
+          <label style={{
+            position: 'absolute', bottom: -2, right: -2, width: 28, height: 28,
+            borderRadius: '50%', background: 'var(--accent)', color: '#fff',
+            display: 'grid', placeItems: 'center', cursor: 'pointer',
+            border: '3px solid var(--surface)',
+          }}>
+            <Icon name="pencil" />
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+              const file = e.target.files?.[0];
+              if (file) { const r = new FileReader(); r.onload = ev => setAvatar(ev.target.result); r.readAsDataURL(file); }
+            }} />
+          </label>
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div className="row" style={{ gap: 10, marginBottom: 4 }}>
+            <input className="input" value={name} onChange={e => setName(e.target.value)}
+              style={{ fontSize: 'var(--fs-h2)', fontWeight: 700, border: 'none', background: 'transparent', padding: 0, borderBottom: '2px solid var(--line)', borderRadius: 0, maxWidth: 250 }} />
+            <button className="btn btn-sm btn-primary" onClick={saveProfile}><Icon name="check" /> บันทึก</button>
+          </div>
+          <div className="cap" style={{ marginBottom: 8 }}>{myRole?.email || 'jiraphon.e@tmk.co'}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <span className="chip chip-accent">{myRole?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'แก้ไขได้'}</span>
+            <span className="cap">เข้าร่วมตั้งแต่ พ.ค. 2569</span>
+          </div>
+        </div>
+        <div className="grid g3" style={{ gap: 16, textAlign: 'center' }}>
+          <div>
+            <div className="num h1" style={{ color: 'var(--accent)' }}>{myTasks.length}</div>
+            <div className="cap">งานทั้งหมด</div>
+          </div>
+          <div>
+            <div className="num h1" style={{ color: 'var(--good)' }}>{myDone}</div>
+            <div className="cap">เสร็จแล้ว</div>
+          </div>
+          <div>
+            <div className="num h1" style={{ color: 'var(--warn)' }}>{myActive}</div>
+            <div className="cap">กำลังทำ</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab: My tasks / My activity */}
+      <div className="segbar" style={{ marginBottom: 16, display: 'inline-flex' }}>
+        <button className={'seg' + (tab === 'tasks' ? ' active' : '')} onClick={() => setTab('tasks')}><Icon name="listChecks" /> งานของฉัน ({myTasks.length})</button>
+        <button className={'seg' + (tab === 'activity' ? ' active' : '')} onClick={() => setTab('activity')}><Icon name="clock" /> ประวัติของฉัน ({myActivity.length})</button>
+      </div>
+
+      {tab === 'tasks' && (
+        <div className="card">
+          {myTasks.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}><div className="cap">ยังไม่มีงาน</div></div>}
+          {myTasks.map(t => {
+            const c = DD.campaigns.find(x => x.id === t.camp);
+            const stMap = { todo: { l: 'รอทำ', c: 'var(--ink-3)' }, inprogress: { l: 'กำลังทำ', c: 'var(--info)' }, review: { l: 'รอตรวจ', c: 'var(--warn)' }, done: { l: 'เสร็จ', c: 'var(--good)' } };
+            const st = stMap[t.status] || stMap.todo;
+            return (
+              <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
+                className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)', cursor: 'pointer', transition: 'background 0.1s' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.c, flexShrink: 0 }}></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="sm" style={{ fontWeight: 600, textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{t.title}</div>
+                  <div className="cap">{c?.name} · {t.date}</div>
+                </div>
+                <span className="cap" style={{ color: st.c, fontWeight: 600 }}>{st.l}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === 'activity' && (
+        <div className="card">
+          {myActivity.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}><div className="cap">ยังไม่มีประวัติ</div></div>}
+          {myActivity.map((a, i) => {
+            const tc = a.type === 'create' ? 'var(--good)' : a.type === 'delete' ? 'var(--bad)' : 'var(--info)';
+            return (
+              <div key={i} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: tc, flexShrink: 0 }}></span>
+                <div style={{ flex: 1 }}>
+                  <div className="sm" style={{ fontWeight: 600 }}>{a.action}</div>
+                  <div className="cap">{a.summary}</div>
+                </div>
+                <span className="cap">{a.time}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Legacy export for backward compat */
+export function SystemView({ sub }) {
+  return <SettingsView sub={sub} />;
+}
+
+function AuditView() {
+  const [filter, setFilter] = useState('all');
+  const types = [['all','ทั้งหมด'],['create','สร้าง'],['update','แก้ไข'],['delete','ลบ']];
+  const list = filter === 'all' ? DD.audit : DD.audit.filter(a => a.type === filter);
+  return (
+    <div className="content-inner rise">
+      <div className="card">
+        <div className="card-head">
+          <h3><span style={{color:'var(--accent)'}}><Icon name="clock" /></span> ประวัติการใช้งาน</h3>
+          <div className="segbar" style={{ background: 'var(--surface-2)' }}>
+            {types.map(t => <button key={t[0]} className={`seg ${filter===t[0]?'active':''}`} onClick={()=>setFilter(t[0])}>{t[1]}</button>)}
+          </div>
+        </div>
+        <div>
+          {list.map((a, i) => {
+            const s = DD.staff.find(x => x.name === a.user) || { color: '#888' };
+            const tc = a.type==='create'?'var(--good)':a.type==='delete'?'var(--bad)':'var(--info)';
+            const tl = a.type==='create'?'สร้าง':a.type==='delete'?'ลบ':'แก้ไข';
+            return (
+              <div key={i} className="row" style={{ gap: 13, padding: '13px 4px', borderBottom: '1px solid var(--line-2)' }}>
+                <Avatar name={a.user} color={s.color} size={34} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="sm"><strong>{a.user}</strong> <span className="muted">{a.action}</span> · <span className="faint">{a.entity}</span></div>
+                  <div className="cap" style={{ marginTop: 2 }}>{a.summary}</div>
+                </div>
+                <span className="chip" style={{ background: tc+'1c', color: tc }}>{tl}</span>
+                <span className="cap" style={{ width: 96, textAlign: 'right', flexShrink: 0 }}>{a.time}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RolesView() {
+  const roleMeta = { admin: { l: 'ผู้ดูแลระบบ', cls: 'chip-accent' }, editor: { l: 'แก้ไขได้', cls: 'chip-good' }, viewer: { l: 'ดูอย่างเดียว', cls: '' } };
+  const [users, setUsers] = useState(DD.roles.map(r => ({ ...r })));
+  const [editing, setEditing] = useState(null); // email of user being edited
+  const [editName, setEditName] = useState('');
+  const [editRole, setEditRole] = useState('viewer');
+  const [editAvatar, setEditAvatar] = useState('');
+
+  // New user form
+  const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState('viewer');
+
+  const startEdit = (u) => {
+    setEditing(u.email);
+    setEditName(u.name);
+    setEditRole(u.role);
+    setEditAvatar(u.avatar || '');
+  };
+
+  const saveEdit = () => {
+    setUsers(us => us.map(u => u.email === editing ? { ...u, name: editName, role: editRole, avatar: editAvatar } : u));
+    setEditing(null);
+    if (window.__toast) window.__toast('อัปเดตผู้ใช้เรียบร้อย', 'success');
+  };
+
+  const cancelEdit = () => setEditing(null);
+
+  const addUser = () => {
+    if (!newEmail.trim()) return;
+    if (users.find(u => u.email === newEmail)) {
+      if (window.__toast) window.__toast('อีเมลนี้มีอยู่แล้ว', 'warn');
+      return;
+    }
+    setUsers(us => [...us, { email: newEmail, name: newEmail.split('@')[0], role: newRole }]);
+    setNewEmail('');
+    setNewRole('viewer');
+    if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
+  };
+
+  // Count tasks per person
+  const taskCount = (name) => DD.tasks.filter(t => t.responsible.includes(name)).length;
+
+  return (
+    <div className="content-inner rise">
+      <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
+        <div className="card">
+          <div className="card-head"><h3><span style={{color:'var(--accent)'}}><Icon name="shield" /></span> สิทธิ์ผู้ใช้</h3></div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {users.map(u => {
+              const isEditing = editing === u.email;
+              const tasks = taskCount(u.name);
+              const staffColor = DD.staff.find(s => s.name === u.name)?.color || 'var(--ink-3)';
+
+              if (isEditing) {
+                return (
+                  <div key={u.email} style={{ padding: '16px 14px', borderBottom: '1px solid var(--line)', background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', margin: '0 -2px' }}>
+                    <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขโปรไฟล์</div>
+                    {/* Avatar upload */}
+                    <div className="row" style={{ gap: 14, marginBottom: 14 }}>
+                      <div style={{ position: 'relative' }}>
+                        {editAvatar ? (
+                          <img src={editAvatar} style={{ width: 52, height: 52, borderRadius: 14, objectFit: 'cover' }} alt="" />
+                        ) : (
+                          <Avatar name={editName || u.name} color={staffColor} size={52} />
+                        )}
+                        <label style={{
+                          position: 'absolute', bottom: -4, right: -4, width: 22, height: 22,
+                          borderRadius: '50%', background: 'var(--accent)', color: '#fff',
+                          display: 'grid', placeItems: 'center', cursor: 'pointer',
+                          border: '2px solid var(--surface)', fontSize: 10,
+                        }}>
+                          <Icon name="pencil" />
+                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = ev => setEditAvatar(ev.target.result);
+                              reader.readAsDataURL(file);
+                            }
+                          }} />
+                        </label>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div className="cap" style={{ marginBottom: 4 }}>ชื่อที่แสดง (ลิงก์กับงาน)</div>
+                        <input className="input" value={editName} onChange={e => setEditName(e.target.value)}
+                          placeholder="ชื่อที่ใช้แสดงในระบบ" style={{ fontWeight: 600 }} />
+                      </div>
+                    </div>
+
+                    <div className="cap" style={{ marginBottom: 4 }}>สิทธิ์</div>
+                    <div className="segbar" style={{ marginBottom: 12 }}>
+                      {Object.entries(roleMeta).map(([k, v]) => (
+                        <button key={k} className={'seg' + (editRole === k ? ' active' : '')} onClick={() => setEditRole(k)}>{v.l}</button>
+                      ))}
+                    </div>
+
+                    {tasks > 0 && (
+                      <div className="cap" style={{ marginBottom: 10, color: 'var(--info)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Icon name="listChecks" /> เปลี่ยนชื่อจะอัปเดตอัตโนมัติใน {tasks} งานที่เกี่ยวข้อง
+                      </div>
+                    )}
+
+                    <div className="row" style={{ gap: 8 }}>
+                      <button className="btn btn-sm" onClick={cancelEdit}>ยกเลิก</button>
+                      <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim()}>
+                        <Icon name="check" /> บันทึก
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={u.email} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
+                  <Avatar name={u.name} color={staffColor} size={34} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="sm" style={{ fontWeight: 600 }}>{u.name}</div>
+                    <div className="cap">{u.email}</div>
+                  </div>
+                  {tasks > 0 && (
+                    <span className="cap" style={{ color: 'var(--ink-3)', flexShrink: 0 }}>{tasks} งาน</span>
+                  )}
+                  <span className={`chip ${roleMeta[u.role].cls}`}>{roleMeta[u.role].l}</span>
+                  <button className="btn btn-sm btn-ghost" onClick={() => startEdit(u)} title="แก้ไข">
+                    <Icon name="pencil" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 14 }}>เพิ่มผู้ใช้ใหม่</div>
+          <div className="col" style={{ gap: 12 }}>
+            <div className="col" style={{ gap: 5 }}>
+              <label className="cap" style={{ fontWeight: 600 }}>อีเมล</label>
+              <input className="input" placeholder="name@tmk.co" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+            </div>
+            <div className="col" style={{ gap: 5 }}>
+              <label className="cap" style={{ fontWeight: 600 }}>สิทธิ์</label>
+              <div className="segbar">
+                {Object.entries(roleMeta).map(([k, v]) => (
+                  <button key={k} className={'seg' + (newRole === k ? ' active' : '')} onClick={() => setNewRole(k)}>{v.l}</button>
+                ))}
+              </div>
+            </div>
+            <button className="btn btn-primary" style={{ width: '100%' }} onClick={addUser}
+              disabled={!newEmail.trim()} style={{ width: '100%', opacity: newEmail.trim() ? 1 : 0.5 }}>
+              <Icon name="userPlus" /> เพิ่มผู้ใช้
+            </button>
+            <div className="cap" style={{ lineHeight: 1.5, marginTop: 4 }}>
+              <strong>ผู้ดูแล</strong> จัดการได้ทุกอย่าง · <strong>แก้ไขได้</strong> บันทึกข้อมูลงานและยอดขาย · <strong>ดูอย่างเดียว</strong> เปิดดูได้แต่แก้ไม่ได้
+            </div>
+            <div style={{ marginTop: 8, padding: '10px 12px', background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', borderLeft: '3px solid var(--accent)' }}>
+              <div className="cap" style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                <Icon name="sparkle" /> เปลี่ยนชื่อผู้ใช้จะอัปเดตชื่อใน task, kanban, ปฏิทิน และ timeline อัตโนมัติ
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrashView() {
+  return (
+    <div className="content-inner rise">
+      <div className="card" style={{ textAlign: 'center', padding: '56px 20px' }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 64, height: 64 }}>
+          <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6" />
+        </svg>
+        <h3 style={{ marginTop: 12 }}>ถังขยะว่างเปล่า</h3>
+        <div className="cap" style={{ marginTop: 6 }}>รายการที่ลบจะเก็บไว้ที่นี่ 30 วัน ก่อนลบถาวร · กู้คืนได้ตลอด</div>
+      </div>
+    </div>
+  );
+}

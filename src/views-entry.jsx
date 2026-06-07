@@ -1,0 +1,950 @@
+/* ============================================================
+   TMK Operation — Views: Data Entry Hub (บันทึก)
+   ============================================================ */
+import React, { useState } from 'react';
+import { TMK } from './data.js';
+import { B, Bk, N, Icon, Ring } from './components.jsx';
+
+const DD = TMK;
+
+/* ---- Month/Thai helpers ---- */
+const MONTH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const MONTH_FULL  = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+
+const NOW_MONTH = 5; // June (index 5)
+const NOW_YEAR  = 2569;
+const TODAY = 18;
+const DAYS_IN_MONTH = 30;
+const ENTERED_DAYS = 17;
+
+// Mock daily revenue for calendar
+const dayRevMap = {};
+DD.dailyMonth.forEach(d => { dayRevMap[d.d] = d.rev; });
+
+/* ---- Quarter mock data ---- */
+const QUARTER_DATA = {
+  2569: {
+    0: [ // Q1
+      { target: 950000, actual: 880000, status: 'ปิดแล้ว' },
+      { target: 950000, actual: 910000, status: 'ปิดแล้ว' },
+      { target: 1000000, actual: 940000, status: 'ปิดแล้ว' },
+    ],
+    1: [ // Q2
+      { target: 1000000, actual: 920000, status: 'ปิดแล้ว' },
+      { target: 1000000, actual: 968000, status: 'ปิดแล้ว' },
+      { target: 1000000, actual: 558000, status: 'กำลังดำเนินการ' },
+    ],
+    2: [ // Q3
+      { target: 1000000, actual: 0, status: 'เตรียมการ' },
+      { target: 1000000, actual: 0, status: 'เตรียมการ' },
+      { target: 1000000, actual: 0, status: 'เตรียมการ' },
+    ],
+    3: [ // Q4
+      { target: 0, actual: 0, status: 'เตรียมการ' },
+      { target: 0, actual: 0, status: 'เตรียมการ' },
+      { target: 0, actual: 0, status: 'เตรียมการ' },
+    ],
+  },
+};
+
+function getMode(month, year) {
+  const isCurrent = month === NOW_MONTH && year === NOW_YEAR;
+  const isPast = year < NOW_YEAR || (year === NOW_YEAR && month < NOW_MONTH);
+  const isFuture = year > NOW_YEAR || (year === NOW_YEAR && month > NOW_MONTH);
+  return { isCurrent, isPast, isFuture };
+}
+
+/* ====================  MONTH NAVIGATOR  ==================== */
+function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView }) {
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerYear, setPickerYear] = useState(year);
+  const { isCurrent, isPast, isFuture } = getMode(month, year);
+
+  const label = MONTH_SHORT[month] + ' ' + year;
+
+  const goPrev = () => {
+    if (month === 0) { setMonth(11); setYear(year - 1); }
+    else setMonth(month - 1);
+  };
+  const goNext = () => {
+    if (month === 11) { setMonth(0); setYear(year + 1); }
+    else setMonth(month + 1);
+  };
+  const goToday = () => { setMonth(NOW_MONTH); setYear(NOW_YEAR); setQuarterView(false); };
+
+  const pickMonth = (m) => {
+    setMonth(m);
+    setYear(pickerYear);
+    setShowPicker(false);
+    setQuarterView(false);
+  };
+
+  const modeBadge = isCurrent
+    ? { label: 'เดือนปัจจุบัน', bg: 'var(--good-soft)', color: 'var(--good)' }
+    : isPast
+    ? { label: 'เดือนที่ผ่านมา', bg: 'var(--surface-3)', color: 'var(--ink-3)' }
+    : { label: 'เตรียมการ', bg: 'var(--accent-soft)', color: 'var(--accent)' };
+
+  return (
+    <div style={{ position: 'relative', marginBottom: 8 }}>
+      <div className="card" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        {/* Left arrow */}
+        <button className="btn btn-ghost" onClick={goPrev} style={{ padding: 6 }}>
+          <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </button>
+
+        {/* Month label (clickable for picker) */}
+        <button className="btn btn-ghost" onClick={() => { setPickerYear(year); setShowPicker(!showPicker); }}
+          style={{ fontWeight: 700, fontSize: 'var(--fs-h3)', padding: '4px 12px', minWidth: 120, textAlign: 'center' }}>
+          {label}
+          <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ width: 14, height: 14, marginLeft: 4 }}>
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
+
+        {/* Right arrow */}
+        <button className="btn btn-ghost" onClick={goNext} style={{ padding: 6 }}>
+          <Icon name="chevR" />
+        </button>
+
+        {/* Mode badge */}
+        <span className="chip" style={{ background: modeBadge.bg, color: modeBadge.color, fontWeight: 600 }}>
+          {modeBadge.label}
+        </span>
+
+        {/* Today button */}
+        {!isCurrent && (
+          <button className="btn btn-sm btn-outline" onClick={goToday}>วันนี้</button>
+        )}
+
+        {/* Quarter view toggle */}
+        <button className="btn btn-sm btn-outline" onClick={() => setQuarterView(!quarterView)}
+          style={{ marginLeft: 'auto', background: quarterView ? 'var(--accent-soft)' : undefined, color: quarterView ? 'var(--accent)' : undefined }}>
+          <Icon name="grid" />
+          {quarterView ? 'ดูรายเดือน' : 'ดูรายไตรมาส'}
+        </button>
+      </div>
+
+      {/* Quick Jump Dropdown */}
+      {showPicker && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={() => setShowPicker(false)}></div>
+          <div className="card" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, marginTop: 4, padding: 16, width: 320, boxShadow: 'var(--shadow-lg, 0 8px 32px rgba(0,0,0,.15))' }}>
+            {/* Year nav */}
+            <div className="row between" style={{ marginBottom: 12 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPickerYear(pickerYear - 1)}>
+                <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M15 6l-6 6 6 6" />
+                </svg>
+                {pickerYear - 1}
+              </button>
+              <span className="h3">{pickerYear}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPickerYear(pickerYear + 1)}>
+                {pickerYear + 1}
+                <Icon name="chevR" />
+              </button>
+            </div>
+            {/* Month grid 4x3 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+              {MONTH_SHORT.map((m, i) => {
+                const isSelected = i === month && pickerYear === year;
+                const isNow = i === NOW_MONTH && pickerYear === NOW_YEAR;
+                return (
+                  <button key={i} className={`pick${isSelected ? ' on' : ''}`}
+                    onClick={() => pickMonth(i)}
+                    style={{
+                      padding: '8px 4px', borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer',
+                      background: isSelected ? 'var(--accent)' : isNow ? 'var(--accent-soft)' : 'var(--surface-2)',
+                      color: isSelected ? '#fff' : isNow ? 'var(--accent)' : 'var(--ink)',
+                      fontWeight: isSelected || isNow ? 700 : 400,
+                      fontSize: 'var(--fs-sm)',
+                    }}>
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ====================  QUARTER VIEW  ==================== */
+function QuarterView({ month, year }) {
+  const qIndex = Math.floor(month / 3);
+  const qStart = qIndex * 3;
+  const qMonths = [qStart, qStart + 1, qStart + 2];
+  const qLabel = `Q${qIndex + 1}/${year}`;
+
+  const qData = (QUARTER_DATA[year] && QUARTER_DATA[year][qIndex])
+    ? QUARTER_DATA[year][qIndex]
+    : [
+        { target: 0, actual: 0, status: 'เตรียมการ' },
+        { target: 0, actual: 0, status: 'เตรียมการ' },
+        { target: 0, actual: 0, status: 'เตรียมการ' },
+      ];
+
+  // Next quarter
+  const nqIndex = (qIndex + 1) % 4;
+  const nqYear = qIndex === 3 ? year + 1 : year;
+  const nqStart = nqIndex * 3;
+  const nqMonths = [nqStart, nqStart + 1, nqStart + 2];
+  const nqLabel = `Q${nqIndex + 1}/${nqYear}`;
+  const nqData = (QUARTER_DATA[nqYear] && QUARTER_DATA[nqYear][nqIndex])
+    ? QUARTER_DATA[nqYear][nqIndex]
+    : [
+        { target: 0, actual: 0, status: 'เตรียมการ' },
+        { target: 0, actual: 0, status: 'เตรียมการ' },
+        { target: 0, actual: 0, status: 'เตรียมการ' },
+      ];
+
+  const statusIcon = (s) => {
+    if (s === 'ปิดแล้ว') return { icon: 'check', color: 'var(--good)', bg: 'var(--good-soft)' };
+    if (s === 'กำลังดำเนินการ') return { icon: 'refresh', color: 'var(--accent)', bg: 'var(--accent-soft)' };
+    return { icon: 'clock', color: 'var(--ink-3)', bg: 'var(--surface-3)' };
+  };
+
+  const renderQuarter = (label, months, data, showSetTarget) => (
+    <div style={{ marginBottom: 24 }}>
+      <div className="h3" style={{ marginBottom: 12 }}>{label}</div>
+      <div className="grid g3">
+        {months.map((mIdx, i) => {
+          const d = data[i];
+          const pct = d.target > 0 ? Math.round((d.actual / d.target) * 100) : 0;
+          const si = statusIcon(d.status);
+          const { isCurrent: isThisMonth } = getMode(mIdx, label.includes(String(nqYear)) ? nqYear : year);
+          return (
+            <div key={mIdx} className="card" style={{ padding: 20, border: isThisMonth ? '2px solid var(--accent)' : undefined }}>
+              <div className="row between" style={{ marginBottom: 12 }}>
+                <div className="h3">{MONTH_SHORT[mIdx]}</div>
+                {isThisMonth && <span className="chip chip-accent" style={{ fontSize: 10 }}>เดือนนี้</span>}
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                <Ring pct={pct} size={72} stroke={8} color={si.color}>
+                  <div>
+                    <div className="sm" style={{ fontWeight: 700, lineHeight: 1 }}>{pct}%</div>
+                  </div>
+                </Ring>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="row between">
+                  <span className="cap">เป้า</span>
+                  <span className="sm num">{d.target > 0 ? Bk(d.target) : '-'}</span>
+                </div>
+                <div className="row between">
+                  <span className="cap">จริง</span>
+                  <span className="sm num">{d.actual > 0 ? Bk(d.actual) : '-'}</span>
+                </div>
+                <div className="row between">
+                  <span className="cap">Ring</span>
+                  <span className="sm num">{d.target > 0 ? pct + '%' : '-'}</span>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <span className="chip" style={{ background: si.bg, color: si.color, fontWeight: 600, width: '100%', justifyContent: 'center' }}>
+                  <span style={{ width: 14, height: 14, display: 'inline-flex' }}><Icon name={si.icon} /></span>
+                  {d.status}
+                </span>
+              </div>
+
+              {showSetTarget && d.status === 'เตรียมการ' && (
+                <button className="btn btn-outline btn-sm" style={{ marginTop: 8, width: '100%' }}
+                  onClick={() => window.__openModal('monthlyTarget')}>
+                  ตั้งเป้า
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {renderQuarter(qLabel, qMonths, qData, false)}
+      {renderQuarter(nqLabel, nqMonths, nqData, true)}
+    </div>
+  );
+}
+
+/* ====================  ENTRY VIEW ROUTER  ==================== */
+export function EntryView({ sub }) {
+  const [month, setMonth] = useState(NOW_MONTH);
+  const [year, setYear]   = useState(NOW_YEAR);
+  const [quarterView, setQuarterView] = useState(false);
+
+  const mode = getMode(month, year);
+  const monthLabel = MONTH_SHORT[month];
+  const monthFull  = MONTH_FULL[month];
+
+  return (
+    <>
+      <MonthNav month={month} year={year} setMonth={setMonth} setYear={setYear}
+        quarterView={quarterView} setQuarterView={setQuarterView} />
+      {quarterView
+        ? <QuarterView month={month} year={year} />
+        : sub === 'monthly' ? <MonthlySetup mode={mode} monthLabel={monthLabel} monthFull={monthFull} month={month} year={year} />
+        : sub === 'status'  ? <StatusOverview mode={mode} monthLabel={monthLabel} monthFull={monthFull} month={month} year={year} />
+        : <DailyEntry mode={mode} monthLabel={monthLabel} monthFull={monthFull} month={month} year={year} />
+      }
+    </>
+  );
+}
+
+/* ====================  DAILY ENTRY  ==================== */
+function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
+  const { isCurrent, isPast, isFuture } = mode;
+  const [editing, setEditing] = useState(false);
+  const todayLog = DD.dailyLog[0];
+  const todayEntered = false;
+  const totalToday = todayLog ? todayLog.shopee + todayLog.tiktok + todayLog.lazada + todayLog.facebook + todayLog.line + todayLog.crm : 0;
+
+  /* ---- FUTURE ---- */
+  if (isFuture) {
+    return (
+      <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+          <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} {year} — ยังไม่เริ่ม</div>
+          <div className="sm" style={{ color: 'var(--ink-2)' }}>เดือนนี้ยังไม่เปิดให้กรอกข้อมูล</div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="eyebrow">ปฏิทินการกรอก</div>
+              <div className="h3">{monthLabel} {year}</div>
+            </div>
+          </div>
+          <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+            <div style={{ width: 48, height: 48, margin: '0 auto 12px', color: 'var(--ink-4)' }}><Icon name="clock" /></div>
+            <div className="h3" style={{ color: 'var(--ink-3)', marginBottom: 4 }}>ยังไม่ถึงเวลากรอกข้อมูลเดือนนี้</div>
+            <div className="sm" style={{ color: 'var(--ink-4)' }}>ข้อมูลจะเปิดให้กรอกเมื่อถึงเดือน{monthFull}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- PAST ---- */
+  if (isPast) {
+    return (
+      <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 20, background: 'var(--surface-2)', borderLeft: '4px solid var(--ink-3)' }}>
+          <div className="row between wrap" style={{ gap: 12 }}>
+            <div>
+              <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} — ข้อมูลย้อนหลัง</div>
+              <div className="sm" style={{ color: 'var(--ink-2)' }}>ข้อมูลเดือนนี้ถูกปิดแล้ว สามารถดูข้อมูลย้อนหลังได้</div>
+            </div>
+            <button className="btn btn-outline" onClick={() => setEditing(!editing)}>
+              <Icon name="pencil" />{editing ? 'ยกเลิก' : 'แก้ไข'}
+            </button>
+          </div>
+        </div>
+
+        {/* Calendar - read only */}
+        <div className="card" style={{ opacity: editing ? 1 : 0.8 }}>
+          <div className="card-head">
+            <div>
+              <div className="eyebrow">ปฏิทินการกรอก</div>
+              <div className="h3">{monthLabel} {year}</div>
+            </div>
+            <span className="chip">30/30 วัน</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 16px 16px' }}>
+            {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
+              <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
+            ))}
+            {Array.from({ length: 30 }, (_, i) => {
+              const day = i + 1;
+              return (
+                <div key={day} style={{
+                  textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
+                  background: 'var(--good-soft)', border: '1px solid var(--line)',
+                }}>
+                  <div className="sm" style={{ fontWeight: 600, color: 'var(--good)' }}>{day}</div>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--good)', margin: '2px auto 0' }}></div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Table - read only */}
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="eyebrow">รายการย้อนหลัง</div>
+              <div className="h3">ยอดขายเดือน{monthLabel} {year}</div>
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl" style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>วันที่</th>
+                  <th style={{ textAlign: 'right' }}>รายได้รวม</th>
+                  <th style={{ textAlign: 'right' }}>ออเดอร์</th>
+                  <th style={{ textAlign: 'center' }}>สถานะ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {DD.dailyLog.map((log, i) => {
+                  const total = log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
+                  return (
+                    <tr key={i}>
+                      <td><span className="sm" style={{ fontWeight: 600 }}>{log.date}</span></td>
+                      <td style={{ textAlign: 'right' }}><span className="num">{B(total)}</span></td>
+                      <td style={{ textAlign: 'right' }}><span className="sm">{Math.round(total / 280)}</span></td>
+                      <td style={{ textAlign: 'center' }}><span className="chip chip-good">กรอกแล้ว</span></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- CURRENT (default / existing behavior) ---- */
+  return (
+    <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Status Banner */}
+      <div className="card" style={{ padding: 20, background: todayEntered ? 'var(--good-soft)' : 'var(--warn-soft)', borderLeft: `4px solid ${todayEntered ? 'var(--good)' : 'var(--warn)'}` }}>
+        <div className="row between wrap" style={{ gap: 12 }}>
+          <div>
+            <div className="h3" style={{ marginBottom: 4 }}>
+              {todayEntered ? `กรอกยอดวันนี้แล้ว (${TODAY} ${monthLabel})` : `ยังไม่ได้กรอกยอดวันนี้ (${TODAY} ${monthLabel})`}
+            </div>
+            <div className="sm" style={{ color: 'var(--ink-2)' }}>
+              {todayEntered ? 'ข้อมูลอัปเดตแล้ว Dashboard จะแสดงตัวเลขล่าสุด' : 'กรอกยอดขายเพื่อให้ Dashboard อัปเดตข้อมูลวันนี้'}
+            </div>
+          </div>
+          {!todayEntered && (
+            <button className="btn btn-accent" onClick={() => window.__openModal('record')}>
+              <Icon name="pencil" />กรอกเลย
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Quick Entry Button */}
+      <button className="card" onClick={() => window.__openModal('record')}
+        style={{ padding: 28, textAlign: 'center', cursor: 'pointer', border: '2px dashed var(--accent)', background: 'var(--accent-soft)' }}>
+        <div style={{ width: 32, height: 32, margin: '0 auto 8px', color: 'var(--accent)' }}><Icon name="pencil" /></div>
+        <div className="h2" style={{ color: 'var(--accent)', marginBottom: 4 }}>บันทึกยอดขายวันนี้</div>
+        <div className="sm" style={{ color: 'var(--ink-3)' }}>กรอกยอดทุกช่องทาง — Shopee, TikTok, Lazada, Facebook, LINE, CRM</div>
+      </button>
+
+      {/* Entry Calendar */}
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div className="eyebrow">ปฏิทินการกรอก</div>
+            <div className="h3">{monthLabel} {year}</div>
+          </div>
+          <span className="chip">{ENTERED_DAYS}/{DAYS_IN_MONTH} วัน</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 16px 16px' }}>
+          {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
+            <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
+          ))}
+          {/* offset for June 2569 starting on Sunday — shift 6 blanks */}
+          {Array.from({ length: 6 }, (_, i) => <div key={'blank-' + i}></div>)}
+          {Array.from({ length: DAYS_IN_MONTH }, (_, i) => {
+            const day = i + 1;
+            const isToday = day === TODAY;
+            const entered = day < TODAY;
+            const futureDay = day > TODAY;
+            const rev = dayRevMap[day];
+            return (
+              <div key={day} style={{
+                textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
+                background: isToday ? 'var(--warn-soft)' : entered ? 'var(--good-soft)' : 'var(--surface-2)',
+                border: isToday ? '2px solid var(--warn)' : '1px solid var(--line)',
+                opacity: futureDay ? 0.4 : 1,
+                cursor: entered || isToday ? 'pointer' : 'default',
+              }}
+              onClick={() => { if (isToday) window.__openModal('record'); }}
+              >
+                <div className="sm" style={{ fontWeight: 600, color: isToday ? 'var(--warn)' : entered ? 'var(--good)' : 'var(--ink-4)' }}>{day}</div>
+                {entered && rev && <div className="cap" style={{ fontSize: 9, color: 'var(--ink-3)' }}>{Bk(rev)}</div>}
+                {isToday && !entered && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--warn)', margin: '2px auto 0' }}></div>}
+                {entered && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--good)', margin: '2px auto 0' }}></div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Recent Entries Table */}
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div className="eyebrow">รายการล่าสุด</div>
+            <div className="h3">ยอดขาย 7 วันล่าสุด</div>
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="tbl" style={{ width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left' }}>วันที่</th>
+                <th style={{ textAlign: 'right' }}>รายได้รวม</th>
+                <th style={{ textAlign: 'right' }}>ออเดอร์</th>
+                <th style={{ textAlign: 'center' }}>สถานะ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {DD.dailyLog.map((log, i) => {
+                const total = log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
+                const dayNum = parseInt(log.date);
+                const entered = dayNum < TODAY;
+                const isToday = dayNum === TODAY;
+                return (
+                  <tr key={i}>
+                    <td>
+                      <div className="row" style={{ gap: 6 }}>
+                        <span className="sm" style={{ fontWeight: 600 }}>{log.date}</span>
+                        <span className="cap">({log.day})</span>
+                        {isToday && <span className="chip chip-warn" style={{ fontSize: 9 }}>วันนี้</span>}
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span className="num">{B(total)}</span>
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <span className="sm">{Math.round(total / 280)}</span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {entered ? (
+                        <span className="chip chip-good">กรอกแล้ว</span>
+                      ) : isToday ? (
+                        <button className="chip chip-warn" style={{ cursor: 'pointer', border: 'none' }} onClick={() => window.__openModal('record')}>ยังไม่กรอก</button>
+                      ) : (
+                        <span className="chip">ยังไม่กรอก</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================  MONTHLY SETUP  ==================== */
+function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
+  const { isCurrent, isPast, isFuture } = mode;
+
+  const items = [
+    {
+      title: 'เป้าหมายเดือน',
+      icon: 'target',
+      done: true,
+      status: `ตั้งแล้ว: ${B(DD.consts.TARGET)}`,
+      desc: 'ตั้งเป้ารายได้รวมและเป้าต่อช่องทาง',
+      modal: 'monthlyTarget',
+      extra: (
+        <div style={{ marginTop: 10 }}>
+          <div className="cap" style={{ marginBottom: 6 }}>เป้าต่อช่องทาง</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {DD.channels.map(ch => (
+              <div key={ch.id} style={{ flex: 1, minWidth: 60 }}>
+                <div className="bar" style={{ height: 6, background: 'var(--surface-3)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${(ch.target / DD.consts.TARGET) * 100}%`, background: ch.hex, borderRadius: 3 }}></div>
+                </div>
+                <div className="cap" style={{ fontSize: 9, marginTop: 2 }}>{ch.name} {Bk(ch.target)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'งบโฆษณา',
+      icon: 'zap',
+      done: true,
+      status: `ตั้งแล้ว: ${B(DD.computed.AD)}`,
+      desc: 'กำหนดงบโฆษณารวมและงบต่อช่องทาง',
+      modal: 'monthlyTarget',
+      extra: (
+        <div style={{ marginTop: 10 }}>
+          <div className="cap" style={{ marginBottom: 4 }}>งบต่อช่องทาง</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {DD.channels.filter(c => c.hasAd).map(ch => (
+              <span key={ch.id} className="chip" style={{ background: ch.hex + '18', color: ch.hex }}>{ch.name} {Bk(ch.ad)}</span>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'แคมเปญแอด',
+      icon: 'megaphone',
+      done: true,
+      status: `${DD.campaigns.length} แคมเปญ (${DD.campaigns.filter(c => c.status === 'live').length} active)`,
+      desc: 'จัดการแคมเปญโฆษณาทุกแพลตฟอร์ม',
+      modal: 'adCampaign',
+      extra: (
+        <div style={{ marginTop: 10 }}>
+          <div className="cap" style={{ marginBottom: 6 }}>แคมเปญที่กำลังทำงาน</div>
+          {DD.campaigns.filter(c => c.status === 'live').map(c => (
+            <div key={c.id} className="row" style={{ gap: 8, marginBottom: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: c.color, flexShrink: 0 }}></span>
+              <span className="sm">{c.name}</span>
+              <span className="cap" style={{ color: 'var(--ink-3)' }}>{c.start} - {c.end}</span>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      title: 'กลุ่มลูกค้า',
+      icon: 'users',
+      done: false,
+      status: 'ยังไม่ได้อัปเดตเดือนนี้',
+      desc: 'แบ่งกลุ่มลูกค้าเพื่อวางแผนการตลาด',
+      modal: 'customerSegment',
+      extra: (
+        <div style={{ marginTop: 10 }}>
+          <div className="row" style={{ gap: 12 }}>
+            <div className="cap">ลูกค้าใหม่ <span className="num" style={{ fontSize: 'var(--fs-sm)' }}>{N(DD.computed.NEW_C)}</span></div>
+            <div className="cap">ลูกค้าเดิม <span className="num" style={{ fontSize: 'var(--fs-sm)' }}>{N(DD.computed.OLD_C)}</span></div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'ข้อมูลย้อนหลัง',
+      icon: 'clock',
+      done: false,
+      status: 'กรอกแล้ว 6/12 เดือน',
+      desc: 'กรอกข้อมูลย้อนหลังเพื่อวิเคราะห์แนวโน้ม',
+      modal: 'historical',
+      extra: (
+        <div style={{ marginTop: 10 }}>
+          <div className="cap" style={{ marginBottom: 4 }}>ความคืบหน้า 6/12 เดือน</div>
+          <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: '50%', background: 'var(--accent)', borderRadius: 4 }}></div>
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  /* ---- FUTURE ---- */
+  if (isFuture) {
+    return (
+      <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+          <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} {year} — เตรียมการล่วงหน้า</div>
+          <div className="sm" style={{ color: 'var(--ink-2)' }}>ตั้งค่าเป้าหมายและงบประมาณล่วงหน้าสำหรับเดือนถัดไป</div>
+        </div>
+
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-accent" onClick={() => window.__openModal('monthlyTarget')}>
+            <Icon name="target" />ตั้งเป้าล่วงหน้า
+          </button>
+          <button className="btn btn-outline" onClick={() => window.__openModal('monthlyTarget')}>
+            <Icon name="refresh" />Copy จากเดือนก่อน
+          </button>
+        </div>
+
+        <div className="grid g2">
+          {items.map((item, i) => (
+            <div key={i} className="card" style={{ padding: 20, opacity: 0.7 }}>
+              <div className="row" style={{ gap: 10, marginBottom: 8 }}>
+                <span style={{ width: 36, height: 36, borderRadius: 'var(--r-sm)', background: 'var(--surface-3)', color: 'var(--ink-4)', display: 'grid', placeItems: 'center' }}>
+                  <Icon name={item.icon} />
+                </span>
+                <div>
+                  <div className="sm" style={{ fontWeight: 700 }}>{item.title}</div>
+                  <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้ตั้งค่า</div>
+                </div>
+              </div>
+              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => window.__openModal(item.modal)}>
+                <Icon name="plus" />ตั้งเป้าล่วงหน้า
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- PAST ---- */
+  if (isPast) {
+    return (
+      <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="card" style={{ padding: 20, background: 'var(--surface-2)', borderLeft: '4px solid var(--ink-3)' }}>
+          <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} {year} — สรุปผล</div>
+          <div className="sm" style={{ color: 'var(--ink-2)' }}>ข้อมูลเดือนนี้ปิดแล้ว แสดงผลเป็นแบบอ่านอย่างเดียว</div>
+        </div>
+
+        <div className="grid g2">
+          {items.map((item, i) => (
+            <div key={i} className="card" style={{ padding: 20, opacity: 0.85 }}>
+              <div className="row between" style={{ marginBottom: 8 }}>
+                <div className="row" style={{ gap: 10 }}>
+                  <span style={{ width: 36, height: 36, borderRadius: 'var(--r-sm)', background: 'var(--good-soft)', color: 'var(--good)', display: 'grid', placeItems: 'center' }}>
+                    <Icon name={item.icon} />
+                  </span>
+                  <div>
+                    <div className="sm" style={{ fontWeight: 700 }}>{item.title}</div>
+                    <div className="cap" style={{ color: 'var(--ink-3)' }}>{item.desc}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--good)' }}></span>
+                <span className="sm" style={{ fontWeight: 600, color: 'var(--good)' }}>ดูสรุปผล</span>
+              </div>
+
+              {/* Mock actual vs target comparison */}
+              <div style={{ marginTop: 8, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
+                <div className="cap" style={{ marginBottom: 4 }}>ผลจริง vs เป้า</div>
+                <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: '92%', background: 'var(--good)', borderRadius: 4 }}></div>
+                </div>
+                <div className="cap" style={{ marginTop: 2, color: 'var(--good)' }}>92% ของเป้าหมาย</div>
+              </div>
+
+              {item.extra}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- CURRENT (default) ---- */
+  return (
+    <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ marginBottom: 4 }}>
+        <div className="eyebrow">ตั้งค่ารายเดือน</div>
+        <div className="h2">ข้อมูลที่ต้องตั้งค่าสำหรับเดือน{monthLabel}</div>
+      </div>
+
+      <div className="grid g2">
+        {items.map((item, i) => (
+          <div key={i} className="card" style={{ padding: 20 }}>
+            <div className="row between" style={{ marginBottom: 8 }}>
+              <div className="row" style={{ gap: 10 }}>
+                <span style={{ width: 36, height: 36, borderRadius: 'var(--r-sm)', background: item.done ? 'var(--good-soft)' : 'var(--warn-soft)', color: item.done ? 'var(--good)' : 'var(--warn)', display: 'grid', placeItems: 'center' }}>
+                  <Icon name={item.icon} />
+                </span>
+                <div>
+                  <div className="sm" style={{ fontWeight: 700 }}>{item.title}</div>
+                  <div className="cap" style={{ color: 'var(--ink-3)' }}>{item.desc}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: item.done ? 'var(--good)' : 'var(--warn)' }}></span>
+              <span className="sm" style={{ fontWeight: 600, color: item.done ? 'var(--good)' : 'var(--warn)' }}>{item.status}</span>
+            </div>
+
+            {item.extra}
+
+            <button className="btn btn-outline" style={{ marginTop: 12, width: '100%' }} onClick={() => window.__openModal(item.modal)}>
+              <Icon name={item.done ? 'pencil' : 'plus'} />
+              {item.done ? 'แก้ไข' : 'ตั้งค่า'}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ====================  STATUS OVERVIEW  ==================== */
+function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
+  const { isCurrent, isPast, isFuture } = mode;
+
+  /* ---- FUTURE ---- */
+  if (isFuture) {
+    const prepItems = [
+      { label: 'ตั้งเป้าหมาย', done: false, modal: 'monthlyTarget' },
+      { label: 'ตั้งงบแอด', done: false, modal: 'monthlyTarget' },
+      { label: 'เตรียมแคมเปญ', done: false, modal: 'adCampaign' },
+    ];
+    return (
+      <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+          <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} {year} — เตรียมการ</div>
+          <div className="sm" style={{ color: 'var(--ink-2)' }}>เตรียมข้อมูลล่วงหน้าสำหรับเดือนถัดไป</div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="eyebrow">สิ่งที่ต้องเตรียม</div>
+              <div className="h3">Checklist เตรียมการเดือน{monthLabel}</div>
+            </div>
+          </div>
+          <div style={{ padding: '0 16px 16px' }}>
+            {prepItems.map((item, i) => (
+              <div key={i} className="row between" style={{ padding: '14px 4px', borderBottom: i < prepItems.length - 1 ? '1px solid var(--line)' : 'none', gap: 12 }}>
+                <div className="row" style={{ gap: 10, flex: 1 }}>
+                  <span style={{ width: 24, height: 24, borderRadius: 'var(--r-sm)', background: 'var(--surface-3)', color: 'var(--ink-4)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <Icon name="clock" />
+                  </span>
+                  <div className="sm" style={{ fontWeight: 600 }}>{item.label}</div>
+                </div>
+                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal)}>
+                  ตั้งค่า
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- PAST ---- */
+  if (isPast) {
+    return (
+      <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="card" style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+          <Ring pct={100} size={100} stroke={10} color="var(--good)">
+            <div>
+              <div className="h2" style={{ lineHeight: 1 }}>100%</div>
+              <div className="cap">สมบูรณ์</div>
+            </div>
+          </Ring>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div className="h2" style={{ marginBottom: 4 }}>สรุปเดือน{monthFull}</div>
+            <div className="sm" style={{ color: 'var(--ink-2)', marginBottom: 8 }}>เดือน{monthLabel} {year} — กรอกครบทุกรายการ</div>
+            <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: '100%', background: 'var(--good)', borderRadius: 4 }}></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="eyebrow">สรุปผลเดือน{monthLabel}</div>
+              <div className="h3">รายการทั้งหมด — เสร็จสมบูรณ์</div>
+            </div>
+          </div>
+          <div style={{ padding: '0 16px 16px' }}>
+            {[
+              { label: `เป้าหมายเดือน ${monthLabel}`, detail: B(DD.consts.TARGET) },
+              { label: 'งบโฆษณา', detail: Bk(DD.computed.AD) },
+              { label: 'กลุ่มลูกค้า', detail: 'อัปเดตแล้ว' },
+              { label: `ยอดขาย 1-30 ${monthLabel}`, detail: 'กรอกครบ 30/30 วัน' },
+              { label: 'ข้อมูลย้อนหลัง', detail: 'กรอกครบ' },
+            ].map((item, i) => (
+              <div key={i} className="row between" style={{ padding: '12px 4px', borderBottom: i < 4 ? '1px solid var(--line)' : 'none', gap: 12 }}>
+                <div className="row" style={{ gap: 10, flex: 1 }}>
+                  <span style={{ width: 24, height: 24, borderRadius: 'var(--r-sm)', background: 'var(--good-soft)', color: 'var(--good)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                    <Icon name="check" />
+                  </span>
+                  <div className="sm" style={{ fontWeight: 600 }}>{item.label}</div>
+                </div>
+                <span className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>{item.detail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---- CURRENT (default / existing behavior) ---- */
+  const checkItems = [
+    { label: `เป้าหมายเดือน ${monthLabel}`, done: true, detail: `${B(DD.consts.TARGET)}`, modal: 'monthlyTarget' },
+    { label: 'งบโฆษณา', done: true, detail: `${Bk(DD.computed.AD)}`, modal: 'monthlyTarget' },
+    { label: 'กลุ่มลูกค้า', done: false, detail: 'ยังไม่อัปเดต', modal: 'customerSegment' },
+    { label: `ยอดขาย 1-${ENTERED_DAYS} ${monthLabel}`, done: true, detail: `กรอกแล้ว ${ENTERED_DAYS}/${ENTERED_DAYS} วัน`, modal: null },
+    { label: `ยอดขาย ${TODAY} ${monthLabel} (วันนี้)`, done: false, detail: 'ยังไม่กรอก', modal: 'record' },
+    { label: 'ข้อมูลย้อนหลัง', done: false, detail: '6/12 เดือน', modal: 'historical' },
+  ];
+
+  const doneCount = checkItems.filter(c => c.done).length;
+  const totalCount = checkItems.length;
+  const pct = Math.round((doneCount / totalCount) * 100);
+
+  return (
+    <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Overall completion */}
+      <div className="card" style={{ padding: 24, display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+        <Ring pct={pct} size={100} stroke={10} color="var(--accent)">
+          <div>
+            <div className="h2" style={{ lineHeight: 1 }}>{pct}%</div>
+            <div className="cap">สมบูรณ์</div>
+          </div>
+        </Ring>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div className="h2" style={{ marginBottom: 4 }}>สถานะการกรอกข้อมูล</div>
+          <div className="sm" style={{ color: 'var(--ink-2)', marginBottom: 8 }}>เดือน{monthLabel} {year} — ทำแล้ว {doneCount}/{totalCount} รายการ</div>
+          <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent)', borderRadius: 4, transition: 'width 0.6s var(--ease)' }}></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Checklist */}
+      <div className="card">
+        <div className="card-head">
+          <div>
+            <div className="eyebrow">รายการทั้งหมด</div>
+            <div className="h3">Checklist ข้อมูลที่ต้องกรอก</div>
+          </div>
+        </div>
+        <div style={{ padding: '0 16px 16px' }}>
+          {checkItems.map((item, i) => (
+            <div key={i} className="row between" style={{ padding: '12px 4px', borderBottom: i < checkItems.length - 1 ? '1px solid var(--line)' : 'none', gap: 12 }}>
+              <div className="row" style={{ gap: 10, flex: 1, minWidth: 0 }}>
+                <span style={{ width: 24, height: 24, borderRadius: 'var(--r-sm)', background: item.done ? 'var(--good-soft)' : 'var(--warn-soft)', color: item.done ? 'var(--good)' : 'var(--warn)', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                  <Icon name={item.done ? 'check' : 'clock'} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div className="sm" style={{ fontWeight: 600 }}>{item.label}</div>
+                </div>
+              </div>
+              <div className="row" style={{ gap: 8, flexShrink: 0 }}>
+                <span className="cap" style={{ color: item.done ? 'var(--good)' : 'var(--warn)', fontWeight: 600 }}>{item.detail}</span>
+                {!item.done && item.modal && (
+                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal)}>
+                    {item.modal === 'record' ? 'กรอก' : 'อัปเดต'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Tips */}
+      <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+        <div className="row" style={{ gap: 10, marginBottom: 10 }}>
+          <Icon name="sparkle" />
+          <div className="sm" style={{ fontWeight: 700 }}>เคล็ดลับ</div>
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <li className="sm" style={{ color: 'var(--ink-2)' }}>กรอกยอดทุกวันก่อน 22:00 เพื่อให้ Dashboard อัปเดตทันเวลา</li>
+          <li className="sm" style={{ color: 'var(--ink-2)' }}>ตั้งเป้าเดือนใหม่ภายในวันที่ 1 ของเดือน</li>
+          <li className="sm" style={{ color: 'var(--ink-2)' }}>อัปเดตกลุ่มลูกค้าทุกเดือนเพื่อให้โปรโมชั่นตรงเป้า</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
