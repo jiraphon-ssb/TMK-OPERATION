@@ -727,13 +727,16 @@ export function ProfileView({ tasks }) {
           ) : (
             <Avatar name={name} color={user.color} size={80} />
           )}
-          <label style={{
-            position: 'absolute', bottom: -2, right: -2, width: 28, height: 28,
+          <label title="เปลี่ยนรูปโปรไฟล์" style={{
+            position: 'absolute', bottom: -4, right: -4, width: 30, height: 30,
             borderRadius: '50%', background: 'var(--accent)', color: '#fff',
             display: 'grid', placeItems: 'center', cursor: 'pointer',
             border: '3px solid var(--surface)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
           }}>
-            <Icon name="pencil" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+            </svg>
             <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
               const file = e.target.files?.[0];
               if (file) { const r = new FileReader(); r.onload = ev => setAvatar(ev.target.result); r.readAsDataURL(file); }

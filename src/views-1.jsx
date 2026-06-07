@@ -283,7 +283,18 @@ export function SalesView({ sub }) {
 }
 
 function MomDelta({ current, previous, label }) {
+  // Guard: ไม่มีข้อมูลเดือนก่อน → แสดง "—"
+  if (!previous || previous === 0 || !isFinite(previous)) {
+    return (
+      <span className="cap" style={{ color: 'var(--ink-3)', fontWeight: 500 }}>
+        — ยังไม่มีข้อมูล{label}
+      </span>
+    );
+  }
   const delta = ((current - previous) / previous) * 100;
+  if (!isFinite(delta) || isNaN(delta)) {
+    return <span className="cap" style={{ color: 'var(--ink-3)' }}>—</span>;
+  }
   const isUp = delta >= 0;
   return (
     <span className="cap" style={{ color: isUp ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>

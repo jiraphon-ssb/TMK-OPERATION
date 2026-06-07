@@ -346,8 +346,17 @@ function AppInner() {
             </svg>
           </button>
           <div style={{ position: 'relative' }}>
-            <button className="rail-avatar" onClick={() => setMenu(m => !m)}>
-              <img src={tmkLogoWhite} alt="" />
+            <button className="rail-avatar" onClick={() => setMenu(m => !m)}
+              style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
+              {currentUser && (currentUser.avatarUrl || currentUser.displayName) ? (
+                currentUser.avatarUrl ? (
+                  <img src={currentUser.avatarUrl} alt="" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }} />
+                ) : (
+                  <Avatar name={currentUser.displayName || (currentUser.email || '').split('@')[0]} color="#b07d33" size={34} />
+                )
+              ) : (
+                <Avatar name="มัง" color="#b07d33" size={34} />
+              )}
             </button>
             {menu && <ProfileMenu go={go} dark={dark} setDark={setDark} close={() => setMenu(false)} onLogout={logout} />}
           </div>
@@ -596,13 +605,21 @@ function AppInner() {
 }
 
 function ProfileMenu({ go, dark, setDark, close, onLogout }) {
+  const { user } = useUser() || {};
   return (
     <>
       <div className="scrim" style={{ background: 'transparent', zIndex: 94 }} onClick={close}></div>
       <div className="menu-pop">
         <div className="row" style={{ gap: 10, padding: '8px 10px 12px' }}>
-          <img src={tmkLogo} style={{ width: 38, height: 38, borderRadius: 10 }} alt="" />
-          <div><div className="sm" style={{ fontWeight: 700 }}>มัง</div><div className="cap">jiraphon.e@tmk.co</div></div>
+          {user?.avatarUrl ? (
+            <img src={user.avatarUrl} style={{ width: 38, height: 38, borderRadius: 10, objectFit: 'cover' }} alt="" />
+          ) : (
+            <Avatar name={user?.name || 'มัง'} color={user?.color || '#b07d33'} size={38} />
+          )}
+          <div>
+            <div className="sm" style={{ fontWeight: 700 }}>{user?.name || 'มัง'}</div>
+            <div className="cap">{user?.email || 'jiraphon.e@tmk.co'}</div>
+          </div>
         </div>
         <div className="divider"></div>
         <button className="menu-row" onClick={() => go('profile')}><Icon name="users" />โปรไฟล์</button>
