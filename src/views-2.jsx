@@ -66,6 +66,63 @@ const MONTHS_TH = ['มกราคม','กุมภาพันธ์','มี
 const MONTHS_TH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const DAY_LABELS = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
+/* ---- Channel → platform icon (ใช้ร่วม Calendar / Kanban / Timeline) ---- */
+const CHANNEL_ALIASES = {
+  shopee: ['shopee'],
+  tiktok: ['tiktok', 'tt'],
+  lazada: ['lazada', 'laz'],
+  facebook: ['facebook', 'fb post', 'fb'],
+  line: ['line broadcast', 'line oa', 'line/fb', 'line'],
+  crm: ['crm'],
+};
+function chInfo(ch) {
+  if (!ch) return null;
+  const text = String(ch).toLowerCase();
+  let matched = null;
+  for (const c of (DD.channels || [])) {
+    const cId = String(c.id || '').toLowerCase();
+    const cName = String(c.name || '').toLowerCase();
+    const aliases = CHANNEL_ALIASES[cId] || [cId, cName];
+    if (aliases.some(a => a && text.includes(a))) { matched = c; break; }
+  }
+  if (matched && matched.logoUrl) {
+    return { color: matched.hex || '#888', bg: matched.hex || '#888', logoUrl: matched.logoUrl,
+      icon: (s) => <img src={matched.logoUrl} alt="" style={{ width: s, height: s, objectFit: 'contain' }} /> };
+  }
+  const l = text;
+  if (l.includes('shopee')) return { color: '#ee4d2d', bg: '#ee4d2d', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2C9.2 2 7.3 4.1 7.1 6.6c-.1.6.4 1 .9 1h8c.5 0 1-.4.9-1C16.7 4.1 14.8 2 12 2zm-6.9 7c-.5 0-1 .4-1 1l1.2 10c.1.8.7 1.4 1.5 1.4h10.4c.8 0 1.4-.6 1.5-1.4l1.2-10c0-.6-.4-1-1-1H5.1z"/></svg> };
+  if (l.includes('tiktok')) return { color: '#000', bg: '#00f2ea', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#000" d="M16.6 5.8A4.3 4.3 0 0 1 13.4 2h-3v13.4a2.6 2.6 0 1 1-1.8-2.4V9.6a6 6 0 1 0 5.2 6V9.4a7.3 7.3 0 0 0 4.2 1.3V7.3a4.3 4.3 0 0 1-1.4-1.5z"/></svg> };
+  if (l.includes('lazada')) return { color: '#0f1689', bg: '#0f1689', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M3 5h18v14H3V5zm2 2v10h14V7H5zm3 2h8v2H8V9zm0 4h5v2H8v-2z"/></svg> };
+  if (l.includes('fb') || l.includes('facebook')) return { color: '#1877f2', bg: '#1877f2', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M22 12c0-5.5-4.5-10-10-10S2 6.5 2 12c0 5 3.7 9.1 8.4 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7C18.3 21.1 22 17 22 12z"/></svg> };
+  if (l.includes('line')) return { color: '#06c755', bg: '#06c755', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M22 10.6c0-4.7-4.5-8.6-10-8.6S2 5.9 2 10.6c0 4.2 3.7 7.8 8.7 8.5.3.1.8.2.9.5.1.3.1.6 0 .9l-.1.8c0 .3-.2 1 .9.6 1-.5 5.6-3.3 7.6-5.6 1.4-1.5 2-3.1 2-4.7z"/></svg> };
+  if (l.includes('crm')) return { color: '#c08a3e', bg: '#c08a3e', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M16 11c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm-8 0c1.7 0 3-1.3 3-3S9.7 5 8 5 5 6.3 5 8s1.3 3 3 3zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5c0-2.3-4.7-3.5-7-3.5zm8 0c-.3 0-.6 0-1 .1 1.2.9 2 2 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5z"/></svg> };
+  if (l.includes('ทุก')) return { color: '#b07d33', bg: '#b07d33', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> };
+  return { color: 'var(--ink-3)', bg: '#888', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="#fff"/></svg> };
+}
+const tokenizeCh = (chVal) => (Array.isArray(chVal) ? chVal : String(chVal || '').split(',')).map(s => s.trim()).filter(Boolean);
+function matchedChannelsFor(chVal) {
+  const seen = new Set(); const out = [];
+  tokenizeCh(chVal).forEach(tok => {
+    const info = chInfo(tok);
+    if (!info) return;
+    const key = info.logoUrl || info.bg || tok;
+    if (seen.has(key)) return;
+    seen.add(key); out.push({ info, label: tok });
+  });
+  return out;
+}
+function ChIcon({ info, size = 16 }) {
+  return info.logoUrl
+    ? <img src={info.logoUrl} alt="" style={{ width: size, height: size, borderRadius: 4, objectFit: 'contain', flexShrink: 0 }} />
+    : <span style={{ width: size - 1, height: size - 1, borderRadius: 4, background: info.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{info.icon(Math.round(size * 0.6))}</span>;
+}
+// แสดงไอคอนช่องทางของงาน (fallback เป็นข้อความถ้า map ไม่ได้)
+function TaskChannels({ channel, size = 16 }) {
+  const m = matchedChannelsFor(channel);
+  if (!m.length) return <span className="sm" style={{ fontWeight: 500 }}>{Array.isArray(channel) ? channel.join(', ') : channel}</span>;
+  return <span className="row" style={{ gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>{m.map((x, i) => <span key={i} title={x.label} style={{ display: 'inline-flex' }}><ChIcon info={x.info} size={size} /></span>)}</span>;
+}
+
 function CalendarView({ tasks, filtered, fProps }) {
   const T = getToday();                       // วันจริง
   const curY = T.yearBE, curM = T.month - 1;  // เดือนปัจจุบัน (0-indexed)
@@ -93,70 +150,6 @@ function CalendarView({ tasks, filtered, fProps }) {
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
   const selTasks = byDay[sel] || [];
-
-  // Map task channel text → platform info
-  // 1. หาใน TMK.channels (จาก Supabase) ก่อน — ใช้ alias keywords
-  const CHANNEL_ALIASES = {
-    shopee: ['shopee'],
-    tiktok: ['tiktok', 'tt'],
-    lazada: ['lazada', 'laz'],
-    facebook: ['facebook', 'fb post', 'fb'],
-    line: ['line broadcast', 'line oa', 'line/fb', 'line'],
-    crm: ['crm'],
-  };
-  const chInfo = (ch) => {
-    if (!ch) return null;
-    const text = String(ch).toLowerCase();
-    // หา channel โดยเทียบ alias keywords
-    let matched = null;
-    for (const c of (DD.channels || [])) {
-      const cId = String(c.id || '').toLowerCase();
-      const cName = String(c.name || '').toLowerCase();
-      const aliases = CHANNEL_ALIASES[cId] || [cId, cName];
-      if (aliases.some(a => a && text.includes(a))) {
-        matched = c;
-        break;
-      }
-    }
-    if (matched && matched.logoUrl) {
-      return {
-        color: matched.hex || '#888',
-        bg: matched.hex || '#888',
-        logoUrl: matched.logoUrl,
-        icon: (s) => <img src={matched.logoUrl} alt="" style={{ width: s, height: s, objectFit: 'contain' }} />,
-      };
-    }
-    // 2. Fallback: hardcoded แพลตฟอร์มยอดนิยม
-    const l = text;
-    if (l.includes('shopee')) return { color: '#ee4d2d', bg: '#ee4d2d', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2C9.2 2 7.3 4.1 7.1 6.6c-.1.6.4 1 .9 1h8c.5 0 1-.4.9-1C16.7 4.1 14.8 2 12 2zm-6.9 7c-.5 0-1 .4-1 1l1.2 10c.1.8.7 1.4 1.5 1.4h10.4c.8 0 1.4-.6 1.5-1.4l1.2-10c0-.6-.4-1-1-1H5.1z"/></svg> };
-    if (l.includes('tiktok')) return { color: '#000', bg: '#00f2ea', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#000" d="M16.6 5.8A4.3 4.3 0 0 1 13.4 2h-3v13.4a2.6 2.6 0 1 1-1.8-2.4V9.6a6 6 0 1 0 5.2 6V9.4a7.3 7.3 0 0 0 4.2 1.3V7.3a4.3 4.3 0 0 1-1.4-1.5z"/></svg> };
-    if (l.includes('lazada')) return { color: '#0f1689', bg: '#0f1689', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M3 5h18v14H3V5zm2 2v10h14V7H5zm3 2h8v2H8V9zm0 4h5v2H8v-2z"/></svg> };
-    if (l.includes('fb') || l.includes('facebook')) return { color: '#1877f2', bg: '#1877f2', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M22 12c0-5.5-4.5-10-10-10S2 6.5 2 12c0 5 3.7 9.1 8.4 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7C18.3 21.1 22 17 22 12z"/></svg> };
-    if (l.includes('line')) return { color: '#06c755', bg: '#06c755', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M22 10.6c0-4.7-4.5-8.6-10-8.6S2 5.9 2 10.6c0 4.2 3.7 7.8 8.7 8.5.3.1.8.2.9.5.1.3.1.6 0 .9l-.1.8c0 .3-.2 1 .9.6 1-.5 5.6-3.3 7.6-5.6 1.4-1.5 2-3.1 2-4.7z"/></svg> };
-    if (l.includes('crm')) return { color: '#c08a3e', bg: '#c08a3e', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M16 11c1.7 0 3-1.3 3-3s-1.3-3-3-3-3 1.3-3 3 1.3 3 3 3zm-8 0c1.7 0 3-1.3 3-3S9.7 5 8 5 5 6.3 5 8s1.3 3 3 3zm0 2c-2.3 0-7 1.2-7 3.5V19h14v-2.5c0-2.3-4.7-3.5-7-3.5zm8 0c-.3 0-.6 0-1 .1 1.2.9 2 2 2 3.4V19h6v-2.5c0-2.3-4.7-3.5-7-3.5z"/></svg> };
-    if (l.includes('ทุก')) return { color: '#b07d33', bg: '#b07d33', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> };
-    return { color: 'var(--ink-3)', bg: '#888', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="#fff"/></svg> };
-  };
-
-  // แตกช่องทางของงาน (string คั่น comma / array) → list ของ platform info ที่แมตช์ครบทุกอัน
-  const tokenize = (chVal) => (Array.isArray(chVal) ? chVal : String(chVal || '').split(','))
-    .map(s => s.trim()).filter(Boolean);
-  const matchedChannelsFor = (chVal) => {
-    const seen = new Set(); const out = [];
-    tokenize(chVal).forEach(tok => {
-      const info = chInfo(tok);
-      if (!info) return;
-      const key = info.logoUrl || info.bg || tok;
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push({ info, label: tok });
-    });
-    return out;
-  };
-
-  const ChIcon = ({ info, size = 16 }) => info.logoUrl
-    ? <img src={info.logoUrl} alt="" style={{ width: size, height: size, borderRadius: 4, objectFit: 'contain', flexShrink: 0 }} />
-    : <span style={{ width: size - 1, height: size - 1, borderRadius: 4, background: info.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{info.icon(Math.round(size * 0.6))}</span>;
 
   const DayCell = ({ d }) => {
     if (!d) return <div style={{ borderRadius: 'var(--r-sm)' }}></div>;
@@ -250,13 +243,7 @@ function CalendarView({ tasks, filtered, fProps }) {
                 </div>
                 <div className="row wrap" style={{ gap: 10, marginBottom: 8 }}>
                   <div><div className="cap">แคมเปญ</div><span className="chip" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span></div>
-                  <div><div className="cap">ช่องทาง</div>
-                    <div className="row" style={{ gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {(() => { const m = matchedChannelsFor(t.channel); return m.length
-                        ? m.map((x, i) => <span key={i} className="row" style={{ gap: 3, alignItems: 'center' }} title={x.label}><ChIcon info={x.info} size={16} /></span>)
-                        : <span className="sm" style={{ fontWeight: 500 }}>{Array.isArray(t.channel) ? t.channel.join(', ') : t.channel}</span>; })()}
-                    </div>
-                  </div>
+                  <div><div className="cap">ช่องทาง</div><TaskChannels channel={t.channel} size={16} /></div>
                   <div><div className="cap">สถานะ</div><span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span></div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>
@@ -329,7 +316,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                       </div>
                       <div className="row wrap" style={{ gap: 6 }}>
                         <span className="chip" style={{ background: c.color+'22', color: c.color }}>{c.name}</span>
-                        <span className="cap">{t.channel}</span>
+                        <TaskChannels channel={t.channel} size={16} />
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span className="cap">{t.date}</span>
                           {t.responsible.slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
@@ -444,7 +431,7 @@ function TimelineView({ filtered, fProps }) {
                         </div>
                         <div className="row wrap" style={{ gap: 8 }}>
                           <span className="chip" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span>
-                          <span className="cap">{t.channel}</span>
+                          <TaskChannels channel={t.channel} size={16} />
                           <span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span>
                           <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
                             {t.responsible.map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Avatar key={r} name={r} color={s.color} size={22} />; })}

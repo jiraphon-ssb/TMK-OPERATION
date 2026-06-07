@@ -665,23 +665,23 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
     );
   }
 
-  /* ---- PAST ---- */
+  /* ---- PAST — แก้ไขย้อนหลังได้ ---- */
   if (isPast) {
     const pastRec = (DD.monthly || []).find(m => m.month === month + 1 && m.year === year);
     const pastPct = pastRec && pastRec.target > 0 ? (pastRec.actual / pastRec.target) * 100 : null;
     return (
       <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="card" style={{ padding: 20, background: 'var(--surface-2)', borderLeft: '4px solid var(--ink-3)' }}>
-          <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} {year} — สรุปผล</div>
-          <div className="sm" style={{ color: 'var(--ink-2)' }}>ข้อมูลเดือนนี้ปิดแล้ว แสดงผลเป็นแบบอ่านอย่างเดียว</div>
+          <div className="h3" style={{ marginBottom: 4 }}>เดือน{monthFull} {year} — แก้ไขย้อนหลัง</div>
+          <div className="sm" style={{ color: 'var(--ink-2)' }}>กดปุ่มเพื่อแก้ไขข้อมูลย้อนหลังของเดือนนี้ได้</div>
         </div>
 
         <div className="grid g2">
           {items.map((item, i) => (
-            <div key={i} className="card" style={{ padding: 20, opacity: 0.85 }}>
+            <div key={i} className="card" style={{ padding: 20 }}>
               <div className="row between" style={{ marginBottom: 8 }}>
                 <div className="row" style={{ gap: 10 }}>
-                  <span style={{ width: 36, height: 36, borderRadius: 'var(--r-sm)', background: 'var(--good-soft)', color: 'var(--good)', display: 'grid', placeItems: 'center' }}>
+                  <span style={{ width: 36, height: 36, borderRadius: 'var(--r-sm)', background: item.done ? 'var(--good-soft)' : 'var(--warn-soft)', color: item.done ? 'var(--good)' : 'var(--warn)', display: 'grid', placeItems: 'center' }}>
                     <Icon name={item.icon} />
                   </span>
                   <div>
@@ -689,14 +689,11 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
                     <div className="cap" style={{ color: 'var(--ink-3)' }}>{item.desc}</div>
                   </div>
                 </div>
+                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal)}>
+                  <Icon name="pencil" /> แก้ไข
+                </button>
               </div>
 
-              <div className="row" style={{ gap: 6, marginBottom: 8 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--good)' }}></span>
-                <span className="sm" style={{ fontWeight: 600, color: 'var(--good)' }}>ดูสรุปผล</span>
-              </div>
-
-              {/* ผลจริง vs เป้า — แสดงเฉพาะการ์ดเป้าหมายเดือน เมื่อมีข้อมูลจริง */}
               {i === 0 && pastPct != null && (
                 <div style={{ marginTop: 8, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
                   <div className="cap" style={{ marginBottom: 4 }}>ผลจริง vs เป้า</div>
