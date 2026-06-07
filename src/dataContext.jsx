@@ -96,11 +96,11 @@ async function loadAllTables() {
 function mapToTMK(raw) {
   const settings = raw.settings || {};
   const today = getToday(); // วันที่จริงของเครื่อง = source of truth ของ "วันนี้"
-  const TARGET = Number(settings.total_target || 1000000);
+  const TARGET = Number(settings.total_target || 0);       // ไม่ใส่ค่า default ปลอม — ยังไม่ตั้ง = 0
   const DAY = today.day;                 // วันจริง (แทน settings.current_day)
   const DAYS = today.daysInMonth;        // จำนวนวันจริงในเดือนนี้
-  const ACOS_CEIL = Number(settings.acos_ceil || 25);
-  const AD_BUDGET = Number(settings.ad_budget_total || 150000);
+  const ACOS_CEIL = Number(settings.acos_ceil || 25);      // เพดาน ACOS — default 25% เป็น config ที่สมเหตุผล
+  const AD_BUDGET = Number(settings.ad_budget_total || 0);  // ยังไม่ตั้งงบ = 0
 
   // รายได้ต่อช่องทาง derive จาก tmk_daily_sales จริง (single source of truth)
   // กรอกยอดรายวัน → MTD/ช่องทางอัปเดตเอง; ถ้ายังไม่มี daily → 0
