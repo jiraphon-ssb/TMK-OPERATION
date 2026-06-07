@@ -91,16 +91,29 @@ function CalendarView({ tasks, filtered, fProps }) {
   const selTasks = byDay[sel] || [];
 
   // Map task channel text → platform info
-  // หา channel ใน Supabase (TMK.channels) ก่อน → ใช้ logo_url ถ้ามี
+  // 1. หาใน TMK.channels (จาก Supabase) ก่อน — ใช้ alias keywords
+  const CHANNEL_ALIASES = {
+    shopee: ['shopee'],
+    tiktok: ['tiktok', 'tt'],
+    lazada: ['lazada', 'laz'],
+    facebook: ['facebook', 'fb post', 'fb'],
+    line: ['line broadcast', 'line oa', 'line/fb', 'line'],
+    crm: ['crm'],
+  };
   const chInfo = (ch) => {
     if (!ch) return null;
     const text = String(ch).toLowerCase();
-    // 1. หาใน TMK.channels (จาก Supabase) ที่ชื่อ/id ตรงกับ text
-    const matched = (DD.channels || []).find(c => {
-      const cName = String(c.name || '').toLowerCase();
+    // หา channel โดยเทียบ alias keywords
+    let matched = null;
+    for (const c of (DD.channels || [])) {
       const cId = String(c.id || '').toLowerCase();
-      return text.includes(cName) || text.includes(cId) || cName.includes(text);
-    });
+      const cName = String(c.name || '').toLowerCase();
+      const aliases = CHANNEL_ALIASES[cId] || [cId, cName];
+      if (aliases.some(a => a && text.includes(a))) {
+        matched = c;
+        break;
+      }
+    }
     if (matched && matched.logoUrl) {
       return {
         color: matched.hex || '#888',
@@ -145,10 +158,19 @@ function CalendarView({ tasks, filtered, fProps }) {
             fontSize: 'var(--fs-sm)',
           }}>{d}</span>
           {dayChannels.length > 0 && (
-            <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
               {dayChannels.slice(0, 4).map((ch, i) => {
                 const info = chInfo(ch);
                 if (!info) return null;
+                // ถ้ามี logo จริง → แสดง logo เต็ม (ไม่มี bg ทับ)
+                if (info.logoUrl) {
+                  return (
+                    <img key={i} src={info.logoUrl} alt=""
+                      title={ch}
+                      style={{ width: 16, height: 16, borderRadius: 4, objectFit: 'contain', flexShrink: 0 }} />
+                  );
+                }
+                // Fallback: hardcoded SVG บน bg สี
                 return <span key={i} style={{ width: 15, height: 15, borderRadius: 4, background: info.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{info.icon(9)}</span>;
               })}
               {dayChannels.length > 4 && <span style={{ fontSize: 8, color: 'var(--ink-3)', fontWeight: 700, display: 'grid', placeItems: 'center' }}>+{dayChannels.length - 4}</span>}
