@@ -214,13 +214,29 @@ function AppInner() {
   const [modal, setModal] = useState(null);
   const [confirmClose, setConfirmClose] = useState(null); // for unsaved changes
   const [spotlight, setSpotlight] = useState(false);
-  const [section, setSection] = useState('home');
-  const [subMap, setSubMap] = useState(DEFAULT_SUB);
+  // Persist section + subMap → กด refresh แล้วอยู่หน้าเดิม
+  const [section, setSection] = useState(() => {
+    try { return localStorage.getItem('tmk-section') || 'home'; } catch { return 'home'; }
+  });
+  const [subMap, setSubMap] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tmk-submap');
+      return saved ? { ...DEFAULT_SUB, ...JSON.parse(saved) } : DEFAULT_SUB;
+    } catch { return DEFAULT_SUB; }
+  });
   const [tasks, setTasks] = useState(TMK.tasks);
   // Sync local tasks state เมื่อ Supabase data update (version bump)
   useEffect(() => {
     setTasks([...(TMK.tasks || [])]);
   }, [dataVersion]);
+
+  // Persist section + subMap ทุกครั้งที่เปลี่ยน → refresh แล้วอยู่หน้าเดิม
+  useEffect(() => {
+    try { localStorage.setItem('tmk-section', section); } catch {}
+  }, [section]);
+  useEffect(() => {
+    try { localStorage.setItem('tmk-submap', JSON.stringify(subMap)); } catch {}
+  }, [subMap]);
   const [drawer, setDrawer] = useState(false);
   const [notif, setNotif] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -276,7 +292,12 @@ function AppInner() {
   const closeModal = () => { setModal(null); setConfirmClose(null); };
   const logout = () => {
     setMenu(false); setDrawer(false); setAuthed(false); setCurrentUser(null);
-    try { localStorage.removeItem('tmk-user'); } catch {}
+    setSection('home'); setSubMap(DEFAULT_SUB);
+    try {
+      localStorage.removeItem('tmk-user');
+      localStorage.removeItem('tmk-section');
+      localStorage.removeItem('tmk-submap');
+    } catch {}
     window.dispatchEvent(new Event('tmk-user-change'));
   };
 
