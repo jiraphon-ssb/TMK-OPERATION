@@ -394,7 +394,11 @@ export function TaskModal({ data, onClose, onSubmit }) {
       </div>
       <div className="field"><label>ช่องทาง</label>
         <div className="chips-pick">
-          {/* ทุก channel จาก Supabase — รวม หลังบ้าน + ทุกแพลตฟอร์ม แล้ว */}
+          {/* ไม่มีช่องทาง (งานภายใน) — เคลียร์ช่องทางทั้งหมด */}
+          <button className={'pick' + (f.channel.length === 0 ? ' on' : '')} onClick={() => set('channel', [])}>
+            <span className="dot-c" style={{ background: 'var(--ink-4)' }}></span>ไม่มี
+          </button>
+          {/* ช่องทางจริงจาก Supabase เท่านั้น */}
           {(MD.channels || []).map(ch => (
             <button key={ch.id} className={'pick' + (f.channel.includes(ch.name) ? ' on' : '')} onClick={() => toggle('channel', ch.name)}>
               {ch.logoUrl ? (

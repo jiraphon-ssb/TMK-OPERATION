@@ -163,7 +163,7 @@ function mapToTMK(raw) {
     responsible: String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean),
     camp: t.camp || '',
     status: t.status || 'todo',
-    channel: t.channel || 'หลังบ้าน',
+    channel: t.channel || '',
     reminderDays: Number(t.reminder_days || 1),
   }));
 
