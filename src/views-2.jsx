@@ -34,11 +34,15 @@ function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStat
 }
 
 function filterTasks(tasks, filterCamp, filterStatus, search) {
-  return tasks.filter(t => {
+  return (tasks || []).filter(t => {
     if (filterCamp && t.camp !== filterCamp) return false;
     if (filterStatus === 'active' && t.status === 'done') return false;
     if (filterStatus === 'done' && t.status !== 'done') return false;
-    if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      const ql = String(search).toLowerCase();
+      const title = String(t.title || '').toLowerCase();
+      if (!title.includes(ql)) return false;
+    }
     return true;
   });
 }
@@ -89,7 +93,7 @@ function CalendarView({ tasks, filtered, fProps }) {
   // Map task channel text → platform info
   const chInfo = (ch) => {
     if (!ch) return null;
-    const l = ch.toLowerCase();
+    const l = String(ch || '').toLowerCase();
     if (l.includes('shopee')) return { color: '#ee4d2d', bg: '#ee4d2d', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2C9.2 2 7.3 4.1 7.1 6.6c-.1.6.4 1 .9 1h8c.5 0 1-.4.9-1C16.7 4.1 14.8 2 12 2zm-6.9 7c-.5 0-1 .4-1 1l1.2 10c.1.8.7 1.4 1.5 1.4h10.4c.8 0 1.4-.6 1.5-1.4l1.2-10c0-.6-.4-1-1-1H5.1z"/></svg> };
     if (l.includes('tiktok')) return { color: '#000', bg: '#00f2ea', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#000" d="M16.6 5.8A4.3 4.3 0 0 1 13.4 2h-3v13.4a2.6 2.6 0 1 1-1.8-2.4V9.6a6 6 0 1 0 5.2 6V9.4a7.3 7.3 0 0 0 4.2 1.3V7.3a4.3 4.3 0 0 1-1.4-1.5z"/></svg> };
     if (l.includes('lazada')) return { color: '#0f1689', bg: '#0f1689', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M3 5h18v14H3V5zm2 2v10h14V7H5zm3 2h8v2H8V9zm0 4h5v2H8v-2z"/></svg> };

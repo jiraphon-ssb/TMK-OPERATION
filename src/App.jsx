@@ -33,31 +33,34 @@ function Spotlight({ onClose, onGo }) {
   const ql = q.toLowerCase().trim();
   const results = [];
 
+  // Helper — safe lowercase (handles null/undefined/non-string)
+  const lc = (v) => String(v || '').toLowerCase();
+
   if (ql) {
     // Tasks
-    TMK.tasks.filter(t => t.title.toLowerCase().includes(ql) || t.detail.toLowerCase().includes(ql)).slice(0, 5).forEach(t => {
-      const c = TMK.campaigns.find(x => x.id === t.camp);
+    (TMK.tasks || []).filter(t => lc(t.title).includes(ql) || lc(t.detail).includes(ql)).slice(0, 5).forEach(t => {
+      const c = (TMK.campaigns || []).find(x => x.id === t.camp);
       results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, action: () => { onGo('planner', 'kanban'); onClose(); } });
     });
     // Products
-    TMK.products.filter(p => p.name.toLowerCase().includes(ql)).slice(0, 3).forEach(p => {
+    (TMK.products || []).filter(p => lc(p.name).includes(ql)).slice(0, 3).forEach(p => {
       results.push({ cat: 'สินค้า', icon: 'bag', label: p.name, sub: `${B(p.price)} · ขาย ${N(p.units)} ชิ้น`, color: 'var(--accent)', action: () => { onGo('catalog', 'products'); onClose(); } });
     });
     // Campaigns
-    TMK.campaigns.filter(c => c.name.toLowerCase().includes(ql)).slice(0, 3).forEach(c => {
+    (TMK.campaigns || []).filter(c => lc(c.name).includes(ql)).slice(0, 3).forEach(c => {
       results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, action: () => { onGo('catalog', 'campaigns'); onClose(); } });
     });
     // Staff
-    TMK.staff.filter(s => s.name.toLowerCase().includes(ql) || s.role.toLowerCase().includes(ql)).forEach(s => {
-      results.push({ cat: 'ทีม', icon: 'users', label: s.name, sub: s.role, color: s.color, action: () => { onGo('system', 'roles'); onClose(); } });
+    (TMK.staff || []).filter(s => lc(s.name).includes(ql) || lc(s.role).includes(ql)).forEach(s => {
+      results.push({ cat: 'ทีม', icon: 'users', label: s.name, sub: s.role, color: s.color, action: () => { onGo('settings', 'roles'); onClose(); } });
     });
     // Channels
-    TMK.channels.filter(c => c.name.toLowerCase().includes(ql)).forEach(c => {
+    (TMK.channels || []).filter(c => lc(c.name).includes(ql)).forEach(c => {
       results.push({ cat: 'ช่องทาง', icon: 'layers', label: c.name, sub: `เป้า ${Bk(c.target)}`, color: c.hex, action: () => { onGo('sales', 'channels'); onClose(); } });
     });
     // Navigation
-    [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'planner', sub: 'calendar' }, { l: 'Kanban', s: 'planner', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'planner', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'catalog', sub: 'campaigns' }]
-      .filter(n => n.l.toLowerCase().includes(ql)).forEach(n => {
+    [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'planner', sub: 'calendar' }, { l: 'Kanban', s: 'planner', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'planner', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'settings', sub: 'campaigns' }]
+      .filter(n => lc(n.l).includes(ql)).forEach(n => {
         results.push({ cat: 'นำทาง', icon: 'arrowR', label: `ไปที่ ${n.l}`, sub: '', color: 'var(--ink-3)', action: () => { onGo(n.s, n.sub); onClose(); } });
       });
   }

@@ -121,20 +121,35 @@ export function Ring({ pct, size = 76, stroke = 8, color = 'var(--accent)', trac
 
 /* ---------- MiniArea (sparkline-style area chart) ---------- */
 export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill = true, id }) {
-  const max = Math.max(...data), min = Math.min(...data);
-  const range = max - min || 1;
-  const pts = data.map((v, i) => [ (i / (data.length - 1)) * w, h - 6 - ((v - min) / range) * (h - 16) ]);
-  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  const area = line + ` L${w} ${h} L0 ${h} Z`;
   const gid = 'ga-' + (id || color.replace(/[^a-z]/gi, ''));
+  const safeData = Array.isArray(data) ? data.filter(v => typeof v === 'number' && isFinite(v)) : [];
+
+  // ถ้าไม่มีข้อมูล → แสดงเส้นตรงตรงกลาง (เพื่อไม่ให้ SVG path error)
+  if (safeData.length === 0) {
+    return (
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
+        <line x1="0" y1={h/2} x2={w} y2={h/2} stroke="var(--line)" strokeWidth="1" strokeDasharray="4 4" />
+        <text x={w/2} y={h/2 - 4} fontSize="10" fill="var(--ink-4)" textAnchor="middle">ไม่มีข้อมูล</text>
+      </svg>
+    );
+  }
+  // ถ้ามีจุดเดียว → ใช้ค่าซ้ำเพื่อให้ line ลากได้
+  const points = safeData.length === 1 ? [safeData[0], safeData[0]] : safeData;
+
+  const max = Math.max(...points), min = Math.min(...points);
+  const range = max - min || 1;
+  const pts = points.map((v, i) => [ (i / (points.length - 1)) * w, h - 6 - ((v - min) / range) * (h - 16) ]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  // area path: ต้องเริ่มด้วย M เสมอ — guard เผื่อ line ว่าง
+  const area = line ? line + ` L${w} ${h} L0 ${h} Z` : '';
   return (
     <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
       <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stopColor={color} stopOpacity="0.22" />
         <stop offset="100%" stopColor={color} stopOpacity="0" />
       </linearGradient></defs>
-      {fill && <path d={area} fill={`url(#${gid})`} />}
-      <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      {fill && area && <path d={area} fill={`url(#${gid})`} />}
+      {line && <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
     </svg>
   );
 }
