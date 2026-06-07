@@ -1,9 +1,13 @@
 -- ============================================================
 -- TMK Operation — Consolidated Setup (paste-once, idempotent)
 -- ============================================================
--- ใช้สำหรับติดตั้ง Supabase ตั้งแต่ต้น หรือ sync schema/seed กับโปรเจกต์ที่มีอยู่แล้ว
--- วาง 1 ครั้งใน Supabase Dashboard → SQL Editor → Run
--- รัน 2-3 ครั้งซ้ำได้ — ไม่พังของเดิม
+-- ใช้สำหรับติดตั้ง Supabase ตั้งแต่ต้น หรือ sync schema กับโปรเจกต์ที่มีอยู่แล้ว
+-- วาง 1 ครั้งใน Supabase Dashboard → SQL Editor → Run · รันซ้ำได้ ไม่พังของเดิม
+--
+-- ⚠️ ไฟล์นี้สร้างแค่ "โครงสร้าง + config จริง" เท่านั้น — ไม่มีข้อมูลธุรกิจปลอม
+--    seed ที่ใส่: ตาราง/คอลัมน์/trigger/RLS + ช่องทาง(นิยาม,ตัวเลข=0) + หน้าที่ + ทีมงาน + settings(ว่าง)
+--    ไม่ seed: ยอดขาย, ออร์เดอร์, สินค้า, แคมเปญ, กลุ่มลูกค้า, ข้อมูลรายเดือน, PO ฯลฯ
+--    → ข้อมูลธุรกิจทั้งหมดมาจากการกรอกจริงในแอป
 -- ============================================================
 
 -- ============================================================
@@ -394,64 +398,26 @@ end $$;
 -- ============================================================
 -- SECTION 9 — Seed: Settings
 -- ============================================================
-insert into public.tmk_settings (id, total_target, total_units_target, acos_ceil, current_day, days_in_month, current_month, current_year, ad_budget_total, new_cust_target)
-values ('main', 1000000, 3850, 25, 18, 30, 6, 2569, 150000, 600)
-on conflict (id) do update set
-  total_target = excluded.total_target,
-  total_units_target = excluded.total_units_target,
-  acos_ceil = excluded.acos_ceil,
-  current_day = excluded.current_day,
-  days_in_month = excluded.days_in_month,
-  current_month = excluded.current_month,
-  current_year = excluded.current_year,
-  ad_budget_total = excluded.ad_budget_total,
-  new_cust_target = excluded.new_cust_target;
+-- เริ่มจากค่าว่าง (0) — เป้า/งบ ตั้งจริงในแอป (เก็บรายเดือนใน tmk_monthly_history)
+insert into public.tmk_settings (id, total_target, total_units_target, acos_ceil, ad_budget_total, new_cust_target)
+values ('main', 0, 0, 25, 0, 0)
+on conflict (id) do nothing;
 
 -- ============================================================
--- SECTION 10 — Seed: Channels (6) + icons + logos
+-- SECTION 10 — Seed: Channels (8 ช่องทาง — เฉพาะนิยาม, ตัวเลข = 0)
+-- ตัวเลขยอดขาย/ออร์เดอร์/ค่าแอด ไม่ seed (มาจากการกรอกจริง)
+-- on conflict do nothing — ไม่ทับช่องทางที่แก้ไว้แล้ว
 -- ============================================================
-insert into public.tmk_channels (id, name, percentage, actual, color, sort_order, orders, new_rev, old_rev, new_cust, old_cust, ad, has_ad, growth_pct, icon, logo_url) values
-('shopee',   'Shopee',   300000, 178000, '#ee6a3a', 1, 312, 124600, 53400, 196, 71, 28000, true, 15, '🛒', ''),
-('tiktok',   'TikTok',   220000, 134000, '#18a0ab', 2, 248, 104500, 29500, 168, 39, 31000, true, 18, '♪',  ''),
-('lazada',   'Lazada',   180000,  89000, '#6b5ce0', 3, 151,  66750, 22250,  92, 28, 15000, true,  8, '🛍', ''),
-('facebook', 'Facebook', 160000,  78000, '#4a8be0', 4, 119,  56160, 21840,  64, 24, 42000, true, 12, 'f',  ''),
-('line',     'LINE OA',   90000,  50000, '#06c755', 5,  58,  17500, 32500,  12, 34,     0, false, 6, '💬', ''),
-('crm',      'CRM',       50000,  29000, '#c08a3e', 6,  31,   3480, 25520,   4, 32,     0, false, 9, '👥', '')
-on conflict (id) do update set
-  name = excluded.name,
-  percentage = excluded.percentage,
-  actual = excluded.actual,
-  color = excluded.color,
-  sort_order = excluded.sort_order,
-  orders = excluded.orders,
-  new_rev = excluded.new_rev,
-  old_rev = excluded.old_rev,
-  new_cust = excluded.new_cust,
-  old_cust = excluded.old_cust,
-  ad = excluded.ad,
-  has_ad = excluded.has_ad,
-  growth_pct = excluded.growth_pct,
-  icon = excluded.icon;
-
--- ============================================================
--- SECTION 11 — Seed: Campaigns (5, ชื่อจริงตามที่ user ใช้)
--- ============================================================
-insert into public.tmk_campaigns (id, name, color, bg, border, sort_order, start_date, end_date, status, channels) values
-('c1', 'เปิดตัวลายใหม่ 1',     '#0a5aa0', '#eff5fd', '#cfddf6', 1, '2026-06-12', '2026-06-18', 'live',     ARRAY['shopee','tiktok','lazada']),
-('c2', 'โล๊ะสต็อก & เสื้อสีดำ', '#1c1c1c', '#f3f4f6', '#d1d5db', 2, '2026-06-25', '2026-06-30', 'upcoming', ARRAY['shopee','facebook','line']),
-('c3', 'ลายใหม่ 2',             '#2f9e6e', '#ebf7f1', '#cae8d8', 3, '2026-06-20', '2026-07-05', 'upcoming', ARRAY['tiktok','facebook']),
-('c4', 'CRM Win-back',          '#c08a3e', '#fbf3e5', '#f0dfb8', 4, '2026-06-10', '2026-06-24', 'live',     ARRAY['line','crm']),
-('c5', '6.6 Mega Sale',         '#4a8be0', '#eff5fd', '#cfddf6', 5, '2026-06-01', '2026-06-06', 'done',     ARRAY['shopee','tiktok','lazada','facebook'])
-on conflict (id) do update set
-  name = excluded.name,
-  color = excluded.color,
-  bg = excluded.bg,
-  border = excluded.border,
-  sort_order = excluded.sort_order,
-  start_date = excluded.start_date,
-  end_date = excluded.end_date,
-  status = excluded.status,
-  channels = excluded.channels;
+insert into public.tmk_channels (id, name, percentage, actual, color, sort_order, has_ad, icon, logo_url) values
+('shopee',      'Shopee',        0, 0, '#ee6a3a', 1, true,  '🛒', ''),
+('tiktok',      'TikTok',        0, 0, '#18a0ab', 2, true,  '♪',  ''),
+('lazada',      'Lazada',        0, 0, '#6b5ce0', 3, true,  '🛍', ''),
+('facebook',    'Facebook',      0, 0, '#4a8be0', 4, true,  'f',  ''),
+('line',        'LINE OA',       0, 0, '#06c755', 5, false, '💬', ''),
+('crm',         'CRM',           0, 0, '#c08a3e', 6, false, '👥', ''),
+('backoffice',  'หลังบ้าน',       0, 0, '#8a8276', 7, false, '🏠', ''),
+('allplatforms','ทุกแพลตฟอร์ม',   0, 0, '#b07d33', 8, false, '🌐', '')
+on conflict (id) do nothing;
 
 -- ============================================================
 -- SECTION 12 — Seed: Duties (8 canonical roles)
@@ -514,140 +480,6 @@ on conflict (email) do update set
   department = excluded.department,
   duty_id = excluded.duty_id,
   color = excluded.color;
-
--- ============================================================
--- SECTION 15 — Seed: Daily Sales (18 วัน มิ.ย. 2569)
--- ============================================================
-insert into public.tmk_daily_sales (id, date, day_name, shopee, tiktok, lazada, facebook, line_oa, crm, ad_spend, note) values
-('d-2026-06-01', '2026-06-01', 'จ',  9000,  7000, 4000, 3500, 2500, 1500, 6500, '6.6 Mega Sale Day 1'),
-('d-2026-06-02', '2026-06-02', 'อ',  9500,  7200, 4100, 3600, 2600, 1500, 6800, '6.6 Day 2'),
-('d-2026-06-03', '2026-06-03', 'พ', 10500,  8000, 4500, 3900, 2800, 1600, 7200, '6.6 Day 3 ยอดพีค'),
-('d-2026-06-04', '2026-06-04', 'พฤ', 9800,  7500, 4300, 3700, 2700, 1500, 6900, '6.6 Day 4'),
-('d-2026-06-05', '2026-06-05', 'ศ',  9200,  7100, 4100, 3500, 2600, 1500, 6600, '6.6 Day 5'),
-('d-2026-06-06', '2026-06-06', 'ส', 11500,  8800, 5100, 4400, 3100, 1900, 7600, '6.6 Day 6 สุดท้าย'),
-('d-2026-06-07', '2026-06-07', 'อา', 10800, 8300, 4800, 4200, 2900, 1800, 7100, 'หลังจบ 6.6'),
-('d-2026-06-08', '2026-06-08', 'จ',  8500,  6800, 3900, 3400, 2500, 1400, 6200, ''),
-('d-2026-06-09', '2026-06-09', 'อ',  8800,  7000, 4000, 3500, 2600, 1500, 6400, 'ประชุมทีม weekly'),
-('d-2026-06-10', '2026-06-10', 'พ',  9200,  7300, 4100, 3700, 2700, 1500, 6700, 'CRM Win-back เริ่ม'),
-('d-2026-06-11', '2026-06-11', 'พฤ', 8900,  7100, 4000, 3500, 2600, 1500, 6300, 'เช็คสต็อก'),
-('d-2026-06-12', '2026-06-12', 'ศ',  8900,  7100, 3900, 3500, 2600, 1300, 6200, 'Flash Sale เริ่ม'),
-('d-2026-06-13', '2026-06-13', 'พฤ',10200, 7900, 4400, 4100, 2700, 1700, 6500, 'ปล่อย LE drop'),
-('d-2026-06-14', '2026-06-14', 'ศ',  9800, 7400, 4200, 3900, 2700, 1900, 6800, ''),
-('d-2026-06-15', '2026-06-15', 'ส', 12800, 9600, 5700, 4900, 3100, 1900, 7400, 'เสาร์ flash mid'),
-('d-2026-06-16', '2026-06-16', 'อา',14000,10500, 6200, 5400, 3600, 2300, 7800, 'ยอดพีคของเดือน'),
-('d-2026-06-17', '2026-06-17', 'จ',  9200, 7800, 4100, 3600, 2900, 1400, 6100, ''),
-('d-2026-06-18', '2026-06-18', 'อ', 11000, 8500, 4800, 4200, 2800, 1700, 7000, 'วันนี้ — Live เย็น 1 รอบ')
-on conflict (id) do nothing;
-
--- ============================================================
--- SECTION 16 — Seed: Ad Campaigns (5)
--- ============================================================
-insert into public.tmk_ad_campaigns (id, name, platform, budget, spent, revenue, roas, acos, status, start_date, end_date, goal) values
-('ac1', 'Polo Signature — Awareness', 'Facebook', 45000, 38000, 106400, 2.8, 35.7, 'live',     '2026-06-01', '2026-06-30', 'Awareness'),
-('ac2', 'Flash Sale Mid-Month',        'TikTok',   35000, 31000, 133300, 4.3, 23.3, 'live',     '2026-06-12', '2026-06-18', 'Conversion'),
-('ac3', 'Linen Summer Launch',         'Facebook', 40000, 12000,  22800, 1.9, 52.6, 'upcoming', '2026-06-20', '2026-07-05', 'Conversion'),
-('ac4', 'Retargeting — Cart Abandon',  'Shopee',   30000, 28000, 142800, 5.1, 19.6, 'done',     '2026-05-15', '2026-06-05', 'Retargeting'),
-('ac5', 'Payday Push — Search',        'Lazada',   25000,  7000,  14000, 2.0, 50.0, 'upcoming', '2026-06-25', '2026-06-30', 'Conversion')
-on conflict (id) do nothing;
-
--- ============================================================
--- SECTION 17 — Seed: Customer Segments (4)
--- ============================================================
-insert into public.tmk_customer_segments (id, name, count, rev_pct, color, criteria, avg_clv, sort_order) values
-('seg1', 'VIP',      45, 35, 'var(--accent)', 'ซื้อ ≥5 ครั้ง หรือ ยอด ≥10,000฿/เดือน', 8500, 1),
-('seg2', 'Regular', 180, 40, 'var(--good)',   'ซื้อ 2-4 ครั้งใน 3 เดือน',                3200, 2),
-('seg3', 'At-risk',  80, 15, 'var(--warn)',   'ไม่ซื้อ 30-60 วัน',                       1500, 3),
-('seg4', 'Churned', 120, 10, 'var(--bad)',    'ไม่ซื้อ >60 วัน',                          850, 4)
-on conflict (id) do nothing;
-
--- ============================================================
--- SECTION 18 — Seed: FB Metrics
--- ============================================================
-insert into public.tmk_fb_metrics (id, revenue, spend, inquiries, orders, new_cust, old_cust, avg_reply_minutes, month, year) values
-('current', 78000, 42000, 420, 119, 78, 41, 8, 6, 2569)
-on conflict (id) do update set
-  revenue = excluded.revenue,
-  spend = excluded.spend,
-  inquiries = excluded.inquiries,
-  orders = excluded.orders,
-  new_cust = excluded.new_cust,
-  old_cust = excluded.old_cust,
-  avg_reply_minutes = excluded.avg_reply_minutes,
-  month = excluded.month,
-  year = excluded.year;
-
--- ============================================================
--- SECTION 19 — Seed: Monthly History (18 เดือน: 12 ของ 2568 + 6 ของ 2569)
--- ============================================================
-insert into public.tmk_monthly_history (id, month, year, month_th, target, actual, projected, orders, ad_spend, new_cust) values
-('2568-01',  1, 2568, 'ม.ค.',   800000,  720000,      0, 1180, 110000, 450),
-('2568-02',  2, 2568, 'ก.พ.',   800000,  740000,      0, 1220, 112000, 460),
-('2568-03',  3, 2568, 'มี.ค.',  850000,  780000,      0, 1280, 118000, 480),
-('2568-04',  4, 2568, 'เม.ย.',  850000,  760000,      0, 1240, 115000, 470),
-('2568-05',  5, 2568, 'พ.ค.',   850000,  810000,      0, 1330, 122000, 500),
-('2568-06',  6, 2568, 'มิ.ย.',  850000,  690000,      0, 1130, 105000, 430),
-('2568-07',  7, 2568, 'ก.ค.',   900000,  850000,      0, 1390, 128000, 530),
-('2568-08',  8, 2568, 'ส.ค.',   900000,  880000,      0, 1440, 132000, 540),
-('2568-09',  9, 2568, 'ก.ย.',   950000,  910000,      0, 1490, 137000, 560),
-('2568-10', 10, 2568, 'ต.ค.',   950000,  940000,      0, 1540, 141000, 580),
-('2568-11', 11, 2568, 'พ.ย.',  1000000,  980000,      0, 1610, 147000, 600),
-('2568-12', 12, 2568, 'ธ.ค.',  1000000, 1050000,      0, 1720, 158000, 640),
-('2569-01',  1, 2569, 'ม.ค.',  1000000,  880000,      0, 1450, 132000, 550),
-('2569-02',  2, 2569, 'ก.พ.',  1000000,  910000,      0, 1490, 137000, 570),
-('2569-03',  3, 2569, 'มี.ค.', 1000000,  945000,      0, 1550, 142000, 590),
-('2569-04',  4, 2569, 'เม.ย.', 1000000,  920000,      0, 1510, 138000, 580),
-('2569-05',  5, 2569, 'พ.ค.',  1000000,  968000,      0, 1590, 145000, 605),
-('2569-06',  6, 2569, 'มิ.ย.', 1000000,  558000, 372000,  919, 116000, 536)
-on conflict (id) do update set
-  target = excluded.target,
-  actual = excluded.actual,
-  projected = excluded.projected,
-  orders = excluded.orders,
-  ad_spend = excluded.ad_spend,
-  new_cust = excluded.new_cust;
-
--- ============================================================
--- SECTION 20 — Seed: Color & Size Mix
--- ============================================================
-insert into public.tmk_color_mix (id, name, hex, pct, sort_order, month, year) values
-('cm1', 'ดำ',         '#1c1c1c', 28, 1, 6, 2569),
-('cm2', 'กรมท่า',     '#23395b', 22, 2, 6, 2569),
-('cm3', 'ขาว',         '#e8e4da', 18, 3, 6, 2569),
-('cm4', 'เทา',         '#8a8276', 14, 4, 6, 2569),
-('cm5', 'เขียวขุ่น',   '#5a6e54', 10, 5, 6, 2569),
-('cm6', 'ครีม',        '#d8c9a8',  8, 6, 6, 2569)
-on conflict (id) do nothing;
-
-insert into public.tmk_size_mix (id, size, pct, sort_order, month, year) values
-('sm1', 'S',    8, 1, 6, 2569),
-('sm2', 'M',   24, 2, 6, 2569),
-('sm3', 'L',   31, 3, 6, 2569),
-('sm4', 'XL',  22, 4, 6, 2569),
-('sm5', '2XL', 11, 5, 6, 2569),
-('sm6', '3XL',  4, 6, 6, 2569)
-on conflict (id) do nothing;
-
--- ============================================================
--- SECTION 20.5 — Seed: Products (ชื่อต้องตรงกับ PO ด้านล่าง)
--- จำเป็น: ถ้าไม่มีสินค้า → เปิด PO / ดูแคตตาล็อกไม่ได้
--- ============================================================
-insert into public.tmk_products (id, name, price, target_units, actual_units, stock_on_hand, reserved_units, reorder_point, strategy) values
-('p1', 'เสื้อโปโล Signature',     590, 1200, 740, 480, 60, 300, 'สินค้าเรือธง — ดันต่อเนื่องทุกช่องทาง'),
-('p2', 'แจ็คเก็ตกันลม',          890,  500, 210, 150, 20, 120, 'สินค้าหน้าหนาว — สต็อกตามฤดู'),
-('p3', 'กางเกงขาสั้น Chino',     450,  900, 560, 320, 40, 200, 'ขายคู่กับเสื้อโปโล เพิ่ม AOV'),
-('p4', 'เสื้อยืด Cotton Comfort', 290, 1800, 1240, 760, 80, 400, 'ตัวทำยอด ปริมาณสูง มาร์จิ้นปานกลาง'),
-('p5', 'เสื้อเชิ้ตลินิน',         690,  600, 280, 95, 15, 150, 'ลายใหม่ — โปรโมตช่วงเปิดตัว')
-on conflict (id) do nothing;
-
--- ============================================================
--- SECTION 21 — Seed: Purchase Orders
--- ============================================================
-insert into public.tmk_purchase_orders (id, product, quantity, order_date, arrival_date, status) values
-('po1', 'เสื้อโปโล Signature',     800, '2026-06-10', '2026-06-24', 'Pending'),
-('po2', 'แจ็คเก็ตกันลม',          500, '2026-06-15', '2026-07-02', 'Pending'),
-('po3', 'กางเกงขาสั้น Chino',     400, '2026-06-05', '2026-06-18', 'Completed'),
-('po4', 'เสื้อยืด Cotton Comfort', 1000, '2026-06-01', '2026-06-14', 'Completed')
-on conflict (id) do nothing;
 
 -- ============================================================
 -- DONE — ตรวจสอบจำนวน rows
