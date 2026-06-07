@@ -255,9 +255,20 @@ function CalendarView({ tasks, filtered, fProps }) {
 function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
   const [over, setOver] = React.useState(null);
   const dragId = React.useRef(null);
-  const onDrop = (status) => {
-    if (dragId.current) setTasks(ts => ts.map(t => t.id === dragId.current ? { ...t, status } : t));
+  const onDrop = async (status) => {
+    const id = dragId.current;
     dragId.current = null; setOver(null);
+    if (!id) return;
+    const prev = tasks.find(t => t.id === id)?.status;
+    if (prev === status) return;
+    setTasks(ts => ts.map(t => t.id === id ? { ...t, status } : t));
+    try {
+      const { error } = await supabase.from('tmk_tasks').update({ status }).eq('id', id);
+      if (error) throw error;
+    } catch (err) {
+      setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t));
+      if (window.__toast) window.__toast('ย้ายไม่สำเร็จ: ' + err.message, 'error');
+    }
   };
   return (
     <div className="content-inner rise">
