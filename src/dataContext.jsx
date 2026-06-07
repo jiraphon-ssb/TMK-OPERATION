@@ -234,6 +234,7 @@ function mapToTMK(raw) {
     orders: Number(fbRaw.orders || 0),
     newCust: Number(fbRaw.new_cust || 0),
     oldCust: Number(fbRaw.old_cust || 0),
+    avgReplyMinutes: Number(fbRaw.avg_reply_minutes || 0),
   };
   fb.roas = fb.spend > 0 ? fb.revenue / fb.spend : 0;
   fb.acos = fb.revenue > 0 ? (fb.spend / fb.revenue) * 100 : 0;
@@ -316,6 +317,10 @@ function mapToTMK(raw) {
   const AOV = ORD > 0 ? MTD / ORD : 0;
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
   const CAC = NEW_C > 0 ? AD / NEW_C : 0;
+  // CLV เฉลี่ย — weighted avg ของ avg_clv แต่ละ segment ตามจำนวนลูกค้า (0 ถ้ายังไม่มี segment)
+  const _segs = raw.segments || [];
+  const _segCount = _segs.reduce((s, x) => s + Number(x.count || 0), 0);
+  const CLV = _segCount > 0 ? Math.round(_segs.reduce((s, x) => s + Number(x.avg_clv || 0) * Number(x.count || 0), 0) / _segCount) : 0;
 
   // raw monthly สำหรับ quarter view (target/actual จริงต่อเดือน/ปี)
   const monthlyRaw = monthly.map(m => ({
@@ -326,7 +331,7 @@ function mapToTMK(raw) {
   }));
 
   return {
-    consts: { TARGET, DAY, DAYS, ACOS_CEIL, current_month: currentMonth, current_year: currentYear },
+    consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
     channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw,
     colorMix, sizeMix, staff, poTracker, fb, fbMsgTrend, audit, roles, duties,
     adCampaigns: (raw.adCamps || []).map(c => ({
@@ -345,7 +350,7 @@ function mapToTMK(raw) {
       color: s.color,
       clv: Number(s.avg_clv || 0),
     })),
-    computed: { MTD, ORD, AD, NEW_REV, OLD_REV, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC },
+    computed: { MTD, ORD, AD, NEW_REV, OLD_REV, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV },
   };
 }
 

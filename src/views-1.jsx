@@ -225,7 +225,6 @@ export function HomeView({ go }) {
               <div className="num h1">{Bk(C.MTD)}</div>
               <div className="cap">{'รวม'} {D.dailyMonth.length} {'วัน'} {'·'} {'เฉลี่ย'} {D.dailyMonth.length ? B(C.MTD / D.dailyMonth.length) : '—'}/{'วัน'}</div>
             </div>
-            <span className="chip chip-good"><Icon name="up" /> {'สูงกว่าค่าเฉลี่ย'}</span>
           </div>
           <MiniArea data={dailyVals} h={110} id="home" />
           <div className="grid g3" style={{ marginTop: 16, gap: 10 }}>
@@ -273,8 +272,9 @@ function SalesDateBar({ month, year, onPrev, onNext }) {
 }
 
 export function SalesView({ sub }) {
-  const [month, setMonth] = useState(5); // 0-indexed, 5 = มิ.ย.
-  const [year, setYear] = useState(2569);
+  const _today = getToday();
+  const [month, setMonth] = useState(_today.month - 1); // 0-indexed, เดือนจริง
+  const [year, setYear] = useState(_today.yearBE);
   const prev = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
   const prevMonthName = THAI_MONTHS[month === 0 ? 11 : month - 1];
@@ -510,7 +510,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
 
 function SalesAds({ dateProps, prevMonthName }) {
   const fb = D.fb;
-  const totalBudget = 150000;
+  const totalBudget = TMK.consts.AD_BUDGET || 0;
   const totalSpent = D.channels.filter(c => c.hasAd).reduce((s, c) => s + c.ad, 0);
   const remaining = totalBudget - totalSpent;
   const burnRate = totalSpent / TMK.consts.DAY;
@@ -559,14 +559,15 @@ function SalesAds({ dateProps, prevMonthName }) {
           <thead><tr><th>{'ช่องทาง'}</th><th style={{textAlign:'right'}}>{'รายได้'}</th><th style={{textAlign:'right'}}>{'ค่าแอด'}</th><th style={{textAlign:'right'}}>ROAS</th><th style={{textAlign:'right'}}>ACOS</th></tr></thead>
           <tbody>
             {D.channels.filter(c=>c.hasAd).map(c => {
-              const r = c.actual/c.ad, a = (c.ad/c.actual)*100;
+              const r = c.ad > 0 ? c.actual/c.ad : null;
+              const a = c.actual > 0 ? (c.ad/c.actual)*100 : null;
               return (
                 <tr key={c.id}>
                   <td><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></td>
                   <td className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</td>
                   <td className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r.toFixed(1)}x</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a<=TMK.consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{P(a,0)}</td>
+                  <td className="num" style={{textAlign:'right', fontWeight:700, color: r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r!=null ? r.toFixed(1)+'x' : '—'}</td>
+                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a<=TMK.consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{a!=null ? P(a,0) : '—'}</td>
                 </tr>
               );
             })}
@@ -609,7 +610,7 @@ function SalesAds({ dateProps, prevMonthName }) {
           ))}
           <div>
             <div className="cap">{'เวลาตอบแชทเฉลี่ย'}</div>
-            <div className="num h1" style={{ color: 'var(--info)' }}>8 <span className="cap">{'นาที'}</span></div>
+            <div className="num h1" style={{ color: 'var(--info)' }}>{fb.avgReplyMinutes ? <>{fb.avgReplyMinutes} <span className="cap">{'นาที'}</span></> : '—'}</div>
           </div>
         </div>
         <div className="grid g3" style={{ gap: 12 }}>
@@ -688,14 +689,16 @@ function SalesCustomers({ dateProps, prevMonthName }) {
           {/* CLV */}
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Customer Lifetime Value (CLV)</div>
-            <div className="num display" style={{ color: 'var(--accent)' }}>฿2,850</div>
-            <div className="cap" style={{ marginTop: 4 }}>{'เฉลี่ยต่อลูกค้า'} {'·'} {'ข้อมูลย้อนหลัง'} 6 {'เดือน'}</div>
+            <div className="num display" style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</div>
+            <div className="cap" style={{ marginTop: 4 }}>{'เฉลี่ยต่อลูกค้า'} {'·'} {'จากกลุ่มลูกค้า'}</div>
           </div>
           {/* Returning trend */}
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>{'สัดส่วนลูกค้าเก่า'} (Returning)</div>
-            <MiniArea data={[29,31,33]} h={80} color="var(--info)" id="ret" />
-            <div className="cap" style={{ marginTop: 4 }}>{'เป้าหมาย: เพิ่ม'} Returning {'≥'} 35% {'ภายในสิ้นเดือน'}</div>
+            {(C.NEW_C + C.OLD_C) > 0
+              ? <div className="num h1" style={{ color: 'var(--info)' }}>{P((C.OLD_C / (C.NEW_C + C.OLD_C)) * 100, 0)}</div>
+              : <div className="num h2" style={{ color: 'var(--ink-4)' }}>—</div>}
+            <div className="cap" style={{ marginTop: 4 }}>{'เป้าหมาย: เพิ่ม'} Returning {'≥'} 35%</div>
           </div>
         </div>
       </div>

@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, N, Icon, Ring } from './components.jsx';
+import { B, Bk, N, P, Icon, Ring } from './components.jsx';
 import { getToday } from './lib/dateUtils.js';
 
 const DD = TMK;
@@ -338,21 +338,22 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
               <div className="eyebrow">ปฏิทินการกรอก</div>
               <div className="h3">{monthLabel} {year}</div>
             </div>
-            <span className="chip">30/30 วัน</span>
+            <span className="chip">{ENTERED_DAYS}/{DAYS_IN_MONTH} วัน</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 16px 16px' }}>
             {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
               <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
             ))}
-            {Array.from({ length: 30 }, (_, i) => {
+            {Array.from({ length: DAYS_IN_MONTH }, (_, i) => {
               const day = i + 1;
+              const filled = dayRevMap[day] != null; // กรอกจริงไหม
               return (
                 <div key={day} style={{
                   textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
-                  background: 'var(--good-soft)', border: '1px solid var(--line)',
+                  background: filled ? 'var(--good-soft)' : 'var(--surface-2)', border: '1px solid var(--line)',
                 }}>
-                  <div className="sm" style={{ fontWeight: 600, color: 'var(--good)' }}>{day}</div>
-                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--good)', margin: '2px auto 0' }}></div>
+                  <div className="sm" style={{ fontWeight: 600, color: filled ? 'var(--good)' : 'var(--ink-4)' }}>{day}</div>
+                  {filled && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--good)', margin: '2px auto 0' }}></div>}
                 </div>
               );
             })}
@@ -531,12 +532,17 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
 function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
   const { isCurrent, isPast, isFuture } = mode;
 
+  const targetSet = (DD.consts.TARGET || 0) > 0;
+  const adBudgetSet = (DD.consts.AD_BUDGET || 0) > 0;
+  const adCampCount = (DD.adCampaigns || []).length;
+  const segSet = (DD.segments || []).length > 0;
+  const monthsFilled = (DD.monthly || []).filter(m => m.year === DD.consts.current_year && m.actual > 0).length;
   const items = [
     {
       title: 'เป้าหมายเดือน',
       icon: 'target',
-      done: true,
-      status: `ตั้งแล้ว: ${B(DD.consts.TARGET)}`,
+      done: targetSet,
+      status: targetSet ? `ตั้งแล้ว: ${B(DD.consts.TARGET)}` : 'ยังไม่ได้ตั้งเป้า',
       desc: 'ตั้งเป้ารายได้รวมและเป้าต่อช่องทาง',
       modal: 'monthlyTarget',
       extra: (
@@ -558,8 +564,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
     {
       title: 'งบโฆษณา',
       icon: 'zap',
-      done: true,
-      status: `ตั้งแล้ว: ${B(DD.computed.AD)}`,
+      done: adBudgetSet,
+      status: adBudgetSet ? `ตั้งแล้ว: ${B(DD.consts.AD_BUDGET)}` : 'ยังไม่ได้ตั้งงบ',
       desc: 'กำหนดงบโฆษณารวมและงบต่อช่องทาง',
       modal: 'monthlyTarget',
       extra: (
@@ -576,8 +582,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
     {
       title: 'แคมเปญแอด',
       icon: 'megaphone',
-      done: true,
-      status: `${DD.campaigns.length} แคมเปญ (${DD.campaigns.filter(c => c.status === 'live').length} active)`,
+      done: adCampCount > 0,
+      status: adCampCount > 0 ? `${adCampCount} แคมเปญแอด` : 'ยังไม่มีแคมเปญแอด',
       desc: 'จัดการแคมเปญโฆษณาทุกแพลตฟอร์ม',
       modal: 'adCampaign',
       extra: (
@@ -596,8 +602,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
     {
       title: 'กลุ่มลูกค้า',
       icon: 'users',
-      done: false,
-      status: 'ยังไม่ได้อัปเดตเดือนนี้',
+      done: segSet,
+      status: segSet ? `${(DD.segments || []).length} กลุ่ม` : 'ยังไม่ได้อัปเดต',
       desc: 'แบ่งกลุ่มลูกค้าเพื่อวางแผนการตลาด',
       modal: 'customerSegment',
       extra: (
@@ -612,15 +618,15 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
     {
       title: 'ข้อมูลย้อนหลัง',
       icon: 'clock',
-      done: false,
-      status: 'กรอกแล้ว 6/12 เดือน',
+      done: monthsFilled > 0,
+      status: `กรอกแล้ว ${monthsFilled}/12 เดือน`,
       desc: 'กรอกข้อมูลย้อนหลังเพื่อวิเคราะห์แนวโน้ม',
       modal: 'historical',
       extra: (
         <div style={{ marginTop: 10 }}>
-          <div className="cap" style={{ marginBottom: 4 }}>ความคืบหน้า 6/12 เดือน</div>
+          <div className="cap" style={{ marginBottom: 4 }}>ความคืบหน้า {monthsFilled}/12 เดือน</div>
           <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: '50%', background: 'var(--accent)', borderRadius: 4 }}></div>
+            <div style={{ height: '100%', width: `${(monthsFilled / 12) * 100}%`, background: 'var(--accent)', borderRadius: 4 }}></div>
           </div>
         </div>
       ),
@@ -669,6 +675,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
 
   /* ---- PAST ---- */
   if (isPast) {
+    const pastRec = (DD.monthly || []).find(m => m.month === month + 1 && m.year === year);
+    const pastPct = pastRec && pastRec.target > 0 ? (pastRec.actual / pastRec.target) * 100 : null;
     return (
       <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="card" style={{ padding: 20, background: 'var(--surface-2)', borderLeft: '4px solid var(--ink-3)' }}>
@@ -696,14 +704,16 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
                 <span className="sm" style={{ fontWeight: 600, color: 'var(--good)' }}>ดูสรุปผล</span>
               </div>
 
-              {/* Mock actual vs target comparison */}
-              <div style={{ marginTop: 8, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
-                <div className="cap" style={{ marginBottom: 4 }}>ผลจริง vs เป้า</div>
-                <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: '92%', background: 'var(--good)', borderRadius: 4 }}></div>
+              {/* ผลจริง vs เป้า — แสดงเฉพาะการ์ดเป้าหมายเดือน เมื่อมีข้อมูลจริง */}
+              {i === 0 && pastPct != null && (
+                <div style={{ marginTop: 8, padding: 10, background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
+                  <div className="cap" style={{ marginBottom: 4 }}>ผลจริง vs เป้า</div>
+                  <div className="bar" style={{ height: 8, background: 'var(--surface-3)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.min(pastPct, 100)}%`, background: pastPct >= 95 ? 'var(--good)' : 'var(--warn)', borderRadius: 4 }}></div>
+                  </div>
+                  <div className="cap" style={{ marginTop: 2, color: pastPct >= 95 ? 'var(--good)' : 'var(--warn)' }}>{P(pastPct, 0)} ของเป้าหมาย</div>
                 </div>
-                <div className="cap" style={{ marginTop: 2, color: 'var(--good)' }}>92% ของเป้าหมาย</div>
-              </div>
+              )}
 
               {item.extra}
             </div>
@@ -829,11 +839,11 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
           </div>
           <div style={{ padding: '0 16px 16px' }}>
             {[
-              { label: `เป้าหมายเดือน ${monthLabel}`, detail: B(DD.consts.TARGET) },
-              { label: 'งบโฆษณา', detail: Bk(DD.computed.AD) },
-              { label: 'กลุ่มลูกค้า', detail: 'อัปเดตแล้ว' },
-              { label: `ยอดขาย 1-30 ${monthLabel}`, detail: 'กรอกครบ 30/30 วัน' },
-              { label: 'ข้อมูลย้อนหลัง', detail: 'กรอกครบ' },
+              { label: `เป้าหมายเดือน ${monthLabel}`, detail: DD.consts.TARGET ? B(DD.consts.TARGET) : '—' },
+              { label: 'งบโฆษณา', detail: DD.consts.AD_BUDGET ? Bk(DD.consts.AD_BUDGET) : '—' },
+              { label: 'กลุ่มลูกค้า', detail: (DD.segments || []).length ? `${DD.segments.length} กลุ่ม` : '—' },
+              { label: `ยอดขาย ${monthLabel}`, detail: `${ENTERED_DAYS}/${DAYS_IN_MONTH} วัน` },
+              { label: 'ข้อมูลย้อนหลัง', detail: `${(DD.monthly || []).filter(m => m.year === DD.consts.current_year && m.actual > 0).length}/12 เดือน` },
             ].map((item, i) => (
               <div key={i} className="row between" style={{ padding: '12px 4px', borderBottom: i < 4 ? '1px solid var(--line)' : 'none', gap: 12 }}>
                 <div className="row" style={{ gap: 10, flex: 1 }}>
