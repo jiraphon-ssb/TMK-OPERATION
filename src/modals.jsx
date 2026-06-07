@@ -277,7 +277,7 @@ export function TaskModal({ data, onClose, onSubmit }) {
       </div>
       <div className="field"><label>ช่องทาง</label>
         <div className="chips-pick">
-          {/* ช่องทางจาก Supabase (มี logo จริง) */}
+          {/* ทุก channel จาก Supabase — รวม หลังบ้าน + ทุกแพลตฟอร์ม แล้ว */}
           {(MD.channels || []).map(ch => (
             <button key={ch.id} className={'pick' + (f.channel.includes(ch.name) ? ' on' : '')} onClick={() => toggle('channel', ch.name)}>
               {ch.logoUrl ? (
@@ -286,13 +286,6 @@ export function TaskModal({ data, onClose, onSubmit }) {
                 <span className="dot-c" style={{ background: ch.hex }}></span>
               )}
               {ch.name}
-            </button>
-          ))}
-          {/* Specials: หลังบ้าน + ทุกแพลตฟอร์ม */}
-          {['หลังบ้าน', 'ทุกแพลตฟอร์ม'].map(c => (
-            <button key={c} className={'pick' + (f.channel.includes(c) ? ' on' : '')} onClick={() => toggle('channel', c)}>
-              <span className="dot-c" style={{ background: c === 'หลังบ้าน' ? '#74859c' : '#b07d33' }}></span>
-              {c}
             </button>
           ))}
         </div>
