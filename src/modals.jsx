@@ -5,7 +5,26 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon } from './components.jsx';
 import { useLang } from './i18n.jsx';
+import { supabase } from './lib/supabaseClient.js';
+import { parseTaskDate } from './lib/dateUtils.js';
 import tmkLogoWhite from './assets/tmk-logo-white.png';
+
+// Toast helper
+const toast = (m, k = 'success') => window.__toast?.(m, k);
+
+// Generic save wrapper
+async function saveRow(table, row, label = 'บันทึก') {
+  try {
+    const { error } = await supabase.from(table).upsert(row);
+    if (error) throw error;
+    toast(label + 'สำเร็จ', 'success');
+    return true;
+  } catch (err) {
+    console.error(`Save ${table} failed:`, err);
+    toast(label + 'ไม่สำเร็จ: ' + err.message, 'error');
+    return false;
+  }
+}
 
 const MD = TMK;
 const { TARGET: M_TARGET, DAY: M_DAY, DAYS: M_DAYS, ACOS_CEIL: M_ACOS } = TMK.consts;
@@ -50,14 +69,42 @@ export function RecordSalesModal({ onClose }) {
     setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
   };
 
-  // Save handler with loading state
-  const handleSave = () => {
+  // Save handler — upsert ลง tmk_daily_sales (id = "d-YYYY-MM-DD")
+  const handleSave = async () => {
+    if (saving) return;
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      if (window.__toast) window.__toast(t('toastSaved'), 'success');
+    try {
+      const dayNames = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+      const d = new Date(date);
+      const day_name = dayNames[d.getDay()] || '';
+      const byId = Object.fromEntries(rows.map(r => [r.id, r]));
+      const channelMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
+      const row = {
+        id: 'd-' + date,
+        date,
+        day_name,
+        shopee: Number(byId.shopee?.rev) || 0,
+        tiktok: Number(byId.tiktok?.rev) || 0,
+        lazada: Number(byId.lazada?.rev) || 0,
+        facebook: Number(byId.facebook?.rev) || 0,
+        line_oa: Number(byId.line?.rev) || 0,
+        crm: Number(byId.crm?.rev) || 0,
+        ad_spend: rows.reduce((a, r) => a + (Number(r.ad) || 0), 0),
+        note: note || '',
+      };
+      // map any other channel ids that happen to match column names
+      for (const r of rows) {
+        const col = channelMap[r.id];
+        if (col && row[col] === 0) row[col] = Number(r.rev) || 0;
+      }
+      const { error } = await supabase.from('tmk_daily_sales').upsert(row);
+      if (error) throw error;
+      toast(t('toastSaved'), 'success');
       onClose();
-    }, 600);
+    } catch (err) {
+      console.error('RecordSales save failed:', err);
+      toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setSaving(false); }
   };
 
   const MTD = MD.computed.MTD;
@@ -237,11 +284,24 @@ export function RecordSalesModal({ onClose }) {
 /* ---------- Task modal (add / edit) ---------- */
 export function TaskModal({ data, onClose, onSubmit }) {
   const edit = !!data;
-  const [f, setF] = useState(data || {
-    title: '', detail: '', date: '18 มิ.ย.', responsible: ['มัง'], channel: ['หลังบ้าน'], camp: 'c1', status: 'todo',
+  // แตกค่าที่อาจเป็น string คั่น comma (หรือ array ที่มีสมาชิกเป็น comma-string) → array สะอาด
+  const splitToArr = v => (Array.isArray(v) ? v : [v])
+    .flatMap(x => String(x || '').split(','))
+    .map(s => s.trim())
+    .filter(Boolean);
+  const [f, setF] = useState(() => {
+    if (!data) return { title: '', detail: '', date: '18 มิ.ย.', responsible: ['มัง'], channel: ['หลังบ้าน'], camp: 'c1', status: 'todo' };
+    const validNames = new Set((MD.channels || []).map(c => c.name));
+    const chanPieces = splitToArr(data.channel);
+    // เก็บเฉพาะช่องทางที่มีจริงในระบบ — ตัดข้อความอิสระเก่า (เช่น "FB Post") ที่ map ไม่ได้ทิ้ง
+    const channel = chanPieces.filter(c => validNames.has(c));
+    return { ...data, responsible: splitToArr(data.responsible), channel };
   });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const toggle = (k, v) => setF(p => ({ ...p, [k]: p[k].includes(v) ? p[k].filter(x => x !== v) : [...p[k], v] }));
+  const toggle = (k, v) => setF(p => {
+    const arr = Array.isArray(p[k]) ? p[k] : splitToArr(p[k]);
+    return { ...p, [k]: arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v] };
+  });
   const valid = f.title.trim();
   const footer = (
     <>
@@ -302,8 +362,26 @@ export function TaskModal({ data, onClose, onSubmit }) {
 /* ---------- Product modal ---------- */
 export function ProductModal({ data, onClose }) {
   const [f, setF] = useState(data || { name: '', price: '', units: '', onHand: '', reorder: '', strategy: '' });
+  const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" onClick={onClose}><Icon name="check" /> บันทึกสินค้า</button></>);
+  const handleSave = async () => {
+    if (busy || !f.name.trim()) return;
+    setBusy(true);
+    const row = {
+      id: data?.id || 'p' + Date.now(),
+      name: f.name.trim(),
+      price: Number(f.price) || 0,
+      target_units: Number(f.units) || 0,
+      actual_units: Number(data?.units) || 0,
+      stock_on_hand: Number(f.onHand) || 0,
+      reorder_point: Number(f.reorder) || 0,
+      strategy: f.strategy || '',
+    };
+    const ok = await saveRow('tmk_products', row, 'บันทึกสินค้า');
+    setBusy(false);
+    if (ok) onClose();
+  };
+  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
   return (
     <Modal icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้าและสต็อกคงเหลือ" onClose={onClose} footer={footer}>
       <div className="field"><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อโปโล Signature" /></div>
@@ -328,7 +406,26 @@ export function CampaignModal({ data, onClose }) {
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const toggleCh = id => setF(p => ({ ...p, channels: p.channels.includes(id) ? p.channels.filter(x => x !== id) : [...p.channels, id] }));
   const statuses = [['upcoming', 'กำลังจะมา'], ['live', 'กำลังดำเนินการ'], ['done', 'จบแล้ว']];
-  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" onClick={onClose}><Icon name="check" /> บันทึกแคมเปญ</button></>);
+  const [busy, setBusy] = useState(false);
+  const handleSave = async () => {
+    if (busy || !f.name.trim()) return;
+    setBusy(true);
+    const row = {
+      id: data?.id || 'c' + Date.now(),
+      name: f.name.trim(),
+      color: f.color,
+      bg: f.color + '22',
+      border: f.color + '55',
+      start_date: parseTaskDate(f.start) || null,
+      end_date: parseTaskDate(f.end) || null,
+      status: f.status,
+      channels: f.channels || [],
+    };
+    const ok = await saveRow('tmk_campaigns', row, 'บันทึกแคมเปญ');
+    setBusy(false);
+    if (ok) onClose();
+  };
+  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกแคมเปญ'}</button></>);
   return (
     <Modal icon="megaphone" title={data ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'} sub="ตั้งชื่อ ช่วงเวลา และช่องทาง" onClose={onClose} footer={footer}>
       <div className="field"><label>ชื่อแคมเปญ</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Payday Push" /></div>
@@ -368,9 +465,25 @@ export function CampaignModal({ data, onClose }) {
 
 /* ---------- PO modal ---------- */
 export function POModal({ data, onClose }) {
-  const [f, setF] = useState(data || { product: MD.products[0].name, quantity: '', orderDate: '', arrivalDate: '', status: 'Pending' });
+  const [f, setF] = useState(data || { product: MD.products[0]?.name || '', quantity: '', orderDate: '', arrivalDate: '', status: 'Pending' });
+  const [busy, setBusy] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" onClick={onClose}><Icon name="check" /> บันทึก PO</button></>);
+  const handleSave = async () => {
+    if (busy || !f.product) return;
+    setBusy(true);
+    const row = {
+      id: data?.id || 'po' + Date.now(),
+      product: f.product,
+      quantity: Number(f.quantity) || 0,
+      order_date: parseTaskDate(f.orderDate) || new Date().toISOString().slice(0, 10),
+      arrival_date: parseTaskDate(f.arrivalDate) || new Date().toISOString().slice(0, 10),
+      status: f.status,
+    };
+    const ok = await saveRow('tmk_purchase_orders', row, 'บันทึก PO');
+    setBusy(false);
+    if (ok) onClose();
+  };
+  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
   return (
     <Modal icon="box" title={data ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer}>
       <div className="field"><label>รายการสินค้า</label>
@@ -416,10 +529,37 @@ export function MonthlyTargetModal({ onClose }) {
   const monthOptions = [];
   [2569, 2570].forEach(y => months.forEach(m => monthOptions.push(`${m} ${y}`)));
 
+  const [busy, setBusy] = useState(false);
+  const handleSave = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { error: e1 } = await supabase.from('tmk_settings').upsert({
+        id: 'main',
+        total_target: Number(total) || 0,
+        ad_budget_total: Number(adTotal) || 0,
+        new_cust_target: Number(newCustTarget) || 0,
+        acos_ceil: Number(acosCeil) || 25,
+      });
+      if (e1) throw e1;
+      for (const c of chTargets) {
+        const { error } = await supabase.from('tmk_channels').update({ percentage: Number(c.target) || 0 }).eq('id', c.id);
+        if (error) throw error;
+      }
+      for (const c of adChannels) {
+        const { error } = await supabase.from('tmk_channels').update({ ad: Number(c.budget) || 0 }).eq('id', c.id);
+        if (error) throw error;
+      }
+      toast('บันทึกเป้าหมายเรียบร้อย', 'success');
+      onClose();
+    } catch (err) {
+      toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
   const footer = (
     <>
       <button className="btn" onClick={onClose}>ยกเลิก</button>
-      <button className="btn btn-primary" onClick={() => { if (window.__toast) window.__toast('บันทึกเป้าหมายเรียบร้อย', 'success'); onClose(); }}><Icon name="check" /> บันทึก</button>
+      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
   return (
@@ -499,11 +639,34 @@ export function AdCampaignModal({ data, onClose }) {
   const platforms = ['Facebook', 'TikTok', 'Shopee', 'Lazada'];
   const goals = ['Awareness', 'Conversion', 'Retargeting'];
   const statuses = ['กำลังดำเนินการ', 'หยุดชั่วคราว', 'จบแล้ว'];
+  const statusMap = { 'กำลังดำเนินการ': 'live', 'หยุดชั่วคราว': 'paused', 'จบแล้ว': 'done' };
+  const [busy, setBusy] = useState(false);
+  const handleSave = async () => {
+    if (busy || !f.name.trim()) return;
+    setBusy(true);
+    const row = {
+      id: data?.id || 'ac' + Date.now(),
+      name: f.name.trim(),
+      platform: f.platform,
+      budget: Number(f.budget) || 0,
+      spent: Number(data?.spent) || 0,
+      revenue: Number(data?.revenue) || 0,
+      roas: Number(data?.roas) || 0,
+      acos: Number(data?.acos) || 0,
+      status: statusMap[f.status] || 'live',
+      start_date: f.startDate || null,
+      end_date: f.endDate || null,
+      goal: f.goal,
+    };
+    const ok = await saveRow('tmk_ad_campaigns', row, 'บันทึกแคมเปญแอด');
+    setBusy(false);
+    if (ok) onClose();
+  };
 
   const footer = (
     <>
       <button className="btn" onClick={onClose}>ยกเลิก</button>
-      <button className="btn btn-primary" onClick={() => { if (window.__toast) window.__toast('บันทึกแคมเปญแอดเรียบร้อย', 'success'); onClose(); }}><Icon name="check" /> บันทึก</button>
+      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
   return (
@@ -574,10 +737,33 @@ export function CustomerSegmentModal({ onClose }) {
   const totalCount = segments.reduce((a, s) => a + (+s.count || 0), 0);
   const totalRevPct = segments.reduce((a, s) => a + (+s.revPct || 0), 0);
 
+  const [busy, setBusy] = useState(false);
+  const handleSave = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const rows = segments.map((s, i) => ({
+        id: 'seg' + (i + 1),
+        name: s.name,
+        count: Number(s.count) || 0,
+        rev_pct: Number(s.revPct) || 0,
+        color: typeof s.color === 'string' ? s.color : '#3b82f6',
+        criteria: s.criteria,
+        avg_clv: Number(clv) || 0,
+        sort_order: i + 1,
+      }));
+      const { error } = await supabase.from('tmk_customer_segments').upsert(rows);
+      if (error) throw error;
+      toast('บันทึกกลุ่มลูกค้าเรียบร้อย', 'success');
+      onClose();
+    } catch (err) {
+      toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
   const footer = (
     <>
       <button className="btn" onClick={onClose}>ยกเลิก</button>
-      <button className="btn btn-primary" onClick={() => { if (window.__toast) window.__toast('บันทึกกลุ่มลูกค้าเรียบร้อย', 'success'); onClose(); }}><Icon name="check" /> บันทึก</button>
+      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
   return (
@@ -631,10 +817,40 @@ export function HistoricalEntryModal({ onClose }) {
   const [rows, setRows] = useState(initRows);
   const up = (i, k, v) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
 
+  const [busy, setBusy] = useState(false);
+  const year = 2569;
+  const handleSave = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const dbRows = rows
+        .map((r, i) => ({ r, i }))
+        .filter(({ r }) => r.rev !== '' || r.orders !== '' || r.ad !== '' || r.newCust !== '')
+        .map(({ r, i }) => ({
+          id: `${year}-${String(i + 1).padStart(2, '0')}`,
+          month: i + 1,
+          year,
+          month_th: r.month,
+          target: 0,
+          actual: Number(r.rev) || 0,
+          projected: 0,
+          orders: Number(r.orders) || 0,
+          ad_spend: Number(r.ad) || 0,
+          new_cust: Number(r.newCust) || 0,
+        }));
+      if (dbRows.length === 0) { toast('ไม่มีข้อมูลให้บันทึก', 'error'); setBusy(false); return; }
+      const { error } = await supabase.from('tmk_monthly_history').upsert(dbRows);
+      if (error) throw error;
+      toast('บันทึกข้อมูลย้อนหลังเรียบร้อย', 'success');
+      onClose();
+    } catch (err) {
+      toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
   const footer = (
     <>
       <button className="btn" onClick={onClose}>ยกเลิก</button>
-      <button className="btn btn-primary" onClick={() => { if (window.__toast) window.__toast('บันทึกข้อมูลย้อนหลังเรียบร้อย', 'success'); onClose(); }}><Icon name="check" /> บันทึก</button>
+      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
   return (
