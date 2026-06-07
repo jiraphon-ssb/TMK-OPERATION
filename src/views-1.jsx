@@ -138,19 +138,28 @@ export function HomeView({ go }) {
 
         <div className="card card-pad-sm" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="row between" style={{ marginBottom: 12 }}>
-            <span className="eyebrow">{'ต้องจับตา'}</span>
-            <span className="chip">{alerts.length}</span>
+            <span className="eyebrow">{'แคมเปญ'}</span>
+            <span className="chip">{(D.campaigns || []).length}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-            {alerts.map((a, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', borderLeft: `3px solid ${a.c}` }}>
-                <span style={{ color: a.c, flexShrink: 0 }}><Icon name={a.icon} /></span>
-                <div style={{ minWidth: 0 }}>
-                  <div className="sm" style={{ fontWeight: 600, lineHeight: 1.3 }}>{a.t}</div>
-                  <div className="cap" style={{ marginTop: 2 }}>{a.d}</div>
-                </div>
-              </div>
-            ))}
+            {(() => {
+              const order = { live: 0, upcoming: 1, done: 2 };
+              const stMeta = { live: { l: 'กำลังดำเนินการ', c: 'var(--good)' }, upcoming: { l: 'กำลังจะมา', c: 'var(--warn)' }, done: { l: 'จบแล้ว', c: 'var(--ink-3)' } };
+              const list = [...(D.campaigns || [])].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)).slice(0, 5);
+              if (list.length === 0) return <div className="cap" style={{ color: 'var(--ink-4)', padding: '12px 0' }}>ยังไม่มีแคมเปญ</div>;
+              return list.map(c => {
+                const st = stMeta[c.status] || stMeta.upcoming;
+                return (
+                  <div key={c.id} onClick={() => go('settings', 'campaigns')} style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', borderLeft: `3px solid ${c.color || '#888'}`, cursor: 'pointer', alignItems: 'center' }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className="sm" style={{ fontWeight: 600, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                      <div className="cap" style={{ marginTop: 2 }}>{c.start && c.end ? `${c.start} - ${c.end}` : 'ยังไม่กำหนดช่วงเวลา'}</div>
+                    </div>
+                    <span className="chip" style={{ background: st.c + '1c', color: st.c, flexShrink: 0 }}>{st.l}</span>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
@@ -257,14 +266,6 @@ function SalesDateBar({ month, year, onPrev, onNext }) {
         <span className="h3 num">{THAI_MONTHS[month]} {year}</span>
         <button className="btn btn-sm btn-ghost" onClick={onNext} style={{ padding: '4px 8px' }}>
           <Icon name="chevR" />
-        </button>
-      </div>
-      <div className="row" style={{ gap: 8 }}>
-        <button className="btn btn-sm" onClick={() => window.__openModal('monthlyTarget')}>
-          <Icon name="target" /> ตั้งเป้าหมาย
-        </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => { if (window.__toast) window.__toast('ส่งออกข้อมูลเดือน ' + THAI_MONTHS[month] + ' ' + year + ' เรียบร้อย', 'success'); }}>
-          <Icon name="external" /> Export
         </button>
       </div>
     </div>
@@ -649,7 +650,6 @@ function SalesCustomers({ dateProps, prevMonthName }) {
       {/* Segment cards */}
       <div className="row between" style={{ marginBottom: 12 }}>
         <span className="eyebrow">กลุ่มลูกค้า</span>
-        <button className="btn btn-sm" onClick={() => window.__openModal('customerSegment')}><Icon name="pencil" /> อัปเดตกลุ่มลูกค้า</button>
       </div>
       <div className="grid g4" style={{ marginBottom: 16 }}>
         {getSegments().map(seg => (

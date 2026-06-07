@@ -53,6 +53,7 @@ export function UserProvider({ children, version }) {
       email: user.email,
       name: user.displayName || staff?.name || role?.name || fallbackName,
       role: role?.role || (staff?.role === 'Owner' ? 'admin' : null) || fallbackRole,
+      department: role?.department || role?.dutyName || staff?.role || '',
       color: staff?.color || (isOwner ? '#b07d33' : '#3b82f6'),
       avatarUrl: user.avatarUrl || staff?.avatarUrl || '',
       loginAt: user.loginAt,

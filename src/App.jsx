@@ -197,6 +197,7 @@ function AppInner() {
   const { t, lang, setLang } = useLang();
   const { toast } = useToast();
   const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload } = useData();
+  const { user: currentUserCtx } = useUser() || {};
   // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
 
@@ -320,32 +321,48 @@ function AppInner() {
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
 
-  // notifications — งานใกล้/เกินกำหนด (วันจริง) + สต็อกต่ำ; เคารพ toggle ใน settings
+  // ===== แจ้งเตือน — แยก 3 แบบ: วันนี้ / ตามวันที่ / เดือนที่แล้ว =====
+  // เฉพาะงานของหน้าที่ผู้ใช้ปัจจุบัน (admin เห็นทั้งหมด) — ข้อมูลจริงจาก Supabase
   const readFlag = (k) => { try { return localStorage.getItem(k) !== 'false'; } catch { return true; } };
-  const notifOverdueOn = readFlag('tmk-notif-overdue');
-  const notifStockOn = readFlag('tmk-notif-stock');
+  const notifOn = readFlag('tmk-notif-overdue');
   const todayDay = TMK.consts.DAY; // วันจริง
+  const myDuty = currentUserCtx?.name || '';
+  const myDept = currentUserCtx?.department || '';
+  const seeAll = currentUserCtx?.role === 'admin';
+  const isMine = (tk) => seeAll || (tk.responsible || []).some(r => r === myDuty || r === myDept);
+  const dayOf = (x) => +(x.date.match(/^(\d+)/)?.[1] || 0);
+  const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
 
-  const taskNotifs = notifOverdueOn ? tasks.filter(x => x.status !== 'done').map(x => {
-    const d = +(x.date.match(/^(\d+)/)?.[1] || 0);
-    const diff = d - todayDay;
-    let sev = 'soon', txt = t('dueIn', Math.abs(diff));
-    if (diff < 0) { sev = 'overdue'; txt = t('overdueBy', -diff); }
-    else if (diff === 0) { sev = 'today'; txt = t('dueToday'); }
-    return { ...x, kind: 'task', sev, txt, _diff: diff };
-  }).filter(n => n.sev !== 'soon' || n._diff <= (n.reminderDays || 1)) : [];
+  // 1) วันนี้
+  const notifsToday = openTasks.filter(x => dayOf(x) === todayDay)
+    .map(x => ({ ...x, kind: 'task', sev: 'today', txt: t('dueToday') }));
+  // 2) ตามวันที่ (เกินกำหนด + ใกล้ถึง ภายใน reminderDays)
+  const notifsDated = openTasks.filter(x => dayOf(x) !== todayDay)
+    .map(x => { const diff = dayOf(x) - todayDay; return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
+    .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
+    .sort((a, b) => a._diff - b._diff);
+  // 3) เดือนที่แล้ว — เตือนถ้ายังไม่ได้สรุปยอดเดือนก่อน (จาก monthly_history จริง)
+  const notifsLastMonth = (() => {
+    if (!notifOn) return [];
+    const cm = TMK.consts.current_month, cy = TMK.consts.current_year;
+    const pm = cm === 1 ? 12 : cm - 1;
+    const py = cm === 1 ? cy - 1 : cy;
+    const rec = (TMK.monthly || []).find(m => m.month === pm && m.year === py);
+    if (rec && rec.actual > 0) return [];
+    const MONTH_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${MONTH_TH[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
+  })();
 
-  const stockNotifs = notifStockOn ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low').map(p => ({
-    id: 'stock-' + p.name, kind: 'stock', title: p.name, responsible: ['สต็อกใกล้หมด'],
-    sev: 'stock', txt: p.stock === 'out' ? 'หมดสต็อก' : `เหลือ ${p.onHand}`,
-  })) : [];
-
-  const sevOrder = { overdue: 0, today: 1, stock: 2, soon: 3 };
-  const notifs = [...taskNotifs, ...stockNotifs].sort((a, b) => sevOrder[a.sev] - sevOrder[b.sev]).slice(0, 8);
+  const notifGroups = [
+    { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
+    { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
+    { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
+  ].filter(g => g.items.length > 0);
+  const notifs = [...notifsToday, ...notifsDated, ...notifsLastMonth];
 
   const onNotifClick = (n) => {
     setNotif(false);
-    if (n.kind === 'stock') { go('catalog', 'products'); return; }
+    if (n.kind === 'lastmonth') { go('sales', 'status'); setTimeout(() => window.__openModal('historical'), 100); return; }
     go('planner', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
   };
@@ -472,21 +489,26 @@ function AppInner() {
             <div className="row between" style={{ padding: '6px 10px 10px' }}>
               <span className="h3">{t('notifications')}</span><span className="chip chip-accent">{notifs.length}</span>
             </div>
-            {notifs.map(n => {
-              const sc = n.sev === 'overdue' ? 'var(--bad)' : n.sev === 'today' ? 'var(--warn)' : n.sev === 'stock' ? 'var(--bad)' : 'var(--info)';
-              return (
-                <div key={n.id} className="row" onClick={() => onNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'background 0.1s' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sc, flexShrink: 0 }}></span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</div>
-                    <div className="cap">{n.responsible.join(', ')}</div>
+            {notifGroups.length === 0 && (
+              <div className="cap" style={{ padding: '16px 10px', textAlign: 'center', color: 'var(--ink-4)' }}>ไม่มีการแจ้งเตือน</div>
+            )}
+            {notifGroups.map(g => (
+              <div key={g.key} style={{ marginBottom: 6 }}>
+                <div className="cap" style={{ padding: '6px 10px 2px', fontWeight: 700, color: g.color }}>{g.label} ({g.items.length})</div>
+                {g.items.map(n => (
+                  <div key={n.id} className="row" onClick={() => onNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'background 0.1s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: g.color, flexShrink: 0 }}></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</div>
+                      {Array.isArray(n.responsible) && n.responsible.length > 0 && <div className="cap">{n.responsible.join(', ')}</div>}
+                    </div>
+                    <span className="cap" style={{ color: g.color, fontWeight: 600 }}>{n.txt}</span>
                   </div>
-                  <span className="cap" style={{ color: sc, fontWeight: 600 }}>{n.txt}</span>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+            ))}
           </div>
         </>
       )}
