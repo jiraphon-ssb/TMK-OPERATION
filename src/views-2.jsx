@@ -793,10 +793,27 @@ function GeneralSettings({ dark, setDark }) {
           <span className="chip chip-good">เปิด</span>
         </div>
         <div className="row between" style={{ padding: '12px 0' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>Export ข้อมูล</div><div className="cap">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV</div></div>
+          <div><div className="sm" style={{ fontWeight: 600 }}>Export ข้อมูล</div><div className="cap">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV (รองรับภาษาไทยใน Excel)</div></div>
           <button className="btn btn-sm btn-outline" onClick={exportAllCSV}>
             <Icon name="external" /> Export
           </button>
+        </div>
+      </div>
+
+      {/* About */}
+      <div className="card">
+        <div className="card-head"><h3><Icon name="sparkle" /> เกี่ยวกับระบบ</h3></div>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>เวอร์ชัน</div><div className="cap">ดูรายละเอียดที่แท็บ "อัปเดต"</div></div>
+          <span className="chip chip-accent">v1.6.0</span>
+        </div>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>แหล่งข้อมูล</div><div className="cap">ทุกหน้าดึงข้อมูลจริงจาก Supabase แบบเรียลไทม์ ไม่มีข้อมูลจำลอง</div></div>
+          <span className="chip chip-good">Supabase</span>
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>ข้อมูลแยกตามเดือน</div><div className="cap">ทุกหน้าที่มีตัวเลือกเดือนแสดงข้อมูลของเดือนที่เลือก (อดีต/ปัจจุบัน/อนาคต)</div></div>
+          <span className="chip chip-good">เปิด</span>
         </div>
       </div>
     </div>
@@ -806,6 +823,21 @@ function GeneralSettings({ dark, setDark }) {
 /* ---- Updates / Changelog ---- */
 function UpdatesView() {
   const updates = [
+    { ver: '1.6.0', date: '8 มิ.ย. 2569', type: 'improvement', items: [
+      'รองรับมือถือ & แท็บเล็ตเต็มรูปแบบ — เมนูล่าง, เมนูลิ้นชัก, ปุ่มลัด (+), การ์ดเรียงอัตโนมัติ',
+      'จัด UI ให้ขอบตรงกันทุกแถว (แถบเลือกเดือนเท่ากับการ์ดด้านล่าง)',
+      'ช่องทางของงาน: ถ้าไม่ผูกแพลตฟอร์มจะแสดง "ไม่มี" (ไม่มีไอคอนหลอก) + เพิ่มปุ่ม "ไม่มี" ในฟอร์มงาน',
+      'ทำความสะอาดระบบ: ลบไฟล์/โค้ดที่ไม่ใช้, รวมโค้ดซ้ำให้เป็นแหล่งเดียว',
+      'กันบั๊ก: ค่าที่ไม่มีข้อมูลแสดง "—" (ไม่มี NaN), กันแครชทุกจุด',
+    ]},
+    { ver: '1.5.0', date: '8 มิ.ย. 2569', type: 'feature', items: [
+      'ข้อมูลแยกตามเดือนทุกหน้า — เปลี่ยนไปเดือนอดีต/ปัจจุบัน/อนาคต ตัวเลขเปลี่ยนตามจริง',
+      'บันทึกยอดรายวันเก็บครบต่อช่องทาง: ออร์เดอร์ / ลูกค้าใหม่-เก่า / แชท (ไม่หายอีก)',
+      'เพิ่มการเก็บ "เวลาตอบแชทเฉลี่ย/วัน" → เฉลี่ยมาแสดงในการ์ด Facebook ของแต่ละเดือน',
+      'ตั้งค่ารายเดือนแยกทุกเดือน (เป้า/งบ/เป้าต่อช่องทาง) + กรอกย้อนหลังไม่ทับค่าเดิม',
+      'ย้ายปุ่มสร้างแคมเปญแอดไปที่ "ตั้งค่ารายเดือน" และ "สถานะ" + กรองแคมเปญตามเดือน',
+      'ข้อมูลทั้งหมดดึงจาก Supabase จริง (ไม่มี mock) + ระบบถังขยะ/ประวัติ/แจ้งเตือนใช้งานได้จริง',
+    ]},
     { ver: '1.4.0', date: '7 มิ.ย. 2569', type: 'feature', items: [
       'เพิ่มระบบ Onboarding Tour สำหรับผู้ใช้ใหม่',
       'เพิ่มระบบ Toast Notification หลังบันทึกข้อมูล',

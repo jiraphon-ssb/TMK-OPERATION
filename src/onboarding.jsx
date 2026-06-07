@@ -246,19 +246,25 @@ const HELP_SECTIONS = [
         content: 'จัดการงบโฆษณาและวิเคราะห์ผล',
         guide: [
           { nav: ['sales', 'ads'], target: '.content-inner .card:first-child', title: 'งบโฆษณา', desc: 'งบทั้งหมด / ใช้ไปแล้ว / คงเหลือ / Burn rate ต่อวัน — มี progress bar แสดงว่าใช้งบไปกี่ % แล้ว เทียบกับเวลาที่ผ่านไป' },
-          { nav: ['sales', 'ads'], target: '.content-inner .card:nth-child(3)', title: 'แคมเปญแอด', desc: 'ตารางแคมเปญโฆษณาทั้งหมด: ชื่อ / แพลตฟอร์ม / งบ / ใช้ไป / ROAS / สถานะ — กด "+ สร้างแคมเปญแอด" เพื่อเพิ่มใหม่' },
+          { nav: ['sales', 'ads'], target: '.content-inner .card:nth-child(3)', title: 'แคมเปญแอด', desc: 'ตารางแคมเปญโฆษณาของเดือนที่เลือก: ชื่อ / แพลตฟอร์ม / งบ / ใช้ไป / ROAS / สถานะ — สร้าง/แก้แคมเปญได้ที่หน้า "ตั้งค่ารายเดือน" หรือ "สถานะ"' },
+          { nav: ['sales', 'ads'], target: '.content-inner .card:last-child', title: 'เจาะลึก Facebook & แชท', desc: 'รายได้/ค่าแอด/ROAS/ACOS + แชท→ออร์เดอร์ + ต้นทุนต่อแชท/ออร์เดอร์/CAC + เวลาตอบแชทเฉลี่ย — ทั้งหมดของเดือนที่เลือก' },
         ]},
       { id: 'sales-cust', title: 'ลูกค้า', level: 'used',
         content: 'วิเคราะห์กลุ่มลูกค้าและ CLV',
         guide: [
-          { nav: ['sales', 'customers'], target: '.content-inner .grid.g4', title: '4 กลุ่มลูกค้า', desc: 'VIP (35% รายได้) / Regular (40%) / At-risk (15%) / Churned (10%) — กด "อัปเดตกลุ่มลูกค้า" เพื่อปรับข้อมูลรายเดือน' },
-          { nav: ['sales', 'customers'], target: '.content-inner .grid.g2', title: 'CLV + ลูกค้าใหม่ vs เก่า', desc: 'Ring แสดงสัดส่วนลูกค้าใหม่ (เขียว) vs เก่า (ฟ้า) + CLV เฉลี่ย ฿2,850 ต่อคน' },
+          { nav: ['sales', 'customers'], target: '.content-inner .grid.g4', title: 'กลุ่มลูกค้า', desc: 'การ์ดกลุ่มลูกค้าจากข้อมูลจริงใน Supabase (จำนวน + % รายได้) — แก้ได้ที่ "ตั้งค่ารายเดือน → กลุ่มลูกค้า"' },
+          { nav: ['sales', 'customers'], target: '.content-inner .grid.g2', title: 'CLV + ลูกค้าใหม่ vs เก่า', desc: 'Ring แสดงสัดส่วนลูกค้าใหม่ (เขียว) vs เก่า (ฟ้า) ของเดือนที่เลือก + CLV เฉลี่ยต่อคน' },
         ]},
       { id: 'record-sales', title: 'บันทึกยอดขายรายวัน', level: 'new',
         content: 'กรอกยอดทุกวัน 2 ขั้นตอน',
         guide: [
-          { nav: ['sales', 'daily'], target: '.content-inner .card:nth-child(2)', title: 'ปุ่มบันทึกยอด', desc: 'กดที่นี่เพื่อเริ่มกรอกยอดขายประจำวัน — กรอกทุกช่องทาง (Shopee/TikTok/Lazada/Facebook/LINE/CRM)' },
-          { nav: ['sales', 'daily'], target: '.content-inner .card:nth-child(3)', title: 'ปฏิทินการกรอก', desc: 'เขียว = กรอกแล้ว, ส้ม = วันนี้ (ยังไม่กรอก), เทา = ยังไม่ถึง — เห็นภาพรวมว่ากรอกครบกี่วันแล้ว' },
+          { nav: ['sales', 'daily'], target: '.content-inner .card:nth-child(2)', title: 'ปุ่มบันทึกยอด', desc: 'กรอกแยกแต่ละช่องทาง ได้ครบทั้ง รายได้ / ออร์เดอร์ / ค่าแอด / แชท / ลูกค้าใหม่-เก่า + เวลาตอบแชทเฉลี่ย — ทุกค่าบันทึกลง Supabase ไม่หาย' },
+          { nav: ['sales', 'daily'], target: '.content-inner .card:nth-child(3)', title: 'ปฏิทินการกรอก', desc: 'เขียว = กรอกแล้ว, ส้ม = วันนี้ (ยังไม่กรอก), เทา = ยังไม่ถึง — กดวันย้อนหลังเพื่อแก้ไขได้ (ปฏิทินเปลี่ยนตามเดือนที่เลือก)' },
+        ]},
+      { id: 'per-month', title: 'ข้อมูลแยกตามเดือน', level: 'used',
+        content: 'เปลี่ยนเดือน ตัวเลขเปลี่ยนตาม',
+        guide: [
+          { nav: ['sales', 'overview'], target: '.content-inner .card:first-child', title: 'ทุกหน้าแยกตามเดือน', desc: 'ทุกหน้าที่มีแถบเลือกเดือน (ยอดขาย/บันทึก/สถานะ/ตั้งค่ารายเดือน) จะแสดงข้อมูลของ "เดือนที่เลือก" จริง — เลื่อนไปอดีต/อนาคต ตัวเลขเปลี่ยนตามทันที' },
         ]},
       { id: 'monthly-setup', title: 'ตั้งค่ารายเดือน', level: 'used',
         content: 'ตั้งเป้า 5 รายการทุกเดือน',
@@ -278,7 +284,7 @@ const HELP_SECTIONS = [
       { id: 'calendar', title: 'ปฏิทินปฏิบัติงาน', level: 'new',
         content: 'ปฏิทินรายเดือน + sidebar งาน',
         guide: [
-          { nav: ['planner', 'calendar'], target: '.card-head', title: 'ปฏิทิน', desc: 'ปฏิทินรายเดือน เริ่มวันอาทิตย์ แสดงงานสูงสุด 3 รายการ + ไอคอนแพลตฟอร์ม กดวันเพื่อดูรายละเอียดในแถบขวา ใช้ลูกศรเปลี่ยนเดือน' },
+          { nav: ['planner', 'calendar'], target: '.card-head', title: 'ปฏิทิน', desc: 'ปฏิทินรายเดือน แสดงงาน + ไอคอนช่องทางจริง (Facebook/TikTok/LINE...) ของแต่ละวัน ถ้างานเป็นงานภายใน (ไม่ผูกช่องทาง) จะแสดง "ไม่มี" กดวันเพื่อดูรายละเอียดในแถบขวา ใช้ลูกศรเปลี่ยนเดือน' },
           { nav: ['planner', 'calendar'], target: '.content-inner .eyebrow', title: 'รายละเอียดวัน', desc: 'แถบขวาแสดงงานของวันที่เลือก — กดที่การ์ดงานเพื่อแก้ไข กด "+ เพิ่ม" เพื่อสร้างงานใหม่ในวันนั้น' },
         ]},
       { id: 'kanban', title: 'บอร์ดคุมงาน (Kanban)', level: 'new',
@@ -338,6 +344,17 @@ const HELP_SECTIONS = [
         content: 'ดูประวัติ changelog',
         guide: [
           { nav: ['settings', 'general'], target: '.content-inner', title: 'อัปเดตระบบ', desc: 'กดแท็บ "อัปเดต" ดูเวอร์ชันปัจจุบัน + ประวัติฟีเจอร์ใหม่/ปรับปรุง/แก้ไขทั้งหมด' },
+        ]},
+      { id: 'trash-help', title: 'ถังขยะ (กู้คืนข้อมูล)', level: 'expert',
+        content: 'ลบแล้วกู้คืนได้',
+        guide: [
+          { nav: ['settings', 'general'], target: '.content-inner', title: 'ถังขยะ', desc: 'กดแท็บ "ถังขยะ" — รายการที่ลบ (งาน/สินค้า/แคมเปญ/ช่องทาง/ผู้ใช้...) จะเก็บไว้ที่นี่ กด "กู้คืน" เพื่อนำกลับ หรือ "ลบถาวร" เพื่อลบจริง (กู้ไม่ได้อีก)' },
+        ]},
+      { id: 'notif-help', title: 'การแจ้งเตือน', level: 'used',
+        content: 'ตั้งค่า + อ่านแจ้งเตือน',
+        guide: [
+          { nav: ['settings', 'general'], target: '.content-inner .card:nth-child(2)', title: 'ตั้งค่าแจ้งเตือน', desc: 'เปิด/ปิด แจ้งเตือนงานเกินกำหนด และสต็อกใกล้หมด ระบบจำค่าไว้แม้ปิดเว็บ' },
+          { nav: ['home'], target: '.topbar', title: 'กระดิ่งแจ้งเตือน', desc: 'กดกระดิ่งมุมขวาบน — แยก 3 หมวด: วันนี้ / ตามวันที่ / เดือนที่แล้ว (ทั้งหมดเป็นข้อมูลจริงจาก Supabase)' },
         ]},
     ]
   },

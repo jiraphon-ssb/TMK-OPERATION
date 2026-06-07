@@ -249,8 +249,10 @@ export function EntryView({ sub }) {
 
   return (
     <>
-      <MonthNav month={month} year={year} setMonth={setMonth} setYear={setYear}
-        quarterView={quarterView} setQuarterView={setQuarterView} />
+      <div className="content-inner">
+        <MonthNav month={month} year={year} setMonth={setMonth} setYear={setYear}
+          quarterView={quarterView} setQuarterView={setQuarterView} />
+      </div>
       {quarterView
         ? <QuarterView month={month} year={year} />
         : sub === 'monthly' ? <MonthlySetup mode={mode} monthLabel={monthLabel} monthFull={monthFull} month={month} year={year} />
