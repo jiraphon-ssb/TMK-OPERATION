@@ -696,6 +696,17 @@ export function ProfileView({ tasks }) {
   const [avatar, setAvatar] = useState(user.avatarUrl || '');
   const [tab, setTab] = useState('tasks');
 
+  // Sync local state เมื่อ user.avatarUrl เปลี่ยนใน Supabase
+  // (เช่น user อัปโหลดรูปใหม่จาก Settings → สิทธิ์ผู้ใช้)
+  React.useEffect(() => {
+    if (user.avatarUrl && user.avatarUrl !== avatar) {
+      setAvatar(user.avatarUrl);
+    }
+    if (user.name && user.name !== name) {
+      setName(user.name);
+    }
+  }, [user.avatarUrl, user.name]);
+
   // Filter tasks ที่มี user.name ใน responsible (real Supabase data)
   const myTasks = (tasks || DD.tasks || []).filter(t => {
     const resp = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim());
@@ -708,14 +719,40 @@ export function ProfileView({ tasks }) {
     return a.user === user.name || a.user === user.email.split('@')[0];
   });
 
-  const saveProfile = () => {
-    // Persist to localStorage (mock until Supabase profile table)
+  const saveProfile = async () => {
     try {
-      const saved = JSON.parse(localStorage.getItem('tmk-user') || '{}');
-      localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name, avatarUrl: avatar }));
-      window.dispatchEvent(new Event('tmk-user-change'));
-    } catch {}
-    if (window.__toast) window.__toast('อัปเดตโปรไฟล์เรียบร้อย', 'success');
+      // 1. Save to Supabase tmk_staff (so it syncs across all users + persists)
+      const existingStaff = (DD.staff || []).find(s => s.email === user.email);
+      const staffId = existingStaff?.id || ('s-' + user.email.split('@')[0].replace(/[^a-z0-9]/gi, ''));
+      const { error } = await supabase.from('tmk_staff').upsert({
+        id: staffId,
+        name: name.trim() || user.email.split('@')[0],
+        role: existingStaff?.role || user.department || 'Staff',
+        email: user.email,
+        color: existingStaff?.color || user.color || '#3b82f6',
+        avatar_url: avatar || '',
+      });
+      if (error) throw error;
+
+      // 2. Also sync to tmk_user_roles (the name field)
+      await supabase.from('tmk_user_roles').upsert({
+        email: user.email,
+        role: user.role,
+        name: name.trim() || user.email.split('@')[0],
+      });
+
+      // 3. Persist to localStorage as cache
+      try {
+        const saved = JSON.parse(localStorage.getItem('tmk-user') || '{}');
+        localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name, avatarUrl: avatar }));
+        window.dispatchEvent(new Event('tmk-user-change'));
+      } catch {}
+
+      if (window.__toast) window.__toast('อัปเดตโปรไฟล์เรียบร้อย', 'success');
+    } catch (err) {
+      console.error(err);
+      if (window.__toast) window.__toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    }
   };
 
   const roleLabel = user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'editor' ? 'แก้ไขได้' : 'ดูอย่างเดียว';
@@ -1330,7 +1367,11 @@ function RolesView() {
 
               return (
                 <div key={u.email} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
-                  <Avatar name={u.name} color={u.color || staffColor} size={34} />
+                  {u.avatar ? (
+                    <img src={u.avatar} alt="" style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                  ) : (
+                    <Avatar name={u.name} color={u.color || staffColor} size={34} />
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="sm" style={{ fontWeight: 600 }}>{u.name}</div>
                     <div className="cap">{u.email}</div>
