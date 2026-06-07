@@ -225,7 +225,7 @@ function QuarterView({ month, year }) {
 
               {d.status === 'เตรียมการ' && (
                 <button className="btn btn-outline btn-sm" style={{ marginTop: 8, width: '100%' }}
-                  onClick={() => window.__openModal('monthlyTarget')}>
+                  onClick={() => window.__openModal('monthlyTarget', { month: mIdx, year })}>
                   ตั้งเป้า
                 </button>
               )}
@@ -524,17 +524,24 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
 function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
   const { isCurrent, isPast, isFuture } = mode;
 
-  const targetSet = (DD.consts.TARGET || 0) > 0;
-  const adBudgetSet = (DD.consts.AD_BUDGET || 0) > 0;
+  // อ่านค่าตั้งค่าของ "เดือนที่เลือก" (target + meta) — แยกแต่ละเดือน
+  const selRow = (DD.monthly || []).find(m => m.month === month + 1 && m.year === year);
+  const selMeta = (selRow && selRow.meta) || {};
+  const selTarget = Number(selRow?.target || 0);
+  const selAdBudget = Number(selMeta.adBudget || 0);
+  const chTargetOf = (id) => Number((selMeta.channelTargets && selMeta.channelTargets[id]) || 0);
+  const adBudgetOf = (id) => Number((selMeta.adChannels && selMeta.adChannels[id]) || 0);
+  const targetSet = selTarget > 0;
+  const adBudgetSet = selAdBudget > 0;
   const adCampCount = (DD.adCampaigns || []).length;
   const segSet = (DD.segments || []).length > 0;
-  const monthsFilled = (DD.monthly || []).filter(m => m.year === DD.consts.current_year && m.actual > 0).length;
+  const monthsFilled = (DD.monthly || []).filter(m => m.year === year && m.actual > 0).length;
   const items = [
     {
       title: 'เป้าหมายเดือน',
       icon: 'target',
       done: targetSet,
-      status: targetSet ? `ตั้งแล้ว: ${B(DD.consts.TARGET)}` : 'ยังไม่ได้ตั้งเป้า',
+      status: targetSet ? `ตั้งแล้ว: ${B(selTarget)}` : 'ยังไม่ได้ตั้งเป้า',
       desc: 'ตั้งเป้ารายได้รวมและเป้าต่อช่องทาง',
       modal: 'monthlyTarget',
       extra: (
@@ -544,9 +551,9 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
             {DD.channels.map(ch => (
               <div key={ch.id} style={{ flex: 1, minWidth: 60 }}>
                 <div className="bar" style={{ height: 6, background: 'var(--surface-3)', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${(ch.target / DD.consts.TARGET) * 100}%`, background: ch.hex, borderRadius: 3 }}></div>
+                  <div style={{ height: '100%', width: `${selTarget > 0 ? Math.min((chTargetOf(ch.id) / selTarget) * 100, 100) : 0}%`, background: ch.hex, borderRadius: 3 }}></div>
                 </div>
-                <div className="cap" style={{ fontSize: 9, marginTop: 2 }}>{ch.name} {Bk(ch.target)}</div>
+                <div className="cap" style={{ fontSize: 9, marginTop: 2 }}>{ch.name} {Bk(chTargetOf(ch.id))}</div>
               </div>
             ))}
           </div>
@@ -557,7 +564,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
       title: 'งบโฆษณา',
       icon: 'zap',
       done: adBudgetSet,
-      status: adBudgetSet ? `ตั้งแล้ว: ${B(DD.consts.AD_BUDGET)}` : 'ยังไม่ได้ตั้งงบ',
+      status: adBudgetSet ? `ตั้งแล้ว: ${B(selAdBudget)}` : 'ยังไม่ได้ตั้งงบ',
       desc: 'กำหนดงบโฆษณารวมและงบต่อช่องทาง',
       modal: 'monthlyTarget',
       extra: (
@@ -565,7 +572,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
           <div className="cap" style={{ marginBottom: 4 }}>งบต่อช่องทาง</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {DD.channels.filter(c => c.hasAd).map(ch => (
-              <span key={ch.id} className="chip" style={{ background: ch.hex + '18', color: ch.hex }}>{ch.name} {Bk(ch.ad)}</span>
+              <span key={ch.id} className="chip" style={{ background: ch.hex + '18', color: ch.hex }}>{ch.name} {Bk(adBudgetOf(ch.id))}</span>
             ))}
           </div>
         </div>
@@ -635,11 +642,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
         </div>
 
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-accent" onClick={() => window.__openModal('monthlyTarget')}>
+          <button className="btn btn-accent" onClick={() => window.__openModal('monthlyTarget', { month, year })}>
             <Icon name="target" />ตั้งเป้าล่วงหน้า
-          </button>
-          <button className="btn btn-outline" onClick={() => window.__openModal('monthlyTarget')}>
-            <Icon name="refresh" />Copy จากเดือนก่อน
           </button>
         </div>
 
@@ -655,7 +659,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
                   <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้ตั้งค่า</div>
                 </div>
               </div>
-              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => window.__openModal(item.modal)}>
+              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
                 <Icon name="plus" />ตั้งเป้าล่วงหน้า
               </button>
             </div>
@@ -689,7 +693,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
                     <div className="cap" style={{ color: 'var(--ink-3)' }}>{item.desc}</div>
                   </div>
                 </div>
-                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal)}>
+                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
                   <Icon name="pencil" /> แก้ไข
                 </button>
               </div>
@@ -742,7 +746,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
 
             {item.extra}
 
-            <button className="btn btn-outline" style={{ marginTop: 12, width: '100%' }} onClick={() => window.__openModal(item.modal)}>
+            <button className="btn btn-outline" style={{ marginTop: 12, width: '100%' }} onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
               <Icon name={item.done ? 'pencil' : 'plus'} />
               {item.done ? 'แก้ไข' : 'ตั้งค่า'}
             </button>
@@ -788,7 +792,7 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
                   </span>
                   <div className="sm" style={{ fontWeight: 600 }}>{item.label}</div>
                 </div>
-                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal)}>
+                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
                   ตั้งค่า
                 </button>
               </div>
@@ -908,7 +912,7 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
               <div className="row" style={{ gap: 8, flexShrink: 0 }}>
                 <span className="cap" style={{ color: item.done ? 'var(--good)' : 'var(--warn)', fontWeight: 600 }}>{item.detail}</span>
                 {!item.done && item.modal && (
-                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal)}>
+                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
                     {item.modal === 'record' ? 'กรอก' : 'อัปเดต'}
                   </button>
                 )}

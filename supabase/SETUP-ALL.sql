@@ -308,6 +308,9 @@ alter table public.tmk_staff             add column if not exists deleted_at tim
 -- FB messages รายเดือน (ข้อมูลจริงสำหรับกราฟจำนวนข้อความ)
 alter table public.tmk_monthly_history   add column if not exists messages integer not null default 0;
 
+-- ค่าตั้งค่ารายเดือน (เป้า/งบ/เป้าต่อช่อง ฯลฯ) เก็บแยกแต่ละเดือน
+alter table public.tmk_monthly_history   add column if not exists meta jsonb not null default '{}'::jsonb;
+
 -- ============================================================
 -- SECTION 5 — Indexes
 -- ============================================================

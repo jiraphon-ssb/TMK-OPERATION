@@ -693,7 +693,7 @@ function AppInner() {
         : modal.type === 'product' ? <ProductModal data={modal.data} onClose={closeModal} />
         : modal.type === 'campaign' ? <CampaignModal data={modal.data} onClose={closeModal} />
         : modal.type === 'po' ? <POModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'monthlyTarget' ? <MonthlyTargetModal onClose={closeModal} />
+        : modal.type === 'monthlyTarget' ? <MonthlyTargetModal data={modal.data} onClose={closeModal} />
         : modal.type === 'adCampaign' ? <AdCampaignModal data={modal.data} onClose={closeModal} />
         : modal.type === 'customerSegment' ? <CustomerSegmentModal onClose={closeModal} />
         : modal.type === 'historical' ? <HistoricalEntryModal onClose={closeModal} />

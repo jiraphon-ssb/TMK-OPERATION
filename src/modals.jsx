@@ -549,50 +549,75 @@ export function POModal({ data, onClose }) {
 }
 
 /* ---------- Monthly Target modal ---------- */
-export function MonthlyTargetModal({ onClose }) {
+export function MonthlyTargetModal({ data, onClose }) {
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   const _t = getToday();
-  const [month, setMonth] = useState(`${months[_t.month - 1]} ${_t.yearBE}`);
-  // ไม่ใส่ค่าให้เอง — โหลดค่าจริงที่เคยตั้งไว้ (ถ้ามี) ไม่งั้นว่าง
-  const [total, setTotal] = useState(MD.consts.TARGET || '');
-  const [chTargets, setChTargets] = useState(MD.channels.map(c => ({ id: c.id, name: c.name, hex: c.hex, target: c.target || '' })));
-  const [adTotal, setAdTotal] = useState(MD.consts.AD_BUDGET || '');
-  const [adChannels, setAdChannels] = useState(MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: c.ad || '' })));
-  const [newCustTarget, setNewCustTarget] = useState('');
-  const [acosCeil, setAcosCeil] = useState(MD.consts.ACOS_CEIL || 25);
+  const [monthIdx, setMonthIdx] = useState(data?.month != null ? data.month : _t.month - 1); // 0-indexed
+  const [year, setYear] = useState(data?.year || _t.yearBE);
+
+  // โหลดค่าตั้งค่าของเดือนที่เลือก จาก MD.monthly (target + meta) — ไม่ใส่ค่าปลอม
+  const loadFor = (idx, yr) => {
+    const row = (MD.monthly || []).find(m => m.month === idx + 1 && m.year === yr);
+    const meta = (row && row.meta) || {};
+    return {
+      total: row?.target || '',
+      chTargets: MD.channels.map(c => ({ id: c.id, name: c.name, hex: c.hex, target: meta.channelTargets?.[c.id] ?? '' })),
+      adTotal: meta.adBudget ?? '',
+      adChannels: MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: meta.adChannels?.[c.id] ?? '' })),
+      newCustTarget: meta.newCustTarget ?? '',
+      acosCeil: meta.acosCeil ?? 25,
+    };
+  };
+  const _init = loadFor(monthIdx, year);
+  const [total, setTotal] = useState(_init.total);
+  const [chTargets, setChTargets] = useState(_init.chTargets);
+  const [adTotal, setAdTotal] = useState(_init.adTotal);
+  const [adChannels, setAdChannels] = useState(_init.adChannels);
+  const [newCustTarget, setNewCustTarget] = useState(_init.newCustTarget);
+  const [acosCeil, setAcosCeil] = useState(_init.acosCeil);
+
+  // เปลี่ยนเดือน → โหลดค่าของเดือนนั้น (แต่ละเดือนแยกกัน)
+  const changeMonth = (idx, yr) => {
+    setMonthIdx(idx); setYear(yr);
+    const v = loadFor(idx, yr);
+    setTotal(v.total); setChTargets(v.chTargets); setAdTotal(v.adTotal);
+    setAdChannels(v.adChannels); setNewCustTarget(v.newCustTarget); setAcosCeil(v.acosCeil);
+  };
 
   const chSum = chTargets.reduce((a, c) => a + (+c.target || 0), 0);
   const adSum = adChannels.reduce((a, c) => a + (+c.budget || 0), 0);
-  const match = chSum === +total;
+  const match = chSum === (+total || 0);
 
   const upCh = (i, v) => setChTargets(ts => ts.map((t, j) => j === i ? { ...t, target: v } : t));
   const upAd = (i, v) => setAdChannels(ts => ts.map((t, j) => j === i ? { ...t, budget: v } : t));
 
   const monthOptions = [];
-  [2569, 2570].forEach(y => months.forEach(m => monthOptions.push(`${m} ${y}`)));
+  [year - 1, year, year + 1].forEach(y => months.forEach((m, i) => monthOptions.push({ idx: i, year: y, label: `${m} ${y}` })));
 
   const [busy, setBusy] = useState(false);
   const handleSave = async () => {
     if (busy) return;
     setBusy(true);
     try {
-      const { error: e1 } = await supabase.from('tmk_settings').upsert({
-        id: 'main',
-        total_target: Number(total) || 0,
-        ad_budget_total: Number(adTotal) || 0,
-        new_cust_target: Number(newCustTarget) || 0,
-        acos_ceil: Number(acosCeil) || 25,
-      });
-      if (e1) throw e1;
-      for (const c of chTargets) {
-        const { error } = await supabase.from('tmk_channels').update({ percentage: Number(c.target) || 0 }).eq('id', c.id);
-        if (error) throw error;
-      }
-      for (const c of adChannels) {
-        const { error } = await supabase.from('tmk_channels').update({ ad: Number(c.budget) || 0 }).eq('id', c.id);
-        if (error) throw error;
-      }
-      logAudit({ action: 'update', entityType: 'settings', entityName: month, summary: `ตั้งเป้ารายเดือน ${month} (${B(total)})` });
+      const existing = (MD.monthly || []).find(m => m.month === monthIdx + 1 && m.year === year);
+      const meta = {
+        adBudget: Number(adTotal) || 0,
+        channelTargets: Object.fromEntries(chTargets.map(c => [c.id, Number(c.target) || 0])),
+        adChannels: Object.fromEntries(adChannels.map(c => [c.id, Number(c.budget) || 0])),
+        newCustTarget: Number(newCustTarget) || 0,
+        acosCeil: Number(acosCeil) || 25,
+      };
+      const row = {
+        id: `${year}-${String(monthIdx + 1).padStart(2, '0')}`,
+        month: monthIdx + 1, year, month_th: months[monthIdx],
+        target: Number(total) || 0,
+        actual: existing?.actual || 0, projected: existing?.projected || 0,
+        orders: existing?.orders || 0, messages: existing?.messages || 0,
+        meta,
+      };
+      const { error } = await supabase.from('tmk_monthly_history').upsert(row);
+      if (error) throw error;
+      logAudit({ action: 'update', entityType: 'monthly', entityName: `${months[monthIdx]} ${year}`, summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})` });
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -609,8 +634,8 @@ export function MonthlyTargetModal({ onClose }) {
     <Modal icon="target" title="ตั้งเป้าหมายรายเดือน" sub="กำหนดเป้ายอดขายและงบโฆษณา" onClose={onClose} footer={footer} wide>
       <div className="field" style={{ maxWidth: 220 }}>
         <label>เดือน/ปี</label>
-        <select className="input" value={month} onChange={e => setMonth(e.target.value)}>
-          {monthOptions.map(o => <option key={o} value={o}>{o}</option>)}
+        <select className="input" value={`${monthIdx}-${year}`} onChange={e => { const [i, y] = e.target.value.split('-').map(Number); changeMonth(i, y); }}>
+          {monthOptions.map(o => <option key={o.label} value={`${o.idx}-${o.year}`}>{o.label}</option>)}
         </select>
       </div>
 

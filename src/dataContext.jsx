@@ -96,11 +96,14 @@ async function loadAllTables() {
 function mapToTMK(raw) {
   const settings = raw.settings || {};
   const today = getToday(); // วันที่จริงของเครื่อง = source of truth ของ "วันนี้"
-  const TARGET = Number(settings.total_target || 0);       // ไม่ใส่ค่า default ปลอม — ยังไม่ตั้ง = 0
+  // ค่าตั้งค่า "รายเดือน" ของเดือนปัจจุบัน (เก็บใน tmk_monthly_history: target + meta jsonb)
+  const _curRow = (raw.monthly || []).find(m => Number(m.year) === today.yearBE && Number(m.month) === today.month);
+  const _curMeta = (_curRow && _curRow.meta) || {};
+  const TARGET = Number(_curRow?.target || 0);             // เป้ายอดรวมของเดือนนี้ (ยังไม่ตั้ง = 0)
   const DAY = today.day;                 // วันจริง (แทน settings.current_day)
   const DAYS = today.daysInMonth;        // จำนวนวันจริงในเดือนนี้
-  const ACOS_CEIL = Number(settings.acos_ceil || 25);      // เพดาน ACOS — default 25% เป็น config ที่สมเหตุผล
-  const AD_BUDGET = Number(settings.ad_budget_total || 0);  // ยังไม่ตั้งงบ = 0
+  const ACOS_CEIL = Number(_curMeta.acosCeil || 25);       // เพดาน ACOS รายเดือน — default 25%
+  const AD_BUDGET = Number(_curMeta.adBudget || 0);        // งบโฆษณาของเดือนนี้ (ยังไม่ตั้ง = 0)
 
   // รายได้ต่อช่องทาง derive จาก tmk_daily_sales จริง (single source of truth)
   // กรอกยอดรายวัน → MTD/ช่องทางอัปเดตเอง; ถ้ายังไม่มี daily → 0
@@ -123,7 +126,8 @@ function mapToTMK(raw) {
     logoUrl: ch.logo_url || '',
     color: `var(--ch-${(ch.id || '').toLowerCase()})`,
     hex: ch.color,
-    target: Number(ch.percentage || 0),
+    // เป้าต่อช่องทาง = ค่าของเดือนปัจจุบัน (meta.channelTargets); ไม่มี = 0
+    target: Number((_curMeta.channelTargets && _curMeta.channelTargets[ch.id]) || 0),
     // รายได้ต่อช่องทาง = ยอดจริงจาก daily (ช่องทางมาตรฐาน); อื่นๆ ใช้ค่าใน channels
     actual: (ch.id in DAILY_COL) ? (dailyRevByCh[ch.id] || 0) : Number(ch.actual || 0),
     sortOrder: Number(ch.sort_order || 0),
@@ -327,7 +331,7 @@ function mapToTMK(raw) {
     month: Number(m.month), year: Number(m.year), monthTh: m.month_th,
     target: Number(m.target || 0), actual: Number(m.actual || 0),
     projected: Number(m.projected || 0), orders: Number(m.orders || 0),
-    messages: Number(m.messages || 0),
+    messages: Number(m.messages || 0), meta: m.meta || {},
   }));
 
   return {
