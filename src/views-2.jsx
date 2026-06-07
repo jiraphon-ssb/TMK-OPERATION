@@ -1260,10 +1260,6 @@ function ChannelsView() {
                   ))}
                 </div>
               </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 4 }}>เป้ายอดขาย (บาท/เดือน)</div>
-                <input className="input" type="number" placeholder="0" value={newTarget} onChange={e => setNewTarget(e.target.value)} />
-              </div>
               <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
                 <button className="btn btn-sm" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</button>
                 <button className="btn btn-sm btn-primary" onClick={addChannel} disabled={!newName.trim() || busy}>
@@ -1335,10 +1331,6 @@ function ChannelsView() {
                         ))}
                       </div>
                     </div>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>เป้ายอดขาย (บาท/เดือน)</div>
-                      <input className="input" type="number" value={editTarget} onChange={e => setEditTarget(e.target.value)} />
-                    </div>
                     <div className="row between">
                       <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}>
                         <Icon name="trash" /> ลบ
@@ -1379,26 +1371,21 @@ function ChannelsView() {
                 </span>
                 {c.logoUrl ? (
                   <img src={c.logoUrl} alt={c.name} style={{
-                    width: 36, height: 36, borderRadius: 10,
-                    objectFit: 'contain', background: '#fff',
-                    border: '1px solid var(--line)', flexShrink: 0,
+                    width: 42, height: 42, borderRadius: 10,
+                    objectFit: 'contain', flexShrink: 0,
                   }} />
                 ) : (
                   <span style={{
-                    width: 36, height: 36, borderRadius: 10,
+                    width: 42, height: 42, borderRadius: 10,
                     background: (c.hex || c.color || '#666') + '18',
                     color: c.hex || c.color || '#666',
                     display: 'grid', placeItems: 'center',
-                    fontSize: 18, fontWeight: 700, flexShrink: 0,
+                    fontSize: 20, fontWeight: 700, flexShrink: 0,
                   }}>{c.icon || c.name?.[0] || '?'}</span>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sm" style={{ fontWeight: 700 }}>{c.name}</div>
-                  <div className="cap">เป้า {B(c.target || 0)} · ID: {c.id}</div>
+                  <div className="sm" style={{ fontWeight: 700, fontSize: 'var(--fs-base)' }}>{c.name}</div>
                 </div>
-                <span className="chip" style={{ background: (c.hex || c.color || '#666') + '18', color: c.hex || c.color || '#666', fontWeight: 600 }}>
-                  {B(c.actual || 0)}
-                </span>
                 <button className="btn btn-sm btn-ghost" onClick={() => startEdit(c)} title="แก้ไข">
                   <Icon name="pencil" />
                 </button>
