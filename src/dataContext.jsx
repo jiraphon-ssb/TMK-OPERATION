@@ -104,10 +104,12 @@ function mapToTMK(raw) {
   const channels = (raw.channels || []).map(ch => ({
     id: ch.id,
     name: ch.name,
+    icon: ch.icon || '',
     color: `var(--ch-${(ch.id || '').toLowerCase()})`,
     hex: ch.color,
     target: Number(ch.percentage || 0),
     actual: Number(ch.actual || 0),
+    sortOrder: Number(ch.sort_order || 0),
     orders: Number(ch.orders || 0),
     newRev: Number(ch.new_rev || 0),
     oldRev: Number(ch.old_rev || 0),

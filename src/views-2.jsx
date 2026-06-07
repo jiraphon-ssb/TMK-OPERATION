@@ -618,6 +618,7 @@ function POView() {
 export function SettingsView({ sub, dark, setDark }) {
   const TABS = [
     { id: 'general', label: 'ทั่วไป', icon: 'system' },
+    { id: 'channels', label: 'ช่องทาง', icon: 'layers' },
     { id: 'campaigns', label: 'แคมเปญ', icon: 'megaphone' },
     { id: 'duties', label: 'หน้าที่', icon: 'shield' },
     { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'users' },
@@ -639,6 +640,7 @@ export function SettingsView({ sub, dark, setDark }) {
         ))}
       </div>
       {active === 'general' && <GeneralSettings dark={dark} setDark={setDark} />}
+      {active === 'channels' && <ChannelsView />}
       {active === 'campaigns' && <CampaignsView />}
       {active === 'duties' && <DutiesView />}
       {active === 'roles' && <RolesView />}
@@ -1018,6 +1020,318 @@ function AuditView() {
                 </div>
                 <span className="chip" style={{ background: tc+'1c', color: tc }}>{tl}</span>
                 <span className="cap" style={{ width: 96, textAlign: 'right', flexShrink: 0 }}>{a.time}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================  CHANNELS VIEW (ช่องทางการขาย)  ==================== */
+function ChannelsView() {
+  const { reload } = useData() || {};
+  const PALETTE = ['#ee6a3a', '#18a0ab', '#6b5ce0', '#4a8be0', '#06c755', '#c08a3e', '#ec4899', '#2f9e6e', '#cf4d5c', '#0a5aa0'];
+  // Popular icons สำหรับช่องทาง
+  const ICON_PRESETS = ['🛒','🛍','🛒','📱','💻','💬','📞','📧','👥','🎵','📘','📷','▶️','🎬','🏪','💰','💳','📦','🚚','⭐'];
+
+  const channels = (TMK.channels || []);
+
+  const [editing, setEditing] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editIcon, setEditIcon] = useState('');
+  const [editColor, setEditColor] = useState('');
+  const [editTarget, setEditTarget] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+
+  // Add form
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newIcon, setNewIcon] = useState('🛒');
+  const [newColor, setNewColor] = useState(PALETTE[0]);
+  const [newTarget, setNewTarget] = useState(0);
+
+  const startEdit = (c) => {
+    setEditing(c.id);
+    setEditName(c.name);
+    setEditIcon(c.icon || '');
+    setEditColor(c.hex || c.color || PALETTE[0]);
+    setEditTarget(c.target || 0);
+  };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('tmk_channels').update({
+        name: editName.trim(),
+        icon: editIcon,
+        color: editColor,
+        percentage: Number(editTarget) || 0,
+      }).eq('id', editing);
+      if (error) throw error;
+      if (reload) await reload();
+      setEditing(null);
+      if (window.__toast) window.__toast('อัปเดตช่องทางเรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const deleteChannel = async (c) => {
+    if (!confirm(`ลบช่องทาง "${c.name}"?\n(ข้อมูลยอดขายที่ link อยู่จะไม่ถูกลบ)`)) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('tmk_channels').delete().eq('id', c.id);
+      if (error) throw error;
+      if (reload) await reload();
+      setEditing(null);
+      if (window.__toast) window.__toast('ลบช่องทางเรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const addChannel = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      // Generate ID from name (lowercase, alphanumeric)
+      const baseId = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('ch-' + Date.now());
+      let id = baseId;
+      let counter = 1;
+      while (channels.find(c => c.id === id)) {
+        id = `${baseId}_${counter++}`;
+      }
+      const maxOrder = Math.max(0, ...channels.map(c => c.sortOrder || 0));
+      const { error } = await supabase.from('tmk_channels').insert({
+        id,
+        name,
+        icon: newIcon,
+        color: newColor,
+        percentage: Number(newTarget) || 0,
+        actual: 0,
+        sort_order: maxOrder + 1,
+      });
+      if (error) throw error;
+      if (reload) await reload();
+      setNewName(''); setNewIcon('🛒'); setNewColor(PALETTE[0]); setNewTarget(0); setShowAdd(false);
+      if (window.__toast) window.__toast('เพิ่มช่องทางเรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('เพิ่มไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const reorderChannel = async (fromId, toId) => {
+    if (fromId === toId) return;
+    const fromIdx = channels.findIndex(c => c.id === fromId);
+    const toIdx = channels.findIndex(c => c.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...channels];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setBusy(true);
+    try {
+      const updates = reordered.map((c, i) =>
+        supabase.from('tmk_channels').update({ sort_order: i + 1 }).eq('id', c.id)
+      );
+      const results = await Promise.all(updates);
+      const failed = results.find(r => r.error);
+      if (failed) throw failed.error;
+      if (reload) await reload();
+      if (window.__toast) window.__toast('เรียงลำดับใหม่เรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('เลื่อนไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+        <div className="row" style={{ gap: 10 }}>
+          <Icon name="layers" />
+          <div>
+            <div className="h3" style={{ marginBottom: 4 }}>ช่องทางการขาย</div>
+            <div className="sm" style={{ color: 'var(--ink-2)' }}>
+              จัดการรายการช่องทางที่ใช้บันทึกยอดขาย — เพิ่ม/ลบ/แก้ไอคอน/สี/เป้าหมาย และจัดเรียงลำดับได้ ข้อมูลเก็บใน Supabase
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h3><Icon name="layers" /> ช่องทางทั้งหมด ({channels.length})</h3>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}>
+            <Icon name="plus" /> เพิ่มช่องทางใหม่
+          </button>
+        </div>
+
+        {showAdd && (
+          <div style={{ padding: 16, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', marginBottom: 12 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>เพิ่มช่องทางใหม่</div>
+            <div className="col" style={{ gap: 10 }}>
+              <div className="row" style={{ gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="cap" style={{ marginBottom: 4 }}>ชื่อ *</div>
+                  <input className="input" placeholder="เช่น Shopee, Instagram, TikTok" value={newName} onChange={e => setNewName(e.target.value)} />
+                </div>
+                <div style={{ width: 90 }}>
+                  <div className="cap" style={{ marginBottom: 4 }}>ไอคอน</div>
+                  <input className="input" placeholder="🛒" value={newIcon} onChange={e => setNewIcon(e.target.value)} style={{ fontSize: 22, textAlign: 'center', padding: '6px' }} maxLength={3} />
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 4 }}>ไอคอนแนะนำ (กดเลือก)</div>
+                <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+                  {ICON_PRESETS.map((ic, i) => (
+                    <button key={i} onClick={() => setNewIcon(ic)} style={{
+                      width: 32, height: 32, borderRadius: 6,
+                      background: newIcon === ic ? 'var(--accent-soft)' : 'var(--surface-2)',
+                      border: newIcon === ic ? '2px solid var(--accent)' : '1px solid var(--line)',
+                      cursor: 'pointer', fontSize: 16,
+                    }}>{ic}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 4 }}>สีประจำช่องทาง</div>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  {PALETTE.map(c => (
+                    <button key={c} onClick={() => setNewColor(c)} style={{
+                      width: 30, height: 30, borderRadius: 8, background: c,
+                      border: newColor === c ? '3px solid var(--ink)' : '3px solid transparent',
+                      cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
+                    }}></button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 4 }}>เป้ายอดขาย (บาท/เดือน)</div>
+                <input className="input" type="number" placeholder="0" value={newTarget} onChange={e => setNewTarget(e.target.value)} />
+              </div>
+              <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-sm" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</button>
+                <button className="btn btn-sm btn-primary" onClick={addChannel} disabled={!newName.trim() || busy}>
+                  <Icon name="check" /> {busy ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {channels.length === 0 && (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)' }}>
+              <div className="cap">ยังไม่มีช่องทาง — กด "เพิ่มช่องทางใหม่" เพื่อเริ่ม</div>
+            </div>
+          )}
+          {channels.map(c => {
+            const isEditing = editing === c.id;
+            const isOver = dragOver === c.id;
+
+            if (isEditing) {
+              return (
+                <div key={c.id} style={{ padding: 14, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', margin: '4px 0' }}>
+                  <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขช่องทาง</div>
+                  <div className="col" style={{ gap: 10 }}>
+                    <div className="row" style={{ gap: 10 }}>
+                      <div style={{ flex: 1 }}>
+                        <div className="cap" style={{ marginBottom: 4 }}>ชื่อ</div>
+                        <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
+                      </div>
+                      <div style={{ width: 90 }}>
+                        <div className="cap" style={{ marginBottom: 4 }}>ไอคอน</div>
+                        <input className="input" value={editIcon} onChange={e => setEditIcon(e.target.value)} style={{ fontSize: 22, textAlign: 'center' }} maxLength={3} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>ไอคอนแนะนำ</div>
+                      <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+                        {ICON_PRESETS.map((ic, i) => (
+                          <button key={i} onClick={() => setEditIcon(ic)} style={{
+                            width: 30, height: 30, borderRadius: 6,
+                            background: editIcon === ic ? 'var(--accent-soft)' : 'var(--surface-2)',
+                            border: editIcon === ic ? '2px solid var(--accent)' : '1px solid var(--line)',
+                            cursor: 'pointer', fontSize: 14,
+                          }}>{ic}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>สี</div>
+                      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                        {PALETTE.map(col => (
+                          <button key={col} onClick={() => setEditColor(col)} style={{
+                            width: 28, height: 28, borderRadius: 7, background: col,
+                            border: editColor === col ? '3px solid var(--ink)' : '3px solid transparent',
+                            cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
+                          }}></button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>เป้ายอดขาย (บาท/เดือน)</div>
+                      <input className="input" type="number" value={editTarget} onChange={e => setEditTarget(e.target.value)} />
+                    </div>
+                    <div className="row between">
+                      <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}>
+                        <Icon name="trash" /> ลบ
+                      </button>
+                      <div className="row" style={{ gap: 8 }}>
+                        <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
+                        <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}>
+                          <Icon name="check" /> {busy ? 'บันทึก...' : 'บันทึก'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={c.id}
+                draggable
+                onDragStart={() => setDragId(c.id)}
+                onDragEnd={() => { setDragId(null); setDragOver(null); }}
+                onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== c.id) setDragOver(c.id); }}
+                onDragLeave={() => setDragOver(o => o === c.id ? null : o)}
+                onDrop={() => { if (dragId) reorderChannel(dragId, c.id); setDragId(null); setDragOver(null); }}
+                className="row" style={{
+                  gap: 12, padding: '14px 12px',
+                  borderBottom: '1px solid var(--line-2)',
+                  cursor: 'move',
+                  background: isOver ? 'var(--accent-soft)' : 'transparent',
+                  opacity: dragId === c.id ? 0.4 : 1,
+                  transition: 'all 0.15s',
+                }}>
+                <span title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
+                    <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
+                  </svg>
+                </span>
+                <span style={{
+                  width: 36, height: 36, borderRadius: 10,
+                  background: (c.hex || c.color || '#666') + '18',
+                  color: c.hex || c.color || '#666',
+                  display: 'grid', placeItems: 'center',
+                  fontSize: 18, fontWeight: 700, flexShrink: 0,
+                }}>{c.icon || c.name?.[0] || '?'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="sm" style={{ fontWeight: 700 }}>{c.name}</div>
+                  <div className="cap">เป้า {B(c.target || 0)} · ID: {c.id}</div>
+                </div>
+                <span className="chip" style={{ background: (c.hex || c.color || '#666') + '18', color: c.hex || c.color || '#666', fontWeight: 600 }}>
+                  {B(c.actual || 0)}
+                </span>
+                <button className="btn btn-sm btn-ghost" onClick={() => startEdit(c)} title="แก้ไข">
+                  <Icon name="pencil" />
+                </button>
               </div>
             );
           })}
