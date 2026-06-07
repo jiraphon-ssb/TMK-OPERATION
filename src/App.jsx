@@ -181,7 +181,8 @@ export default function App() {
 function AppInner() {
   const { t, lang, setLang } = useLang();
   const { toast } = useToast();
-  const { data: liveData, loading: dataLoading, source: dataSource, error: dataError } = useData();
+  const { loading: dataLoading, error: dataError, version: dataVersion } = useData();
+  // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
 
   const [dark, setDark] = useState(() => {
@@ -290,7 +291,7 @@ function AppInner() {
   const topnav = navStyle === 'topnav';
 
   const Shell = ({ forced }) => (
-    <div className={'app' + (forced ? ' force-mobile' : '')}>
+    <div key={'v' + dataVersion} className={'app' + (forced ? ' force-mobile' : '')}>
       {spotlight && <Spotlight onClose={() => setSpotlight(false)} onGo={go} />}
       {/* ---------- Icon Rail (desktop) ---------- */}
       <nav className="rail desktop-only">

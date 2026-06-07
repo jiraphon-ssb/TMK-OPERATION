@@ -5,9 +5,10 @@ import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 
-const { TARGET, DAY, DAYS, ACOS_CEIL } = TMK.consts;
 const D = TMK;
 const C = TMK.computed;
+// ❌ ไม่ destructure constants เพราะ primitive snapshot จะค้างที่ 0
+// ✅ ใช้ TMK.consts.X inline เพื่อให้อัปเดตจาก Supabase ทันที
 
 /* ---------- Thai month names ---------- */
 const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -71,13 +72,13 @@ export function HomeView({ go }) {
   const mtd = useCountUp(C.MTD);
   const pace = useCountUp(C.PACE_PCT);
   const st = paceStatus(C.PACE_PCT);
-  const gap = TARGET - C.RUN;
-  const perDayNeeded = Math.ceil((TARGET - C.MTD) / (DAYS - DAY));
+  const gap = TMK.consts.TARGET - C.RUN;
+  const perDayNeeded = Math.ceil((TMK.consts.TARGET - C.MTD) / (TMK.consts.DAYS - TMK.consts.DAY));
 
   const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.date === '18 มิ.ย.');
   const alerts = [];
-  if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${DAYS-DAY} วัน` });
-  if (C.ACOS_TOT > ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
+  if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${TMK.consts.DAYS-TMK.consts.DAY} วัน` });
+  if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
   const outOfStock = D.products.filter(p => p.stock === 'out' || p.stock === 'low');
   if (outOfStock.length) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'box', t: `สินค้าใกล้/หมดสต็อก ${outOfStock.length} รายการ`, d: outOfStock.map(p => p.name).slice(0,2).join(', ') });
 
@@ -105,7 +106,7 @@ export function HomeView({ go }) {
             <div className="row" style={{ gap: 14, marginTop: 14 }}>
               <div>
                 <div className="cap">{'เป้าเดือน'}</div>
-                <div className="num h3">{Bk(TARGET)}</div>
+                <div className="num h3">{Bk(TMK.consts.TARGET)}</div>
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
               <div>
@@ -115,7 +116,7 @@ export function HomeView({ go }) {
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
               <div>
                 <div className="cap">{'ขาดอีก'}</div>
-                <div className="num h3">{B(TARGET - C.MTD)}</div>
+                <div className="num h3">{B(TMK.consts.TARGET - C.MTD)}</div>
               </div>
             </div>
           </div>
@@ -153,7 +154,7 @@ export function HomeView({ go }) {
       <div className="grid g4" style={{ marginBottom: 24 }}>
         <Kpi label={'ออร์เดอร์รวม'} value={N(C.ORD)} icon="bag" delta="+12%" sub="vs เดือนก่อน" onClick={() => go('sales', 'overview')} />
         <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" delta="+4%" sub={'ดีต่อเนื่อง'} onClick={() => go('sales', 'channels')} />
-        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)} deltaDir="down" sub={`เพดาน ${ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
+        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)} deltaDir="down" sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
         <Kpi label={'ลูกค้าใหม่'} value={N(C.NEW_C)} icon="userPlus" delta={`${P((C.NEW_REV/C.MTD)*100,0)} ของรายได้`} sub="" accent="var(--good)" onClick={() => go('sales', 'customers')} />
       </div>
 
@@ -217,7 +218,7 @@ export function HomeView({ go }) {
           <div className="row between" style={{ marginBottom: 4 }}>
             <div>
               <div className="num h1">{Bk(C.MTD)}</div>
-              <div className="cap">{'รวม'} 18 {'วัน'} {'·'} {'เฉลี่ย'} {B(C.MTD / DAY)}/{'วัน'}</div>
+              <div className="cap">{'รวม'} 18 {'วัน'} {'·'} {'เฉลี่ย'} {B(C.MTD / TMK.consts.DAY)}/{'วัน'}</div>
             </div>
             <span className="chip chip-good"><Icon name="up" /> {'สูงกว่าค่าเฉลี่ย'}</span>
           </div>
@@ -299,18 +300,18 @@ function SalesOverview({ dateProps, prevMonthName }) {
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginBottom: 16 }}>
         <div className="card">
-          <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขาย'} MTD {'·'} {'วันที่'} {DAY}/{DAYS}</div>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขาย'} MTD {'·'} {'วันที่'} {TMK.consts.DAY}/{TMK.consts.DAYS}</div>
           <div className="num display">{B(C.MTD)}</div>
           <MomDelta current={C.MTD} previous={PREV.revenue} label={prevMonthName} />
           <div className="bar" style={{ marginTop: 14 }}>
-            <span style={{ width: `${(C.MTD/TARGET)*100}%`, background: st.c }}></span>
+            <span style={{ width: `${(C.MTD/TMK.consts.TARGET)*100}%`, background: st.c }}></span>
           </div>
           <div className="row between" style={{ marginTop: 8 }}>
-            <span className="cap">{'เป้า'} {B(TARGET)}</span>
-            <span className="cap num">{P((C.MTD/TARGET)*100)} {'ของเป้า'}</span>
+            <span className="cap">{'เป้า'} {B(TMK.consts.TARGET)}</span>
+            <span className="cap num">{P((C.MTD/TMK.consts.TARGET)*100)} {'ของเป้า'}</span>
           </div>
           <div className="grid g4" style={{ marginTop: 18, gap: 12 }}>
-            {[['Run rate', B(C.RUN), C.RUN >= TARGET ? 'var(--good)' : 'var(--warn)'],
+            {[['Run rate', B(C.RUN), C.RUN >= TMK.consts.TARGET ? 'var(--good)' : 'var(--warn)'],
               ['ออร์เดอร์', N(C.ORD)], ['AOV', B(C.AOV)], ['YoY พ.ค.', '+' + P((968000-810000)/810000*100,0), 'var(--good)']].map((x,i)=>(
               <div key={i}>
                 <div className="cap">{x[0]}</div>
@@ -328,7 +329,7 @@ function SalesOverview({ dateProps, prevMonthName }) {
             <div className="cap" style={{ marginTop: 10 }}>MTD / {'เป้า'} pace</div>
             <div className="num sm" style={{ fontWeight: 600 }}>{B(C.MTD)} / {B(C.PACE_TGT)}</div>
             <div className="cap" style={{ marginTop: 8 }}>{'ต้องเฉลี่ย/วัน'}</div>
-            <div className="num sm" style={{ fontWeight: 600 }}>{B(Math.ceil((TARGET-C.MTD)/(DAYS-DAY)))}</div>
+            <div className="num sm" style={{ fontWeight: 600 }}>{B(Math.ceil((TMK.consts.TARGET-C.MTD)/(TMK.consts.DAYS-TMK.consts.DAY)))}</div>
           </div>
         </div>
       </div>
@@ -424,7 +425,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
       <SalesDateBar {...dateProps} />
       <div className="grid g3">
         {D.channels.map(ch => {
-          const pPct = ch.target > 0 ? (ch.actual / ((ch.target/DAYS)*DAY)) * 100 : 0;
+          const pPct = ch.target > 0 ? (ch.actual / ((ch.target/TMK.consts.DAYS)*TMK.consts.DAY)) * 100 : 0;
           const st = paceStatus(pPct);
           const roas = ch.ad > 0 ? ch.actual/ch.ad : null;
           const acos = ch.ad > 0 ? (ch.ad/ch.actual)*100 : null;
@@ -471,7 +472,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
                 <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
                   <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
                   <div><div className="cap">ROAS</div><div className="num sm" style={{ fontWeight: 700, color: roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas.toFixed(1)}x</div></div>
-                  <div><div className="cap">ACOS</div><div className="num sm" style={{ fontWeight: 700, color: acos<=ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{P(acos,0)}</div></div>
+                  <div><div className="cap">ACOS</div><div className="num sm" style={{ fontWeight: 700, color: acos<=TMK.consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{P(acos,0)}</div></div>
                 </div>
               )}
             </div>
@@ -487,8 +488,8 @@ function SalesAds({ dateProps, prevMonthName }) {
   const totalBudget = 150000;
   const totalSpent = D.channels.filter(c => c.hasAd).reduce((s, c) => s + c.ad, 0);
   const remaining = totalBudget - totalSpent;
-  const burnRate = totalSpent / DAY;
-  const daysLeft = DAYS - DAY;
+  const burnRate = totalSpent / TMK.consts.DAY;
+  const daysLeft = TMK.consts.DAYS - TMK.consts.DAY;
   const projectedSpend = totalSpent + (burnRate * daysLeft);
 
   return (
@@ -522,7 +523,7 @@ function SalesAds({ dateProps, prevMonthName }) {
         <div className="bar"><span style={{ width: `${(totalSpent / totalBudget) * 100}%`, background: totalSpent / totalBudget > 0.8 ? 'var(--warn)' : 'var(--accent)' }}></span></div>
         <div className="row between" style={{ marginTop: 6 }}>
           <span className="cap">{P((totalSpent / totalBudget) * 100, 0)} {'ของงบ'}</span>
-          <span className="cap">{P((DAY / DAYS) * 100, 0)} {'ของเวลา'}</span>
+          <span className="cap">{P((TMK.consts.DAY / TMK.consts.DAYS) * 100, 0)} {'ของเวลา'}</span>
         </div>
       </div>
 
@@ -540,7 +541,7 @@ function SalesAds({ dateProps, prevMonthName }) {
                   <td className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</td>
                   <td className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</td>
                   <td className="num" style={{textAlign:'right', fontWeight:700, color: r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r.toFixed(1)}x</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a<=ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{P(a,0)}</td>
+                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a<=TMK.consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{P(a,0)}</td>
                 </tr>
               );
             })}
@@ -578,7 +579,7 @@ function SalesAds({ dateProps, prevMonthName }) {
       <div className="card" style={{ borderTop: '3px solid var(--ch-facebook)' }}>
         <div className="card-head"><h3><span style={{ width: 20, height: 20, display: 'inline-block', verticalAlign: 'middle', color: 'var(--ch-facebook)' }}><Icon name="message" /></span> {'เจาะลึก'} Facebook & {'แชท'}</h3></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr auto', marginBottom: 16, gap: 12 }}>
-          {[['รายได้', B(fb.revenue)],['ค่าแอด', B(fb.spend)],['ROAS', fb.roas.toFixed(2)+'x', fb.roas>=2?'var(--good)':'var(--bad)'],['ACOS', P(fb.acos), fb.acos<=ACOS_CEIL?'var(--good)':'var(--bad)']].map((x,i)=>(
+          {[['รายได้', B(fb.revenue)],['ค่าแอด', B(fb.spend)],['ROAS', fb.roas.toFixed(2)+'x', fb.roas>=2?'var(--good)':'var(--bad)'],['ACOS', P(fb.acos), fb.acos<=TMK.consts.ACOS_CEIL?'var(--good)':'var(--bad)']].map((x,i)=>(
             <div key={i}><div className="cap">{x[0]}</div><div className="num h1" style={{ color: x[2]||'var(--ink)' }}>{x[1]}</div></div>
           ))}
           <div>
