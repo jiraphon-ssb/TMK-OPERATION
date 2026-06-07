@@ -147,6 +147,7 @@ function mapToTMK(raw) {
 
   // Products
   const products = (raw.products || []).map((p, i) => ({
+    id: p.id,
     rank: i + 1,
     name: p.name,
     price: Number(p.price || 0),
