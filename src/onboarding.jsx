@@ -488,11 +488,12 @@ export function HelpCenter({ onStartGuide }) {
     try { localStorage.setItem('tmk-help-done', JSON.stringify(next)); } catch {}
   };
 
-  // Filter topics by level
-  const levelOrder = { new: 0, used: 1, expert: 2 };
+  // Filter topics by level — ให้ตรงกับจำนวนที่แสดงบนการ์ดเลือกระดับ
+  //  new = ทุกหัวข้อ · used = ไม่รวม expert · expert = เฉพาะ expert
   const visibleTopics = (topics) => {
-    if (!level) return topics;
-    return topics.filter(t => levelOrder[t.level] <= levelOrder[level]);
+    if (!level || level === 'new') return topics;
+    if (level === 'expert') return topics.filter(t => t.level === 'expert');
+    return topics.filter(t => t.level !== 'expert'); // used
   };
 
   // Start interactive guide for a topic
