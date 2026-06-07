@@ -217,6 +217,10 @@ function AppInner() {
   const [section, setSection] = useState('home');
   const [subMap, setSubMap] = useState(DEFAULT_SUB);
   const [tasks, setTasks] = useState(TMK.tasks);
+  // Sync local tasks state เมื่อ Supabase data update (version bump)
+  useEffect(() => {
+    setTasks([...(TMK.tasks || [])]);
+  }, [dataVersion]);
   const [drawer, setDrawer] = useState(false);
   const [notif, setNotif] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -226,7 +230,9 @@ function AppInner() {
   const contentRef = useRef(null);
 
   const nav = NAV.find(n => n.id === section);
-  const sub = nav?.subs ? subMap[section] : null;
+  // Settings/profile/help ไม่อยู่ใน NAV แต่มี sub-tabs — อ่านจาก subMap ตรง
+  const SECTIONS_WITH_SUBS = ['settings'];
+  const sub = (nav?.subs || SECTIONS_WITH_SUBS.includes(section)) ? subMap[section] : null;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -327,7 +333,7 @@ function AppInner() {
   const topnav = navStyle === 'topnav';
 
   const Shell = ({ forced }) => (
-    <div key={'v' + dataVersion} className={'app' + (forced ? ' force-mobile' : '')}>
+    <div className={'app' + (forced ? ' force-mobile' : '')}>
       {spotlight && <Spotlight onClose={() => setSpotlight(false)} onGo={go} />}
       {/* ---------- Icon Rail (desktop) ---------- */}
       <nav className="rail desktop-only">
