@@ -173,8 +173,10 @@ export function RecordSalesModal({ data, onClose }) {
     const aov = tOrd > 0 ? tRev / tOrd : 0;
     const acos = tRev > 0 ? (tAd / tRev) * 100 : 0;
     const newMtd = MTD + tRev;
-    const pPct = M_TARGET > 0 ? (newMtd / ((M_TARGET / M_DAYS) * (M_DAY + 1))) * 100 : 0;
-    const rr = Math.round(newMtd / (M_DAY + 1) * M_DAYS);
+    // ใช้ M_DAY (วันปัจจุบัน) ให้ตรงกับ Dashboard (computeMonth PACE_TGT) — ไม่ +1 เพื่อให้ pace ตรงกันทุกหน้า
+    const paceDay = M_DAY > 0 ? M_DAY : 1;
+    const pPct = M_TARGET > 0 ? (newMtd / ((M_TARGET / M_DAYS) * paceDay)) * 100 : 0;
+    const rr = Math.round(newMtd / paceDay * M_DAYS);
     const avg = sel.dailyMonth.length > 0 ? sel.dailyMonth.reduce((a, d) => a + d.rev, 0) / sel.dailyMonth.length : 0;
     const vsAvg = avg > 0 ? ((tRev - avg) / avg) * 100 : 0;
     const tips = [];
@@ -338,7 +340,7 @@ export function RecordSalesModal({ data, onClose }) {
 }
 
 /* ---------- Task modal (add / edit) ---------- */
-export function TaskModal({ data, onClose, onSubmit }) {
+export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   const edit = !!data;
   // แตกค่าที่อาจเป็น string คั่น comma (หรือ array ที่มีสมาชิกเป็น comma-string) → array สะอาด
   const splitToArr = v => (Array.isArray(v) ? v : [v])
@@ -361,6 +363,12 @@ export function TaskModal({ data, onClose, onSubmit }) {
   const valid = f.title.trim();
   const footer = (
     <>
+      {edit && onDelete && (
+        <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }}
+          onClick={() => { if (window.confirm(`ลบงาน "${data.title}"?\nงานจะถูกย้ายไปถังขยะ (กู้คืนได้)`)) onDelete(data); }}>
+          <Icon name="trash" /> ลบงาน
+        </button>
+      )}
       <button className="btn" onClick={onClose}>ยกเลิก</button>
       <button className="btn btn-primary" disabled={!valid} style={{ opacity: valid ? 1 : 0.5 }} onClick={() => valid && onSubmit({ ...f, id: data?.id || uid('tn') })}>
         <Icon name="check" /> {edit ? 'บันทึกการแก้ไข' : 'เพิ่มงาน'}

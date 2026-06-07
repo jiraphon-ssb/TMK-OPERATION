@@ -641,6 +641,20 @@ function AppInner() {
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />
         : modal.type === 'task' ? <TaskModal data={modal.data} onClose={closeModal}
+            onDelete={async (task) => {
+              setTasks(ts => ts.filter(x => x.id !== task.id)); // optimistic remove
+              closeModal();
+              try {
+                const { error } = await supabase.from('tmk_tasks').update({ deleted_at: new Date().toISOString() }).eq('id', task.id);
+                if (error) throw error;
+                logAudit({ action: 'delete', entityType: 'task', entityName: task.title, summary: `ลบงาน "${task.title}"` });
+                if (dataReload) await dataReload();
+                toast('ย้ายงานไปถังขยะแล้ว', 'success');
+              } catch (err) {
+                console.error('Task delete failed:', err);
+                toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+              }
+            }}
             onSubmit={async (task) => {
               // 1. Optimistic local update — เห็นทันที
               setTasks(ts => modal.data ? ts.map(x => x.id === task.id ? task : x) : [task, ...ts]);
