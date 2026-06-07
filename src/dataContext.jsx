@@ -57,7 +57,7 @@ async function loadAllTables() {
   const tables = {
     settings:    supabase.from('tmk_settings').select('*').eq('id', 'main').maybeSingle(),
     channels:    supabase.from('tmk_channels').select('*').order('sort_order'),
-    campaigns:   supabase.from('tmk_campaigns').select('*').order('start_date'),
+    campaigns:   supabase.from('tmk_campaigns').select('*').order('sort_order', { nullsFirst: false }).order('start_date'),
     tasks:       supabase.from('tmk_tasks').select('*').order('date'),
     products:    supabase.from('tmk_products').select('*').order('created_at'),
     po:          supabase.from('tmk_purchase_orders').select('*').order('arrival_date'),

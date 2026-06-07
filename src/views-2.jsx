@@ -450,31 +450,132 @@ function ProductsView() {
 }
 
 function CampaignsView() {
+  const { reload } = useData() || {};
   const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, done: { l: 'จบแล้ว', cls: '' } };
+  const [busy, setBusy] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+
+  const campaigns = DD.campaigns || [];
+
+  // ลบแคมเปญ — ตรวจว่ามี task ผูกอยู่ก่อน
+  const deleteCampaign = async (c) => {
+    const linkedTasks = (DD.tasks || []).filter(t => t.camp === c.id).length;
+    const msg = linkedTasks > 0
+      ? `แคมเปญ "${c.name}" มี ${linkedTasks} งานผูกอยู่ — ลบจะปลด link ไปไม่มีแคมเปญ ยืนยัน?`
+      : `ลบแคมเปญ "${c.name}"?`;
+    if (!confirm(msg)) return;
+    setBusy(true);
+    try {
+      // ปลด link tasks (set camp = NULL) ก่อน
+      if (linkedTasks > 0) {
+        await supabase.from('tmk_tasks').update({ camp: null }).eq('camp', c.id);
+      }
+      // ลบ campaign
+      const { error } = await supabase.from('tmk_campaigns').delete().eq('id', c.id);
+      if (error) throw error;
+      if (reload) await reload();
+      if (window.__toast) window.__toast('ลบแคมเปญเรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  // เลื่อนแคมเปญ — บันทึก sort_order ไป Supabase
+  const reorderCampaign = async (fromId, toId) => {
+    if (fromId === toId) return;
+    const fromIdx = campaigns.findIndex(c => c.id === fromId);
+    const toIdx = campaigns.findIndex(c => c.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    const reordered = [...campaigns];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+
+    setBusy(true);
+    try {
+      // อัปเดต sort_order ทุกแคมเปญตาม index ใหม่
+      const updates = reordered.map((c, i) =>
+        supabase.from('tmk_campaigns').update({ sort_order: i + 1 }).eq('id', c.id)
+      );
+      const results = await Promise.all(updates);
+      const failed = results.find(r => r.error);
+      if (failed) {
+        // ถ้า column sort_order ไม่มี → แจ้ง user ให้รัน migration
+        if (/sort_order/i.test(failed.error.message)) {
+          if (window.__toast) window.__toast('ต้อง alter table เพิ่ม sort_order ก่อน — รัน SQL migration ใหม่', 'warn');
+        } else throw failed.error;
+      } else if (window.__toast) window.__toast('เรียงลำดับใหม่เรียบร้อย', 'success');
+      if (reload) await reload();
+    } catch (err) {
+      if (window.__toast) window.__toast('เลื่อนไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
   return (
     <div className="content-inner rise">
       <div className="row between" style={{ marginBottom: 16 }}>
-        <div className="eyebrow">{DD.campaigns.length} แคมเปญ</div>
+        <div className="eyebrow">{campaigns.length} แคมเปญ · ลาก ↕️ เพื่อเรียงลำดับ</div>
         <button className="btn btn-primary" onClick={() => window.__openModal('campaign')}><Icon name="plus" /> สร้างแคมเปญ</button>
       </div>
       <div className="grid g2">
-        {DD.campaigns.map(c => (
-          <div key={c.id} className="card" style={{ borderLeft: `4px solid ${c.color}`, cursor: 'pointer' }} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>
-            <div className="row between" style={{ marginBottom: 12 }}>
-              <div>
-                <h3>{c.name}</h3>
-                <div className="cap num" style={{ marginTop: 3 }}>{c.start} – {c.end}</div>
+        {campaigns.map(c => {
+          const isOver = dragOver === c.id;
+          return (
+            <div key={c.id}
+              draggable
+              onDragStart={() => setDragId(c.id)}
+              onDragEnd={() => { setDragId(null); setDragOver(null); }}
+              onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== c.id) setDragOver(c.id); }}
+              onDragLeave={() => setDragOver(o => o === c.id ? null : o)}
+              onDrop={() => { if (dragId) reorderCampaign(dragId, c.id); setDragId(null); setDragOver(null); }}
+              className="card"
+              style={{
+                borderLeft: `4px solid ${c.color}`,
+                cursor: busy ? 'wait' : 'move',
+                transition: 'all 0.15s',
+                transform: isOver ? 'scale(1.02)' : 'scale(1)',
+                boxShadow: isOver ? '0 4px 16px rgba(10,90,160,0.2)' : 'var(--sh-sm)',
+                background: isOver ? 'var(--accent-soft)' : undefined,
+                opacity: dragId === c.id ? 0.4 : 1,
+              }}>
+              <div className="row between" style={{ marginBottom: 12 }}>
+                <div className="row" style={{ gap: 8, flex: 1, minWidth: 0 }}>
+                  <span title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', cursor: 'grab', flexShrink: 0 }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
+                      <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
+                    </svg>
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ cursor: 'pointer' }} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>{c.name}</h3>
+                    <div className="cap num" style={{ marginTop: 3 }}>{c.start} – {c.end}</div>
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                  <span className={`chip ${stMeta[c.status].cls}`}>{stMeta[c.status].l}</span>
+                  <button className="btn btn-sm btn-ghost" title="แก้ไข" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
+                    <Icon name="pencil" />
+                  </button>
+                  <button className="btn btn-sm btn-ghost" title="ลบ" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy} style={{ color: 'var(--bad)' }}>
+                    <Icon name="trash" />
+                  </button>
+                </div>
               </div>
-              <span className={`chip ${stMeta[c.status].cls}`}>{stMeta[c.status].l}</span>
-            </div>
-            <div className="row between">
-              <div className="row" style={{ gap: 6 }}>
-                {c.channels.map(id => { const ch = DD.channels.find(x=>x.id===id); return ch ? <span key={id} style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }} title={ch.name}></span> : null; })}
+              <div className="row between">
+                <div className="row" style={{ gap: 6 }}>
+                  {(c.channels || []).map(id => { const ch = DD.channels.find(x=>x.id===id); return ch ? <span key={id} style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }} title={ch.name}></span> : null; })}
+                </div>
+                <span className="cap row" style={{ gap: 5 }}><Icon name="listChecks" /> {c.tasks} งาน</span>
               </div>
-              <span className="cap row" style={{ gap: 5 }}><Icon name="listChecks" /> {c.tasks} งาน</span>
             </div>
+          );
+        })}
+        {campaigns.length === 0 && (
+          <div style={{ gridColumn: '1 / -1', padding: 40, textAlign: 'center', color: 'var(--ink-3)' }}>
+            <div className="cap">ยังไม่มีแคมเปญ — กด "+ สร้างแคมเปญ" เพื่อเริ่ม</div>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
