@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
+import { useUser } from './userContext.jsx';
 
 const DD = TMK;
 
@@ -675,20 +676,46 @@ function UpdatesView() {
 
 /* ====================  PROFILE VIEW  ==================== */
 export function ProfileView({ tasks }) {
-  const ME = DD.staff[0]; // Current user = มัง
-  const myRole = DD.roles.find(r => r.name.includes('มัง'));
-  const [name, setName] = useState(ME.name);
-  const [avatar, setAvatar] = useState('');
-  const [tab, setTab] = useState('tasks'); // tasks | activity
+  const { user } = useUser() || {};
 
-  const myTasks = (tasks || DD.tasks).filter(t => t.responsible.includes(ME.name));
+  // Fallback if user context not ready
+  if (!user) {
+    return (
+      <div className="content-inner rise">
+        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+          <div className="cap" style={{ color: 'var(--ink-3)' }}>กำลังโหลดโปรไฟล์...</div>
+        </div>
+      </div>
+    );
+  }
+
+  const [name, setName] = useState(user.name);
+  const [avatar, setAvatar] = useState(user.avatarUrl || '');
+  const [tab, setTab] = useState('tasks');
+
+  // Filter tasks ที่มี user.name ใน responsible (real Supabase data)
+  const myTasks = (tasks || DD.tasks || []).filter(t => {
+    const resp = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim());
+    return resp.includes(user.name) || resp.includes(user.email.split('@')[0]);
+  });
   const myDone = myTasks.filter(t => t.status === 'done').length;
   const myActive = myTasks.filter(t => t.status !== 'done').length;
-  const myActivity = DD.audit.filter(a => a.user === ME.name);
+  // Activity จาก audit log จริงที่ email ตรงกัน
+  const myActivity = (DD.audit || []).filter(a => {
+    return a.user === user.name || a.user === user.email.split('@')[0];
+  });
 
   const saveProfile = () => {
+    // Persist to localStorage (mock until Supabase profile table)
+    try {
+      const saved = JSON.parse(localStorage.getItem('tmk-user') || '{}');
+      localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name, avatarUrl: avatar }));
+      window.dispatchEvent(new Event('tmk-user-change'));
+    } catch {}
     if (window.__toast) window.__toast('อัปเดตโปรไฟล์เรียบร้อย', 'success');
   };
+
+  const roleLabel = user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'editor' ? 'แก้ไขได้' : 'ดูอย่างเดียว';
 
   return (
     <div className="content-inner rise">
@@ -698,7 +725,7 @@ export function ProfileView({ tasks }) {
           {avatar ? (
             <img src={avatar} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} alt="" />
           ) : (
-            <Avatar name={name} color={ME.color} size={80} />
+            <Avatar name={name} color={user.color} size={80} />
           )}
           <label style={{
             position: 'absolute', bottom: -2, right: -2, width: 28, height: 28,
@@ -719,10 +746,12 @@ export function ProfileView({ tasks }) {
               style={{ fontSize: 'var(--fs-h2)', fontWeight: 700, border: 'none', background: 'transparent', padding: 0, borderBottom: '2px solid var(--line)', borderRadius: 0, maxWidth: 250 }} />
             <button className="btn btn-sm btn-primary" onClick={saveProfile}><Icon name="check" /> บันทึก</button>
           </div>
-          <div className="cap" style={{ marginBottom: 8 }}>{myRole?.email || 'jiraphon.e@tmk.co'}</div>
+          <div className="cap" style={{ marginBottom: 8 }}>{user.email}</div>
           <div className="row" style={{ gap: 8 }}>
-            <span className="chip chip-accent">{myRole?.role === 'admin' ? 'ผู้ดูแลระบบ' : 'แก้ไขได้'}</span>
-            <span className="cap">เข้าร่วมตั้งแต่ พ.ค. 2569</span>
+            <span className="chip chip-accent">{roleLabel}</span>
+            {user.loginAt && (
+              <span className="cap">เข้าใช้ครั้งล่าสุด {new Date(user.loginAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+            )}
           </div>
         </div>
         <div className="grid g3" style={{ gap: 16, textAlign: 'center' }}>

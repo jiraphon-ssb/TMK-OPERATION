@@ -655,7 +655,7 @@ export function LoginScreen({ onLogin }) {
   const [pw, setPw] = useState('');
   const [agree, setAgree] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
-  const submit = (e) => { e.preventDefault(); if (agree) onLogin(); };
+  const submit = (e) => { e.preventDefault(); if (agree) onLogin(email.trim() || 'jiraphon.e@tmk.co'); };
   return (
     <div className="login">
       <div className="login-art">

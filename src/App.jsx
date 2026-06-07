@@ -13,6 +13,7 @@ import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
 import { Onboarding, HelpButton, Tooltip } from './onboarding.jsx';
 import { DataProvider, useData } from './dataContext.jsx';
+import { UserProvider, useUser } from './userContext.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import tmkLogoWhite from './assets/tmk-logo-white.png';
 
@@ -171,10 +172,19 @@ export default function App() {
     <LangProvider>
       <ToastProvider>
         <DataProvider>
-          <AppInner />
+          <AppShellWithUser />
         </DataProvider>
       </ToastProvider>
     </LangProvider>
+  );
+}
+
+function AppShellWithUser() {
+  const { version } = useData();
+  return (
+    <UserProvider version={version}>
+      <AppInner />
+    </UserProvider>
   );
 }
 
@@ -188,7 +198,16 @@ function AppInner() {
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem('tmk-dark') === 'true'; } catch { return false; }
   });
-  const [authed, setAuthed] = useState(false);
+  // Session persist: load from localStorage so refresh doesn't kick to login
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tmk-user');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const [authed, setAuthed] = useState(() => {
+    try { return Boolean(localStorage.getItem('tmk-user')); } catch { return false; }
+  });
   const [modal, setModal] = useState(null);
   const [confirmClose, setConfirmClose] = useState(null); // for unsaved changes
   const [spotlight, setSpotlight] = useState(false);
@@ -246,7 +265,21 @@ function AppInner() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const closeModal = () => { setModal(null); setConfirmClose(null); };
-  const logout = () => { setMenu(false); setDrawer(false); setAuthed(false); };
+  const logout = () => {
+    setMenu(false); setDrawer(false); setAuthed(false); setCurrentUser(null);
+    try { localStorage.removeItem('tmk-user'); } catch {}
+    window.dispatchEvent(new Event('tmk-user-change'));
+  };
+
+  // Called by LoginScreen — persists user + flips authed
+  const handleLogin = (email) => {
+    const userEmail = email || 'jiraphon.e@tmk.co';
+    const user = { email: userEmail, loginAt: new Date().toISOString() };
+    try { localStorage.setItem('tmk-user', JSON.stringify(user)); } catch {}
+    setCurrentUser(user);
+    setAuthed(true);
+    window.dispatchEvent(new Event('tmk-user-change'));
+  };
 
   const go = (sec, s) => {
     setSection(sec);
@@ -467,7 +500,7 @@ function AppInner() {
 
   return (
     <>
-      {!authed && <LoginScreen onLogin={() => setAuthed(true)} />}
+      {!authed && <LoginScreen onLogin={handleLogin} />}
       {authed && Shell({ forced: false })}
 
       {/* Onboarding tour */}

@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
+import { useUser } from './userContext.jsx';
 
 const D = TMK;
 const C = TMK.computed;
@@ -13,34 +14,32 @@ const C = TMK.computed;
 /* ---------- Thai month names ---------- */
 const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
-/* ---------- Previous-month mock data (for MoM comparison) ---------- */
-const PREV = { revenue: 968000, orders: 880, aov: 610, ad: 105000 };
+/* ---------- Previous month — from tmk_monthly_history (Supabase) ---------- */
+// Computed live from TMK.month3 (which is from monthly_history)
+function getPrev() {
+  const m3 = TMK.month3 || [];
+  // Get 2nd-to-last month (current is last)
+  const prev = m3.length >= 2 ? m3[m3.length - 2] : null;
+  return {
+    revenue: prev?.actual || 0,
+    orders: 0,  // not in month3, will use TMK.computed if needed
+    aov: 0,
+    ad: 0,
+  };
+}
 
-/* ---------- Mock ad campaigns ---------- */
-const AD_CAMPAIGNS = [
-  { name: 'Polo Signature — Awareness', platform: 'Facebook', budget: 45000, spent: 38000, roas: 2.8, status: 'live' },
-  { name: 'Flash Sale Mid-Month', platform: 'TikTok', budget: 35000, spent: 31000, roas: 4.3, status: 'live' },
-  { name: 'Linen Summer Launch', platform: 'Facebook', budget: 40000, spent: 12000, roas: 1.9, status: 'upcoming' },
-  { name: 'Retargeting — Cart Abandon', platform: 'Shopee', budget: 30000, spent: 28000, roas: 5.1, status: 'done' },
-];
+/* ---------- Ad campaigns from Supabase (TMK.adCampaigns) ---------- */
+// Will fall back to empty array if table not seeded
+function getAdCampaigns() { return TMK.adCampaigns || []; }
 
-/* ---------- Mock customer segments ---------- */
-const SEGMENTS = [
-  { name: 'VIP', count: 45, revPct: 35, color: 'var(--accent)' },
-  { name: 'Regular', count: 180, revPct: 40, color: 'var(--good)' },
-  { name: 'At-risk', count: 80, revPct: 15, color: 'var(--warn)' },
-  { name: 'Churned', count: 120, revPct: 10, color: 'var(--bad)' },
-];
+/* ---------- Customer segments from Supabase (TMK.segments) ---------- */
+function getSegments() { return TMK.segments || []; }
 
-/* ---------- Mock cohort retention ---------- */
-const COHORT = [
-  { month: 'เม.ย.', m1: 100, m2: 42, m3: 28 },
-  { month: 'พ.ค.', m1: 100, m2: 38, m3: null },
-  { month: 'มิ.ย.', m1: 100, m2: null, m3: null },
-];
-
-/* ---------- Mock channel growth rates ---------- */
-const CH_GROWTH = { shopee: 15, tiktok: 18, lazada: 8, facebook: 12, line: 6, crm: 9 };
+/* ---------- Channel growth from Supabase (channel.growthPct) ---------- */
+function getGrowth(channelId) {
+  const ch = (TMK.channels || []).find(c => c.id === channelId);
+  return ch?.growthPct || 0;
+}
 
 /* small KPI tile — clickable with optional onClick */
 export function Kpi({ label, value, delta, deltaDir, icon, sub, accent, onClick }) {
@@ -69,6 +68,8 @@ export function Kpi({ label, value, delta, deltaDir, icon, sub, accent, onClick 
    HOME — Executive cockpit
    ============================================================ */
 export function HomeView({ go }) {
+  const { user } = useUser() || {};
+  const userName = user?.name || 'มัง';
   const mtd = useCountUp(C.MTD);
   const pace = useCountUp(C.PACE_PCT);
   const st = paceStatus(C.PACE_PCT);
@@ -90,7 +91,7 @@ export function HomeView({ go }) {
       <div className="row between wrap" style={{ marginBottom: 20, gap: 12 }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 6 }}>{'ภาพรวมวันนี้'} {'·'} {'จันทร์'} 18 {'มิถุนายน'} 2569</div>
-          <h1 className="display">{(() => { const h = new Date().getHours(); return h < 12 ? 'สวัสดีตอนเช้า' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนดึก'; })()}, {'มัง'} {'👋'}</h1>
+          <h1 className="display">{(() => { const h = new Date().getHours(); return h < 12 ? 'สวัสดีตอนเช้า' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนดึก'; })()}, {userName} {'👋'}</h1>
         </div>
         <div className="row" style={{ gap: 8 }}>
           <span className="chip chip-good"><span className="dot-c" style={{ background: 'var(--good)' }}></span> {'ซิงค์แล้ว'}</span>
@@ -302,7 +303,7 @@ function SalesOverview({ dateProps, prevMonthName }) {
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขาย'} MTD {'·'} {'วันที่'} {TMK.consts.DAY}/{TMK.consts.DAYS}</div>
           <div className="num display">{B(C.MTD)}</div>
-          <MomDelta current={C.MTD} previous={PREV.revenue} label={prevMonthName} />
+          <MomDelta current={C.MTD} previous={getPrev().revenue} label={prevMonthName} />
           <div className="bar" style={{ marginTop: 14 }}>
             <span style={{ width: `${(C.MTD/TMK.consts.TARGET)*100}%`, background: st.c }}></span>
           </div>
@@ -339,22 +340,22 @@ function SalesOverview({ dateProps, prevMonthName }) {
         <div className="card card-pad-sm">
           <div className="cap" style={{ marginBottom: 4 }}>{'รายได้'}</div>
           <div className="num h1">{Bk(C.MTD)}</div>
-          <MomDelta current={C.MTD} previous={PREV.revenue} label={prevMonthName} />
+          <MomDelta current={C.MTD} previous={getPrev().revenue} label={prevMonthName} />
         </div>
         <div className="card card-pad-sm">
           <div className="cap" style={{ marginBottom: 4 }}>{'ออร์เดอร์'}</div>
           <div className="num h1">{N(C.ORD)}</div>
-          <MomDelta current={C.ORD} previous={PREV.orders} label={prevMonthName} />
+          <MomDelta current={C.ORD} previous={getPrev().orders} label={prevMonthName} />
         </div>
         <div className="card card-pad-sm">
           <div className="cap" style={{ marginBottom: 4 }}>AOV</div>
           <div className="num h1">{B(C.AOV)}</div>
-          <MomDelta current={C.AOV} previous={PREV.aov} label={prevMonthName} />
+          <MomDelta current={C.AOV} previous={getPrev().aov} label={prevMonthName} />
         </div>
         <div className="card card-pad-sm">
           <div className="cap" style={{ marginBottom: 4 }}>{'ค่าแอด'}</div>
           <div className="num h1">{Bk(C.AD)}</div>
-          <MomDelta current={C.AD} previous={PREV.ad} label={prevMonthName} />
+          <MomDelta current={C.AD} previous={getPrev().ad} label={prevMonthName} />
         </div>
       </div>
 
@@ -433,7 +434,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
           const platformFee = ch.actual * 0.05;
           const profit = ch.actual - ch.ad - platformFee;
           const margin = (profit / ch.actual) * 100;
-          const growth = CH_GROWTH[ch.id] || 10;
+          const growth = getGrowth(ch.id) || 10;
           const tgtPct = Math.min((ch.actual / ch.target) * 100, 100);
           return (
             <div key={ch.id} className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
@@ -557,7 +558,7 @@ function SalesAds({ dateProps, prevMonthName }) {
         <div className="table-wrap"><table className="table">
           <thead><tr><th>{'ชื่อแคมเปญ'}</th><th>{'แพลตฟอร์ม'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้ไป'}</th><th style={{textAlign:'right'}}>ROAS</th><th>{'สถานะ'}</th></tr></thead>
           <tbody>
-            {AD_CAMPAIGNS.map((c, i) => {
+            {getAdCampaigns().map((c, i) => {
               const stMap = { live: { l: 'กำลังยิง', cls: 'chip-good' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'จบแล้ว', cls: '' } };
               const s = stMap[c.status] || stMap.done;
               return (
@@ -626,7 +627,7 @@ function SalesCustomers({ dateProps, prevMonthName }) {
         <button className="btn btn-sm" onClick={() => window.__openModal('customerSegment')}><Icon name="pencil" /> อัปเดตกลุ่มลูกค้า</button>
       </div>
       <div className="grid g4" style={{ marginBottom: 16 }}>
-        {SEGMENTS.map(seg => (
+        {getSegments().map(seg => (
           <div key={seg.name} className="card card-pad-sm" style={{ borderLeft: `3px solid ${seg.color}` }}>
             <div className="row between" style={{ marginBottom: 6 }}>
               <span className="sm" style={{ fontWeight: 700 }}>{seg.name}</span>
@@ -688,7 +689,7 @@ function SalesCustomers({ dateProps, prevMonthName }) {
             </tr>
           </thead>
           <tbody>
-            {COHORT.map((row, i) => (
+            {([]).map((row, i) => (  /* Cohort table — empty until tmk_cohort table is added */
               <tr key={i}>
                 <td style={{ fontWeight: 600 }}>{row.month}</td>
                 <td className="num" style={{ textAlign: 'right' }}>

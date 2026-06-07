@@ -37,7 +37,9 @@ function mapRolesAndStaff(userRoles, staff) {
     staff: staff.map(s => ({
       name: s.name,
       role: s.role,
+      email: s.email || '',
       color: s.color || '#3b82f6',
+      avatarUrl: s.avatar_url || '',
     })),
   };
 }
