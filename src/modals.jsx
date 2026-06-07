@@ -263,13 +263,16 @@ export function TaskModal({ data, onClose, onSubmit }) {
       </div>
       <div className="field"><label>หัวข้องาน *</label><input className="input" value={f.title} onChange={e => set('title', e.target.value)} placeholder="เช่น บรีฟงาน Graphic / ถ่ายคอนเทนต์" /></div>
       <div className="field"><label>รายละเอียด</label><textarea className="input" value={f.detail} onChange={e => set('detail', e.target.value)} placeholder="ระบุขั้นตอน / สิ่งที่ต้องส่ง..." /></div>
-      <div className="field"><label>ผู้รับผิดชอบ</label>
+      <div className="field"><label>ผู้รับผิดชอบ (เลือกหน้าที่)</label>
         <div className="chips-pick">
-          {MD.staff.map(st => (
+          {(MD.duties && MD.duties.length > 0 ? MD.duties.map(d => ({ name: d.name, color: d.color })) : MD.staff).map(st => (
             <button key={st.name} className={'pick' + (f.responsible.includes(st.name) ? ' on' : '')} onClick={() => toggle('responsible', st.name)}>
               <span className="dot-c" style={{ background: st.color }}></span>{st.name}
             </button>
           ))}
+        </div>
+        <div className="cap" style={{ marginTop: 6, color: 'var(--ink-3)' }}>
+          เลือกได้หลายหน้าที่ — งานนี้จะแสดงให้ผู้ใช้ทุกคนที่อยู่ในหน้าที่นั้น
         </div>
       </div>
       <div className="field"><label>ช่องทาง</label>

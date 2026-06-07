@@ -32,8 +32,9 @@ function mapRolesAndStaff(userRoles, staff) {
         email: r.email,
         name: r.name || s?.name || r.email.split('@')[0],
         role: r.role || 'viewer',
-        department: r.department || s?.role || '',
-        color: r.color || s?.color || '#3b82f6',
+        dutyId: r.duty_id || '',
+        department: r.dutyName || r.department || s?.role || '',
+        color: r.dutyColor || r.color || s?.color || '#3b82f6',
         avatarUrl: s?.avatar_url || '',
       };
     }),
@@ -63,6 +64,7 @@ async function loadAllTables() {
     audit:       supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(50),
     roles:       supabase.from('tmk_user_roles').select('*'),
     staff:       supabase.from('tmk_staff').select('*').order('joined_at'),
+    duties:      supabase.from('tmk_duties').select('*').order('sort_order'),
     daily:       supabase.from('tmk_daily_sales').select('*').order('date'),
     adCamps:     supabase.from('tmk_ad_campaigns').select('*').order('start_date'),
     segments:    supabase.from('tmk_customer_segments').select('*').order('sort_order'),
@@ -239,8 +241,22 @@ function mapToTMK(raw) {
     };
   });
 
-  // Roles + Staff
-  const { roles, staff } = mapRolesAndStaff(raw.roles || [], raw.staff || []);
+  // Duties (หน้าที่)
+  const duties = (raw.duties || []).map(d => ({
+    id: d.id,
+    name: d.name,
+    color: d.color || '#3b82f6',
+    description: d.description || '',
+    sortOrder: d.sort_order || 0,
+  }));
+  const dutyById = Object.fromEntries(duties.map(d => [d.id, d]));
+
+  // Roles + Staff — link duty via duty_id
+  const enrichedRoles = (raw.roles || []).map(r => {
+    const duty = r.duty_id ? dutyById[r.duty_id] : null;
+    return { ...r, dutyName: duty?.name || r.department || '', dutyColor: duty?.color || r.color };
+  });
+  const { roles, staff } = mapRolesAndStaff(enrichedRoles, raw.staff || []);
 
   // PO
   const poTracker = (raw.po || []).map(p => ({
@@ -278,7 +294,7 @@ function mapToTMK(raw) {
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL },
     channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy,
-    colorMix, sizeMix, staff, poTracker, fb, fbMsgTrend, audit, roles,
+    colorMix, sizeMix, staff, poTracker, fb, fbMsgTrend, audit, roles, duties,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
       name: c.name,
@@ -307,7 +323,7 @@ function mutateTMK(mapped) {
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
   ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy',
-   'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles'].forEach(key => {
+   'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles','duties'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
     TMK[key].length = 0;
     TMK[key].push(...(mapped[key] || []));
@@ -361,7 +377,7 @@ export function DataProvider({ children }) {
     if (channel) {
       [
         'tmk_channels','tmk_campaigns','tmk_tasks','tmk_products','tmk_settings',
-        'tmk_user_roles','tmk_staff','tmk_daily_sales','tmk_ad_campaigns',
+        'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
         'tmk_customer_segments','tmk_fb_metrics','tmk_monthly_history',
         'tmk_color_mix','tmk_size_mix','tmk_purchase_orders','tmk_audit_logs',
       ].forEach(t => {

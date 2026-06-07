@@ -513,7 +513,8 @@ export function SettingsView({ sub, dark, setDark }) {
   const TABS = [
     { id: 'general', label: 'ทั่วไป', icon: 'system' },
     { id: 'campaigns', label: 'แคมเปญ', icon: 'megaphone' },
-    { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'shield' },
+    { id: 'duties', label: 'หน้าที่', icon: 'shield' },
+    { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'users' },
     { id: 'audit', label: 'ประวัติการใช้งาน', icon: 'clock' },
     { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
     { id: 'updates', label: 'อัปเดต', icon: 'sparkle' },
@@ -531,6 +532,7 @@ export function SettingsView({ sub, dark, setDark }) {
       </div>
       {active === 'general' && <GeneralSettings dark={dark} setDark={setDark} />}
       {active === 'campaigns' && <CampaignsView />}
+      {active === 'duties' && <DutiesView />}
       {active === 'roles' && <RolesView />}
       {active === 'audit' && <AuditView />}
       {active === 'trash' && <TrashView />}
@@ -867,14 +869,231 @@ function AuditView() {
   );
 }
 
+/* ====================  DUTIES VIEW (หน้าที่/ตำแหน่ง)  ==================== */
+function DutiesView() {
+  const PALETTE = ['#b07d33', '#0a5aa0', '#2f9e6e', '#4a8be0', '#6b5ce0', '#c08a3e', '#ee6a3a', '#cf4d5c'];
+  const [editing, setEditing] = useState(null); // duty id
+  const [editName, setEditName] = useState('');
+  const [editColor, setEditColor] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // New duty form
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState(PALETTE[0]);
+  const [newDesc, setNewDesc] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+
+  const duties = TMK.duties || [];
+
+  // นับผู้ใช้ในแต่ละหน้าที่
+  const userCount = (dutyId) => (TMK.roles || []).filter(r => r.dutyId === dutyId).length;
+
+  const startEdit = (d) => {
+    setEditing(d.id);
+    setEditName(d.name);
+    setEditColor(d.color);
+    setEditDesc(d.description || '');
+  };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('tmk_duties').update({
+        name: editName.trim(),
+        color: editColor,
+        description: editDesc.trim(),
+      }).eq('id', editing);
+      if (error) throw error;
+      setEditing(null);
+      if (window.__toast) window.__toast('อัปเดตหน้าที่เรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const deleteDuty = async (duty) => {
+    const count = userCount(duty.id);
+    if (count > 0) {
+      if (window.__toast) window.__toast(`ลบไม่ได้ — ยังมีผู้ใช้ ${count} คนใช้หน้าที่นี้`, 'warn');
+      return;
+    }
+    if (!confirm(`ลบหน้าที่ "${duty.name}"?`)) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('tmk_duties').delete().eq('id', duty.id);
+      if (error) throw error;
+      if (window.__toast) window.__toast('ลบหน้าที่เรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const addDuty = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    if (duties.find(d => d.name === name)) {
+      if (window.__toast) window.__toast('หน้าที่นี้มีอยู่แล้ว', 'warn');
+      return;
+    }
+    setBusy(true);
+    try {
+      const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('d-' + Date.now());
+      const maxOrder = Math.max(0, ...duties.map(d => d.sortOrder || 0));
+      const { error } = await supabase.from('tmk_duties').insert({
+        id,
+        name,
+        color: newColor,
+        description: newDesc.trim(),
+        sort_order: maxOrder + 1,
+      });
+      if (error) throw error;
+      setNewName(''); setNewColor(PALETTE[0]); setNewDesc(''); setShowAdd(false);
+      if (window.__toast) window.__toast('เพิ่มหน้าที่เรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('เพิ่มไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
+        <div className="row" style={{ gap: 10 }}>
+          <Icon name="sparkle" />
+          <div>
+            <div className="h3" style={{ marginBottom: 4 }}>หน้าที่ / ตำแหน่ง</div>
+            <div className="sm" style={{ color: 'var(--ink-2)' }}>
+              จัดการรายการหน้าที่ที่ใช้มอบหมายงาน — แต่ละผู้ใช้จะมี 1 หน้าที่ และในการสร้าง task คุณเลือก "ผู้รับผิดชอบ" จากหน้าที่เหล่านี้
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h3><Icon name="shield" /> หน้าที่ทั้งหมด ({duties.length})</h3>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}>
+            <Icon name="plus" /> เพิ่มหน้าที่ใหม่
+          </button>
+        </div>
+
+        {/* Add new duty form */}
+        {showAdd && (
+          <div style={{ padding: 16, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', marginBottom: 12 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>เพิ่มหน้าที่ใหม่</div>
+            <div className="col" style={{ gap: 10 }}>
+              <div>
+                <div className="cap" style={{ marginBottom: 4 }}>ชื่อหน้าที่ *</div>
+                <input className="input" placeholder="เช่น Logistics, Customer Service" value={newName} onChange={e => setNewName(e.target.value)} />
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 4 }}>สีประจำหน้าที่</div>
+                <div className="row" style={{ gap: 6 }}>
+                  {PALETTE.map(c => (
+                    <button key={c} onClick={() => setNewColor(c)} title={c} style={{
+                      width: 32, height: 32, borderRadius: 8, background: c,
+                      border: newColor === c ? '3px solid var(--ink)' : '3px solid transparent',
+                      cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
+                    }}></button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 4 }}>คำอธิบาย</div>
+                <input className="input" placeholder="เช่น ทีมจัดส่งสินค้า / แพ็คของ" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
+              </div>
+              <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-sm" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</button>
+                <button className="btn btn-sm btn-primary" onClick={addDuty} disabled={!newName.trim() || busy}>
+                  <Icon name="check" /> {busy ? 'กำลังบันทึก...' : 'บันทึก'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Duties list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {duties.length === 0 && (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--ink-3)' }}>
+              <div className="cap">ยังไม่มีหน้าที่ — กด "เพิ่มหน้าที่ใหม่" เพื่อเริ่ม</div>
+            </div>
+          )}
+          {duties.map(d => {
+            const isEditing = editing === d.id;
+            const count = userCount(d.id);
+
+            if (isEditing) {
+              return (
+                <div key={d.id} style={{ padding: 14, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', margin: '4px 0' }}>
+                  <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขหน้าที่</div>
+                  <div className="col" style={{ gap: 10 }}>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>ชื่อ</div>
+                      <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
+                    </div>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>สี</div>
+                      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                        {PALETTE.map(c => (
+                          <button key={c} onClick={() => setEditColor(c)} style={{
+                            width: 28, height: 28, borderRadius: 7, background: c,
+                            border: editColor === c ? '3px solid var(--ink)' : '3px solid transparent',
+                            cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
+                          }}></button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>คำอธิบาย</div>
+                      <input className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} />
+                    </div>
+                    <div className="row between">
+                      <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteDuty(d)} disabled={busy}>
+                        <Icon name="trash" /> ลบ {count > 0 && `(มี ${count} คน)`}
+                      </button>
+                      <div className="row" style={{ gap: 8 }}>
+                        <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
+                        <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}>
+                          <Icon name="check" /> {busy ? 'บันทึก...' : 'บันทึก'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={d.id} className="row" style={{ gap: 12, padding: '14px 12px', borderBottom: '1px solid var(--line-2)' }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: d.color, flexShrink: 0 }}></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="sm" style={{ fontWeight: 700 }}>{d.name}</div>
+                  {d.description && <div className="cap">{d.description}</div>}
+                </div>
+                <span className="chip" style={{ background: d.color + '18', color: d.color, fontWeight: 600 }}>
+                  {count} คน
+                </span>
+                <button className="btn btn-sm btn-ghost" onClick={() => startEdit(d)} title="แก้ไข">
+                  <Icon name="pencil" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RolesView() {
   const roleMeta = {
     admin: { l: 'ผู้ดูแลระบบ', cls: 'chip-accent' },
     editor: { l: 'แก้ไขได้', cls: 'chip-good' },
     viewer: { l: 'ดูอย่างเดียว', cls: '' }
   };
-  // หน้าที่/แผนก (department) — ใช้สำหรับ "ผู้รับผิดชอบ" ในงาน
-  const DEPARTMENTS = ['CEO', 'Head MKT', 'Admin', 'MKT', 'Graphic'];
+  // หน้าที่ — ดึงจาก tmk_duties (Supabase) — เพิ่ม/แก้/ลบได้ใน tab "หน้าที่"
+  const DUTIES = TMK.duties || [];
 
   // ใช้ TMK.roles + TMK.staff โดยตรง (re-render เมื่อ Supabase อัปเดต)
   const users = (TMK.roles || []).map(r => {
@@ -890,7 +1109,7 @@ function RolesView() {
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState('viewer');
-  const [editDept, setEditDept] = useState('');
+  const [editDutyId, setEditDutyId] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -898,13 +1117,13 @@ function RolesView() {
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('editor');
-  const [newDept, setNewDept] = useState('MKT');
+  const [newDutyId, setNewDutyId] = useState(DUTIES[0]?.id || '');
 
   const startEdit = (u) => {
     setEditing(u.email);
     setEditName(u.name);
     setEditRole(u.role);
-    setEditDept(u.department || '');
+    setEditDutyId(u.dutyId || '');
     setEditAvatar(u.avatar || '');
   };
 
@@ -912,25 +1131,27 @@ function RolesView() {
   const saveEdit = async () => {
     setBusy(true);
     try {
+      const duty = DUTIES.find(d => d.id === editDutyId);
+
       // Update tmk_user_roles
       const { error: e1 } = await supabase.from('tmk_user_roles').upsert({
         email: editing,
         role: editRole,
         name: editName,
-        department: editDept,
+        department: duty?.name || '',
+        duty_id: editDutyId || null,
       });
       if (e1) throw e1;
 
       // Update tmk_staff (sync name/department/color)
-      const deptColor = { 'CEO': '#b07d33', 'Head MKT': '#0a5aa0', 'Admin': '#2f9e6e', 'MKT': '#4a8be0', 'Graphic': '#6b5ce0' }[editDept] || '#3b82f6';
       const existingStaff = (TMK.staff || []).find(s => s.email === editing);
       const staffId = existingStaff?.id || ('s-' + editing.split('@')[0].replace(/[^a-z0-9]/gi, ''));
       const { error: e2 } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name: editName,
-        role: editDept || 'Staff',
+        role: duty?.name || 'Staff',
         email: editing,
-        color: deptColor,
+        color: duty?.color || '#3b82f6',
         avatar_url: editAvatar || '',
       });
       if (e2) throw e2;
@@ -972,15 +1193,17 @@ function RolesView() {
     setBusy(true);
     try {
       const name = newName.trim() || newEmail.split('@')[0];
-      const deptColor = { 'CEO': '#b07d33', 'Head MKT': '#0a5aa0', 'Admin': '#2f9e6e', 'MKT': '#4a8be0', 'Graphic': '#6b5ce0' }[newDept] || '#3b82f6';
+      const duty = DUTIES.find(d => d.id === newDutyId);
+      const dutyColor = duty?.color || '#3b82f6';
 
       // 1. Insert tmk_user_roles
       const { error: e1 } = await supabase.from('tmk_user_roles').insert({
         email: newEmail,
         role: newRole,
         name,
-        department: newDept,
-        color: deptColor,
+        department: duty?.name || '',
+        duty_id: newDutyId || null,
+        color: dutyColor,
         created_by: 'system',
       });
       if (e1) throw e1;
@@ -990,13 +1213,13 @@ function RolesView() {
       const { error: e2 } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name,
-        role: newDept,
+        role: duty?.name || 'Staff',
         email: newEmail,
-        color: deptColor,
+        color: dutyColor,
       });
       if (e2) throw e2;
 
-      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDept('MKT');
+      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || '');
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
     } catch (err) {
       console.error(err);
@@ -1059,12 +1282,23 @@ function RolesView() {
                       </div>
                     </div>
 
-                    <div className="cap" style={{ marginBottom: 4 }}>หน้าที่ / แผนก (สำหรับมอบหมายงาน)</div>
-                    <div className="chips-pick" style={{ marginBottom: 12 }}>
-                      {DEPARTMENTS.map(d => (
-                        <button key={d} className={'pick' + (editDept === d ? ' on' : '')} onClick={() => setEditDept(d)}>{d}</button>
-                      ))}
-                    </div>
+                    <div className="cap" style={{ marginBottom: 4 }}>หน้าที่ (สำหรับมอบหมายงาน)</div>
+                    {DUTIES.length === 0 ? (
+                      <div className="cap" style={{ color: 'var(--warn)', marginBottom: 12 }}>
+                        ยังไม่มีหน้าที่ — ไปสร้างที่แท็บ "หน้าที่" ก่อน
+                      </div>
+                    ) : (
+                      <div className="chips-pick" style={{ marginBottom: 12 }}>
+                        <button className={'pick' + (!editDutyId ? ' on' : '')} onClick={() => setEditDutyId('')}>
+                          — ไม่ระบุ —
+                        </button>
+                        {DUTIES.map(d => (
+                          <button key={d.id} className={'pick' + (editDutyId === d.id ? ' on' : '')} onClick={() => setEditDutyId(d.id)}>
+                            <span className="dot-c" style={{ background: d.color }}></span>{d.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="cap" style={{ marginBottom: 4 }}>สิทธิ์การเข้าถึง</div>
                     <div className="segbar" style={{ marginBottom: 12 }}>
@@ -1129,12 +1363,20 @@ function RolesView() {
               <input className="input" placeholder="เช่น คุณ A หรือชื่อทีม" value={newName} onChange={e => setNewName(e.target.value)} />
             </div>
             <div className="col" style={{ gap: 5 }}>
-              <label className="cap" style={{ fontWeight: 600 }}>หน้าที่ / แผนก</label>
-              <div className="chips-pick">
-                {DEPARTMENTS.map(d => (
-                  <button key={d} className={'pick' + (newDept === d ? ' on' : '')} onClick={() => setNewDept(d)}>{d}</button>
-                ))}
-              </div>
+              <label className="cap" style={{ fontWeight: 600 }}>หน้าที่</label>
+              {DUTIES.length === 0 ? (
+                <div className="cap" style={{ color: 'var(--warn)' }}>
+                  ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน
+                </div>
+              ) : (
+                <div className="chips-pick">
+                  {DUTIES.map(d => (
+                    <button key={d.id} className={'pick' + (newDutyId === d.id ? ' on' : '')} onClick={() => setNewDutyId(d.id)}>
+                      <span className="dot-c" style={{ background: d.color }}></span>{d.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="col" style={{ gap: 5 }}>
               <label className="cap" style={{ fontWeight: 600 }}>สิทธิ์การเข้าถึง</label>
