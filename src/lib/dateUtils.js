@@ -11,6 +11,9 @@ export const THAI_MONTHS_ABBR = {
 export const THAI_MONTHS_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
                                   'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
+// ชื่อเดือนย่อ (index 0-11) — แหล่งเดียว ใช้ร่วมทุก view แทนการประกาศซ้ำ
+export const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
 /**
  * Parse Thai date "18 มิ.ย." → ISO "2026-06-18"
  * @param {string} s — Thai date or already ISO
@@ -40,13 +43,6 @@ export function thaiDate(isoStr) {
   const month = parseInt(parts[1], 10);
   const monthKey = Object.keys(THAI_MONTHS_ABBR).find(k => THAI_MONTHS_ABBR[k] === month);
   return `${day} ${monthKey || ''}`;
-}
-
-/**
- * Convert array or string to comma-joined string for DB storage
- */
-export function arrJoin(x) {
-  return Array.isArray(x) ? x.join(', ') : String(x || '');
 }
 
 /**

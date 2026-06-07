@@ -7,14 +7,14 @@ import { Icon, B, Bk, N, Avatar } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 import { PlannerView, CatalogView, SettingsView, ProfileView } from './views-2.jsx';
-import { HelpCenter, GuideOverlay } from './onboarding.jsx';
+import { Onboarding, HelpCenter, GuideOverlay } from './onboarding.jsx';
 import { EntryView } from './views-entry.jsx';
 import { RecordSalesModal, TaskModal, ProductModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { Onboarding, HelpButton, Tooltip } from './onboarding.jsx';
+import { THAI_MONTHS, parseTaskDate, todayISO } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
 
@@ -348,8 +348,7 @@ function AppInner() {
     const py = cm === 1 ? cy - 1 : cy;
     const rec = (TMK.monthly || []).find(m => m.month === pm && m.year === py);
     if (rec && rec.actual > 0) return [];
-    const MONTH_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-    return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${MONTH_TH[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
+    return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
   })();
 
   const notifGroups = [
@@ -649,20 +648,8 @@ function AppInner() {
 
               // 2. แปลง task → DB format + บันทึก Supabase
               try {
-                // แปลงวันที่ Thai "18 มิ.ย." → "2026-06-18"
-                const THAI_MONTHS = { 'ม.ค.':1,'ก.พ.':2,'มี.ค.':3,'เม.ย.':4,'พ.ค.':5,'มิ.ย.':6,'ก.ค.':7,'ส.ค.':8,'ก.ย.':9,'ต.ค.':10,'พ.ย.':11,'ธ.ค.':12 };
-                const parseTaskDate = (s) => {
-                  if (!s) return null;
-                  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // ISO already
-                  const m = String(s).match(/^(\d+)\s+(.+)$/);
-                  if (!m) return null;
-                  const day = parseInt(m[1], 10);
-                  const monthKey = Object.keys(THAI_MONTHS).find(k => m[2].includes(k));
-                  if (!monthKey) return null;
-                  const month = THAI_MONTHS[monthKey];
-                  return `2026-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                };
-                const isoDate = parseTaskDate(task.date) || '2026-06-18';
+                // แปลงวันที่ Thai "18 มิ.ย." → ISO (ใช้ helper ร่วมจาก lib/dateUtils)
+                const isoDate = parseTaskDate(task.date) || todayISO();
                 const responsibleStr = Array.isArray(task.responsible) ? task.responsible.join(', ') : String(task.responsible || '');
                 const channelStr = Array.isArray(task.channel) ? task.channel.join(', ') : String(task.channel || '');
                 const dbTask = {

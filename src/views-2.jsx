@@ -8,7 +8,7 @@ import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { getToday } from './lib/dateUtils.js';
+import { getToday, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
 
 const DD = TMK;
 
@@ -61,9 +61,7 @@ export function PlannerView({ sub, tasks, setTasks }) {
   return <CalendarView tasks={tasks} filtered={filtered} fProps={fProps} />;
 }
 
-/* ---- Calendar (month navigation + week view) ---- */
-const MONTHS_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
-const MONTHS_TH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+/* ---- Calendar (month navigation + week view) — ชื่อเดือนใช้ร่วมจาก lib/dateUtils ---- */
 const DAY_LABELS = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
 /* ---- Channel → platform icon (ใช้ร่วม Calendar / Kanban / Timeline) ---- */
@@ -1090,11 +1088,6 @@ export function ProfileView({ tasks }) {
       )}
     </div>
   );
-}
-
-/* Legacy export for backward compat */
-export function SystemView({ sub }) {
-  return <SettingsView sub={sub} />;
 }
 
 function AuditView() {

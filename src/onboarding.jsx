@@ -196,31 +196,6 @@ export function Onboarding({ onComplete }) {
   return null;
 }
 
-/* ---- Help button (floating) ---- */
-export function HelpButton({ onClick }) {
-  const { t } = useLang();
-  return (
-    <button onClick={onClick} title={t('helpBtn')} style={{
-      position: 'fixed', bottom: 80, right: 24, zIndex: 900,
-      width: 44, height: 44, borderRadius: '50%',
-      background: 'var(--accent)', color: '#fff',
-      border: 'none', cursor: 'pointer',
-      display: 'grid', placeItems: 'center',
-      boxShadow: '0 4px 16px rgba(10,90,160,0.3)',
-      transition: 'transform 0.2s, box-shadow 0.2s',
-    }}
-    onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.1)'; }}
-    onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-    >
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-        <line x1="12" y1="17" x2="12.01" y2="17" />
-      </svg>
-    </button>
-  );
-}
-
 /* ====================  HELP CENTER  ==================== */
 const HELP_SECTIONS = [
   {
@@ -638,34 +613,3 @@ export function HelpCenter({ onStartGuide }) {
 
 /* ---- Export GuideOverlay for App-level rendering ---- */
 export { GuideOverlay };
-
-/* ---- Tooltip wrapper ---- */
-export function Tooltip({ text, children, position = 'top' }) {
-  const [show, setShow] = useState(false);
-  const posStyle = {
-    top: { bottom: '100%', left: '50%', transform: 'translateX(-50%)', marginBottom: 6 },
-    bottom: { top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: 6 },
-    left: { right: '100%', top: '50%', transform: 'translateY(-50%)', marginRight: 6 },
-    right: { left: '100%', top: '50%', transform: 'translateY(-50%)', marginLeft: 6 },
-  };
-  return (
-    <span style={{ position: 'relative', display: 'inline-flex' }}
-      onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)}>
-      {children}
-      {show && (
-        <span style={{
-          position: 'absolute', ...posStyle[position],
-          background: 'var(--ink)', color: '#fff',
-          padding: '5px 10px', borderRadius: 6,
-          fontSize: 'var(--fs-micro)', fontWeight: 500,
-          whiteSpace: 'nowrap', zIndex: 999,
-          pointerEvents: 'none',
-          animation: 'toastIn 0.15s ease-out',
-          fontFamily: 'var(--font)',
-        }}>
-          {text}
-        </span>
-      )}
-    </span>
-  );
-}

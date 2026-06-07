@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 import { useUser } from './userContext.jsx';
-import { getToday, THAI_MONTHS_FULL, thaiDate, todayISO } from './lib/dateUtils.js';
+import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, thaiDate, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth } from './dataContext.jsx';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
@@ -14,9 +14,6 @@ const D = TMK;
 const C = TMK.computed;
 // ❌ ไม่ destructure constants เพราะ primitive snapshot จะค้างที่ 0
 // ✅ ใช้ TMK.consts.X inline เพื่อให้อัปเดตจาก Supabase ทันที
-
-/* ---------- Thai month names ---------- */
-const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
 /* ---------- Previous month — from tmk_monthly_history (Supabase) ---------- */
 // Computed live from TMK.month3 (which is from monthly_history)

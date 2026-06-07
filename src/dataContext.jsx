@@ -9,11 +9,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { TMK } from './data.js';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.js';
-import { getToday } from './lib/dateUtils.js';
+import { getToday, THAI_MONTHS } from './lib/dateUtils.js';
 
 const DataContext = createContext();
 
-const THAI_MONTH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const THAI_MONTH = THAI_MONTHS;
 
 // แปลง "2026-06-18" → "18 มิ.ย."
 function thaiDate(dateStr) {
@@ -379,7 +379,7 @@ function mapToTMK(raw) {
   };
 }
 
-const _ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const _ABBR = THAI_MONTHS;
 
 // แคมเปญแอดอยู่ในเดือนที่เลือกหรือไม่ (ช่วงวันที่ทับซ้อนเดือน) — ไม่มีวันที่ = แสดงทุกเดือน
 export function adCampaignInMonth(c, monthIdx0, yearBE) {

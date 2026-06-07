@@ -4,14 +4,11 @@
 import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, N, P, Icon, Ring } from './components.jsx';
-import { getToday } from './lib/dateUtils.js';
+import { getToday, THAI_MONTHS as MONTH_SHORT, THAI_MONTHS_FULL as MONTH_FULL } from './lib/dateUtils.js';
 import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
 
 const DD = TMK;
 
-/* ---- Month/Thai helpers ---- */
-const MONTH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-const MONTH_FULL  = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
 // "วันนี้" จากวันที่จริงของเครื่อง (getToday เป็น pure date — ปลอดภัยที่ module-level)
 const _T = getToday();
