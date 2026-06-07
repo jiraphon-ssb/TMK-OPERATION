@@ -11,6 +11,7 @@ import { EntryView } from './views-entry.jsx';
 import { RecordSalesModal, TaskModal, ProductModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
+import { supabase } from './lib/supabaseClient.js';
 import { Onboarding, HelpButton, Tooltip } from './onboarding.jsx';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
@@ -194,7 +195,7 @@ function AppShellWithUser() {
 function AppInner() {
   const { t, lang, setLang } = useLang();
   const { toast } = useToast();
-  const { loading: dataLoading, error: dataError, version: dataVersion } = useData();
+  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload } = useData();
   // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
 
@@ -605,10 +606,50 @@ function AppInner() {
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal onClose={closeModal} />
         : modal.type === 'task' ? <TaskModal data={modal.data} onClose={closeModal}
-            onSubmit={(task) => {
+            onSubmit={async (task) => {
+              // 1. Optimistic local update — เห็นทันที
               setTasks(ts => modal.data ? ts.map(x => x.id === task.id ? task : x) : [task, ...ts]);
               closeModal();
-              toast(t('toastSaved'), 'success');
+
+              // 2. แปลง task → DB format + บันทึก Supabase
+              try {
+                // แปลงวันที่ Thai "18 มิ.ย." → "2026-06-18"
+                const THAI_MONTHS = { 'ม.ค.':1,'ก.พ.':2,'มี.ค.':3,'เม.ย.':4,'พ.ค.':5,'มิ.ย.':6,'ก.ค.':7,'ส.ค.':8,'ก.ย.':9,'ต.ค.':10,'พ.ย.':11,'ธ.ค.':12 };
+                const parseTaskDate = (s) => {
+                  if (!s) return null;
+                  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // ISO already
+                  const m = String(s).match(/^(\d+)\s+(.+)$/);
+                  if (!m) return null;
+                  const day = parseInt(m[1], 10);
+                  const monthKey = Object.keys(THAI_MONTHS).find(k => m[2].includes(k));
+                  if (!monthKey) return null;
+                  const month = THAI_MONTHS[monthKey];
+                  return `2026-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                };
+                const isoDate = parseTaskDate(task.date) || '2026-06-18';
+                const responsibleStr = Array.isArray(task.responsible) ? task.responsible.join(', ') : String(task.responsible || '');
+                const channelStr = Array.isArray(task.channel) ? task.channel.join(', ') : String(task.channel || '');
+                const dbTask = {
+                  id: task.id,
+                  date: isoDate,
+                  camp: task.camp || null,
+                  title: task.title || '',
+                  detail: task.detail || '',
+                  responsible: responsibleStr,
+                  channel: channelStr,
+                  status: task.status || 'todo',
+                  priority: task.priority || 'medium',
+                  reminder_days: Number(task.reminderDays || 1),
+                };
+                const { error } = await supabase.from('tmk_tasks').upsert(dbTask);
+                if (error) throw error;
+                // Reload data so calendar/kanban show latest from Supabase
+                if (dataReload) await dataReload();
+                toast(t('toastSaved'), 'success');
+              } catch (err) {
+                console.error('Task save failed:', err);
+                toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+              }
             }} />
         : modal.type === 'product' ? <ProductModal data={modal.data} onClose={closeModal} />
         : modal.type === 'campaign' ? <CampaignModal data={modal.data} onClose={closeModal} />
