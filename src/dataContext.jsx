@@ -105,6 +105,7 @@ function mapToTMK(raw) {
     id: ch.id,
     name: ch.name,
     icon: ch.icon || '',
+    logoUrl: ch.logo_url || '',
     color: `var(--ch-${(ch.id || '').toLowerCase()})`,
     hex: ch.color,
     target: Number(ch.percentage || 0),

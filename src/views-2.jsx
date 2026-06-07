@@ -91,9 +91,26 @@ function CalendarView({ tasks, filtered, fProps }) {
   const selTasks = byDay[sel] || [];
 
   // Map task channel text → platform info
+  // หา channel ใน Supabase (TMK.channels) ก่อน → ใช้ logo_url ถ้ามี
   const chInfo = (ch) => {
     if (!ch) return null;
-    const l = String(ch || '').toLowerCase();
+    const text = String(ch).toLowerCase();
+    // 1. หาใน TMK.channels (จาก Supabase) ที่ชื่อ/id ตรงกับ text
+    const matched = (DD.channels || []).find(c => {
+      const cName = String(c.name || '').toLowerCase();
+      const cId = String(c.id || '').toLowerCase();
+      return text.includes(cName) || text.includes(cId) || cName.includes(text);
+    });
+    if (matched && matched.logoUrl) {
+      return {
+        color: matched.hex || '#888',
+        bg: matched.hex || '#888',
+        logoUrl: matched.logoUrl,
+        icon: (s) => <img src={matched.logoUrl} alt="" style={{ width: s, height: s, objectFit: 'contain' }} />,
+      };
+    }
+    // 2. Fallback: hardcoded แพลตฟอร์มยอดนิยม
+    const l = text;
     if (l.includes('shopee')) return { color: '#ee4d2d', bg: '#ee4d2d', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M12 2C9.2 2 7.3 4.1 7.1 6.6c-.1.6.4 1 .9 1h8c.5 0 1-.4.9-1C16.7 4.1 14.8 2 12 2zm-6.9 7c-.5 0-1 .4-1 1l1.2 10c.1.8.7 1.4 1.5 1.4h10.4c.8 0 1.4-.6 1.5-1.4l1.2-10c0-.6-.4-1-1-1H5.1z"/></svg> };
     if (l.includes('tiktok')) return { color: '#000', bg: '#00f2ea', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#000" d="M16.6 5.8A4.3 4.3 0 0 1 13.4 2h-3v13.4a2.6 2.6 0 1 1-1.8-2.4V9.6a6 6 0 1 0 5.2 6V9.4a7.3 7.3 0 0 0 4.2 1.3V7.3a4.3 4.3 0 0 1-1.4-1.5z"/></svg> };
     if (l.includes('lazada')) return { color: '#0f1689', bg: '#0f1689', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><path fill="#fff" d="M3 5h18v14H3V5zm2 2v10h14V7H5zm3 2h8v2H8V9zm0 4h5v2H8v-2z"/></svg> };
@@ -1033,14 +1050,12 @@ function AuditView() {
 function ChannelsView() {
   const { reload } = useData() || {};
   const PALETTE = ['#ee6a3a', '#18a0ab', '#6b5ce0', '#4a8be0', '#06c755', '#c08a3e', '#ec4899', '#2f9e6e', '#cf4d5c', '#0a5aa0'];
-  // Popular icons สำหรับช่องทาง
-  const ICON_PRESETS = ['🛒','🛍','🛒','📱','💻','💬','📞','📧','👥','🎵','📘','📷','▶️','🎬','🏪','💰','💳','📦','🚚','⭐'];
 
   const channels = (TMK.channels || []);
 
   const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
-  const [editIcon, setEditIcon] = useState('');
+  const [editLogo, setEditLogo] = useState('');
   const [editColor, setEditColor] = useState('');
   const [editTarget, setEditTarget] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -1050,14 +1065,24 @@ function ChannelsView() {
   // Add form
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newIcon, setNewIcon] = useState('🛒');
+  const [newLogo, setNewLogo] = useState('');
   const [newColor, setNewColor] = useState(PALETTE[0]);
   const [newTarget, setNewTarget] = useState(0);
+
+  // Helper: read file → base64
+  const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    if (!file) return reject('no file');
+    if (file.size > 500 * 1024) return reject('ไฟล์ใหญ่เกิน 500KB');
+    const r = new FileReader();
+    r.onload = ev => resolve(ev.target.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
 
   const startEdit = (c) => {
     setEditing(c.id);
     setEditName(c.name);
-    setEditIcon(c.icon || '');
+    setEditLogo(c.logoUrl || c.icon || '');
     setEditColor(c.hex || c.color || PALETTE[0]);
     setEditTarget(c.target || 0);
   };
@@ -1065,13 +1090,22 @@ function ChannelsView() {
   const saveEdit = async () => {
     setBusy(true);
     try {
-      const { error } = await supabase.from('tmk_channels').update({
+      const payload = {
         name: editName.trim(),
-        icon: editIcon,
         color: editColor,
         percentage: Number(editTarget) || 0,
-      }).eq('id', editing);
-      if (error) throw error;
+      };
+      // ลองรวม logo_url ก่อน — fallback ถ้า column ไม่มี
+      try {
+        const { error } = await supabase.from('tmk_channels').update({ ...payload, logo_url: editLogo }).eq('id', editing);
+        if (error && /logo_url/.test(error.message)) {
+          // ไม่มี column → save ส่วนอื่นแทน
+          await supabase.from('tmk_channels').update(payload).eq('id', editing);
+          if (window.__toast) window.__toast('รูปไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
+        } else if (error) throw error;
+      } catch (err) {
+        if (!/logo_url/.test(err.message)) throw err;
+      }
       if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตช่องทางเรียบร้อย', 'success');
@@ -1107,18 +1141,23 @@ function ChannelsView() {
         id = `${baseId}_${counter++}`;
       }
       const maxOrder = Math.max(0, ...channels.map(c => c.sortOrder || 0));
-      const { error } = await supabase.from('tmk_channels').insert({
+      const basePayload = {
         id,
         name,
-        icon: newIcon,
         color: newColor,
         percentage: Number(newTarget) || 0,
         actual: 0,
         sort_order: maxOrder + 1,
-      });
-      if (error) throw error;
+      };
+      let { error } = await supabase.from('tmk_channels').insert({ ...basePayload, logo_url: newLogo });
+      if (error && /logo_url/.test(error.message)) {
+        // fallback ถ้า column ไม่มี
+        const res = await supabase.from('tmk_channels').insert(basePayload);
+        if (res.error) throw res.error;
+        if (window.__toast) window.__toast('รูปไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
+      } else if (error) throw error;
       if (reload) await reload();
-      setNewName(''); setNewIcon('🛒'); setNewColor(PALETTE[0]); setNewTarget(0); setShowAdd(false);
+      setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewTarget(0); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มช่องทางเรียบร้อย', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('เพิ่มไม่สำเร็จ: ' + err.message, 'error');
@@ -1174,27 +1213,39 @@ function ChannelsView() {
           <div style={{ padding: 16, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', marginBottom: 12 }}>
             <div className="eyebrow" style={{ marginBottom: 10 }}>เพิ่มช่องทางใหม่</div>
             <div className="col" style={{ gap: 10 }}>
-              <div className="row" style={{ gap: 10 }}>
+              <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
+                {/* Logo upload */}
+                <div style={{ flexShrink: 0 }}>
+                  <div className="cap" style={{ marginBottom: 4 }}>โลโก้ (PNG/SVG)</div>
+                  <label style={{
+                    display: 'grid', placeItems: 'center',
+                    width: 80, height: 80, borderRadius: 12,
+                    background: newLogo ? '#fff' : 'var(--surface)',
+                    border: '2px dashed var(--line)',
+                    cursor: 'pointer', position: 'relative', overflow: 'hidden',
+                  }}>
+                    {newLogo ? (
+                      <img src={newLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    ) : (
+                      <div style={{ textAlign: 'center', color: 'var(--ink-3)' }}>
+                        <div style={{ fontSize: 20 }}>📷</div>
+                        <div className="cap" style={{ fontSize: 9 }}>คลิกอัปโหลด</div>
+                      </div>
+                    )}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
+                      try { setNewLogo(await readFileAsBase64(e.target.files?.[0])); }
+                      catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
+                    }} />
+                  </label>
+                  {newLogo && (
+                    <button className="btn btn-sm" style={{ marginTop: 6, fontSize: 11, color: 'var(--bad)' }} onClick={() => setNewLogo('')}>
+                      ลบรูป
+                    </button>
+                  )}
+                </div>
                 <div style={{ flex: 1 }}>
                   <div className="cap" style={{ marginBottom: 4 }}>ชื่อ *</div>
                   <input className="input" placeholder="เช่น Shopee, Instagram, TikTok" value={newName} onChange={e => setNewName(e.target.value)} />
-                </div>
-                <div style={{ width: 90 }}>
-                  <div className="cap" style={{ marginBottom: 4 }}>ไอคอน</div>
-                  <input className="input" placeholder="🛒" value={newIcon} onChange={e => setNewIcon(e.target.value)} style={{ fontSize: 22, textAlign: 'center', padding: '6px' }} maxLength={3} />
-                </div>
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 4 }}>ไอคอนแนะนำ (กดเลือก)</div>
-                <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
-                  {ICON_PRESETS.map((ic, i) => (
-                    <button key={i} onClick={() => setNewIcon(ic)} style={{
-                      width: 32, height: 32, borderRadius: 6,
-                      background: newIcon === ic ? 'var(--accent-soft)' : 'var(--surface-2)',
-                      border: newIcon === ic ? '2px solid var(--accent)' : '1px solid var(--line)',
-                      cursor: 'pointer', fontSize: 16,
-                    }}>{ic}</button>
-                  ))}
                 </div>
               </div>
               <div>
@@ -1238,27 +1289,38 @@ function ChannelsView() {
                 <div key={c.id} style={{ padding: 14, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', margin: '4px 0' }}>
                   <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขช่องทาง</div>
                   <div className="col" style={{ gap: 10 }}>
-                    <div className="row" style={{ gap: 10 }}>
+                    <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
+                      <div style={{ flexShrink: 0 }}>
+                        <div className="cap" style={{ marginBottom: 4 }}>โลโก้</div>
+                        <label style={{
+                          display: 'grid', placeItems: 'center',
+                          width: 80, height: 80, borderRadius: 12,
+                          background: editLogo && editLogo.startsWith('data:') ? '#fff' : 'var(--surface)',
+                          border: '2px dashed var(--line)',
+                          cursor: 'pointer', overflow: 'hidden',
+                        }}>
+                          {editLogo && editLogo.startsWith('data:') ? (
+                            <img src={editLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          ) : (
+                            <div style={{ textAlign: 'center', color: 'var(--ink-3)' }}>
+                              <div style={{ fontSize: 20 }}>📷</div>
+                              <div className="cap" style={{ fontSize: 9 }}>คลิกอัปโหลด</div>
+                            </div>
+                          )}
+                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
+                            try { setEditLogo(await readFileAsBase64(e.target.files?.[0])); }
+                            catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
+                          }} />
+                        </label>
+                        {editLogo && (
+                          <button className="btn btn-sm" style={{ marginTop: 6, fontSize: 11, color: 'var(--bad)' }} onClick={() => setEditLogo('')}>
+                            ลบรูป
+                          </button>
+                        )}
+                      </div>
                       <div style={{ flex: 1 }}>
                         <div className="cap" style={{ marginBottom: 4 }}>ชื่อ</div>
                         <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
-                      </div>
-                      <div style={{ width: 90 }}>
-                        <div className="cap" style={{ marginBottom: 4 }}>ไอคอน</div>
-                        <input className="input" value={editIcon} onChange={e => setEditIcon(e.target.value)} style={{ fontSize: 22, textAlign: 'center' }} maxLength={3} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>ไอคอนแนะนำ</div>
-                      <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
-                        {ICON_PRESETS.map((ic, i) => (
-                          <button key={i} onClick={() => setEditIcon(ic)} style={{
-                            width: 30, height: 30, borderRadius: 6,
-                            background: editIcon === ic ? 'var(--accent-soft)' : 'var(--surface-2)',
-                            border: editIcon === ic ? '2px solid var(--accent)' : '1px solid var(--line)',
-                            cursor: 'pointer', fontSize: 14,
-                          }}>{ic}</button>
-                        ))}
                       </div>
                     </div>
                     <div>
@@ -1315,13 +1377,21 @@ function ChannelsView() {
                     <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
                   </svg>
                 </span>
-                <span style={{
-                  width: 36, height: 36, borderRadius: 10,
-                  background: (c.hex || c.color || '#666') + '18',
-                  color: c.hex || c.color || '#666',
-                  display: 'grid', placeItems: 'center',
-                  fontSize: 18, fontWeight: 700, flexShrink: 0,
-                }}>{c.icon || c.name?.[0] || '?'}</span>
+                {c.logoUrl ? (
+                  <img src={c.logoUrl} alt={c.name} style={{
+                    width: 36, height: 36, borderRadius: 10,
+                    objectFit: 'contain', background: '#fff',
+                    border: '1px solid var(--line)', flexShrink: 0,
+                  }} />
+                ) : (
+                  <span style={{
+                    width: 36, height: 36, borderRadius: 10,
+                    background: (c.hex || c.color || '#666') + '18',
+                    color: c.hex || c.color || '#666',
+                    display: 'grid', placeItems: 'center',
+                    fontSize: 18, fontWeight: 700, flexShrink: 0,
+                  }}>{c.icon || c.name?.[0] || '?'}</span>
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="sm" style={{ fontWeight: 700 }}>{c.name}</div>
                   <div className="cap">เป้า {B(c.target || 0)} · ID: {c.id}</div>

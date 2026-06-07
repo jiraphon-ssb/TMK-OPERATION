@@ -335,11 +335,16 @@ export function CampaignModal({ data, onClose }) {
           ))}
         </div>
       </div>
-      <div className="field"><label>ช่องทาง</label>
+      <div className="field"><label>ช่องทาง (ติ๊กเลือก)</label>
         <div className="chips-pick">
           {MD.channels.map(ch => (
             <button key={ch.id} className={'pick' + (f.channels.includes(ch.id) ? ' on' : '')} onClick={() => toggleCh(ch.id)}>
-              <span className="dot-c" style={{ background: ch.hex }}></span>{ch.name}
+              {ch.logoUrl ? (
+                <img src={ch.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: 3, objectFit: 'contain', marginRight: 4 }} />
+              ) : (
+                <span className="dot-c" style={{ background: ch.hex }}></span>
+              )}
+              {ch.name}
             </button>
           ))}
         </div>
