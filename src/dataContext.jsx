@@ -102,6 +102,19 @@ function mapToTMK(raw) {
   const ACOS_CEIL = Number(settings.acos_ceil || 25);
   const AD_BUDGET = Number(settings.ad_budget_total || 150000);
 
+  // รายได้ต่อช่องทาง derive จาก tmk_daily_sales จริง (single source of truth)
+  // กรอกยอดรายวัน → MTD/ช่องทางอัปเดตเอง; ถ้ายังไม่มี daily → 0
+  const DAILY_COL = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
+  const _dailyRows = raw.daily || [];
+  const dailyRevByCh = {};
+  let dailyAdTotal = 0;
+  _dailyRows.forEach(d => {
+    dailyAdTotal += Number(d.ad_spend || 0);
+    for (const [id, col] of Object.entries(DAILY_COL)) {
+      dailyRevByCh[id] = (dailyRevByCh[id] || 0) + Number(d[col] || 0);
+    }
+  });
+
   // Channels
   const channels = (raw.channels || []).map(ch => ({
     id: ch.id,
@@ -111,8 +124,10 @@ function mapToTMK(raw) {
     color: `var(--ch-${(ch.id || '').toLowerCase()})`,
     hex: ch.color,
     target: Number(ch.percentage || 0),
-    actual: Number(ch.actual || 0),
+    // รายได้ต่อช่องทาง = ยอดจริงจาก daily (ช่องทางมาตรฐาน); อื่นๆ ใช้ค่าใน channels
+    actual: (ch.id in DAILY_COL) ? (dailyRevByCh[ch.id] || 0) : Number(ch.actual || 0),
     sortOrder: Number(ch.sort_order || 0),
+    // metric รายช่องทาง (ยังไม่ได้เก็บจากการกรอกจริง — มาจากคอลัมน์ channels)
     orders: Number(ch.orders || 0),
     newRev: Number(ch.new_rev || 0),
     oldRev: Number(ch.old_rev || 0),
@@ -289,7 +304,8 @@ function mapToTMK(raw) {
   // Computed aggregates
   const MTD = channels.reduce((s, c) => s + c.actual, 0);
   const ORD = channels.reduce((s, c) => s + c.orders, 0);
-  const AD  = channels.reduce((s, c) => s + c.ad, 0);
+  // ค่าแอดรวมจาก daily จริง (fallback เป็นผลรวม per-channel ถ้าไม่มี daily)
+  const AD  = dailyAdTotal || channels.reduce((s, c) => s + c.ad, 0);
   const NEW_REV = channels.reduce((s, c) => s + c.newRev, 0);
   const OLD_REV = channels.reduce((s, c) => s + c.oldRev, 0);
   const NEW_C = channels.reduce((s, c) => s + c.newCust, 0);

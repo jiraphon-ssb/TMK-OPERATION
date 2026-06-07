@@ -223,7 +223,7 @@ export function HomeView({ go }) {
           <div className="row between" style={{ marginBottom: 4 }}>
             <div>
               <div className="num h1">{Bk(C.MTD)}</div>
-              <div className="cap">{'รวม'} 18 {'วัน'} {'·'} {'เฉลี่ย'} {B(C.MTD / TMK.consts.DAY)}/{'วัน'}</div>
+              <div className="cap">{'รวม'} {D.dailyMonth.length} {'วัน'} {'·'} {'เฉลี่ย'} {D.dailyMonth.length ? B(C.MTD / D.dailyMonth.length) : '—'}/{'วัน'}</div>
             </div>
             <span className="chip chip-good"><Icon name="up" /> {'สูงกว่าค่าเฉลี่ย'}</span>
           </div>
@@ -327,8 +327,17 @@ function SalesOverview({ dateProps, prevMonthName }) {
             <span className="cap num">{P((C.MTD/TMK.consts.TARGET)*100)} {'ของเป้า'}</span>
           </div>
           <div className="grid g4" style={{ marginTop: 18, gap: 12 }}>
-            {[['Run rate', B(C.RUN), C.RUN >= TMK.consts.TARGET ? 'var(--good)' : 'var(--warn)'],
-              ['ออร์เดอร์', N(C.ORD)], ['AOV', B(C.AOV)], ['YoY พ.ค.', '+' + P((968000-810000)/810000*100,0), 'var(--good)']].map((x,i)=>(
+            {(() => {
+              // YoY ของเดือนปัจจุบัน เทียบปีก่อน (จาก tmk_monthly_history จริง)
+              const ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+              const curAbbr = ABBR[(TMK.consts.current_month || 1) - 1];
+              const yEntry = (D.yoy || []).find(e => e.m === curAbbr);
+              const yoyPct = yEntry && yEntry.y25 > 0 ? ((yEntry.y26 - yEntry.y25) / yEntry.y25) * 100 : null;
+              const yoyStr = yoyPct == null ? '—' : (yoyPct >= 0 ? '+' : '') + P(yoyPct, 0);
+              const yoyColor = yoyPct == null ? 'var(--ink-3)' : yoyPct >= 0 ? 'var(--good)' : 'var(--bad)';
+              return [['Run rate', B(C.RUN), C.RUN >= TMK.consts.TARGET ? 'var(--good)' : 'var(--warn)'],
+              ['ออร์เดอร์', N(C.ORD)], ['AOV', B(C.AOV)], [`YoY ${curAbbr}`, yoyStr, yoyColor]];
+            })().map((x,i)=>(
               <div key={i}>
                 <div className="cap">{x[0]}</div>
                 <div className="num h3" style={{ color: x[2] || 'var(--ink)' }}>{x[1]}</div>
@@ -487,7 +496,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
               {ch.hasAd && (
                 <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
                   <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
-                  <div><div className="cap">ROAS</div><div className="num sm" style={{ fontWeight: 700, color: roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas.toFixed(1)}x</div></div>
+                  <div><div className="cap">ROAS</div><div className="num sm" style={{ fontWeight: 700, color: roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
                   <div><div className="cap">ACOS</div><div className="num sm" style={{ fontWeight: 700, color: acos<=TMK.consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{P(acos,0)}</div></div>
                 </div>
               )}

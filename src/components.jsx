@@ -4,10 +4,12 @@
 import React, { useState, useEffect } from 'react';
 
 /* ---------- Formatters ---------- */
-export const B  = n => '฿' + Math.round(n).toLocaleString('en-US');
-export const Bk = n => n >= 1e6 ? '฿' + (n/1e6).toFixed(2) + 'M' : n >= 1000 ? '฿' + Math.round(n/1000) + 'k' : '฿' + Math.round(n);
-export const P  = (n, d=1) => n.toFixed(d) + '%';
-export const N  = n => Math.round(n).toLocaleString('en-US');
+// formatters — คืน "—" เมื่อค่าไม่ใช่ตัวเลขจริง (กัน NaN/Infinity จากการหารด้วย 0)
+const _fin = n => typeof n === 'number' && isFinite(n);
+export const B  = n => _fin(n) ? '฿' + Math.round(n).toLocaleString('en-US') : '—';
+export const Bk = n => !_fin(n) ? '—' : n >= 1e6 ? '฿' + (n/1e6).toFixed(2) + 'M' : n >= 1000 ? '฿' + Math.round(n/1000) + 'k' : '฿' + Math.round(n);
+export const P  = (n, d=1) => _fin(n) ? n.toFixed(d) + '%' : '—';
+export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—';
 
 /* ---------- Icons (lucide-style, 24 grid, currentColor stroke) ---------- */
 export const ICONS = {
@@ -105,7 +107,8 @@ export function Avatar({ name, color, size = 28 }) {
 export function Ring({ pct, size = 76, stroke = 8, color = 'var(--accent)', track = 'var(--surface-3)', children }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
-  const off = c - (Math.min(pct, 100) / 100) * c;
+  const safePct = (typeof pct === 'number' && isFinite(pct)) ? pct : 0; // กัน NaN
+  const off = c - (Math.min(safePct, 100) / 100) * c;
   return (
     <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
