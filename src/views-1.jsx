@@ -157,8 +157,8 @@ export function HomeView({ go }) {
 
       {/* KPI row — click navigates to relevant page */}
       <div className="grid g4" style={{ marginBottom: 24 }}>
-        <Kpi label={'ออร์เดอร์รวม'} value={N(C.ORD)} icon="bag" delta="+12%" sub="vs เดือนก่อน" onClick={() => go('sales', 'overview')} />
-        <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" delta="+4%" sub={'ดีต่อเนื่อง'} onClick={() => go('sales', 'channels')} />
+        <Kpi label={'ออร์เดอร์รวม'} value={N(C.ORD)} icon="bag" sub="เดือนนี้" onClick={() => go('sales', 'overview')} />
+        <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" sub={'เฉลี่ยต่อบิล'} onClick={() => go('sales', 'channels')} />
         <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)} deltaDir="down" sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
         <Kpi label={'ลูกค้าใหม่'} value={N(C.NEW_C)} icon="userPlus" delta={`${P((C.NEW_REV/C.MTD)*100,0)} ของรายได้`} sub="" accent="var(--good)" onClick={() => go('sales', 'customers')} />
       </div>
@@ -458,7 +458,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
           const platformFee = ch.actual * 0.05;
           const profit = ch.actual - ch.ad - platformFee;
           const margin = (profit / ch.actual) * 100;
-          const growth = getGrowth(ch.id) || 10;
+          const growth = getGrowth(ch.id);
           const tgtPct = Math.min((ch.actual / ch.target) * 100, 100);
           return (
             <div key={ch.id} className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
@@ -470,7 +470,7 @@ function SalesChannels({ dateProps, prevMonthName }) {
               </div>
               <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
                 <div className="num h1">{B(ch.actual)}</div>
-                <span className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>▲ +{growth}% vs {'เดือนก่อน'}</span>
+                {growth ? <span className="cap" style={{ color: growth >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{growth >= 0 ? '▲ +' : '▼ '}{growth}% vs {'เดือนก่อน'}</span> : null}
               </div>
               <div className="row" style={{ gap: 8, marginTop: 8 }}>
                 <div className="bar" style={{ flex: 1 }}><span style={{ width: `${Math.min((ch.actual/ch.target)*100,100)}%`, background: ch.hex }}></span></div>
