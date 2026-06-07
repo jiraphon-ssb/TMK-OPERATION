@@ -128,13 +128,16 @@ export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill 
   const gid = 'ga-' + (id || color.replace(/[^a-z]/gi, ''));
   const safeData = Array.isArray(data) ? data.filter(v => typeof v === 'number' && isFinite(v)) : [];
 
-  // ถ้าไม่มีข้อมูล → แสดงเส้นตรงตรงกลาง (เพื่อไม่ให้ SVG path error)
+  // ถ้าไม่มีข้อมูล → empty state แบบ HTML (ไม่ยืด/ไม่บิดเบี้ยวเหมือน SVG text)
   if (safeData.length === 0) {
     return (
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
-        <line x1="0" y1={h/2} x2={w} y2={h/2} stroke="var(--line)" strokeWidth="1" strokeDasharray="4 4" />
-        <text x={w/2} y={h/2 - 4} fontSize="10" fill="var(--ink-4)" textAnchor="middle">ไม่มีข้อมูล</text>
-      </svg>
+      <div style={{ height: h, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'var(--ink-4)' }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.55 }}>
+          <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+          <path d="M7 13l3-3 3 2 4-5" strokeDasharray="3 3" />
+        </svg>
+        <span style={{ fontSize: 11, fontWeight: 500 }}>ยังไม่มีข้อมูล</span>
+      </div>
     );
   }
   // ถ้ามีจุดเดียว → ใช้ค่าซ้ำเพื่อให้ line ลากได้

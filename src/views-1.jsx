@@ -43,7 +43,7 @@ function getGrowth(channelId) {
 }
 
 /* small KPI tile — clickable with optional onClick */
-export function Kpi({ label, value, delta, deltaDir, icon, sub, accent, onClick }) {
+export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, accent, onClick }) {
   return (
     <div className="card card-pad-sm" onClick={onClick} style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: onClick ? 'pointer' : 'default', transition: 'box-shadow 0.15s' }}>
       <div className="row between">
@@ -54,7 +54,7 @@ export function Kpi({ label, value, delta, deltaDir, icon, sub, accent, onClick 
       {(delta || sub) && (
         <div className="row" style={{ gap: 8 }}>
           {delta && (
-            <span className="metric-delta" style={{ color: deltaDir === 'down' ? 'var(--bad)' : 'var(--good)' }}>
+            <span className="metric-delta" style={{ color: deltaColor || (deltaDir === 'down' ? 'var(--bad)' : 'var(--good)') }}>
               <Icon name={deltaDir === 'down' ? 'down' : 'up'} /> {delta}
             </span>
           )}
@@ -166,7 +166,10 @@ export function HomeView({ go }) {
       <div className="grid g4" style={{ marginBottom: 24 }}>
         <Kpi label={'ออร์เดอร์รวม'} value={N(C.ORD)} icon="bag" sub="เดือนนี้" onClick={() => go('sales', 'overview')} />
         <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" sub={'เฉลี่ยต่อบิล'} onClick={() => go('sales', 'channels')} />
-        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)} deltaDir="down" sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
+        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)}
+          deltaDir={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'up' : 'down'}
+          deltaColor={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'var(--bad)' : 'var(--good)'}
+          sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
         <Kpi label={'ลูกค้าใหม่'} value={N(C.NEW_C)} icon="userPlus" delta={`${P((C.NEW_REV/C.MTD)*100,0)} ของรายได้`} sub="" accent="var(--good)" onClick={() => go('sales', 'customers')} />
       </div>
 
