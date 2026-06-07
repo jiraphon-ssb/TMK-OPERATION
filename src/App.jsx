@@ -183,6 +183,27 @@ export default function App() {
   );
 }
 
+// Session หมดอายุหลังไม่ได้ใช้งานครบ 7 วัน → ต้อง login ใหม่
+const SESSION_MAX_DAYS = 7;
+function loadValidSession() {
+  try {
+    const saved = localStorage.getItem('tmk-user');
+    if (!saved) return null;
+    const u = JSON.parse(saved);
+    if (u?.loginAt) {
+      const ageMs = Date.now() - new Date(u.loginAt).getTime();
+      if (ageMs > SESSION_MAX_DAYS * 86400000) {
+        localStorage.removeItem('tmk-user'); // ไม่ได้เปิดใช้ครบ 7 วัน → ล้าง session (คงอีเมลที่จำไว้)
+        return null;
+      }
+    }
+    // sliding window: ต่ออายุทุกครั้งที่เปิดใช้ → หมดอายุเฉพาะเมื่อไม่ได้เปิดเลยครบ 7 วัน
+    const refreshed = { ...u, loginAt: new Date().toISOString() };
+    try { localStorage.setItem('tmk-user', JSON.stringify(refreshed)); } catch {}
+    return refreshed;
+  } catch { return null; }
+}
+
 function AppShellWithUser() {
   const { version } = useData();
   return (
@@ -203,16 +224,9 @@ function AppInner() {
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem('tmk-dark') === 'true'; } catch { return false; }
   });
-  // Session persist: load from localStorage so refresh doesn't kick to login
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tmk-user');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
-  const [authed, setAuthed] = useState(() => {
-    try { return Boolean(localStorage.getItem('tmk-user')); } catch { return false; }
-  });
+  // Session persist: load from localStorage (หมดอายุ 7 วัน → loadValidSession คืน null)
+  const [currentUser, setCurrentUser] = useState(() => loadValidSession());
+  const [authed, setAuthed] = useState(() => Boolean(loadValidSession()));
   const [modal, setModal] = useState(null);
   const [confirmClose, setConfirmClose] = useState(null); // for unsaved changes
   const [spotlight, setSpotlight] = useState(false);
@@ -304,10 +318,15 @@ function AppInner() {
   };
 
   // Called by LoginScreen — persists user + flips authed
-  const handleLogin = (email) => {
+  const handleLogin = (email, remember) => {
     const userEmail = email || 'jiraphon.e@tmk.co';
     const user = { email: userEmail, loginAt: new Date().toISOString() };
-    try { localStorage.setItem('tmk-user', JSON.stringify(user)); } catch {}
+    try {
+      localStorage.setItem('tmk-user', JSON.stringify(user));
+      // จำการเข้าสู่ระบบ → เก็บอีเมลไว้เติมให้อัตโนมัติครั้งถัดไป
+      if (remember) { localStorage.setItem('tmk-remember', 'true'); localStorage.setItem('tmk-remember-email', userEmail); }
+      else { localStorage.removeItem('tmk-remember'); localStorage.removeItem('tmk-remember-email'); }
+    } catch {}
     setCurrentUser(user);
     setAuthed(true);
     window.dispatchEvent(new Event('tmk-user-change'));

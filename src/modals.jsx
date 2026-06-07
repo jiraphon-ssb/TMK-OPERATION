@@ -1015,11 +1015,12 @@ export function HistoricalEntryModal({ onClose }) {
 
 /* ---------- Login screen ---------- */
 export function LoginScreen({ onLogin }) {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('tmk-remember-email') || ''; } catch { return ''; } });
   const [pw, setPw] = useState('');
   const [agree, setAgree] = useState(false);
+  const [remember, setRemember] = useState(() => { try { return localStorage.getItem('tmk-remember') === 'true'; } catch { return false; } });
   const [showTerms, setShowTerms] = useState(false);
-  const submit = (e) => { e.preventDefault(); if (agree) onLogin(email.trim() || 'jiraphon.e@tmk.co'); };
+  const submit = (e) => { e.preventDefault(); if (agree) onLogin(email.trim() || 'jiraphon.e@tmk.co', remember); };
   return (
     <div className="login">
       <div className="login-art">
@@ -1050,6 +1051,12 @@ export function LoginScreen({ onLogin }) {
           <div className="field" style={{ marginBottom: 14 }}>
             <label>รหัสผ่าน</label>
             <input className="input" type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" />
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
+              <span className="cap">จำการเข้าสู่ระบบ (จำอีเมลไว้ ไม่ต้องกรอกใหม่)</span>
+            </label>
           </div>
           <div style={{ marginBottom: 18 }}>
             <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
