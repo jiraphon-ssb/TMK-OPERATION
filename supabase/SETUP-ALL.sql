@@ -293,6 +293,21 @@ alter table public.tmk_user_roles add column if not exists duty_id text referenc
 alter table public.tmk_user_roles drop constraint if exists tmk_user_roles_role_check;
 alter table public.tmk_user_roles add constraint tmk_user_roles_role_check check (role in ('admin', 'editor', 'viewer'));
 
+-- Soft delete (ถังขยะ) — ลบแล้วเข้าถังขยะ กู้คืนได้
+alter table public.tmk_tasks             add column if not exists deleted_at timestamptz;
+alter table public.tmk_products          add column if not exists deleted_at timestamptz;
+alter table public.tmk_campaigns         add column if not exists deleted_at timestamptz;
+alter table public.tmk_channels          add column if not exists deleted_at timestamptz;
+alter table public.tmk_duties            add column if not exists deleted_at timestamptz;
+alter table public.tmk_purchase_orders   add column if not exists deleted_at timestamptz;
+alter table public.tmk_ad_campaigns      add column if not exists deleted_at timestamptz;
+alter table public.tmk_customer_segments add column if not exists deleted_at timestamptz;
+alter table public.tmk_user_roles        add column if not exists deleted_at timestamptz;
+alter table public.tmk_staff             add column if not exists deleted_at timestamptz;
+
+-- FB messages รายเดือน (ข้อมูลจริงสำหรับกราฟจำนวนข้อความ)
+alter table public.tmk_monthly_history   add column if not exists messages integer not null default 0;
+
 -- ============================================================
 -- SECTION 5 — Indexes
 -- ============================================================
@@ -303,6 +318,9 @@ create index if not exists tmk_task_comments_task_id_idx on public.tmk_task_comm
 create index if not exists tmk_task_attachments_task_id_idx on public.tmk_task_attachments(task_id);
 create index if not exists tmk_purchase_orders_arrival_date_idx on public.tmk_purchase_orders(arrival_date);
 create index if not exists tmk_user_roles_role_idx on public.tmk_user_roles(role);
+create index if not exists tmk_tasks_deleted_idx     on public.tmk_tasks(deleted_at);
+create index if not exists tmk_products_deleted_idx  on public.tmk_products(deleted_at);
+create index if not exists tmk_campaigns_deleted_idx on public.tmk_campaigns(deleted_at);
 
 -- ============================================================
 -- SECTION 6 — Triggers (drop+create = idempotent)

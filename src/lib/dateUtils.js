@@ -56,3 +56,20 @@ export function todayISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/**
+ * วันที่จริงของเครื่อง — ใช้เป็น single source of truth ของ "วันนี้"
+ * @returns {{ day:number, month:number, yearCE:number, yearBE:number, daysInMonth:number }}
+ */
+export function getToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1; // 1-12
+  return {
+    day: d.getDate(),
+    month: m,
+    yearCE: y,
+    yearBE: y + 543,
+    daysInMonth: new Date(y, m, 0).getDate(),
+  };
+}

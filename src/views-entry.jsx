@@ -4,6 +4,7 @@
 import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, N, Icon, Ring } from './components.jsx';
+import { getToday } from './lib/dateUtils.js';
 
 const DD = TMK;
 
@@ -11,41 +12,32 @@ const DD = TMK;
 const MONTH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const MONTH_FULL  = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
-const NOW_MONTH = 5; // June (index 5)
-const NOW_YEAR  = 2569;
-const TODAY = 18;
-const DAYS_IN_MONTH = 30;
-const ENTERED_DAYS = 17;
+// "วันนี้" จากวันที่จริงของเครื่อง (getToday เป็น pure date — ปลอดภัยที่ module-level)
+const _T = getToday();
+const NOW_MONTH = _T.month - 1; // 0-indexed
+const NOW_YEAR  = _T.yearBE;
+const TODAY = _T.day;
+const DAYS_IN_MONTH = _T.daysInMonth;
 
-// Mock daily revenue for calendar
-const dayRevMap = {};
-DD.dailyMonth.forEach(d => { dayRevMap[d.d] = d.rev; });
+// จำนวนวันที่กรอกยอดแล้วในเดือนนี้ (จาก daily จริง) — เรียกใน component (TMK โหลดแล้ว)
+function enteredDays() { return (DD.dailyMonth || []).length; }
+// แผนที่ day → ยอดขาย (จาก daily จริง)
+function buildDayRevMap() { const m = {}; (DD.dailyMonth || []).forEach(d => { m[d.d] = d.rev; }); return m; }
 
-/* ---- Quarter mock data ---- */
-const QUARTER_DATA = {
-  2569: {
-    0: [ // Q1
-      { target: 950000, actual: 880000, status: 'ปิดแล้ว' },
-      { target: 950000, actual: 910000, status: 'ปิดแล้ว' },
-      { target: 1000000, actual: 940000, status: 'ปิดแล้ว' },
-    ],
-    1: [ // Q2
-      { target: 1000000, actual: 920000, status: 'ปิดแล้ว' },
-      { target: 1000000, actual: 968000, status: 'ปิดแล้ว' },
-      { target: 1000000, actual: 558000, status: 'กำลังดำเนินการ' },
-    ],
-    2: [ // Q3
-      { target: 1000000, actual: 0, status: 'เตรียมการ' },
-      { target: 1000000, actual: 0, status: 'เตรียมการ' },
-      { target: 1000000, actual: 0, status: 'เตรียมการ' },
-    ],
-    3: [ // Q4
-      { target: 0, actual: 0, status: 'เตรียมการ' },
-      { target: 0, actual: 0, status: 'เตรียมการ' },
-      { target: 0, actual: 0, status: 'เตรียมการ' },
-    ],
-  },
-};
+// สร้างข้อมูลรายไตรมาสจาก monthly จริง (TMK.monthly) — qIndex 0-3
+function quarterData(year, qIndex) {
+  const months = [qIndex * 3 + 1, qIndex * 3 + 2, qIndex * 3 + 3]; // 1-indexed
+  return months.map(mo => {
+    const rec = (DD.monthly || []).find(r => r.year === year && r.month === mo);
+    const target = rec ? rec.target : 0;
+    const actual = rec ? rec.actual : 0;
+    // สถานะจากเดือน vs วันจริง
+    const isPastM = year < NOW_YEAR || (year === NOW_YEAR && mo - 1 < NOW_MONTH);
+    const isCurM  = year === NOW_YEAR && mo - 1 === NOW_MONTH;
+    const status = isCurM ? 'กำลังดำเนินการ' : isPastM ? 'ปิดแล้ว' : 'เตรียมการ';
+    return { target, actual, status };
+  });
+}
 
 function getMode(month, year) {
   const isCurrent = month === NOW_MONTH && year === NOW_YEAR;
@@ -180,13 +172,7 @@ function QuarterView({ month, year }) {
   const qMonths = [qStart, qStart + 1, qStart + 2];
   const qLabel = `Q${qIndex + 1}/${year}`;
 
-  const qData = (QUARTER_DATA[year] && QUARTER_DATA[year][qIndex])
-    ? QUARTER_DATA[year][qIndex]
-    : [
-        { target: 0, actual: 0, status: 'เตรียมการ' },
-        { target: 0, actual: 0, status: 'เตรียมการ' },
-        { target: 0, actual: 0, status: 'เตรียมการ' },
-      ];
+  const qData = quarterData(year, qIndex);
 
   // Next quarter
   const nqIndex = (qIndex + 1) % 4;
@@ -194,13 +180,7 @@ function QuarterView({ month, year }) {
   const nqStart = nqIndex * 3;
   const nqMonths = [nqStart, nqStart + 1, nqStart + 2];
   const nqLabel = `Q${nqIndex + 1}/${nqYear}`;
-  const nqData = (QUARTER_DATA[nqYear] && QUARTER_DATA[nqYear][nqIndex])
-    ? QUARTER_DATA[nqYear][nqIndex]
-    : [
-        { target: 0, actual: 0, status: 'เตรียมการ' },
-        { target: 0, actual: 0, status: 'เตรียมการ' },
-        { target: 0, actual: 0, status: 'เตรียมการ' },
-      ];
+  const nqData = quarterData(nqYear, nqIndex);
 
   const statusIcon = (s) => {
     if (s === 'ปิดแล้ว') return { icon: 'check', color: 'var(--good)', bg: 'var(--good-soft)' };
@@ -304,6 +284,8 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
   const { isCurrent, isPast, isFuture } = mode;
   const [editing, setEditing] = useState(false);
   const todayLog = DD.dailyLog[0];
+  const dayRevMap = buildDayRevMap();
+  const ENTERED_DAYS = enteredDays();
   const todayEntered = false;
   const totalToday = todayLog ? todayLog.shopee + todayLog.tiktok + todayLog.lazada + todayLog.facebook + todayLog.line + todayLog.crm : 0;
 
@@ -775,6 +757,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
 /* ====================  STATUS OVERVIEW  ==================== */
 function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
   const { isCurrent, isPast, isFuture } = mode;
+  const ENTERED_DAYS = enteredDays();
 
   /* ---- FUTURE ---- */
   if (isFuture) {

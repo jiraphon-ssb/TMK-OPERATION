@@ -9,6 +9,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { TMK } from './data.js';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.js';
+import { getToday } from './lib/dateUtils.js';
 
 const DataContext = createContext();
 
@@ -56,18 +57,18 @@ async function loadAllTables() {
 
   const tables = {
     settings:    supabase.from('tmk_settings').select('*').eq('id', 'main').maybeSingle(),
-    channels:    supabase.from('tmk_channels').select('*').order('sort_order'),
-    campaigns:   supabase.from('tmk_campaigns').select('*').order('sort_order', { nullsFirst: false }).order('start_date'),
-    tasks:       supabase.from('tmk_tasks').select('*').order('date'),
-    products:    supabase.from('tmk_products').select('*').order('created_at'),
-    po:          supabase.from('tmk_purchase_orders').select('*').order('arrival_date'),
+    channels:    supabase.from('tmk_channels').select('*').is('deleted_at', null).order('sort_order'),
+    campaigns:   supabase.from('tmk_campaigns').select('*').is('deleted_at', null).order('sort_order', { nullsFirst: false }).order('start_date'),
+    tasks:       supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
+    products:    supabase.from('tmk_products').select('*').is('deleted_at', null).order('created_at'),
+    po:          supabase.from('tmk_purchase_orders').select('*').is('deleted_at', null).order('arrival_date'),
     audit:       supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(50),
-    roles:       supabase.from('tmk_user_roles').select('*'),
-    staff:       supabase.from('tmk_staff').select('*').order('joined_at'),
-    duties:      supabase.from('tmk_duties').select('*').order('sort_order'),
+    roles:       supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
+    staff:       supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
+    duties:      supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
     daily:       supabase.from('tmk_daily_sales').select('*').order('date'),
-    adCamps:     supabase.from('tmk_ad_campaigns').select('*').order('start_date'),
-    segments:    supabase.from('tmk_customer_segments').select('*').order('sort_order'),
+    adCamps:     supabase.from('tmk_ad_campaigns').select('*').is('deleted_at', null).order('start_date'),
+    segments:    supabase.from('tmk_customer_segments').select('*').is('deleted_at', null).order('sort_order'),
     fbMetrics:   supabase.from('tmk_fb_metrics').select('*').eq('id', 'current').maybeSingle(),
     monthly:     supabase.from('tmk_monthly_history').select('*').order('year').order('month'),
     colorMix:    supabase.from('tmk_color_mix').select('*').order('sort_order'),
@@ -94,9 +95,10 @@ async function loadAllTables() {
 // แปลง raw Supabase data → TMK structure
 function mapToTMK(raw) {
   const settings = raw.settings || {};
+  const today = getToday(); // วันที่จริงของเครื่อง = source of truth ของ "วันนี้"
   const TARGET = Number(settings.total_target || 1000000);
-  const DAY = Number(settings.current_day || 18);
-  const DAYS = Number(settings.days_in_month || 30);
+  const DAY = today.day;                 // วันจริง (แทน settings.current_day)
+  const DAYS = today.daysInMonth;        // จำนวนวันจริงในเดือนนี้
   const ACOS_CEIL = Number(settings.acos_ceil || 25);
   const AD_BUDGET = Number(settings.ad_budget_total || 150000);
 
@@ -143,6 +145,7 @@ function mapToTMK(raw) {
     camp: t.camp || '',
     status: t.status || 'todo',
     channel: t.channel || 'หลังบ้าน',
+    reminderDays: Number(t.reminder_days || 1),
   }));
 
   // Products
@@ -182,9 +185,9 @@ function mapToTMK(raw) {
 
   // Monthly history → 3 เดือนล่าสุด + YoY
   const monthly = raw.monthly || [];
-  // 3 เดือนล่าสุด (4, 5, 6 ของปีปัจจุบัน)
-  const currentYear = Number(settings.current_year || 2569);
-  const currentMonth = Number(settings.current_month || 6);
+  // ใช้ปี/เดือนจริง (พ.ศ.) เป็นฐาน
+  const currentYear = today.yearBE;
+  const currentMonth = today.month;
   const month3 = monthly
     .filter(m => m.year === currentYear && m.month >= currentMonth - 2 && m.month <= currentMonth)
     .map(m => ({
@@ -224,20 +227,23 @@ function mapToTMK(raw) {
   fb.cpInq = fb.inquiries > 0 ? fb.spend / fb.inquiries : 0;
   fb.cpOrd = fb.orders > 0 ? fb.spend / fb.orders : 0;
   fb.cac = fb.newCust > 0 ? fb.spend / fb.newCust : 0;
-  // FB message trend จาก monthly_history
+  // FB message trend — ใช้ค่าจริงจาก column messages (กรอกผ่าน "กรอกข้อมูลย้อนหลัง")
   const fbMsgTrend = monthly
     .filter(m => m.year === currentYear && m.month <= currentMonth)
-    .map(m => ({ m: m.month_th, v: Math.round(Number(m.orders || 0) * 0.55) })); // estimate
+    .map(m => ({ m: m.month_th, v: Number(m.messages || 0) }));
 
   // Audit log
   const audit = (raw.audit || []).map(a => {
     let details = {};
     try { details = typeof a.details === 'string' ? JSON.parse(a.details) : (a.details || {}); }
     catch {}
+    // type มาจาก a.action ตรงๆ (robust) — map action → หมวดที่ UI ใช้ (create/update/delete)
+    const ACTION_TYPE = { create: 'create', update: 'update', delete: 'delete', purge: 'delete', restore: 'create', move: 'update', export: 'update' };
+    const type = ACTION_TYPE[a.action] || (details.summary?.includes('สร้าง') ? 'create' : details.summary?.includes('ลบ') ? 'delete' : 'update');
     return {
       user: a.user_email?.split('@')[0] || 'system',
       action: a.action,
-      type: details.entityType === 'task' ? 'update' : details.summary?.includes('สร้าง') ? 'create' : details.summary?.includes('ลบ') ? 'delete' : 'update',
+      type,
       entity: details.entityType || 'system',
       name: details.entityName || '',
       time: new Date(a.created_at).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
@@ -295,9 +301,17 @@ function mapToTMK(raw) {
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
   const CAC = NEW_C > 0 ? AD / NEW_C : 0;
 
+  // raw monthly สำหรับ quarter view (target/actual จริงต่อเดือน/ปี)
+  const monthlyRaw = monthly.map(m => ({
+    month: Number(m.month), year: Number(m.year), monthTh: m.month_th,
+    target: Number(m.target || 0), actual: Number(m.actual || 0),
+    projected: Number(m.projected || 0), orders: Number(m.orders || 0),
+    messages: Number(m.messages || 0),
+  }));
+
   return {
-    consts: { TARGET, DAY, DAYS, ACOS_CEIL },
-    channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy,
+    consts: { TARGET, DAY, DAYS, ACOS_CEIL, current_month: currentMonth, current_year: currentYear },
+    channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw,
     colorMix, sizeMix, staff, poTracker, fb, fbMsgTrend, audit, roles, duties,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
@@ -326,7 +340,7 @@ function mutateTMK(mapped) {
   Object.assign(TMK.computed, mapped.computed);
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
-  ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy',
+  ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly',
    'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles','duties'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
     TMK[key].length = 0;

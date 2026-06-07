@@ -6,17 +6,19 @@ import { TMK } from './data.js';
 import { B, Bk, P, N, Icon } from './components.jsx';
 import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { parseTaskDate } from './lib/dateUtils.js';
+import { parseTaskDate, getToday } from './lib/dateUtils.js';
+import { logAudit } from './lib/audit.js';
 import tmkLogoWhite from './assets/tmk-logo-white.png';
 
 // Toast helper
 const toast = (m, k = 'success') => window.__toast?.(m, k);
 
-// Generic save wrapper
-async function saveRow(table, row, label = 'บันทึก') {
+// Generic save wrapper — ส่ง audit (optional) เพื่อบันทึกประวัติการใช้งานเมื่อสำเร็จ
+async function saveRow(table, row, label = 'บันทึก', audit = null) {
   try {
     const { error } = await supabase.from(table).upsert(row);
     if (error) throw error;
+    if (audit) logAudit(audit);
     toast(label + 'สำเร็จ', 'success');
     return true;
   } catch (err) {
@@ -99,6 +101,7 @@ export function RecordSalesModal({ onClose }) {
       }
       const { error } = await supabase.from('tmk_daily_sales').upsert(row);
       if (error) throw error;
+      logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date}` });
       toast(t('toastSaved'), 'success');
       onClose();
     } catch (err) {
@@ -377,7 +380,10 @@ export function ProductModal({ data, onClose }) {
       reorder_point: Number(f.reorder) || 0,
       strategy: f.strategy || '',
     };
-    const ok = await saveRow('tmk_products', row, 'บันทึกสินค้า');
+    const ok = await saveRow('tmk_products', row, 'บันทึกสินค้า', {
+      action: data ? 'update' : 'create', entityType: 'product', entityName: row.name,
+      summary: `${data ? 'แก้ไข' : 'สร้าง'}สินค้า "${row.name}"`,
+    });
     setBusy(false);
     if (ok) onClose();
   };
@@ -421,7 +427,10 @@ export function CampaignModal({ data, onClose }) {
       status: f.status,
       channels: f.channels || [],
     };
-    const ok = await saveRow('tmk_campaigns', row, 'บันทึกแคมเปญ');
+    const ok = await saveRow('tmk_campaigns', row, 'บันทึกแคมเปญ', {
+      action: data ? 'update' : 'create', entityType: 'campaign', entityName: row.name,
+      summary: `${data ? 'แก้ไข' : 'สร้าง'}แคมเปญ "${row.name}"`,
+    });
     setBusy(false);
     if (ok) onClose();
   };
@@ -479,7 +488,10 @@ export function POModal({ data, onClose }) {
       arrival_date: parseTaskDate(f.arrivalDate) || new Date().toISOString().slice(0, 10),
       status: f.status,
     };
-    const ok = await saveRow('tmk_purchase_orders', row, 'บันทึก PO');
+    const ok = await saveRow('tmk_purchase_orders', row, 'บันทึก PO', {
+      action: data ? 'update' : 'create', entityType: 'po', entityName: row.product,
+      summary: `${data ? 'แก้ไข' : 'เปิด'} PO "${row.product}" (${row.quantity} ชิ้น)`,
+    });
     setBusy(false);
     if (ok) onClose();
   };
@@ -550,6 +562,7 @@ export function MonthlyTargetModal({ onClose }) {
         const { error } = await supabase.from('tmk_channels').update({ ad: Number(c.budget) || 0 }).eq('id', c.id);
         if (error) throw error;
       }
+      logAudit({ action: 'update', entityType: 'settings', entityName: month, summary: `ตั้งเป้ารายเดือน ${month} (${B(total)})` });
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -658,7 +671,10 @@ export function AdCampaignModal({ data, onClose }) {
       end_date: f.endDate || null,
       goal: f.goal,
     };
-    const ok = await saveRow('tmk_ad_campaigns', row, 'บันทึกแคมเปญแอด');
+    const ok = await saveRow('tmk_ad_campaigns', row, 'บันทึกแคมเปญแอด', {
+      action: data ? 'update' : 'create', entityType: 'ad', entityName: row.name,
+      summary: `${data ? 'แก้ไข' : 'สร้าง'}แคมเปญแอด "${row.name}"`,
+    });
     setBusy(false);
     if (ok) onClose();
   };
@@ -754,6 +770,7 @@ export function CustomerSegmentModal({ onClose }) {
       }));
       const { error } = await supabase.from('tmk_customer_segments').upsert(rows);
       if (error) throw error;
+      logAudit({ action: 'update', entityType: 'segment', entityName: 'กลุ่มลูกค้า', summary: 'อัปเดตกลุ่มลูกค้า (RFM)' });
       toast('บันทึกกลุ่มลูกค้าเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -809,23 +826,30 @@ export function CustomerSegmentModal({ onClose }) {
 /* ---------- Historical Entry modal ---------- */
 export function HistoricalEntryModal({ onClose }) {
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const monthlyRef = MD.yoy || [];
+  const year = getToday().yearBE;
+  const monthlyRef = MD.monthly || [];
   const initRows = months.map((m, i) => {
-    const ref = monthlyRef.find(r => r.m === m);
-    return { month: m, rev: ref ? ref.y26 : '', orders: '', ad: '', newCust: '' };
+    const ref = monthlyRef.find(r => r.year === year && r.month === i + 1);
+    return {
+      month: m,
+      rev: ref && ref.actual ? ref.actual : '',
+      orders: ref && ref.orders ? ref.orders : '',
+      ad: '',
+      newCust: '',
+      messages: ref && ref.messages ? ref.messages : '',
+    };
   });
   const [rows, setRows] = useState(initRows);
   const up = (i, k, v) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
 
   const [busy, setBusy] = useState(false);
-  const year = 2569;
   const handleSave = async () => {
     if (busy) return;
     setBusy(true);
     try {
       const dbRows = rows
         .map((r, i) => ({ r, i }))
-        .filter(({ r }) => r.rev !== '' || r.orders !== '' || r.ad !== '' || r.newCust !== '')
+        .filter(({ r }) => r.rev !== '' || r.orders !== '' || r.ad !== '' || r.newCust !== '' || r.messages !== '')
         .map(({ r, i }) => ({
           id: `${year}-${String(i + 1).padStart(2, '0')}`,
           month: i + 1,
@@ -837,10 +861,12 @@ export function HistoricalEntryModal({ onClose }) {
           orders: Number(r.orders) || 0,
           ad_spend: Number(r.ad) || 0,
           new_cust: Number(r.newCust) || 0,
+          messages: Number(r.messages) || 0,
         }));
       if (dbRows.length === 0) { toast('ไม่มีข้อมูลให้บันทึก', 'error'); setBusy(false); return; }
       const { error } = await supabase.from('tmk_monthly_history').upsert(dbRows);
       if (error) throw error;
+      logAudit({ action: 'update', entityType: 'monthly', entityName: 'ข้อมูลย้อนหลัง', summary: `บันทึกข้อมูลย้อนหลัง ${dbRows.length} เดือน` });
       toast('บันทึกข้อมูลย้อนหลังเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -856,13 +882,14 @@ export function HistoricalEntryModal({ onClose }) {
   return (
     <Modal icon="clock" title="กรอกข้อมูลย้อนหลัง" sub="ป้อนยอดขายรายเดือนเพื่อเปรียบเทียบแนวโน้ม" onClose={onClose} footer={footer} wide>
       <div className="table-wrap">
-        <table className="table" style={{ minWidth: 520 }}>
+        <table className="table" style={{ minWidth: 640 }}>
           <thead><tr>
             <th>เดือน</th>
             <th style={{ textAlign: 'right' }}>ยอดรวม (฿)</th>
             <th style={{ textAlign: 'right' }}>ออร์เดอร์</th>
             <th style={{ textAlign: 'right' }}>ค่าแอด (฿)</th>
             <th style={{ textAlign: 'right' }}>ลูกค้าใหม่</th>
+            <th style={{ textAlign: 'right' }}>จำนวนข้อความ</th>
           </tr></thead>
           <tbody>
             {rows.map((r, i) => (
@@ -872,6 +899,7 @@ export function HistoricalEntryModal({ onClose }) {
                 <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
                 <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
                 <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
+                <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
               </tr>
             ))}
           </tbody>
@@ -899,9 +927,9 @@ export function LoginScreen({ onLogin }) {
           <p>ดูยอดขายทุกช่องทาง บันทึกข้อมูลรายวัน วางแผนงาน คุมแคมเปญ จัดการสต็อก และดูภาพรวมธุรกิจแบบเรียลไทม์</p>
         </div>
         <div className="login-stats">
-          <div><div className="ls-v">฿1M</div><div className="ls-l">เป้ายอดขาย/เดือน</div></div>
-          <div><div className="ls-v">6</div><div className="ls-l">ช่องทางการขาย</div></div>
-          <div><div className="ls-v">4</div><div className="ls-l">ทีมผู้ใช้งาน</div></div>
+          <div><div className="ls-v">{MD.consts.TARGET ? Bk(MD.consts.TARGET) : '฿1M'}</div><div className="ls-l">เป้ายอดขาย/เดือน</div></div>
+          <div><div className="ls-v">{MD.channels.length || 6}</div><div className="ls-l">ช่องทางการขาย</div></div>
+          <div><div className="ls-v">{(MD.roles && MD.roles.length) || (MD.staff && MD.staff.length) || 4}</div><div className="ls-l">ทีมผู้ใช้งาน</div></div>
         </div>
       </div>
 

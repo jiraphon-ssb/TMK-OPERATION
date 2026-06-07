@@ -12,6 +12,7 @@ import { RecordSalesModal, TaskModal, ProductModal, CampaignModal, POModal, Mont
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { logAudit } from './lib/audit.js';
 import { Onboarding, HelpButton, Tooltip } from './onboarding.jsx';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
@@ -319,18 +320,32 @@ function AppInner() {
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
 
-  // notifications from tasks — navigate on click
-  const notifs = tasks.filter(x => x.status !== 'done').map(x => {
-    const d = +x.date.match(/^(\d+)/)[1];
-    const diff = d - 18;
+  // notifications — งานใกล้/เกินกำหนด (วันจริง) + สต็อกต่ำ; เคารพ toggle ใน settings
+  const readFlag = (k) => { try { return localStorage.getItem(k) !== 'false'; } catch { return true; } };
+  const notifOverdueOn = readFlag('tmk-notif-overdue');
+  const notifStockOn = readFlag('tmk-notif-stock');
+  const todayDay = TMK.consts.DAY; // วันจริง
+
+  const taskNotifs = notifOverdueOn ? tasks.filter(x => x.status !== 'done').map(x => {
+    const d = +(x.date.match(/^(\d+)/)?.[1] || 0);
+    const diff = d - todayDay;
     let sev = 'soon', txt = t('dueIn', Math.abs(diff));
     if (diff < 0) { sev = 'overdue'; txt = t('overdueBy', -diff); }
     else if (diff === 0) { sev = 'today'; txt = t('dueToday'); }
-    return { ...x, sev, txt };
-  }).sort((a,b) => ({overdue:0,today:1,soon:2})[a.sev] - ({overdue:0,today:1,soon:2})[b.sev]).slice(0, 6);
+    return { ...x, kind: 'task', sev, txt, _diff: diff };
+  }).filter(n => n.sev !== 'soon' || n._diff <= (n.reminderDays || 1)) : [];
+
+  const stockNotifs = notifStockOn ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low').map(p => ({
+    id: 'stock-' + p.name, kind: 'stock', title: p.name, responsible: ['สต็อกใกล้หมด'],
+    sev: 'stock', txt: p.stock === 'out' ? 'หมดสต็อก' : `เหลือ ${p.onHand}`,
+  })) : [];
+
+  const sevOrder = { overdue: 0, today: 1, stock: 2, soon: 3 };
+  const notifs = [...taskNotifs, ...stockNotifs].sort((a, b) => sevOrder[a.sev] - sevOrder[b.sev]).slice(0, 8);
 
   const onNotifClick = (n) => {
     setNotif(false);
+    if (n.kind === 'stock') { go('catalog', 'products'); return; }
     go('planner', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
   };
@@ -458,7 +473,7 @@ function AppInner() {
               <span className="h3">{t('notifications')}</span><span className="chip chip-accent">{notifs.length}</span>
             </div>
             {notifs.map(n => {
-              const sc = n.sev === 'overdue' ? 'var(--bad)' : n.sev === 'today' ? 'var(--warn)' : 'var(--info)';
+              const sc = n.sev === 'overdue' ? 'var(--bad)' : n.sev === 'today' ? 'var(--warn)' : n.sev === 'stock' ? 'var(--bad)' : 'var(--info)';
               return (
                 <div key={n.id} className="row" onClick={() => onNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'background 0.1s' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
@@ -643,6 +658,8 @@ function AppInner() {
                 };
                 const { error } = await supabase.from('tmk_tasks').upsert(dbTask);
                 if (error) throw error;
+                logAudit({ action: modal.data ? 'update' : 'create', entityType: 'task', entityName: task.title,
+                  summary: `${modal.data ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"` });
                 // Reload data so calendar/kanban show latest from Supabase
                 if (dataReload) await dataReload();
                 toast(t('toastSaved'), 'success');

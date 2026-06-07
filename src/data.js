@@ -7,11 +7,12 @@
    ============================================================ */
 
 export const TMK = {
-  consts: { TARGET: 0, DAY: 18, DAYS: 30, ACOS_CEIL: 25 },
+  consts: { TARGET: 0, DAY: 18, DAYS: 30, ACOS_CEIL: 25, current_month: 6, current_year: 2569 },
   channels: [],
   dailyMonth: [],
   month3: [],
   yoy: [],
+  monthly: [],
   products: [],
   colorMix: [],
   sizeMix: [],

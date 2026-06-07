@@ -1,12 +1,14 @@
 /* ============================================================
    TMK Operation — Views part 2: Planner + Catalog + System
    ============================================================ */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { logAudit } from './lib/audit.js';
+import { getToday } from './lib/dateUtils.js';
 
 const DD = TMK;
 
@@ -65,24 +67,26 @@ const MONTHS_TH_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.
 const DAY_LABELS = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
 function CalendarView({ tasks, filtered, fProps }) {
-  const [ym, setYm] = useState({ y: 2569, m: 5 }); // June 2569
-  const [sel, setSel] = useState(18);
+  const T = getToday();                       // วันจริง
+  const curY = T.yearBE, curM = T.month - 1;  // เดือนปัจจุบัน (0-indexed)
+  const [ym, setYm] = useState({ y: curY, m: curM });
+  const [sel, setSel] = useState(T.day);
 
   const greg = ym.y - 543;
   const daysInMonth = new Date(greg, ym.m + 1, 0).getDate();
   const firstWeekday = new Date(greg, ym.m, 1).getDay(); // Sun-first (0=Sun)
-  const isJune = ym.y === 2569 && ym.m === 5; // mock tasks live here
-  const todayDay = isJune ? 18 : -1;
+  const isCurrentMonth = ym.y === curY && ym.m === curM;
+  const todayDay = isCurrentMonth ? T.day : -1;
 
   const byDay = {};
-  if (isJune) filtered.forEach(t => { const mm = t.date.match(/^(\d+)/); if (mm) (byDay[+mm[1]] = byDay[+mm[1]] || []).push(t); });
+  if (isCurrentMonth) filtered.forEach(t => { const mm = t.date.match(/^(\d+)/); if (mm) (byDay[+mm[1]] = byDay[+mm[1]] || []).push(t); });
 
   const shiftMonth = (delta) => {
     let m = ym.m + delta, y = ym.y;
     if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
     setYm({ y, m }); setSel(1);
   };
-  const goToday = () => { setYm({ y: 2569, m: 5 }); setSel(18); };
+  const goToday = () => { setYm({ y: curY, m: curM }); setSel(T.day); };
 
   const cells = [];
   for (let i = 0; i < firstWeekday; i++) cells.push(null);
@@ -261,10 +265,13 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
     if (!id) return;
     const prev = tasks.find(t => t.id === id)?.status;
     if (prev === status) return;
+    const task = tasks.find(t => t.id === id);
     setTasks(ts => ts.map(t => t.id === id ? { ...t, status } : t));
     try {
       const { error } = await supabase.from('tmk_tasks').update({ status }).eq('id', id);
       if (error) throw error;
+      const stLabel = (DD.kanbanMeta.find(k => k.id === status) || {}).label || status;
+      logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}` });
     } catch (err) {
       setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t));
       if (window.__toast) window.__toast('ย้ายไม่สำเร็จ: ' + err.message, 'error');
@@ -525,11 +532,12 @@ function CampaignsView() {
       if (linkedTasks > 0) {
         await supabase.from('tmk_tasks').update({ camp: null }).eq('camp', c.id);
       }
-      // ลบ campaign
-      const { error } = await supabase.from('tmk_campaigns').delete().eq('id', c.id);
+      // ลบ campaign → ถังขยะ (soft delete)
+      const { error } = await supabase.from('tmk_campaigns').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
       if (error) throw error;
+      logAudit({ action: 'delete', entityType: 'campaign', entityName: c.name, summary: `ลบแคมเปญ "${c.name}"` });
       if (reload) await reload();
-      if (window.__toast) window.__toast('ลบแคมเปญเรียบร้อย', 'success');
+      if (window.__toast) window.__toast('ย้ายแคมเปญไปถังขยะแล้ว', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -701,6 +709,45 @@ export function SettingsView({ sub, dark, setDark }) {
   );
 }
 
+// Toggle pill ที่ persist ลง localStorage
+function NotifToggle({ storeKey }) {
+  const [on, setOn] = useState(() => { try { return localStorage.getItem(storeKey) !== 'false'; } catch { return true; } });
+  const flip = () => setOn(v => { const nv = !v; try { localStorage.setItem(storeKey, nv ? 'true' : 'false'); } catch {} return nv; });
+  return (
+    <button className={'chip ' + (on ? 'chip-good' : '')} onClick={flip} style={{ cursor: 'pointer', minWidth: 56, opacity: on ? 1 : 0.6 }}>
+      {on ? 'เปิด' : 'ปิด'}
+    </button>
+  );
+}
+
+// Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
+function exportAllCSV() {
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const sections = [
+    ['ช่องทาง (Channels)', ['name', 'target', 'actual', 'orders', 'ad'], TMK.channels || []],
+    ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'reorder'], TMK.products || []],
+    ['งาน (Tasks)', ['title', 'date', 'status', 'camp', 'channel'], TMK.tasks || []],
+    ['แคมเปญ (Campaigns)', ['name', 'status', 'start', 'end'], TMK.campaigns || []],
+    ['PO', ['product', 'quantity', 'orderDate', 'arrivalDate', 'status'], TMK.poTracker || []],
+    ['แคมเปญแอด (Ad)', ['name', 'platform', 'budget', 'spent', 'status'], TMK.adCampaigns || []],
+  ];
+  let csv = '';
+  sections.forEach(([title, cols, rows]) => {
+    csv += title + '\n' + cols.join(',') + '\n';
+    rows.forEach(r => { csv += cols.map(c => esc(Array.isArray(r[c]) ? r[c].join(' ') : r[c])).join(',') + '\n'; });
+    csv += '\n';
+  });
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  a.download = `tmk-export-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+  logAudit({ action: 'export', entityType: 'data', entityName: 'CSV', summary: 'ส่งออกข้อมูลทั้งหมดเป็น CSV' });
+  if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
+}
+
 function GeneralSettings({ dark, setDark }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -727,11 +774,11 @@ function GeneralSettings({ dark, setDark }) {
         <div className="card-head"><h3><Icon name="bell" /> การแจ้งเตือน</h3></div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนงานเกินกำหนด</div><div className="cap">เตือนเมื่อมีงานเลยวันที่กำหนด</div></div>
-          <span className="chip chip-good">เปิด</span>
+          <NotifToggle storeKey="tmk-notif-overdue" />
         </div>
         <div className="row between" style={{ padding: '12px 0' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนสต็อกใกล้หมด</div><div className="cap">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div></div>
-          <span className="chip chip-good">เปิด</span>
+          <NotifToggle storeKey="tmk-notif-stock" />
         </div>
       </div>
 
@@ -739,12 +786,12 @@ function GeneralSettings({ dark, setDark }) {
       <div className="card">
         <div className="card-head"><h3><Icon name="layers" /> ข้อมูลและการซิงค์</h3></div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>ซิงค์ข้อมูลอัตโนมัติ</div><div className="cap">เชื่อมต่อกับ Supabase (ยังไม่เปิดใช้งาน)</div></div>
-          <span className="chip">รอเปิดใช้</span>
+          <div><div className="sm" style={{ fontWeight: 600 }}>ซิงค์ข้อมูลอัตโนมัติ</div><div className="cap">ซิงค์อัตโนมัติผ่าน Supabase Realtime</div></div>
+          <span className="chip chip-good">เปิด</span>
         </div>
         <div className="row between" style={{ padding: '12px 0' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>Export ข้อมูล</div><div className="cap">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV</div></div>
-          <button className="btn btn-sm btn-outline" onClick={() => { if (window.__toast) window.__toast('ส่งออกข้อมูลเรียบร้อย', 'success'); }}>
+          <button className="btn btn-sm btn-outline" onClick={exportAllCSV}>
             <Icon name="external" /> Export
           </button>
         </div>
@@ -917,6 +964,8 @@ export function ProfileView({ tasks }) {
         localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name, avatarUrl: avatar }));
         window.dispatchEvent(new Event('tmk-user-change'));
       } catch {}
+
+      logAudit({ action: 'update', entityType: 'user', entityName: name, summary: `แก้ไขโปรไฟล์ "${name}"` });
 
       // 4. Force reload data (in case realtime doesn't fire)
       if (reload) await reload();
@@ -1139,6 +1188,7 @@ function ChannelsView() {
       } catch (err) {
         if (!/logo_url/.test(err.message)) throw err;
       }
+      logAudit({ action: 'update', entityType: 'channel', entityName: editName.trim(), summary: `แก้ไขช่องทาง "${editName.trim()}"` });
       if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตช่องทางเรียบร้อย', 'success');
@@ -1151,11 +1201,12 @@ function ChannelsView() {
     if (!confirm(`ลบช่องทาง "${c.name}"?\n(ข้อมูลยอดขายที่ link อยู่จะไม่ถูกลบ)`)) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from('tmk_channels').delete().eq('id', c.id);
+      const { error } = await supabase.from('tmk_channels').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
       if (error) throw error;
+      logAudit({ action: 'delete', entityType: 'channel', entityName: c.name, summary: `ลบช่องทาง "${c.name}"` });
       if (reload) await reload();
       setEditing(null);
-      if (window.__toast) window.__toast('ลบช่องทางเรียบร้อย', 'success');
+      if (window.__toast) window.__toast('ย้ายช่องทางไปถังขยะแล้ว', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -1189,6 +1240,7 @@ function ChannelsView() {
         if (res.error) throw res.error;
         if (window.__toast) window.__toast('รูปไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
       } else if (error) throw error;
+      logAudit({ action: 'create', entityType: 'channel', entityName: name, summary: `เพิ่มช่องทาง "${name}"` });
       if (reload) await reload();
       setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewTarget(0); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มช่องทางเรียบร้อย', 'success');
@@ -1468,6 +1520,7 @@ function DutiesView() {
         description: editDesc.trim(),
       }).eq('id', editing);
       if (error) throw error;
+      logAudit({ action: 'update', entityType: 'duty', entityName: editName.trim(), summary: `แก้ไขหน้าที่ "${editName.trim()}"` });
       if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตหน้าที่เรียบร้อย', 'success');
@@ -1485,11 +1538,12 @@ function DutiesView() {
     if (!confirm(`ลบหน้าที่ "${duty.name}"?`)) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from('tmk_duties').delete().eq('id', duty.id);
+      const { error } = await supabase.from('tmk_duties').update({ deleted_at: new Date().toISOString() }).eq('id', duty.id);
       if (error) throw error;
+      logAudit({ action: 'delete', entityType: 'duty', entityName: duty.name, summary: `ลบหน้าที่ "${duty.name}"` });
       if (reload) await reload();
       setEditing(null);
-      if (window.__toast) window.__toast('ลบหน้าที่เรียบร้อย', 'success');
+      if (window.__toast) window.__toast('ย้ายหน้าที่ไปถังขยะแล้ว', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -1514,6 +1568,7 @@ function DutiesView() {
         sort_order: maxOrder + 1,
       });
       if (error) throw error;
+      logAudit({ action: 'create', entityType: 'duty', entityName: name, summary: `เพิ่มหน้าที่ "${name}"` });
       if (reload) await reload();
       setNewName(''); setNewColor(PALETTE[0]); setNewDesc(''); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มหน้าที่เรียบร้อย', 'success');
@@ -1737,6 +1792,8 @@ function RolesView() {
         if (window.__toast) window.__toast('บันทึกรูป/ชื่อใน staff ไม่สำเร็จ: ' + e2.message, 'warn');
       }
 
+      logAudit({ action: 'update', entityType: 'user', entityName: editing, summary: `แก้ไขผู้ใช้ ${editName} (${editing})` });
+
       // === 3. Force reload data (in case realtime doesn't fire) ===
       if (reload) await reload();
 
@@ -1757,11 +1814,14 @@ function RolesView() {
     if (!confirm(`ลบผู้ใช้ ${email}?`)) return;
     setBusy(true);
     try {
-      await supabase.from('tmk_user_roles').delete().eq('email', email);
-      await supabase.from('tmk_staff').delete().eq('email', email);
+      const ts = new Date().toISOString();
+      const { error: er1 } = await supabase.from('tmk_user_roles').update({ deleted_at: ts }).eq('email', email);
+      if (er1) throw er1;
+      await supabase.from('tmk_staff').update({ deleted_at: ts }).eq('email', email);
+      logAudit({ action: 'delete', entityType: 'user', entityName: email, summary: `ลบผู้ใช้ ${email}` });
       if (reload) await reload();
       setEditing(null);
-      if (window.__toast) window.__toast('ลบผู้ใช้เรียบร้อย', 'success');
+      if (window.__toast) window.__toast('ย้ายผู้ใช้ไปถังขยะแล้ว', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally {
@@ -1805,6 +1865,7 @@ function RolesView() {
       });
       if (e2) throw e2;
 
+      logAudit({ action: 'create', entityType: 'user', entityName: newEmail, summary: `เพิ่มผู้ใช้ ${name} (${newEmail})` });
       setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || '');
       if (reload) await reload();
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
@@ -2000,15 +2061,134 @@ function RolesView() {
   );
 }
 
+const TRASH_TABLES = [
+  { table: 'tmk_tasks',             type: 'งาน',        nameCol: 'title',   key: 'id' },
+  { table: 'tmk_campaigns',         type: 'แคมเปญ',     nameCol: 'name',    key: 'id' },
+  { table: 'tmk_channels',          type: 'ช่องทาง',    nameCol: 'name',    key: 'id' },
+  { table: 'tmk_products',          type: 'สินค้า',      nameCol: 'name',    key: 'id' },
+  { table: 'tmk_duties',            type: 'หน้าที่',     nameCol: 'name',    key: 'id' },
+  { table: 'tmk_purchase_orders',   type: 'PO',         nameCol: 'product', key: 'id' },
+  { table: 'tmk_ad_campaigns',      type: 'แคมเปญแอด',  nameCol: 'name',    key: 'id' },
+  { table: 'tmk_customer_segments', type: 'กลุ่มลูกค้า', nameCol: 'name',    key: 'id' },
+  { table: 'tmk_user_roles',        type: 'ผู้ใช้',      nameCol: 'name',    key: 'email' },
+];
+
 function TrashView() {
+  const { reload } = useData() || {};
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const results = await Promise.all(
+        TRASH_TABLES.map(t =>
+          supabase.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
+        )
+      );
+      const all = [];
+      results.forEach((r, i) => {
+        if (r.error || !r.data) return;
+        const meta = TRASH_TABLES[i];
+        r.data.forEach(row => all.push({
+          meta,
+          id: row[meta.key],
+          name: row[meta.nameCol] || row[meta.key] || '(ไม่มีชื่อ)',
+          deletedAt: row.deleted_at,
+        }));
+      });
+      all.sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
+      setItems(all);
+    } catch (e) {
+      console.error('Trash load failed:', e);
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const restore = async (it) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from(it.meta.table).update({ deleted_at: null }).eq(it.meta.key, it.id);
+      if (error) throw error;
+      // user: กู้ tmk_staff ด้วย
+      if (it.meta.table === 'tmk_user_roles') {
+        await supabase.from('tmk_staff').update({ deleted_at: null }).eq('email', it.id);
+      }
+      logAudit({ action: 'restore', entityType: it.meta.type, entityName: it.name, summary: `กู้คืน${it.meta.type} "${it.name}"` });
+      if (window.__toast) window.__toast(`กู้คืน "${it.name}" แล้ว`, 'success');
+      await load();
+      if (reload) await reload();
+    } catch (err) {
+      if (window.__toast) window.__toast('กู้คืนไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const purge = async (it) => {
+    if (busy) return;
+    if (!confirm(`ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`)) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from(it.meta.table).delete().eq(it.meta.key, it.id);
+      if (error) throw error;
+      if (it.meta.table === 'tmk_user_roles') {
+        await supabase.from('tmk_staff').delete().eq('email', it.id);
+      }
+      logAudit({ action: 'purge', entityType: it.meta.type, entityName: it.name, summary: `ลบถาวร${it.meta.type} "${it.name}"` });
+      if (window.__toast) window.__toast(`ลบถาวร "${it.name}" แล้ว`, 'success');
+      await load();
+    } catch (err) {
+      if (window.__toast) window.__toast('ลบถาวรไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const fmtDate = (s) => { try { return new Date(s).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+
+  if (!loading && items.length === 0) {
+    return (
+      <div className="content-inner rise">
+        <div className="card" style={{ textAlign: 'center', padding: '56px 20px' }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 64, height: 64 }}>
+            <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6" />
+          </svg>
+          <h3 style={{ marginTop: 12 }}>ถังขยะว่างเปล่า</h3>
+          <div className="cap" style={{ marginTop: 6 }}>รายการที่ลบจะถูกเก็บไว้ที่นี่ · กู้คืนได้ตลอด</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="content-inner rise">
-      <div className="card" style={{ textAlign: 'center', padding: '56px 20px' }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 64, height: 64 }}>
-          <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6" />
-        </svg>
-        <h3 style={{ marginTop: 12 }}>ถังขยะว่างเปล่า</h3>
-        <div className="cap" style={{ marginTop: 6 }}>รายการที่ลบจะเก็บไว้ที่นี่ 30 วัน ก่อนลบถาวร · กู้คืนได้ตลอด</div>
+      <div className="card">
+        <div className="card-head">
+          <h3><span style={{ color: 'var(--bad)' }}><Icon name="trash" /></span> ถังขยะ ({items.length})</h3>
+          <span className="cap">กู้คืนได้ · หรือลบถาวร</span>
+        </div>
+        <div style={{ marginBottom: 10, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', borderLeft: '3px solid var(--warn)' }}>
+          <span className="cap">หมายเหตุ: กู้คืนแคมเปญแล้ว งานที่เคยผูกจะไม่กลับมาผูกอัตโนมัติ (ต้องเลือกแคมเปญใหม่ในแต่ละงาน)</span>
+        </div>
+        <div>
+          {loading ? (
+            <div className="cap" style={{ padding: 20, textAlign: 'center' }}>กำลังโหลด…</div>
+          ) : items.map((it, i) => (
+            <div key={it.meta.table + it.id + i} className="row" style={{ gap: 12, padding: '12px 4px', borderBottom: '1px solid var(--line-2)' }}>
+              <span className="chip" style={{ flexShrink: 0 }}>{it.meta.type}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
+                <div className="cap">ลบเมื่อ {fmtDate(it.deletedAt)}</div>
+              </div>
+              <button className="btn btn-sm" disabled={busy} onClick={() => restore(it)} style={{ flexShrink: 0 }}>
+                <Icon name="refresh" /> กู้คืน
+              </button>
+              <button className="btn btn-sm" disabled={busy} onClick={() => purge(it)} style={{ flexShrink: 0, color: 'var(--bad)' }}>
+                <Icon name="trash" /> ลบถาวร
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

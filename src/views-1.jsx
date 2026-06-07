@@ -5,6 +5,9 @@ import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 import { useUser } from './userContext.jsx';
+import { getToday, THAI_MONTHS_FULL, thaiDate, todayISO } from './lib/dateUtils.js';
+
+const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
 const D = TMK;
 const C = TMK.computed;
@@ -76,7 +79,8 @@ export function HomeView({ go }) {
   const gap = TMK.consts.TARGET - C.RUN;
   const perDayNeeded = Math.ceil((TMK.consts.TARGET - C.MTD) / (TMK.consts.DAYS - TMK.consts.DAY));
 
-  const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.date === '18 มิ.ย.');
+  const todayThai = thaiDate(todayISO());
+  const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.date === todayThai);
   const alerts = [];
   if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${TMK.consts.DAYS-TMK.consts.DAY} วัน` });
   if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
@@ -90,7 +94,7 @@ export function HomeView({ go }) {
       {/* greeting */}
       <div className="row between wrap" style={{ marginBottom: 20, gap: 12 }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>{'ภาพรวมวันนี้'} {'·'} {'จันทร์'} 18 {'มิถุนายน'} 2569</div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>{(() => { const td = getToday(); return `ภาพรวมวันนี้ · ${THAI_WEEKDAYS[new Date().getDay()]} ${td.day} ${THAI_MONTHS_FULL[td.month - 1]} ${td.yearBE}`; })()}</div>
           <h1 className="display">{(() => { const h = new Date().getHours(); return h < 12 ? 'สวัสดีตอนเช้า' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนดึก'; })()}, {userName} {'👋'}</h1>
         </div>
         <div className="row" style={{ gap: 8 }}>
