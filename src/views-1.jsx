@@ -424,10 +424,20 @@ function SalesOverview({ dateProps, prevMonthName }) {
 
 function YoYChart() {
   const data = D.yoy;
+  const w = 320, h = 150;
+  // กันบั๊ก: ต้องมีอย่างน้อย 2 จุดถึงจะวาดเส้นได้ (ไม่งั้นหารด้วย 0 → NaN)
+  if (!data || data.length < 2) {
+    return (
+      <div style={{ height: 150, display: 'grid', placeItems: 'center', color: 'var(--ink-4)' }} className="cap">
+        ยังไม่มีข้อมูลเปรียบเทียบรายปี
+      </div>
+    );
+  }
   const all = data.flatMap(d => [d.y25, d.y26]);
   const max = Math.max(...all), min = Math.min(...all) * 0.9;
-  const w = 320, h = 150, range = max - min;
-  const line = (key) => data.map((d,i)=>[(i/(data.length-1))*w, h-20-((d[key]-min)/range)*(h-30)]);
+  const range = (max - min) || 1; // กันหารศูนย์เมื่อค่าเท่ากันหมด
+  const X = (i) => (i / (data.length - 1)) * w;
+  const line = (key) => data.map((d,i)=>[X(i), h-20-((d[key]-min)/range)*(h-30)]);
   const path = pts => pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
   return (
     <div>
@@ -435,7 +445,7 @@ function YoYChart() {
         <path d={path(line('y25'))} fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeDasharray="4 4" />
         <path d={path(line('y26'))} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" />
         {line('y26').map((p,i)=><circle key={i} cx={p[0]} cy={p[1]} r="3" fill="var(--accent)" />)}
-        {data.map((d,i)=><text key={i} x={(i/(data.length-1))*w} y={h-2} fontSize="9" fill="var(--ink-3)" textAnchor="middle">{d.m}</text>)}
+        {data.map((d,i)=><text key={i} x={X(i)} y={h-2} fontSize="9" fill="var(--ink-3)" textAnchor="middle">{d.m}</text>)}
       </svg>
       <div className="row" style={{ gap: 14, marginTop: 6 }}>
         <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--accent)', verticalAlign:'middle', marginRight:5 }}></span>2569</span>
