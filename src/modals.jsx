@@ -6,7 +6,7 @@ import { TMK } from './data.js';
 import { B, Bk, P, N, Icon } from './components.jsx';
 import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { parseTaskDate, getToday } from './lib/dateUtils.js';
+import { parseTaskDate, getToday, todayISO } from './lib/dateUtils.js';
 import { logAudit } from './lib/audit.js';
 import tmkLogoWhite from './assets/tmk-logo-white.png';
 
@@ -57,14 +57,40 @@ export function Modal({ icon, title, sub, onClose, footer, wide, children }) {
 }
 
 /* ---------- Record daily sales (rich, live summary) ---------- */
-export function RecordSalesModal({ onClose }) {
+export function RecordSalesModal({ data, onClose }) {
   const { t } = useLang();
   const [step, setStep] = useState(1); // 1=กรอก, 2=ตรวจสอบ
-  const [date, setDate] = useState('2026-06-18');
-  const [rows, setRows] = useState(MD.channels.map(c => ({ id: c.id, rev: '', ord: '', ad: '', inq: '', newC: '', oldC: '' })));
+  const [date, setDate] = useState(data?.date || todayISO());
+  const emptyRows = () => MD.channels.map(c => ({ id: c.id, rev: '', ord: '', ad: '', inq: '', newC: '', oldC: '' }));
+  const [rows, setRows] = useState(emptyRows);
   const [note, setNote] = useState('');
   const [chatTime, setChatTime] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
+  useEffect(() => {
+    let cancel = false;
+    const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
+    setLoading(true);
+    (async () => {
+      const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', 'd-' + date).maybeSingle();
+      if (cancel) return;
+      if (row) {
+        setRows(MD.channels.map(c => {
+          const col = colMap[c.id];
+          return { id: c.id, rev: col && row[col] ? String(row[col]) : '', ord: '', ad: '', inq: '', newC: '', oldC: '' };
+        }));
+        setNote(row.note || '');
+      } else {
+        setRows(emptyRows());
+        setNote('');
+      }
+      setLoading(false);
+    })();
+    return () => { cancel = true; };
+  }, [date]);
+
   const up = (i, k, v) => {
     // Validation: no negative numbers
     if (+v < 0) return;
@@ -523,13 +549,15 @@ export function POModal({ data, onClose }) {
 /* ---------- Monthly Target modal ---------- */
 export function MonthlyTargetModal({ onClose }) {
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const [month, setMonth] = useState('มิ.ย. 2569');
-  const [total, setTotal] = useState(1000000);
-  const [chTargets, setChTargets] = useState(MD.channels.map(c => ({ id: c.id, name: c.name, hex: c.hex, target: c.target })));
-  const [adTotal, setAdTotal] = useState(150000);
-  const [adChannels, setAdChannels] = useState(MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: c.ad })));
-  const [newCustTarget, setNewCustTarget] = useState(600);
-  const [acosCeil, setAcosCeil] = useState(25);
+  const _t = getToday();
+  const [month, setMonth] = useState(`${months[_t.month - 1]} ${_t.yearBE}`);
+  // ไม่ใส่ค่าให้เอง — โหลดค่าจริงที่เคยตั้งไว้ (ถ้ามี) ไม่งั้นว่าง
+  const [total, setTotal] = useState(MD.consts.TARGET || '');
+  const [chTargets, setChTargets] = useState(MD.channels.map(c => ({ id: c.id, name: c.name, hex: c.hex, target: c.target || '' })));
+  const [adTotal, setAdTotal] = useState(MD.consts.AD_BUDGET || '');
+  const [adChannels, setAdChannels] = useState(MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: c.ad || '' })));
+  const [newCustTarget, setNewCustTarget] = useState('');
+  const [acosCeil, setAcosCeil] = useState(MD.consts.ACOS_CEIL || 25);
 
   const chSum = chTargets.reduce((a, c) => a + (+c.target || 0), 0);
   const adSum = adChannels.reduce((a, c) => a + (+c.budget || 0), 0);
@@ -740,14 +768,19 @@ export function AdCampaignModal({ data, onClose }) {
 
 /* ---------- Customer Segment modal ---------- */
 export function CustomerSegmentModal({ onClose }) {
+  // โครงกลุ่มลูกค้า (นิยาม) — ค่าตัวเลขไม่ใส่ให้เอง: โหลดจากของจริงถ้ามี ไม่งั้นว่าง
   const segDefs = [
-    { name: 'VIP', color: 'var(--accent)', count: 45, revPct: 35, criteria: 'ซื้อ ≥5 ครั้ง หรือ ยอด ≥10,000฿/เดือน' },
-    { name: 'Regular', color: 'var(--good)', count: 180, revPct: 40, criteria: 'ซื้อ 2–4 ครั้ง ใน 3 เดือน' },
-    { name: 'At-risk', color: 'var(--warn)', count: 80, revPct: 15, criteria: 'ไม่ซื้อ 30–60 วัน' },
-    { name: 'Churned', color: 'var(--bad)', count: 120, revPct: 10, criteria: 'ไม่ซื้อ >60 วัน' },
+    { name: 'VIP', color: 'var(--accent)', criteria: 'ซื้อ ≥5 ครั้ง หรือ ยอด ≥10,000฿/เดือน' },
+    { name: 'Regular', color: 'var(--good)', criteria: 'ซื้อ 2–4 ครั้ง ใน 3 เดือน' },
+    { name: 'At-risk', color: 'var(--warn)', criteria: 'ไม่ซื้อ 30–60 วัน' },
+    { name: 'Churned', color: 'var(--bad)', criteria: 'ไม่ซื้อ >60 วัน' },
   ];
-  const [segments, setSegments] = useState(segDefs);
-  const [clv, setClv] = useState(2850);
+  const segInit = segDefs.map(d => {
+    const existing = (MD.segments || []).find(s => s.name === d.name);
+    return { ...d, count: existing ? existing.count : '', revPct: existing ? existing.revPct : '' };
+  });
+  const [segments, setSegments] = useState(segInit);
+  const [clv, setClv] = useState(MD.computed.CLV || '');
 
   const upSeg = (i, k, v) => setSegments(ss => ss.map((s, j) => j === i ? { ...s, [k]: v } : s));
   const totalCount = segments.reduce((a, s) => a + (+s.count || 0), 0);

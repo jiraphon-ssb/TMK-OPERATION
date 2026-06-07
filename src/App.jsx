@@ -619,7 +619,7 @@ function AppInner() {
       )}
 
       {authed && modal && (
-        modal.type === 'record' ? <RecordSalesModal onClose={closeModal} />
+        modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />
         : modal.type === 'task' ? <TaskModal data={modal.data} onClose={closeModal}
             onSubmit={async (task) => {
               // 1. Optimistic local update — เห็นทันที

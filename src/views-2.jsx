@@ -138,14 +138,38 @@ function CalendarView({ tasks, filtered, fProps }) {
     return { color: 'var(--ink-3)', bg: '#888', icon: (s) => <svg width={s} height={s} viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="#fff"/></svg> };
   };
 
+  // แตกช่องทางของงาน (string คั่น comma / array) → list ของ platform info ที่แมตช์ครบทุกอัน
+  const tokenize = (chVal) => (Array.isArray(chVal) ? chVal : String(chVal || '').split(','))
+    .map(s => s.trim()).filter(Boolean);
+  const matchedChannelsFor = (chVal) => {
+    const seen = new Set(); const out = [];
+    tokenize(chVal).forEach(tok => {
+      const info = chInfo(tok);
+      if (!info) return;
+      const key = info.logoUrl || info.bg || tok;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ info, label: tok });
+    });
+    return out;
+  };
+
+  const ChIcon = ({ info, size = 16 }) => info.logoUrl
+    ? <img src={info.logoUrl} alt="" style={{ width: size, height: size, borderRadius: 4, objectFit: 'contain', flexShrink: 0 }} />
+    : <span style={{ width: size - 1, height: size - 1, borderRadius: 4, background: info.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{info.icon(Math.round(size * 0.6))}</span>;
+
   const DayCell = ({ d }) => {
     if (!d) return <div style={{ borderRadius: 'var(--r-sm)' }}></div>;
     const ts = byDay[d] || [];
     const isSel = d === sel, isToday = d === todayDay;
     const show = ts.slice(0, 3);
     const more = ts.length - 3;
-    // Unique channels for this day
-    const dayChannels = [...new Set(ts.map(t => t.channel))];
+    // ไอคอนแพลตฟอร์มของวันนี้ — แตกครบทุกช่องทางจากทุกงาน + dedup
+    const seen = new Set(); const dayInfos = [];
+    ts.forEach(t => matchedChannelsFor(t.channel).forEach(({ info, label }) => {
+      const key = info.logoUrl || info.bg || label;
+      if (seen.has(key)) return; seen.add(key); dayInfos.push(info);
+    }));
     return (
       <button onClick={() => setSel(d)} style={{
         border: isSel ? '2px solid var(--accent)' : isToday ? '1px solid var(--accent-ring)' : '1px solid var(--line)',
@@ -161,23 +185,10 @@ function CalendarView({ tasks, filtered, fProps }) {
             color: isToday ? 'var(--accent-2)' : isSel ? 'var(--accent-2)' : 'var(--ink)',
             fontSize: 'var(--fs-sm)',
           }}>{d}</span>
-          {dayChannels.length > 0 && (
+          {dayInfos.length > 0 && (
             <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
-              {dayChannels.slice(0, 4).map((ch, i) => {
-                const info = chInfo(ch);
-                if (!info) return null;
-                // ถ้ามี logo จริง → แสดง logo เต็ม (ไม่มี bg ทับ)
-                if (info.logoUrl) {
-                  return (
-                    <img key={i} src={info.logoUrl} alt=""
-                      title={ch}
-                      style={{ width: 16, height: 16, borderRadius: 4, objectFit: 'contain', flexShrink: 0 }} />
-                  );
-                }
-                // Fallback: hardcoded SVG บน bg สี
-                return <span key={i} style={{ width: 15, height: 15, borderRadius: 4, background: info.bg, display: 'grid', placeItems: 'center', flexShrink: 0 }}>{info.icon(9)}</span>;
-              })}
-              {dayChannels.length > 4 && <span style={{ fontSize: 8, color: 'var(--ink-3)', fontWeight: 700, display: 'grid', placeItems: 'center' }}>+{dayChannels.length - 4}</span>}
+              {dayInfos.slice(0, 4).map((info, i) => <ChIcon key={i} info={info} size={16} />)}
+              {dayInfos.length > 4 && <span style={{ fontSize: 8, color: 'var(--ink-3)', fontWeight: 700, display: 'grid', placeItems: 'center' }}>+{dayInfos.length - 4}</span>}
             </div>
           )}
         </div>
@@ -239,7 +250,13 @@ function CalendarView({ tasks, filtered, fProps }) {
                 </div>
                 <div className="row wrap" style={{ gap: 10, marginBottom: 8 }}>
                   <div><div className="cap">แคมเปญ</div><span className="chip" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span></div>
-                  <div><div className="cap">ช่องทาง</div><div className="sm" style={{ fontWeight: 500 }}>{t.channel}</div></div>
+                  <div><div className="cap">ช่องทาง</div>
+                    <div className="row" style={{ gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {(() => { const m = matchedChannelsFor(t.channel); return m.length
+                        ? m.map((x, i) => <span key={i} className="row" style={{ gap: 3, alignItems: 'center' }} title={x.label}><ChIcon info={x.info} size={16} /></span>)
+                        : <span className="sm" style={{ fontWeight: 500 }}>{Array.isArray(t.channel) ? t.channel.join(', ') : t.channel}</span>; })()}
+                    </div>
+                  </div>
                   <div><div className="cap">สถานะ</div><span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span></div>
                 </div>
                 <div className="row" style={{ gap: 6 }}>

@@ -167,36 +167,25 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
 
 /* ====================  QUARTER VIEW  ==================== */
 function QuarterView({ month, year }) {
-  const qIndex = Math.floor(month / 3);
-  const qStart = qIndex * 3;
-  const qMonths = [qStart, qStart + 1, qStart + 2];
-  const qLabel = `Q${qIndex + 1}/${year}`;
-
-  const qData = quarterData(year, qIndex);
-
-  // Next quarter
-  const nqIndex = (qIndex + 1) % 4;
-  const nqYear = qIndex === 3 ? year + 1 : year;
-  const nqStart = nqIndex * 3;
-  const nqMonths = [nqStart, nqStart + 1, nqStart + 2];
-  const nqLabel = `Q${nqIndex + 1}/${nqYear}`;
-  const nqData = quarterData(nqYear, nqIndex);
-
   const statusIcon = (s) => {
     if (s === 'ปิดแล้ว') return { icon: 'check', color: 'var(--good)', bg: 'var(--good-soft)' };
     if (s === 'กำลังดำเนินการ') return { icon: 'refresh', color: 'var(--accent)', bg: 'var(--accent-soft)' };
     return { icon: 'clock', color: 'var(--ink-3)', bg: 'var(--surface-3)' };
   };
 
-  const renderQuarter = (label, months, data, showSetTarget) => (
-    <div style={{ marginBottom: 24 }}>
+  const renderQuarter = (qIndex) => {
+    const months = [qIndex * 3, qIndex * 3 + 1, qIndex * 3 + 2];
+    const label = `Q${qIndex + 1}/${year}`;
+    const data = quarterData(year, qIndex);
+    return (
+    <div key={qIndex} style={{ marginBottom: 24 }}>
       <div className="h3" style={{ marginBottom: 12 }}>{label}</div>
       <div className="grid g3">
         {months.map((mIdx, i) => {
           const d = data[i];
           const pct = d.target > 0 ? Math.round((d.actual / d.target) * 100) : 0;
           const si = statusIcon(d.status);
-          const { isCurrent: isThisMonth } = getMode(mIdx, label.includes(String(nqYear)) ? nqYear : year);
+          const { isCurrent: isThisMonth } = getMode(mIdx, year);
           return (
             <div key={mIdx} className="card" style={{ padding: 20, border: isThisMonth ? '2px solid var(--accent)' : undefined }}>
               <div className="row between" style={{ marginBottom: 12 }}>
@@ -234,7 +223,7 @@ function QuarterView({ month, year }) {
                 </span>
               </div>
 
-              {showSetTarget && d.status === 'เตรียมการ' && (
+              {d.status === 'เตรียมการ' && (
                 <button className="btn btn-outline btn-sm" style={{ marginTop: 8, width: '100%' }}
                   onClick={() => window.__openModal('monthlyTarget')}>
                   ตั้งเป้า
@@ -245,12 +234,12 @@ function QuarterView({ month, year }) {
         })}
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="content-inner" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {renderQuarter(qLabel, qMonths, qData, false)}
-      {renderQuarter(nqLabel, nqMonths, nqData, true)}
+      {[0, 1, 2, 3].map(renderQuarter)}
     </div>
   );
 }
@@ -344,16 +333,18 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
             {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
               <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
             ))}
-            {Array.from({ length: DAYS_IN_MONTH }, (_, i) => {
+            {Array.from({ length: new Date(year - 543, month + 1, 0).getDate() }, (_, i) => {
               const day = i + 1;
-              const filled = dayRevMap[day] != null; // กรอกจริงไหม
+              const iso = `${year - 543}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               return (
                 <div key={day} style={{
                   textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
-                  background: filled ? 'var(--good-soft)' : 'var(--surface-2)', border: '1px solid var(--line)',
-                }}>
-                  <div className="sm" style={{ fontWeight: 600, color: filled ? 'var(--good)' : 'var(--ink-4)' }}>{day}</div>
-                  {filled && <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--good)', margin: '2px auto 0' }}></div>}
+                  background: 'var(--surface-2)', border: '1px solid var(--line)',
+                  cursor: editing ? 'pointer' : 'default',
+                  outline: editing ? '1px dashed var(--accent)' : 'none',
+                }}
+                onClick={() => { if (editing) window.__openModal('record', { date: iso }); }}>
+                  <div className="sm" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>{day}</div>
                 </div>
               );
             })}
@@ -449,15 +440,16 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
             const entered = dayRevMap[day] != null; // กรอกจริงไหม
             const futureDay = day > TODAY;
             const rev = dayRevMap[day];
+            const iso = `${_T.yearCE}-${String(_T.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             return (
               <div key={day} style={{
                 textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
                 background: isToday ? 'var(--warn-soft)' : entered ? 'var(--good-soft)' : 'var(--surface-2)',
                 border: isToday ? '2px solid var(--warn)' : '1px solid var(--line)',
                 opacity: futureDay ? 0.4 : 1,
-                cursor: entered || isToday ? 'pointer' : 'default',
+                cursor: futureDay ? 'default' : 'pointer',
               }}
-              onClick={() => { if (isToday) window.__openModal('record'); }}
+              onClick={() => { if (!futureDay) window.__openModal('record', { date: iso }); }}
               >
                 <div className="sm" style={{ fontWeight: 600, color: isToday ? 'var(--warn)' : entered ? 'var(--good)' : 'var(--ink-4)' }}>{day}</div>
                 {entered && rev && <div className="cap" style={{ fontSize: 9, color: 'var(--ink-3)' }}>{Bk(rev)}</div>}
