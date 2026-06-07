@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, Avatar } from './components.jsx';
+import { Icon, B, Bk, N, Avatar, TmkLogo } from './components.jsx';
 import { HomeView, SalesView } from './views-1.jsx';
 import { PlannerView, CatalogView, SettingsView, ProfileView } from './views-2.jsx';
 import { HelpCenter, GuideOverlay } from './onboarding.jsx';
@@ -16,8 +16,6 @@ import { logAudit } from './lib/audit.js';
 import { Onboarding, HelpButton, Tooltip } from './onboarding.jsx';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
-import tmkLogo from './assets/tmk-logo.png';
-import tmkLogoWhite from './assets/tmk-logo-white.png';
 
 /* ---- Spotlight Search ---- */
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -391,7 +389,7 @@ function AppInner() {
       {spotlight && <Spotlight onClose={() => setSpotlight(false)} onGo={go} />}
       {/* ---------- Icon Rail (desktop) ---------- */}
       <nav className="rail desktop-only">
-        <div className="rail-brand"><img src={tmkLogoWhite} alt="TMK" /></div>
+        <div className="rail-brand"><TmkLogo size={30} variant="white" /></div>
         <div className="rail-items">
           {NAV.map(n => (
             <button key={n.id} className={'rail-btn' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
@@ -520,7 +518,7 @@ function AppInner() {
           <div className="drawer">
             <div className="row between" style={{ marginBottom: 18, padding: '0 6px' }}>
               <div className="row" style={{ gap: 10 }}>
-                <div className="rail-brand" style={{ margin: 0, width: 38, height: 38 }}><img src={tmkLogoWhite} alt="TMK" /></div>
+                <div className="rail-brand" style={{ margin: 0, width: 38, height: 38 }}><TmkLogo size={26} variant="white" /></div>
                 <div><div className="h3">TMK Operation</div><div className="cap">ศูนย์ปฏิบัติการ</div></div>
               </div>
               <button className="icon-btn" onClick={() => setDrawer(false)}><Icon name="x" /></button>

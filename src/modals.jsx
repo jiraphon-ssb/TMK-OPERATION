@@ -3,12 +3,11 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon } from './components.jsx';
+import { B, Bk, P, N, Icon, TmkLogo } from './components.jsx';
 import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { parseTaskDate, getToday, todayISO, thaiDate } from './lib/dateUtils.js';
 import { logAudit } from './lib/audit.js';
-import tmkLogoWhite from './assets/tmk-logo-white.png';
 
 // Toast helper
 const toast = (m, k = 'success') => window.__toast?.(m, k);
@@ -980,7 +979,7 @@ export function LoginScreen({ onLogin }) {
     <div className="login">
       <div className="login-art">
         <div className="blob b1"></div><div className="blob b2"></div><div className="gridlines"></div>
-        <div className="login-logo"><img src={tmkLogoWhite} alt="TMK" /></div>
+        <div className="login-logo"><TmkLogo size={56} variant="white" /></div>
         <div className="login-head">
           <div className="eyebrow" style={{ color: 'rgba(255,255,255,0.65)', marginBottom: 12 }}>TMK OPERATION</div>
           <h1>ศูนย์ปฏิบัติการ<br />บริหารแบรนด์<br />ครบในที่เดียว</h1>
@@ -996,7 +995,7 @@ export function LoginScreen({ onLogin }) {
       <div className="login-form-wrap">
         <form className="login-card" onSubmit={submit}>
           <div className="row" style={{ gap: 11, marginBottom: 20 }}>
-            <div className="rail-brand" style={{ margin: 0, width: 44, height: 44 }}><img src={tmkLogoWhite} alt="" /></div>
+            <div className="rail-brand" style={{ margin: 0, width: 44, height: 44 }}><TmkLogo size={30} variant="white" /></div>
             <div><div className="h2">เข้าสู่ระบบ TMK</div><div className="cap">ยินดีต้อนรับกลับมา 👋</div></div>
           </div>
           <div className="field" style={{ marginBottom: 14 }}>

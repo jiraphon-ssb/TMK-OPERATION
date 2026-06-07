@@ -409,14 +409,12 @@ on conflict (id) do nothing;
 -- on conflict do nothing — ไม่ทับช่องทางที่แก้ไว้แล้ว
 -- ============================================================
 insert into public.tmk_channels (id, name, percentage, actual, color, sort_order, has_ad, icon, logo_url) values
-('shopee',      'Shopee',        0, 0, '#ee6a3a', 1, true,  '🛒', ''),
-('tiktok',      'TikTok',        0, 0, '#18a0ab', 2, true,  '♪',  ''),
-('lazada',      'Lazada',        0, 0, '#6b5ce0', 3, true,  '🛍', ''),
-('facebook',    'Facebook',      0, 0, '#4a8be0', 4, true,  'f',  ''),
-('line',        'LINE OA',       0, 0, '#06c755', 5, false, '💬', ''),
-('crm',         'CRM',           0, 0, '#c08a3e', 6, false, '👥', ''),
-('backoffice',  'หลังบ้าน',       0, 0, '#8a8276', 7, false, '🏠', ''),
-('allplatforms','ทุกแพลตฟอร์ม',   0, 0, '#b07d33', 8, false, '🌐', '')
+('shopee',   'Shopee',   0, 0, '#ee6a3a', 1, true,  '🛒', ''),
+('tiktok',   'TikTok',   0, 0, '#18a0ab', 2, true,  '♪',  ''),
+('lazada',   'Lazada',   0, 0, '#6b5ce0', 3, true,  '🛍', ''),
+('facebook', 'Facebook', 0, 0, '#4a8be0', 4, true,  'f',  ''),
+('line',     'LINE OA',  0, 0, '#06c755', 5, false, '💬', ''),
+('crm',      'CRM',      0, 0, '#c08a3e', 6, false, '👥', '')
 on conflict (id) do nothing;
 
 -- ============================================================
@@ -436,50 +434,6 @@ on conflict (id) do update set
   color = excluded.color,
   description = excluded.description,
   sort_order = excluded.sort_order;
-
--- ============================================================
--- SECTION 13 — Seed: Staff (11 canonical)
--- ============================================================
-insert into public.tmk_staff (id, name, role, email, color, joined_at) values
-('s-ceo',     'มัง',      'CEO',        'ceo@tmk.co',              '#b07d33', '2024-01-15'),
-('s-headmkt', 'Head MKT', 'Head MKT',   'headmkt@tmk.co',          '#0a5aa0', '2024-02-01'),
-('s-mung',    'มัง',      'Head Stock', 'headstock@tmk.co',        '#cf9026', '2024-01-01'),
-('s-admin',   'Admin',    'Admin',      'admin@tmk.co',            '#2f9e6e', '2024-02-01'),
-('s-admin2',  'Admin 2',  'Admin',      'admin2@tmk.co',           '#2f9e6e', '2024-03-15'),
-('s-stock',   'Stock',    'Stock',      'stock@tmk.co',            '#3b7ea1', '2024-03-01'),
-('s-mkt',     'MKT',      'MKT',        'mkt@tmk.co',              '#4a8be0', '2024-03-01'),
-('s-mkt2',    'MKT 2',    'MKT',        'mkt2@tmk.co',             '#4a8be0', '2024-04-01'),
-('s-graphic', 'Graphic',  'Graphic',    'graphic@tmk.co',          '#6b5ce0', '2024-04-15'),
-('s-content', 'Content',  'Content',    'content@tmk.co',          '#cf4d5c', '2024-05-01'),
-('s-test',    'TMK Test', 'Admin',      'tmktestweb@workspace.co', '#cf9026', '2024-06-01')
-on conflict (id) do update set
-  name = excluded.name,
-  role = excluded.role,
-  email = excluded.email,
-  color = excluded.color,
-  joined_at = excluded.joined_at;
-
--- ============================================================
--- SECTION 14 — Seed: User Roles (11)
--- ============================================================
-insert into public.tmk_user_roles (email, role, name, department, duty_id, color, created_by) values
-('ceo@tmk.co',              'admin',  'มัง',     'CEO',        'ceo',       '#b07d33', 'system'),
-('headmkt@tmk.co',          'admin',  'Head MKT', 'Head MKT',   'headmkt',   '#0a5aa0', 'system'),
-('headstock@tmk.co',        'admin',  'มัง',     'Head Stock', 'headstock', '#cf9026', 'system'),
-('admin@tmk.co',            'admin',  'Admin',    'Admin',      'admin',     '#2f9e6e', 'system'),
-('admin2@tmk.co',           'editor', 'Admin 2',  'Admin',      'admin',     '#2f9e6e', 'system'),
-('stock@tmk.co',            'editor', 'Stock',    'Stock',      'stock',     '#3b7ea1', 'system'),
-('mkt@tmk.co',              'editor', 'MKT',      'MKT',        'mkt',       '#4a8be0', 'system'),
-('mkt2@tmk.co',             'editor', 'MKT 2',    'MKT',        'mkt',       '#4a8be0', 'system'),
-('graphic@tmk.co',          'editor', 'Graphic',  'Graphic',    'graphic',   '#6b5ce0', 'system'),
-('content@tmk.co',          'editor', 'Content',  'Content',    'content',   '#cf4d5c', 'system'),
-('tmktestweb@workspace.co', 'admin',  'TMK Test', 'Admin',      'admin',     '#cf9026', 'system')
-on conflict (email) do update set
-  role = excluded.role,
-  name = excluded.name,
-  department = excluded.department,
-  duty_id = excluded.duty_id,
-  color = excluded.color;
 
 -- ============================================================
 -- DONE — ตรวจสอบจำนวน rows
