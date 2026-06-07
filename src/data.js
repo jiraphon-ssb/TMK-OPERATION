@@ -26,6 +26,8 @@ export const TMK = {
     { id: 'done',       label: 'เสร็จแล้ว',     en: 'Done' },
   ],
   poTracker: [],
+  adCampaigns: [],
+  segments: [],
   fb: { revenue: 0, spend: 0, inquiries: 0, orders: 0, newCust: 0, oldCust: 0, roas: 0, acos: 0, conv: 0, aov: 0, cpInq: 0, cpOrd: 0, cac: 0, avgReplyMinutes: 0 },
   fbMsgTrend: [],
   dailyLog: [],

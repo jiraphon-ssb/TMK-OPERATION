@@ -366,7 +366,8 @@ function mutateTMK(mapped) {
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
   ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly',
-   'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles','duties'].forEach(key => {
+   'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles','duties',
+   'adCampaigns','segments'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
     TMK[key].length = 0;
     TMK[key].push(...(mapped[key] || []));
