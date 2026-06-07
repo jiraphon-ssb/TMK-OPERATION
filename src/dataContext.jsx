@@ -30,8 +30,11 @@ function mapRolesAndStaff(userRoles, staff) {
       const s = byEmail[r.email];
       return {
         email: r.email,
-        name: s?.name || r.email.split('@')[0],
+        name: r.name || s?.name || r.email.split('@')[0],
         role: r.role || 'viewer',
+        department: r.department || s?.role || '',
+        color: r.color || s?.color || '#3b82f6',
+        avatarUrl: s?.avatar_url || '',
       };
     }),
     staff: staff.map(s => ({

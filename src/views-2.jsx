@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 import { useUser } from './userContext.jsx';
+import { supabase } from './lib/supabaseClient.js';
 
 const DD = TMK;
 
@@ -867,46 +868,148 @@ function AuditView() {
 }
 
 function RolesView() {
-  const roleMeta = { admin: { l: 'ผู้ดูแลระบบ', cls: 'chip-accent' }, editor: { l: 'แก้ไขได้', cls: 'chip-good' }, viewer: { l: 'ดูอย่างเดียว', cls: '' } };
-  const [users, setUsers] = useState(DD.roles.map(r => ({ ...r })));
-  const [editing, setEditing] = useState(null); // email of user being edited
+  const roleMeta = {
+    admin: { l: 'ผู้ดูแลระบบ', cls: 'chip-accent' },
+    editor: { l: 'แก้ไขได้', cls: 'chip-good' },
+    viewer: { l: 'ดูอย่างเดียว', cls: '' }
+  };
+  // หน้าที่/แผนก (department) — ใช้สำหรับ "ผู้รับผิดชอบ" ในงาน
+  const DEPARTMENTS = ['CEO', 'Head MKT', 'Admin', 'MKT', 'Graphic'];
+
+  // ใช้ TMK.roles + TMK.staff โดยตรง (re-render เมื่อ Supabase อัปเดต)
+  const users = (TMK.roles || []).map(r => {
+    const s = (TMK.staff || []).find(st => st.email === r.email);
+    return {
+      ...r,
+      department: r.department || s?.role || '',
+      color: r.color || s?.color || '#3b82f6',
+      avatar: r.avatarUrl || s?.avatarUrl || '',
+    };
+  });
+
+  const [editing, setEditing] = useState(null);
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState('viewer');
+  const [editDept, setEditDept] = useState('');
   const [editAvatar, setEditAvatar] = useState('');
+  const [busy, setBusy] = useState(false);
 
   // New user form
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState('viewer');
+  const [newName, setNewName] = useState('');
+  const [newRole, setNewRole] = useState('editor');
+  const [newDept, setNewDept] = useState('MKT');
 
   const startEdit = (u) => {
     setEditing(u.email);
     setEditName(u.name);
     setEditRole(u.role);
+    setEditDept(u.department || '');
     setEditAvatar(u.avatar || '');
   };
 
-  const saveEdit = () => {
-    setUsers(us => us.map(u => u.email === editing ? { ...u, name: editName, role: editRole, avatar: editAvatar } : u));
-    setEditing(null);
-    if (window.__toast) window.__toast('อัปเดตผู้ใช้เรียบร้อย', 'success');
+  // Save edit ลง Supabase จริง
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      // Update tmk_user_roles
+      const { error: e1 } = await supabase.from('tmk_user_roles').upsert({
+        email: editing,
+        role: editRole,
+        name: editName,
+        department: editDept,
+      });
+      if (e1) throw e1;
+
+      // Update tmk_staff (sync name/department/color)
+      const deptColor = { 'CEO': '#b07d33', 'Head MKT': '#0a5aa0', 'Admin': '#2f9e6e', 'MKT': '#4a8be0', 'Graphic': '#6b5ce0' }[editDept] || '#3b82f6';
+      const existingStaff = (TMK.staff || []).find(s => s.email === editing);
+      const staffId = existingStaff?.id || ('s-' + editing.split('@')[0].replace(/[^a-z0-9]/gi, ''));
+      const { error: e2 } = await supabase.from('tmk_staff').upsert({
+        id: staffId,
+        name: editName,
+        role: editDept || 'Staff',
+        email: editing,
+        color: deptColor,
+        avatar_url: editAvatar || '',
+      });
+      if (e2) throw e2;
+
+      setEditing(null);
+      if (window.__toast) window.__toast('อัปเดตผู้ใช้เรียบร้อย', 'success');
+    } catch (err) {
+      console.error(err);
+      if (window.__toast) window.__toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const cancelEdit = () => setEditing(null);
 
-  const addUser = () => {
+  // Delete user ลบจาก Supabase
+  const deleteUser = async (email) => {
+    if (!confirm(`ลบผู้ใช้ ${email}?`)) return;
+    setBusy(true);
+    try {
+      await supabase.from('tmk_user_roles').delete().eq('email', email);
+      await supabase.from('tmk_staff').delete().eq('email', email);
+      if (window.__toast) window.__toast('ลบผู้ใช้เรียบร้อย', 'success');
+    } catch (err) {
+      if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Add user ลง Supabase จริง
+  const addUser = async () => {
     if (!newEmail.trim()) return;
     if (users.find(u => u.email === newEmail)) {
       if (window.__toast) window.__toast('อีเมลนี้มีอยู่แล้ว', 'warn');
       return;
     }
-    setUsers(us => [...us, { email: newEmail, name: newEmail.split('@')[0], role: newRole }]);
-    setNewEmail('');
-    setNewRole('viewer');
-    if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
+    setBusy(true);
+    try {
+      const name = newName.trim() || newEmail.split('@')[0];
+      const deptColor = { 'CEO': '#b07d33', 'Head MKT': '#0a5aa0', 'Admin': '#2f9e6e', 'MKT': '#4a8be0', 'Graphic': '#6b5ce0' }[newDept] || '#3b82f6';
+
+      // 1. Insert tmk_user_roles
+      const { error: e1 } = await supabase.from('tmk_user_roles').insert({
+        email: newEmail,
+        role: newRole,
+        name,
+        department: newDept,
+        color: deptColor,
+        created_by: 'system',
+      });
+      if (e1) throw e1;
+
+      // 2. Insert tmk_staff
+      const staffId = 's-' + newEmail.split('@')[0].replace(/[^a-z0-9]/gi, '');
+      const { error: e2 } = await supabase.from('tmk_staff').upsert({
+        id: staffId,
+        name,
+        role: newDept,
+        email: newEmail,
+        color: deptColor,
+      });
+      if (e2) throw e2;
+
+      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDept('MKT');
+      if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
+    } catch (err) {
+      console.error(err);
+      if (window.__toast) window.__toast('เพิ่มไม่สำเร็จ: ' + err.message, 'error');
+    } finally {
+      setBusy(false);
+    }
   };
 
-  // Count tasks per person
-  const taskCount = (name) => DD.tasks.filter(t => t.responsible.includes(name)).length;
+  const taskCount = (name) => (TMK.tasks || []).filter(t => {
+    const resp = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim());
+    return resp.includes(name);
+  }).length;
 
   return (
     <div className="content-inner rise">
@@ -956,7 +1059,14 @@ function RolesView() {
                       </div>
                     </div>
 
-                    <div className="cap" style={{ marginBottom: 4 }}>สิทธิ์</div>
+                    <div className="cap" style={{ marginBottom: 4 }}>หน้าที่ / แผนก (สำหรับมอบหมายงาน)</div>
+                    <div className="chips-pick" style={{ marginBottom: 12 }}>
+                      {DEPARTMENTS.map(d => (
+                        <button key={d} className={'pick' + (editDept === d ? ' on' : '')} onClick={() => setEditDept(d)}>{d}</button>
+                      ))}
+                    </div>
+
+                    <div className="cap" style={{ marginBottom: 4 }}>สิทธิ์การเข้าถึง</div>
                     <div className="segbar" style={{ marginBottom: 12 }}>
                       {Object.entries(roleMeta).map(([k, v]) => (
                         <button key={k} className={'seg' + (editRole === k ? ' active' : '')} onClick={() => setEditRole(k)}>{v.l}</button>
@@ -969,11 +1079,16 @@ function RolesView() {
                       </div>
                     )}
 
-                    <div className="row" style={{ gap: 8 }}>
-                      <button className="btn btn-sm" onClick={cancelEdit}>ยกเลิก</button>
-                      <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim()}>
-                        <Icon name="check" /> บันทึก
+                    <div className="row between">
+                      <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteUser(u.email)} disabled={busy}>
+                        <Icon name="trash" /> ลบ
                       </button>
+                      <div className="row" style={{ gap: 8 }}>
+                        <button className="btn btn-sm" onClick={cancelEdit} disabled={busy}>ยกเลิก</button>
+                        <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}>
+                          <Icon name="check" /> {busy ? 'กำลังบันทึก...' : 'บันทึก'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -981,15 +1096,18 @@ function RolesView() {
 
               return (
                 <div key={u.email} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
-                  <Avatar name={u.name} color={staffColor} size={34} />
+                  <Avatar name={u.name} color={u.color || staffColor} size={34} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="sm" style={{ fontWeight: 600 }}>{u.name}</div>
                     <div className="cap">{u.email}</div>
                   </div>
+                  {u.department && (
+                    <span className="chip" style={{ background: (u.color || '#666') + '18', color: u.color || '#666', fontWeight: 600 }}>{u.department}</span>
+                  )}
                   {tasks > 0 && (
                     <span className="cap" style={{ color: 'var(--ink-3)', flexShrink: 0 }}>{tasks} งาน</span>
                   )}
-                  <span className={`chip ${roleMeta[u.role].cls}`}>{roleMeta[u.role].l}</span>
+                  <span className={`chip ${roleMeta[u.role]?.cls || ''}`}>{roleMeta[u.role]?.l || u.role}</span>
                   <button className="btn btn-sm btn-ghost" onClick={() => startEdit(u)} title="แก้ไข">
                     <Icon name="pencil" />
                   </button>
@@ -1003,27 +1121,42 @@ function RolesView() {
           <div className="eyebrow" style={{ marginBottom: 14 }}>เพิ่มผู้ใช้ใหม่</div>
           <div className="col" style={{ gap: 12 }}>
             <div className="col" style={{ gap: 5 }}>
-              <label className="cap" style={{ fontWeight: 600 }}>อีเมล</label>
+              <label className="cap" style={{ fontWeight: 600 }}>อีเมล *</label>
               <input className="input" placeholder="name@tmk.co" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
             </div>
             <div className="col" style={{ gap: 5 }}>
-              <label className="cap" style={{ fontWeight: 600 }}>สิทธิ์</label>
+              <label className="cap" style={{ fontWeight: 600 }}>ชื่อที่แสดง</label>
+              <input className="input" placeholder="เช่น คุณ A หรือชื่อทีม" value={newName} onChange={e => setNewName(e.target.value)} />
+            </div>
+            <div className="col" style={{ gap: 5 }}>
+              <label className="cap" style={{ fontWeight: 600 }}>หน้าที่ / แผนก</label>
+              <div className="chips-pick">
+                {DEPARTMENTS.map(d => (
+                  <button key={d} className={'pick' + (newDept === d ? ' on' : '')} onClick={() => setNewDept(d)}>{d}</button>
+                ))}
+              </div>
+            </div>
+            <div className="col" style={{ gap: 5 }}>
+              <label className="cap" style={{ fontWeight: 600 }}>สิทธิ์การเข้าถึง</label>
               <div className="segbar">
                 {Object.entries(roleMeta).map(([k, v]) => (
                   <button key={k} className={'seg' + (newRole === k ? ' active' : '')} onClick={() => setNewRole(k)}>{v.l}</button>
                 ))}
               </div>
             </div>
-            <button className="btn btn-primary" style={{ width: '100%' }} onClick={addUser}
-              disabled={!newEmail.trim()} style={{ width: '100%', opacity: newEmail.trim() ? 1 : 0.5 }}>
-              <Icon name="userPlus" /> เพิ่มผู้ใช้
+            <button className="btn btn-primary" onClick={addUser}
+              disabled={!newEmail.trim() || busy} style={{ width: '100%', opacity: (newEmail.trim() && !busy) ? 1 : 0.5 }}>
+              <Icon name="userPlus" /> {busy ? 'กำลังบันทึก...' : 'เพิ่มผู้ใช้'}
             </button>
             <div className="cap" style={{ lineHeight: 1.5, marginTop: 4 }}>
-              <strong>ผู้ดูแล</strong> จัดการได้ทุกอย่าง · <strong>แก้ไขได้</strong> บันทึกข้อมูลงานและยอดขาย · <strong>ดูอย่างเดียว</strong> เปิดดูได้แต่แก้ไม่ได้
+              <strong>หน้าที่/แผนก</strong>: ใช้สำหรับมอบหมายงาน — แสดงเป็นผู้รับผิดชอบใน task, kanban, ปฏิทิน
+            </div>
+            <div className="cap" style={{ lineHeight: 1.5 }}>
+              <strong>สิทธิ์</strong>: ผู้ดูแลจัดการทุกอย่าง · แก้ไขได้บันทึกข้อมูล · ดูอย่างเดียวเปิดดูได้แต่แก้ไม่ได้
             </div>
             <div style={{ marginTop: 8, padding: '10px 12px', background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', borderLeft: '3px solid var(--accent)' }}>
               <div className="cap" style={{ color: 'var(--accent)', fontWeight: 600 }}>
-                <Icon name="sparkle" /> เปลี่ยนชื่อผู้ใช้จะอัปเดตชื่อใน task, kanban, ปฏิทิน และ timeline อัตโนมัติ
+                <Icon name="sparkle" /> บันทึกลง Supabase อัตโนมัติ — refresh แล้วข้อมูลยังอยู่
               </div>
             </div>
           </div>
