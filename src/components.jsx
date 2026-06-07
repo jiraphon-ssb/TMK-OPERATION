@@ -3,29 +3,6 @@
    ============================================================ */
 import React, { useState, useEffect } from 'react';
 
-/* ---------- TMK Logo (SVG — ตัว t น้ำเงิน + จุดทอง) ---------- */
-export function TmkLogo({ size = 40, variant }) {
-  const tColor = variant === 'white' ? '#ffffff' : 'url(#tmkLogoBlue)';
-  return (
-    <svg viewBox="0 0 100 100" width={size} height={size} fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
-      <defs>
-        <linearGradient id="tmkLogoBlue" x1="50" y1="14" x2="50" y2="86" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#2e86d6" /><stop offset="1" stopColor="#0a4ea3" />
-        </linearGradient>
-        <linearGradient id="tmkLogoGold" x1="35" y1="9" x2="35" y2="43" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ffe24d" /><stop offset="1" stopColor="#c69214" />
-        </linearGradient>
-      </defs>
-      {/* crossbar */}
-      <path d="M22 41 H74" stroke={tColor} strokeWidth="17" strokeLinecap="round" />
-      {/* stem + foot hook */}
-      <path d="M55 19 V60 a15 15 0 0 0 15 15" stroke={tColor} strokeWidth="18" strokeLinecap="round" />
-      {/* gold dot */}
-      <circle cx="35" cy="26" r="16" fill="url(#tmkLogoGold)" />
-    </svg>
-  );
-}
-
 /* ---------- Formatters ---------- */
 // formatters — คืน "—" เมื่อค่าไม่ใช่ตัวเลขจริง (กัน NaN/Infinity จากการหารด้วย 0)
 const _fin = n => typeof n === 'number' && isFinite(n);

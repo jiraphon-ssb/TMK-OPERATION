@@ -179,11 +179,11 @@ input, select, textarea { font-family: inherit; }
   border-radius: 12px;
   overflow: hidden;
   margin-bottom: 14px;
-  box-shadow: 0 6px 16px rgba(10, 90, 160, 0.35);
+  box-shadow: 0 6px 16px rgba(10, 90, 160, 0.25);
   flex-shrink: 0;
-  background: linear-gradient(150deg, #0a5aa0, #073f78);
+  background: #fff;
   display: grid; place-items: center;
-  padding: 8px;
+  padding: 6px;
 }
 .rail-brand img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .rail-items { display: flex; flex-direction: column; gap: 4px; width: 100%; align-items: center; flex: 1; }
@@ -575,7 +575,7 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
 .login-art .b1 { width: 320px; height: 320px; right: -90px; top: -80px; background: radial-gradient(circle, rgba(255,255,255,0.22), transparent 70%); }
 .login-art .b2 { width: 260px; height: 260px; left: -70px; bottom: -60px; background: radial-gradient(circle, rgba(10,180,255,0.28), transparent 70%); }
 .login-art .gridlines { position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px); background-size: 44px 44px; mask-image: radial-gradient(circle at 70% 30%, #000, transparent 75%); }
-.login-logo { width: 56px; height: 56px; border-radius: 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); display: grid; place-items: center; padding: 11px; position: relative; }
+.login-logo { width: 56px; height: 56px; border-radius: 16px; background: #fff; border: 1px solid rgba(255,255,255,0.2); display: grid; place-items: center; padding: 8px; position: relative; }
 .login-logo img { width: 100%; height: 100%; object-fit: contain; }
 .login-head { position: relative; }
 .login-head h1 { font-size: 38px; font-weight: 700; line-height: 1.12; letter-spacing: 0; }
