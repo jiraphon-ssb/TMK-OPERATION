@@ -709,10 +709,15 @@ export function ProfileView({ tasks }) {
     }
   }, [user.avatarUrl, user.name]);
 
-  // Filter tasks ที่มี user.name ใน responsible (real Supabase data)
+  // Filter tasks — match user by:
+  // 1. user.name (e.g. "มัง")
+  // 2. user.department/duty (e.g. "MKT" — task says "MKT", user is MKT duty)
+  // 3. email username (fallback)
   const myTasks = (tasks || DD.tasks || []).filter(t => {
     const resp = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim());
-    return resp.includes(user.name) || resp.includes(user.email.split('@')[0]);
+    return resp.includes(user.name)
+        || (user.department && resp.includes(user.department))
+        || resp.includes(user.email.split('@')[0]);
   });
   const myDone = myTasks.filter(t => t.status === 'done').length;
   const myActive = myTasks.filter(t => t.status !== 'done').length;
@@ -1300,9 +1305,10 @@ function RolesView() {
     }
   };
 
-  const taskCount = (name) => (TMK.tasks || []).filter(t => {
+  // นับ tasks ที่ user รับผิดชอบ — match by name หรือ duty
+  const taskCount = (name, dutyName) => (TMK.tasks || []).filter(t => {
     const resp = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim());
-    return resp.includes(name);
+    return resp.includes(name) || (dutyName && resp.includes(dutyName));
   }).length;
 
   return (
@@ -1314,7 +1320,7 @@ function RolesView() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {users.map(u => {
               const isEditing = editing === u.email;
-              const tasks = taskCount(u.name);
+              const tasks = taskCount(u.name, u.department);
               const staffColor = DD.staff.find(s => s.name === u.name)?.color || 'var(--ink-3)';
 
               if (isEditing) {
