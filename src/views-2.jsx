@@ -805,7 +805,7 @@ function GeneralSettings({ dark, setDark }) {
         <div className="card-head"><h3><Icon name="sparkle" /> เกี่ยวกับระบบ</h3></div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>เวอร์ชัน</div><div className="cap">ดูรายละเอียดที่แท็บ "อัปเดต"</div></div>
-          <span className="chip chip-accent">v1.6.0</span>
+          <span className="chip chip-accent">v1.7.0</span>
         </div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>แหล่งข้อมูล</div><div className="cap">ทุกหน้าดึงข้อมูลจริงจาก Supabase แบบเรียลไทม์ ไม่มีข้อมูลจำลอง</div></div>
@@ -823,6 +823,14 @@ function GeneralSettings({ dark, setDark }) {
 /* ---- Updates / Changelog ---- */
 function UpdatesView() {
   const updates = [
+    { ver: '1.7.0', date: '8 มิ.ย. 2569', type: 'feature', items: [
+      'เพิ่ม "ลบงาน" ในฟอร์มงาน — ย้ายไปถังขยะ กู้คืน/ลบถาวรได้ (เดิมลบงานไม่ได้เลย)',
+      'ปฏิทินปฏิบัติงาน: ชื่องานที่ยาวตัดขึ้นบรรทัดใหม่ (ไม่ถูกตัดด้วย …)',
+      'บันทึกรายวัน: ปฏิทินเริ่มต้นที่ "วันอาทิตย์"',
+      'แก้ Pace ให้ตรงกันทุกหน้า (หน้าบันทึกยอด = Dashboard)',
+      'Empty state กราฟ "ยังไม่มีข้อมูล" สะอาดขึ้น + สีการ์ด ACOS ถูกต้อง (เขียวเมื่อต่ำกว่าเพดาน)',
+      'ผ่าน QA Audit เชิงลึก (Validator + Simulator) — ทดสอบ CRUD + ถังขยะ ครบวงจรกับ Supabase จริง',
+    ]},
     { ver: '1.6.0', date: '8 มิ.ย. 2569', type: 'improvement', items: [
       'รองรับมือถือ & แท็บเล็ตเต็มรูปแบบ — เมนูล่าง, เมนูลิ้นชัก, ปุ่มลัด (+), การ์ดเรียงอัตโนมัติ',
       'จัด UI ให้ขอบตรงกันทุกแถว (แถบเลือกเดือนเท่ากับการ์ดด้านล่าง)',
