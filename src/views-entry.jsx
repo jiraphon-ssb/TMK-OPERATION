@@ -329,11 +329,11 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
             <span className="chip">{ENTERED_DAYS}/{SEL_DAYS} วัน</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 16px 16px' }}>
-            {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
+            {['อา','จ','อ','พ','พฤ','ศ','ส'].map(d => (
               <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
             ))}
-            {/* offset วันแรกของเดือนที่เลือก (จันทร์คอลัมน์แรก) */}
-            {Array.from({ length: (new Date(year - 543, month, 1).getDay() + 6) % 7 }, (_, i) => <div key={'blank-' + i}></div>)}
+            {/* offset วันแรกของเดือนที่เลือก (อาทิตย์คอลัมน์แรก) */}
+            {Array.from({ length: new Date(year - 543, month, 1).getDay() }, (_, i) => <div key={'blank-' + i}></div>)}
             {Array.from({ length: new Date(year - 543, month + 1, 0).getDate() }, (_, i) => {
               const day = i + 1;
               const entered = dayRevMap[day] != null;
@@ -435,11 +435,11 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
           <span className="chip">{ENTERED_DAYS}/{DAYS_IN_MONTH} วัน</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 16px 16px' }}>
-          {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
+          {['อา','จ','อ','พ','พฤ','ศ','ส'].map(d => (
             <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
           ))}
-          {/* offset วันแรกของเดือนจริง (จันทร์เป็นคอลัมน์แรก) */}
-          {Array.from({ length: (new Date(_T.yearCE, _T.month - 1, 1).getDay() + 6) % 7 }, (_, i) => <div key={'blank-' + i}></div>)}
+          {/* offset วันแรกของเดือนจริง (อาทิตย์เป็นคอลัมน์แรก) */}
+          {Array.from({ length: new Date(_T.yearCE, _T.month - 1, 1).getDay() }, (_, i) => <div key={'blank-' + i}></div>)}
           {Array.from({ length: DAYS_IN_MONTH }, (_, i) => {
             const day = i + 1;
             const isToday = day === TODAY;

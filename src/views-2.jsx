@@ -187,7 +187,7 @@ function CalendarView({ tasks, filtered, fProps }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden', flex: 1, minHeight: 0 }}>
           {show.map(t => {
             const c = DD.campaigns.find(x => x.id === t.camp);
-            return <span key={t.id} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 4, background: (c?.color || '#888') + '22', color: c?.color || '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3, flexShrink: 0 }}>{t.title}</span>;
+            return <span key={t.id} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 4, background: (c?.color || '#888') + '22', color: c?.color || '#888', whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25, flexShrink: 0 }}>{t.title}</span>;
           })}
         </div>
         {more > 0 && <span style={{ fontSize: 'var(--fs-micro)', fontWeight: 'var(--fw-sem)', color: 'var(--accent-2)', textAlign: 'center', flexShrink: 0 }}>+{more} งาน</span>}
