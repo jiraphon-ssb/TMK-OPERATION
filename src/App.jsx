@@ -346,18 +346,7 @@ function AppInner() {
             </svg>
           </button>
           <div style={{ position: 'relative' }}>
-            <button className="rail-avatar" onClick={() => setMenu(m => !m)}
-              style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
-              {currentUser && (currentUser.avatarUrl || currentUser.displayName) ? (
-                currentUser.avatarUrl ? (
-                  <img src={currentUser.avatarUrl} alt="" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }} />
-                ) : (
-                  <Avatar name={currentUser.displayName || (currentUser.email || '').split('@')[0]} color="#b07d33" size={34} />
-                )
-              ) : (
-                <Avatar name="มัง" color="#b07d33" size={34} />
-              )}
-            </button>
+            <RailAvatar onClick={() => setMenu(m => !m)} />
             {menu && <ProfileMenu go={go} dark={dark} setDark={setDark} close={() => setMenu(false)} onLogout={logout} />}
           </div>
         </div>
@@ -601,6 +590,20 @@ function AppInner() {
         : null
       )}
     </>
+  );
+}
+
+function RailAvatar({ onClick }) {
+  const { user } = useUser() || {};
+  return (
+    <button className="rail-avatar" onClick={onClick}
+      style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
+      {user?.avatarUrl ? (
+        <img src={user.avatarUrl} alt="" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }} />
+      ) : (
+        <Avatar name={user?.name || 'มัง'} color={user?.color || '#b07d33'} size={34} />
+      )}
+    </button>
   );
 }
 

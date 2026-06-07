@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 import { useUser } from './userContext.jsx';
+import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 
 const DD = TMK;
@@ -680,6 +681,7 @@ function UpdatesView() {
 /* ====================  PROFILE VIEW  ==================== */
 export function ProfileView({ tasks }) {
   const { user } = useUser() || {};
+  const { reload } = useData() || {};
 
   // Fallback if user context not ready
   if (!user) {
@@ -721,7 +723,7 @@ export function ProfileView({ tasks }) {
 
   const saveProfile = async () => {
     try {
-      // 1. Save to Supabase tmk_staff (so it syncs across all users + persists)
+      // 1. Save to Supabase tmk_staff (รูป + ชื่อ + สี)
       const existingStaff = (DD.staff || []).find(s => s.email === user.email);
       const staffId = existingStaff?.id || ('s-' + user.email.split('@')[0].replace(/[^a-z0-9]/gi, ''));
       const { error } = await supabase.from('tmk_staff').upsert({
@@ -734,19 +736,26 @@ export function ProfileView({ tasks }) {
       });
       if (error) throw error;
 
-      // 2. Also sync to tmk_user_roles (the name field)
-      await supabase.from('tmk_user_roles').upsert({
-        email: user.email,
-        role: user.role,
-        name: name.trim() || user.email.split('@')[0],
-      });
+      // 2. Sync ชื่อใน tmk_user_roles
+      try {
+        await supabase.from('tmk_user_roles').upsert({
+          email: user.email,
+          role: user.role,
+          name: name.trim() || user.email.split('@')[0],
+        });
+      } catch (e) {
+        console.warn('tmk_user_roles name sync failed (might be missing column):', e);
+      }
 
-      // 3. Persist to localStorage as cache
+      // 3. Cache to localStorage
       try {
         const saved = JSON.parse(localStorage.getItem('tmk-user') || '{}');
         localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name, avatarUrl: avatar }));
         window.dispatchEvent(new Event('tmk-user-change'));
       } catch {}
+
+      // 4. Force reload data (in case realtime doesn't fire)
+      if (reload) await reload();
 
       if (window.__toast) window.__toast('อัปเดตโปรไฟล์เรียบร้อย', 'success');
     } catch (err) {
@@ -908,6 +917,7 @@ function AuditView() {
 
 /* ====================  DUTIES VIEW (หน้าที่/ตำแหน่ง)  ==================== */
 function DutiesView() {
+  const { reload } = useData() || {};
   const PALETTE = ['#b07d33', '#0a5aa0', '#2f9e6e', '#4a8be0', '#6b5ce0', '#c08a3e', '#ee6a3a', '#cf4d5c'];
   const [editing, setEditing] = useState(null); // duty id
   const [editName, setEditName] = useState('');
@@ -942,6 +952,7 @@ function DutiesView() {
         description: editDesc.trim(),
       }).eq('id', editing);
       if (error) throw error;
+      if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตหน้าที่เรียบร้อย', 'success');
     } catch (err) {
@@ -960,6 +971,8 @@ function DutiesView() {
     try {
       const { error } = await supabase.from('tmk_duties').delete().eq('id', duty.id);
       if (error) throw error;
+      if (reload) await reload();
+      setEditing(null);
       if (window.__toast) window.__toast('ลบหน้าที่เรียบร้อย', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
@@ -985,6 +998,7 @@ function DutiesView() {
         sort_order: maxOrder + 1,
       });
       if (error) throw error;
+      if (reload) await reload();
       setNewName(''); setNewColor(PALETTE[0]); setNewDesc(''); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มหน้าที่เรียบร้อย', 'success');
     } catch (err) {
@@ -1124,6 +1138,7 @@ function DutiesView() {
 }
 
 function RolesView() {
+  const { reload } = useData() || {};
   const roleMeta = {
     admin: { l: 'ผู้ดูแลระบบ', cls: 'chip-accent' },
     editor: { l: 'แก้ไขได้', cls: 'chip-good' },
@@ -1164,34 +1179,50 @@ function RolesView() {
     setEditAvatar(u.avatar || '');
   };
 
-  // Save edit ลง Supabase จริง
+  // Save edit ลง Supabase จริง — defensive: ลอง column ใหม่ก่อน → fallback
   const saveEdit = async () => {
     setBusy(true);
     try {
       const duty = DUTIES.find(d => d.id === editDutyId);
 
-      // Update tmk_user_roles
-      const { error: e1 } = await supabase.from('tmk_user_roles').upsert({
+      // === 1. Update tmk_user_roles ===
+      // ลองรวม duty_id ก่อน (ถ้า migration duties-system รันแล้ว)
+      let { error: e1 } = await supabase.from('tmk_user_roles').upsert({
         email: editing,
         role: editRole,
         name: editName,
         department: duty?.name || '',
         duty_id: editDutyId || null,
       });
-      if (e1) throw e1;
+      // ถ้า column ไม่มี (duty_id หรืออื่น) → ลองแบบไม่มี
+      if (e1 && /column .* does not exist/i.test(e1.message)) {
+        console.warn('Falling back: duty_id column missing', e1.message);
+        const { error: e1b } = await supabase.from('tmk_user_roles').upsert({
+          email: editing,
+          role: editRole,
+        });
+        if (e1b) throw e1b;
+      } else if (e1) throw e1;
 
-      // Update tmk_staff (sync name/department/color)
+      // === 2. Update tmk_staff (รูป + ชื่อ + สี) ===
       const existingStaff = (TMK.staff || []).find(s => s.email === editing);
       const staffId = existingStaff?.id || ('s-' + editing.split('@')[0].replace(/[^a-z0-9]/gi, ''));
       const { error: e2 } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name: editName,
-        role: duty?.name || 'Staff',
+        role: duty?.name || existingStaff?.role || 'Staff',
         email: editing,
-        color: duty?.color || '#3b82f6',
+        color: duty?.color || existingStaff?.color || '#3b82f6',
         avatar_url: editAvatar || '',
       });
-      if (e2) throw e2;
+      if (e2) {
+        // log แต่ไม่ throw — let user_roles save succeed
+        console.error('tmk_staff upsert failed:', e2);
+        if (window.__toast) window.__toast('บันทึกรูป/ชื่อใน staff ไม่สำเร็จ: ' + e2.message, 'warn');
+      }
+
+      // === 3. Force reload data (in case realtime doesn't fire) ===
+      if (reload) await reload();
 
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตผู้ใช้เรียบร้อย', 'success');
@@ -1212,6 +1243,8 @@ function RolesView() {
     try {
       await supabase.from('tmk_user_roles').delete().eq('email', email);
       await supabase.from('tmk_staff').delete().eq('email', email);
+      if (reload) await reload();
+      setEditing(null);
       if (window.__toast) window.__toast('ลบผู้ใช้เรียบร้อย', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
@@ -1257,6 +1290,7 @@ function RolesView() {
       if (e2) throw e2;
 
       setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || '');
+      if (reload) await reload();
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
     } catch (err) {
       console.error(err);
