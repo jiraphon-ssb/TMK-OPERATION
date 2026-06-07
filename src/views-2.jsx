@@ -248,7 +248,7 @@ function CalendarView({ tasks, filtered, fProps }) {
                 </div>
                 <div className="row" style={{ gap: 6 }}>
                   <span className="cap">ผู้รับผิดชอบ:</span>
-                  {t.responsible.map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <span key={r} className="chip" style={{ background: s.color + '1c', color: s.color }}>{r}</span>; })}
+                  {(t.responsible || []).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <span key={r} className="chip" style={{ background: s.color + '1c', color: s.color }}>{r}</span>; })}
                 </div>
               </div>
             );
@@ -319,7 +319,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                         <TaskChannels channel={t.channel} size={16} />
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span className="cap">{t.date}</span>
-                          {t.responsible.slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
+                          {(t.responsible || []).slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
                         </div>
                       </div>
                     </div>
@@ -345,8 +345,8 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
 
 /* ---- Smart Planner Timeline (vertical) ---- */
 function TimelineView({ filtered, fProps }) {
-  const parse = s => +s.match(/^(\d+)/)[1];
-  const TODAY = 18;
+  const parse = s => { const m = String(s || '').match(/^(\d+)/); return m ? +m[1] : 0; };
+  const TODAY = getToday().day;
   const stMeta = { live: { l: 'Live', cls: 'chip-good' }, upcoming: { l: 'เตรียม', cls: 'chip-accent' }, done: { l: 'จบ', cls: '' } };
 
   // Campaign progress
@@ -434,7 +434,7 @@ function TimelineView({ filtered, fProps }) {
                           <TaskChannels channel={t.channel} size={16} />
                           <span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span>
                           <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
-                            {t.responsible.map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Avatar key={r} name={r} color={s.color} size={22} />; })}
+                            {(t.responsible || []).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Avatar key={r} name={r} color={s.color} size={22} />; })}
                           </div>
                         </div>
                       </div>
@@ -2138,7 +2138,8 @@ function TrashView() {
       const { error } = await supabase.from(it.meta.table).delete().eq(it.meta.key, it.id);
       if (error) throw error;
       if (it.meta.table === 'tmk_user_roles') {
-        await supabase.from('tmk_staff').delete().eq('email', it.id);
+        const { error: e2 } = await supabase.from('tmk_staff').delete().eq('email', it.id);
+        if (e2) throw e2;
       }
       logAudit({ action: 'purge', entityType: it.meta.type, entityName: it.name, summary: `ลบถาวร${it.meta.type} "${it.name}"` });
       if (window.__toast) window.__toast(`ลบถาวร "${it.name}" แล้ว`, 'success');

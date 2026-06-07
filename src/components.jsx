@@ -99,7 +99,8 @@ export function useCountUp(target, ms = 900) {
 
 /* ---------- Avatar ---------- */
 export function Avatar({ name, color, size = 28 }) {
-  const initials = name.length <= 2 ? name : name.slice(0, 2);
+  const safe = String(name || '?');
+  const initials = safe.length <= 2 ? safe : safe.slice(0, 2);
   return <span className="avatar" style={{ background: color, width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
 }
 

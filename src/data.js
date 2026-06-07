@@ -13,6 +13,7 @@ export const TMK = {
   month3: [],
   yoy: [],
   monthly: [],
+  dailyAll: [],
   products: [],
   colorMix: [],
   sizeMix: [],

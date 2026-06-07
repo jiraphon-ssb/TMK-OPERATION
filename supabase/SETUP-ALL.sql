@@ -315,6 +315,11 @@ alter table public.tmk_monthly_history   add column if not exists messages integ
 -- ค่าตั้งค่ารายเดือน (เป้า/งบ/เป้าต่อช่อง ฯลฯ) เก็บแยกแต่ละเดือน
 alter table public.tmk_monthly_history   add column if not exists meta jsonb not null default '{}'::jsonb;
 
+-- รายละเอียดต่อช่องทางรายวัน (orders/ลูกค้า/แชท): { id: { rev, ord, ad, inq, newC, oldC } }
+alter table public.tmk_daily_sales       add column if not exists channels jsonb not null default '{}'::jsonb;
+-- เวลาตอบแชทเฉลี่ย/วัน (นาที)
+alter table public.tmk_daily_sales       add column if not exists avg_reply_minutes numeric not null default 0;
+
 -- ============================================================
 -- SECTION 5 — Indexes
 -- ============================================================

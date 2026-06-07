@@ -181,6 +181,24 @@ function mapToTMK(raw) {
     strategy: p.strategy || '',
   }));
 
+  // dailyAll — ทุกแถว daily ทุกเดือน + รายละเอียดต่อช่องทาง (สำหรับ dashboard รายเดือน)
+  const _chIds = (raw.channels || []).map(c => c.id);
+  const dailyAll = (raw.daily || []).map(d => {
+    const [yy, mm, dd] = String(d.date).split('-').map(Number);
+    const cj = (d.channels && typeof d.channels === 'object') ? d.channels : {};
+    const ch = {};
+    _chIds.forEach(id => {
+      const j = cj[id] || {};
+      const legacyCol = DAILY_COL[id];
+      ch[id] = {
+        rev: Number(j.rev != null ? j.rev : (legacyCol ? d[legacyCol] : 0)) || 0,
+        ord: Number(j.ord || 0), ad: Number(j.ad || 0), inq: Number(j.inq || 0),
+        newC: Number(j.newC || 0), oldC: Number(j.oldC || 0),
+      };
+    });
+    return { date: d.date, year: yy + 543, month: mm, day: dd, adSpend: Number(d.ad_spend || 0), replyMin: Number(d.avg_reply_minutes || 0), note: d.note || '', dayName: d.day_name || '', ch };
+  });
+
   // Daily sales — แปลงเป็น dailyMonth (1-30) + dailyLog (7 ล่าสุด)
   const daily = raw.daily || [];
   const dailyMonth = daily.map((d, i) => {
@@ -331,12 +349,13 @@ function mapToTMK(raw) {
     month: Number(m.month), year: Number(m.year), monthTh: m.month_th,
     target: Number(m.target || 0), actual: Number(m.actual || 0),
     projected: Number(m.projected || 0), orders: Number(m.orders || 0),
+    adSpend: Number(m.ad_spend || 0), newCust: Number(m.new_cust || 0),
     messages: Number(m.messages || 0), meta: m.meta || {},
   }));
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
-    channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw,
+    channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw, dailyAll,
     colorMix, sizeMix, staff, poTracker, fb, fbMsgTrend, audit, roles, duties,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
@@ -346,6 +365,8 @@ function mapToTMK(raw) {
       spent: Number(c.spent || 0),
       roas: Number(c.roas || 0),
       status: c.status || 'live',
+      startDate: c.start_date || null,
+      endDate: c.end_date || null,
     })),
     segments: (raw.segments || []).map(s => ({
       name: s.name,
@@ -358,6 +379,88 @@ function mapToTMK(raw) {
   };
 }
 
+const _ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+// แคมเปญแอดอยู่ในเดือนที่เลือกหรือไม่ (ช่วงวันที่ทับซ้อนเดือน) — ไม่มีวันที่ = แสดงทุกเดือน
+export function adCampaignInMonth(c, monthIdx0, yearBE) {
+  if (!c.startDate && !c.endDate) return true;
+  const yearCE = yearBE - 543;
+  const mStart = new Date(yearCE, monthIdx0, 1);
+  const mEnd = new Date(yearCE, monthIdx0 + 1, 0, 23, 59, 59);
+  const s = c.startDate ? new Date(c.startDate) : mStart;
+  const e = c.endDate ? new Date(c.endDate) : mEnd;
+  return s <= mEnd && e >= mStart;
+}
+// คำนวณข้อมูลของ "เดือนที่เลือก" จาก TMK.dailyAll + TMK.monthly + TMK.channels
+// ใช้ใน SalesView เพื่อให้เปลี่ยนเดือนแล้วข้อมูลเปลี่ยนตาม (อดีต/ปัจจุบัน/อนาคต)
+export function computeMonth(monthIdx0, yearBE) {
+  const monthNum = monthIdx0 + 1;
+  const today = getToday();
+  const isCurrent = yearBE === today.yearBE && monthNum === today.month;
+  const isFuture = yearBE > today.yearBE || (yearBE === today.yearBE && monthNum > today.month);
+  const DAYS = new Date(yearBE - 543, monthNum, 0).getDate();
+  const DAY = isCurrent ? today.day : isFuture ? 0 : DAYS;
+
+  const rows = (TMK.dailyAll || []).filter(r => r.year === yearBE && r.month === monthNum);
+  const mRow = (TMK.monthly || []).find(m => m.year === yearBE && m.month === monthNum);
+  const meta = (mRow && mRow.meta) || {};
+  const TARGET = Number(mRow?.target || 0);
+  const AD_BUDGET = Number(meta.adBudget || 0);
+  const ACOS_CEIL = Number(meta.acosCeil || 25);
+
+  const channels = (TMK.channels || []).map(base => {
+    let rev = 0, ord = 0, ad = 0, newC = 0, oldC = 0, inq = 0;
+    rows.forEach(r => { const c = r.ch[base.id]; if (c) { rev += c.rev; ord += c.ord; ad += c.ad; newC += c.newC; oldC += c.oldC; inq += (c.inq || 0); } });
+    return { ...base, actual: rev, orders: ord, ad, newCust: newC, oldCust: oldC, inq, newRev: 0, oldRev: 0,
+      target: Number((meta.channelTargets && meta.channelTargets[base.id]) || 0) };
+  });
+
+  const MTD = channels.reduce((s, c) => s + c.actual, 0);
+  const ORD = channels.reduce((s, c) => s + c.orders, 0);
+  const AD = rows.reduce((s, r) => s + r.adSpend, 0);
+  const NEW_C = channels.reduce((s, c) => s + c.newCust, 0);
+  const OLD_C = channels.reduce((s, c) => s + c.oldCust, 0);
+  const AOV = ORD > 0 ? MTD / ORD : 0;
+  const PACE_TGT = (DAYS > 0 && DAY > 0) ? Math.round((TARGET / DAYS) * DAY) : 0;
+  const PACE_PCT = PACE_TGT > 0 ? (MTD / PACE_TGT) * 100 : 0;
+  const RUN = DAY > 0 ? Math.round((MTD / DAY) * DAYS) : 0;
+  const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
+  const CAC = NEW_C > 0 ? AD / NEW_C : 0;
+
+  const dailyMonth = rows.map(r => ({ d: r.day, rev: Object.values(r.ch).reduce((s, c) => s + c.rev, 0) }));
+  const dailyLog = [...rows].sort((a, b) => b.day - a.day).slice(0, 7).map(r => ({
+    date: `${r.day} ${_ABBR[monthNum - 1]}`, day: r.dayName,
+    shopee: r.ch.shopee?.rev || 0, tiktok: r.ch.tiktok?.rev || 0, lazada: r.ch.lazada?.rev || 0,
+    facebook: r.ch.facebook?.rev || 0, line: r.ch.line?.rev || 0, crm: r.ch.crm?.rev || 0,
+    ad: r.adSpend, note: r.note,
+  }));
+
+  // FB deep-dive ของเดือนที่เลือก — มาจากช่องทาง facebook รายวันของเดือนนั้น
+  const fbCh = channels.find(c => c.id === 'facebook') || { actual: 0, orders: 0, ad: 0, newCust: 0, oldCust: 0, inq: 0 };
+  const fb = {
+    revenue: fbCh.actual, spend: fbCh.ad, inquiries: fbCh.inq || 0, orders: fbCh.orders,
+    newCust: fbCh.newCust, oldCust: fbCh.oldCust,
+    roas: fbCh.ad > 0 ? fbCh.actual / fbCh.ad : 0,
+    acos: fbCh.actual > 0 ? (fbCh.ad / fbCh.actual) * 100 : 0,
+    conv: (fbCh.inq || 0) > 0 ? (fbCh.orders / fbCh.inq) * 100 : 0,
+    aov: fbCh.orders > 0 ? fbCh.actual / fbCh.orders : 0,
+    cpInq: (fbCh.inq || 0) > 0 ? fbCh.ad / fbCh.inq : 0,
+    cpOrd: fbCh.orders > 0 ? fbCh.ad / fbCh.orders : 0,
+    cac: fbCh.newCust > 0 ? fbCh.ad / fbCh.newCust : 0,
+    // เวลาตอบแชทเฉลี่ย = เฉลี่ยจากค่าที่กรอกรายวันของเดือนนั้น (นับเฉพาะวันที่กรอก > 0)
+    avgReplyMinutes: (() => {
+      const v = rows.map(r => r.replyMin).filter(x => x > 0);
+      return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0;
+    })(),
+  };
+
+  return {
+    consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET },
+    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb,
+    computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
+  };
+}
+
 // Mutate TMK in-place — views ที่ import TMK จะเห็นค่าใหม่
 function mutateTMK(mapped) {
   // Replace nested objects
@@ -365,7 +468,7 @@ function mutateTMK(mapped) {
   Object.assign(TMK.computed, mapped.computed);
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
-  ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly',
+  ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
    'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles','duties',
    'adCampaigns','segments'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];

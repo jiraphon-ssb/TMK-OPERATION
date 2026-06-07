@@ -9,9 +9,13 @@ import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { parseTaskDate, getToday, todayISO, thaiDate } from './lib/dateUtils.js';
 import { logAudit } from './lib/audit.js';
+import { computeMonth } from './dataContext.jsx';
 
 // Toast helper
 const toast = (m, k = 'success') => window.__toast?.(m, k);
+
+// ID ที่ไม่ชนกัน (กันกดบันทึกซ้ำ/หลายคนพร้อมกัน → ข้อมูลซ้ำหรือทับกัน)
+const uid = (prefix) => prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 // Generic save wrapper — ส่ง audit (optional) เพื่อบันทึกประวัติการใช้งานเมื่อสำเร็จ
 async function saveRow(table, row, label = 'บันทึก', audit = null) {
@@ -29,7 +33,6 @@ async function saveRow(table, row, label = 'บันทึก', audit = null) {
 }
 
 const MD = TMK;
-const { TARGET: M_TARGET, DAY: M_DAY, DAYS: M_DAYS, ACOS_CEIL: M_ACOS } = TMK.consts;
 
 /* ---------- Modal shell ---------- */
 export function Modal({ icon, title, sub, onClose, footer, wide, children }) {
@@ -69,22 +72,29 @@ export function RecordSalesModal({ data, onClose }) {
   const [loading, setLoading] = useState(false);
 
   // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
+  const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
+  const numStr = (v) => (v != null && Number(v)) ? String(v) : '';
   useEffect(() => {
     let cancel = false;
-    const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
     setLoading(true);
     (async () => {
       const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', 'd-' + date).maybeSingle();
       if (cancel) return;
       if (row) {
+        const cj = (row.channels && typeof row.channels === 'object') ? row.channels : {};
         setRows(MD.channels.map(c => {
+          const j = cj[c.id] || {};
           const col = colMap[c.id];
-          return { id: c.id, rev: col && row[col] ? String(row[col]) : '', ord: '', ad: '', inq: '', newC: '', oldC: '' };
+          // รายได้: เอาจาก jsonb ก่อน, ถ้าไม่มี fallback คอลัมน์เดิม (ข้อมูลเก่า)
+          const rev = j.rev != null ? j.rev : (col ? row[col] : 0);
+          return { id: c.id, rev: numStr(rev), ord: numStr(j.ord), ad: numStr(j.ad), inq: numStr(j.inq), newC: numStr(j.newC), oldC: numStr(j.oldC) };
         }));
         setNote(row.note || '');
+        setChatTime(numStr(row.avg_reply_minutes));
       } else {
         setRows(emptyRows());
         setNote('');
+        setChatTime('');
       }
       setLoading(false);
     })();
@@ -106,26 +116,37 @@ export function RecordSalesModal({ data, onClose }) {
       const d = new Date(date);
       const day_name = dayNames[d.getDay()] || '';
       const byId = Object.fromEntries(rows.map(r => [r.id, r]));
-      const channelMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
+      // per-channel jsonb เก็บครบทุก field (rev/ord/ad/inq/newC/oldC) — กันข้อมูลหาย
+      const channels = {};
+      for (const r of rows) {
+        channels[r.id] = {
+          rev: Number(r.rev) || 0, ord: Number(r.ord) || 0, ad: Number(r.ad) || 0,
+          inq: Number(r.inq) || 0, newC: Number(r.newC) || 0, oldC: Number(r.oldC) || 0,
+        };
+      }
       const row = {
         id: 'd-' + date,
         date,
         day_name,
+        // คอลัมน์เดิม (รายได้) — คงไว้เพื่อ backward-compat
         shopee: Number(byId.shopee?.rev) || 0,
         tiktok: Number(byId.tiktok?.rev) || 0,
         lazada: Number(byId.lazada?.rev) || 0,
         facebook: Number(byId.facebook?.rev) || 0,
         line_oa: Number(byId.line?.rev) || 0,
         crm: Number(byId.crm?.rev) || 0,
+        channels,
         ad_spend: rows.reduce((a, r) => a + (Number(r.ad) || 0), 0),
+        avg_reply_minutes: Number(chatTime) || 0,
         note: note || '',
       };
-      // map any other channel ids that happen to match column names
-      for (const r of rows) {
-        const col = channelMap[r.id];
-        if (col && row[col] === 0) row[col] = Number(r.rev) || 0;
+      let { error } = await supabase.from('tmk_daily_sales').upsert(row);
+      // ถ้ายังไม่ได้รัน migration (ไม่มีคอลัมน์ channels/avg_reply_minutes) → บันทึกแบบ core columns (รายได้ยังเก็บได้)
+      if (error && /channels|avg_reply_minutes/i.test(error.message || '')) {
+        const { channels: _c, avg_reply_minutes: _a, ...legacy } = row;
+        console.warn('tmk_daily_sales: ยังไม่มีคอลัมน์เสริม — บันทึกเฉพาะคอลัมน์หลัก รัน migration 20260608-daily-channel-detail.sql และ 20260608-daily-reply-time.sql');
+        ({ error } = await supabase.from('tmk_daily_sales').upsert(legacy));
       }
-      const { error } = await supabase.from('tmk_daily_sales').upsert(row);
       if (error) throw error;
       logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date}` });
       toast(t('toastSaved'), 'success');
@@ -136,7 +157,13 @@ export function RecordSalesModal({ data, onClose }) {
     } finally { setSaving(false); }
   };
 
-  const MTD = MD.computed.MTD;
+  // ค่าคงที่ + ยอดของ "เดือนของวันที่เลือก" (ไม่ใช่ค่า global ที่ค้างจาก import)
+  const sel = useMemo(() => {
+    const [yy, mm] = String(date).split('-').map(Number);
+    return computeMonth((mm || 1) - 1, (yy || 2026) + 543);
+  }, [date]);
+  const M_TARGET = sel.consts.TARGET, M_DAY = sel.consts.DAY, M_DAYS = sel.consts.DAYS, M_ACOS = sel.consts.ACOS_CEIL;
+  const MTD = sel.computed.MTD;
   const s = useMemo(() => {
     const tRev = rows.reduce((a, r) => a + (+r.rev || 0), 0);
     const tOrd = rows.reduce((a, r) => a + (+r.ord || 0), 0);
@@ -146,9 +173,9 @@ export function RecordSalesModal({ data, onClose }) {
     const aov = tOrd > 0 ? tRev / tOrd : 0;
     const acos = tRev > 0 ? (tAd / tRev) * 100 : 0;
     const newMtd = MTD + tRev;
-    const pPct = (newMtd / ((M_TARGET / M_DAYS) * (M_DAY + 1))) * 100;
+    const pPct = M_TARGET > 0 ? (newMtd / ((M_TARGET / M_DAYS) * (M_DAY + 1))) * 100 : 0;
     const rr = Math.round(newMtd / (M_DAY + 1) * M_DAYS);
-    const avg = MD.dailyMonth.reduce((a, d) => a + d.rev, 0) / MD.dailyMonth.length;
+    const avg = sel.dailyMonth.length > 0 ? sel.dailyMonth.reduce((a, d) => a + d.rev, 0) / sel.dailyMonth.length : 0;
     const vsAvg = avg > 0 ? ((tRev - avg) / avg) * 100 : 0;
     const tips = [];
     if (tRev > 0) {
@@ -161,7 +188,7 @@ export function RecordSalesModal({ data, onClose }) {
       else tips.push({ c: 'var(--warn)', m: `Pace ${pPct.toFixed(0)}% — ต้องเร่ง` });
     }
     return { tRev, tOrd, tAd, aov, acos, newMtd, pPct, rr, vsAvg, tips, ok: tRev > 0, tNewC, tOldC };
-  }, [rows]);
+  }, [rows, sel]);
 
   const footer = step === 1 ? (
     <>
@@ -335,7 +362,7 @@ export function TaskModal({ data, onClose, onSubmit }) {
   const footer = (
     <>
       <button className="btn" onClick={onClose}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={!valid} style={{ opacity: valid ? 1 : 0.5 }} onClick={() => valid && onSubmit({ ...f, id: data?.id || 'tn' + Date.now() })}>
+      <button className="btn btn-primary" disabled={!valid} style={{ opacity: valid ? 1 : 0.5 }} onClick={() => valid && onSubmit({ ...f, id: data?.id || uid('tn') })}>
         <Icon name="check" /> {edit ? 'บันทึกการแก้ไข' : 'เพิ่มงาน'}
       </button>
     </>
@@ -398,7 +425,7 @@ export function ProductModal({ data, onClose }) {
     if (busy || !f.name.trim()) return;
     setBusy(true);
     const row = {
-      id: data?.id || 'p' + Date.now(),
+      id: data?.id || uid('p'),
       name: f.name.trim(),
       price: Number(f.price) || 0,
       target_units: Number(f.units) || 0,
@@ -444,7 +471,7 @@ export function CampaignModal({ data, onClose }) {
     if (busy || !f.name.trim()) return;
     setBusy(true);
     const row = {
-      id: data?.id || 'c' + Date.now(),
+      id: data?.id || uid('c'),
       name: f.name.trim(),
       color: f.color,
       bg: f.color + '22',
@@ -508,7 +535,7 @@ export function POModal({ data, onClose }) {
     if (busy || !f.product) return;
     setBusy(true);
     const row = {
-      id: data?.id || 'po' + Date.now(),
+      id: data?.id || uid('po'),
       product: f.product,
       quantity: Number(f.quantity) || 0,
       order_date: parseTaskDate(f.orderDate) || new Date().toISOString().slice(0, 10),
@@ -713,7 +740,7 @@ export function AdCampaignModal({ data, onClose }) {
     if (busy || !f.name.trim()) return;
     setBusy(true);
     const row = {
-      id: data?.id || 'ac' + Date.now(),
+      id: data?.id || uid('ac'),
       name: f.name.trim(),
       platform: f.platform,
       budget: Number(f.budget) || 0,
@@ -894,8 +921,8 @@ export function HistoricalEntryModal({ onClose }) {
       month: m,
       rev: ref && ref.actual ? ref.actual : '',
       orders: ref && ref.orders ? ref.orders : '',
-      ad: '',
-      newCust: '',
+      ad: ref && ref.adSpend ? ref.adSpend : '',
+      newCust: ref && ref.newCust ? ref.newCust : '',
       messages: ref && ref.messages ? ref.messages : '',
     };
   });
@@ -910,19 +937,24 @@ export function HistoricalEntryModal({ onClose }) {
       const dbRows = rows
         .map((r, i) => ({ r, i }))
         .filter(({ r }) => r.rev !== '' || r.orders !== '' || r.ad !== '' || r.newCust !== '' || r.messages !== '')
-        .map(({ r, i }) => ({
-          id: `${year}-${String(i + 1).padStart(2, '0')}`,
-          month: i + 1,
-          year,
-          month_th: r.month,
-          target: 0,
-          actual: Number(r.rev) || 0,
-          projected: 0,
-          orders: Number(r.orders) || 0,
-          ad_spend: Number(r.ad) || 0,
-          new_cust: Number(r.newCust) || 0,
-          messages: Number(r.messages) || 0,
-        }));
+        .map(({ r, i }) => {
+          // คงค่า target/projected/meta เดิม (ตั้งจากหน้า "ตั้งค่ารายเดือน") ไม่ให้ถูกล้างเป็น 0
+          const ex = monthlyRef.find(m => m.year === year && m.month === i + 1);
+          return {
+            id: `${year}-${String(i + 1).padStart(2, '0')}`,
+            month: i + 1,
+            year,
+            month_th: r.month,
+            target: ex?.target || 0,
+            actual: Number(r.rev) || 0,
+            projected: ex?.projected || 0,
+            orders: Number(r.orders) || 0,
+            ad_spend: Number(r.ad) || 0,
+            new_cust: Number(r.newCust) || 0,
+            messages: Number(r.messages) || 0,
+            meta: ex?.meta || {},
+          };
+        });
       if (dbRows.length === 0) { toast('ไม่มีข้อมูลให้บันทึก', 'error'); setBusy(false); return; }
       const { error } = await supabase.from('tmk_monthly_history').upsert(dbRows);
       if (error) throw error;

@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, N, P, Icon, Ring } from './components.jsx';
 import { getToday } from './lib/dateUtils.js';
+import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
 
 const DD = TMK;
 
@@ -18,11 +19,6 @@ const NOW_MONTH = _T.month - 1; // 0-indexed
 const NOW_YEAR  = _T.yearBE;
 const TODAY = _T.day;
 const DAYS_IN_MONTH = _T.daysInMonth;
-
-// จำนวนวันที่กรอกยอดแล้วในเดือนนี้ (จาก daily จริง) — เรียกใน component (TMK โหลดแล้ว)
-function enteredDays() { return (DD.dailyMonth || []).length; }
-// แผนที่ day → ยอดขาย (จาก daily จริง)
-function buildDayRevMap() { const m = {}; (DD.dailyMonth || []).forEach(d => { m[d.d] = d.rev; }); return m; }
 
 // สร้างข้อมูลรายไตรมาสจาก monthly จริง (TMK.monthly) — qIndex 0-3
 function quarterData(year, qIndex) {
@@ -272,10 +268,14 @@ export function EntryView({ sub }) {
 function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
   const { isCurrent, isPast, isFuture } = mode;
   const [editing, setEditing] = useState(false);
-  const todayLog = DD.dailyLog[0];
-  const dayRevMap = buildDayRevMap();
-  const ENTERED_DAYS = enteredDays();
-  const todayEntered = false;
+  // ข้อมูลของ "เดือนที่เลือก" — เปลี่ยนเดือนแล้วปฏิทิน/ตารางเปลี่ยนตาม
+  const md = computeMonth(month, year);
+  const dailyLog = md.dailyLog;
+  const todayLog = dailyLog[0];
+  const dayRevMap = {}; md.dailyMonth.forEach(d => { dayRevMap[d.d] = d.rev; });
+  const ENTERED_DAYS = md.enteredDays;
+  const SEL_DAYS = md.consts.DAYS;
+  const todayEntered = isCurrent && md.dailyMonth.some(d => d.d === TODAY);
   const totalToday = todayLog ? todayLog.shopee + todayLog.tiktok + todayLog.lazada + todayLog.facebook + todayLog.line + todayLog.crm : 0;
 
   /* ---- FUTURE ---- */
@@ -327,24 +327,29 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
               <div className="eyebrow">ปฏิทินการกรอก</div>
               <div className="h3">{monthLabel} {year}</div>
             </div>
-            <span className="chip">{ENTERED_DAYS}/{DAYS_IN_MONTH} วัน</span>
+            <span className="chip">{ENTERED_DAYS}/{SEL_DAYS} วัน</span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 6, padding: '0 16px 16px' }}>
             {['จ','อ','พ','พฤ','ศ','ส','อา'].map(d => (
               <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
             ))}
+            {/* offset วันแรกของเดือนที่เลือก (จันทร์คอลัมน์แรก) */}
+            {Array.from({ length: (new Date(year - 543, month, 1).getDay() + 6) % 7 }, (_, i) => <div key={'blank-' + i}></div>)}
             {Array.from({ length: new Date(year - 543, month + 1, 0).getDate() }, (_, i) => {
               const day = i + 1;
+              const entered = dayRevMap[day] != null;
+              const rev = dayRevMap[day];
               const iso = `${year - 543}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
               return (
                 <div key={day} style={{
                   textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
-                  background: 'var(--surface-2)', border: '1px solid var(--line)',
+                  background: entered ? 'var(--good-soft)' : 'var(--surface-2)', border: '1px solid var(--line)',
                   cursor: editing ? 'pointer' : 'default',
                   outline: editing ? '1px dashed var(--accent)' : 'none',
                 }}
                 onClick={() => { if (editing) window.__openModal('record', { date: iso }); }}>
-                  <div className="sm" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>{day}</div>
+                  <div className="sm" style={{ fontWeight: 600, color: entered ? 'var(--good)' : 'var(--ink-3)' }}>{day}</div>
+                  {entered && rev ? <div className="cap" style={{ fontSize: 9, color: 'var(--ink-3)' }}>{Bk(rev)}</div> : null}
                 </div>
               );
             })}
@@ -370,13 +375,15 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
                 </tr>
               </thead>
               <tbody>
-                {DD.dailyLog.map((log, i) => {
+                {dailyLog.length === 0 ? (
+                  <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีข้อมูลเดือนนี้</td></tr>
+                ) : dailyLog.map((log, i) => {
                   const total = log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
                   return (
                     <tr key={i}>
                       <td><span className="sm" style={{ fontWeight: 600 }}>{log.date}</span></td>
                       <td style={{ textAlign: 'right' }}><span className="num">{B(total)}</span></td>
-                      <td style={{ textAlign: 'right' }}><span className="sm">{Math.round(total / 280)}</span></td>
+                      <td style={{ textAlign: 'right' }}><span className="sm">—</span></td>
                       <td style={{ textAlign: 'center' }}><span className="chip chip-good">กรอกแล้ว</span></td>
                     </tr>
                   );
@@ -480,7 +487,9 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
               </tr>
             </thead>
             <tbody>
-              {DD.dailyLog.map((log, i) => {
+              {dailyLog.length === 0 ? (
+                <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีข้อมูล — กรอกยอดวันแรกได้เลย</td></tr>
+              ) : dailyLog.map((log, i) => {
                 const total = log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
                 const dayNum = parseInt(log.date);
                 const entered = dayNum < TODAY;
@@ -533,7 +542,9 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
   const adBudgetOf = (id) => Number((selMeta.adChannels && selMeta.adChannels[id]) || 0);
   const targetSet = selTarget > 0;
   const adBudgetSet = selAdBudget > 0;
-  const adCampCount = (DD.adCampaigns || []).length;
+  const selMd = computeMonth(month, year);
+  const monthAdCamps = (DD.adCampaigns || []).filter(c => adCampaignInMonth(c, month, year));
+  const adCampCount = monthAdCamps.length;
   const segSet = (DD.segments || []).length > 0;
   const monthsFilled = (DD.monthly || []).filter(m => m.year === year && m.actual > 0).length;
   const items = [
@@ -608,8 +619,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
       extra: (
         <div style={{ marginTop: 10 }}>
           <div className="row" style={{ gap: 12 }}>
-            <div className="cap">ลูกค้าใหม่ <span className="num" style={{ fontSize: 'var(--fs-sm)' }}>{N(DD.computed.NEW_C)}</span></div>
-            <div className="cap">ลูกค้าเดิม <span className="num" style={{ fontSize: 'var(--fs-sm)' }}>{N(DD.computed.OLD_C)}</span></div>
+            <div className="cap">ลูกค้าใหม่ <span className="num" style={{ fontSize: 'var(--fs-sm)' }}>{N(selMd.computed.NEW_C)}</span></div>
+            <div className="cap">ลูกค้าเดิม <span className="num" style={{ fontSize: 'var(--fs-sm)' }}>{N(selMd.computed.OLD_C)}</span></div>
           </div>
         </div>
       ),
@@ -760,7 +771,8 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
 /* ====================  STATUS OVERVIEW  ==================== */
 function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
   const { isCurrent, isPast, isFuture } = mode;
-  const ENTERED_DAYS = enteredDays();
+  const md = computeMonth(month, year);
+  const ENTERED_DAYS = md.enteredDays;
 
   /* ---- FUTURE ---- */
   if (isFuture) {
@@ -852,17 +864,17 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
     );
   }
 
-  /* ---- CURRENT (default) — ทุกค่ามาจากข้อมูลจริง ---- */
-  const targetSet = (DD.consts.TARGET || 0) > 0;
-  const adBudgetSet = (DD.consts.AD_BUDGET || 0) > 0;
+  /* ---- CURRENT (default) — ทุกค่ามาจากข้อมูลจริงของเดือนที่เลือก ---- */
+  const targetSet = (md.consts.TARGET || 0) > 0;
+  const adBudgetSet = (md.consts.AD_BUDGET || 0) > 0;
   const segSet = (DD.segments || []).length > 0;
-  const monthsFilled = (DD.monthly || []).filter(m => m.year === DD.consts.current_year && m.actual > 0).length;
-  const todayEntered = (DD.dailyMonth || []).some(d => d.d === TODAY);
+  const monthsFilled = (DD.monthly || []).filter(m => m.year === year && m.actual > 0).length;
+  const todayEntered = md.dailyMonth.some(d => d.d === TODAY);
   const checkItems = [
-    { label: `เป้าหมายเดือน ${monthLabel}`, done: targetSet, detail: targetSet ? B(DD.consts.TARGET) : 'ยังไม่ได้ตั้ง', modal: 'monthlyTarget' },
-    { label: 'งบโฆษณา', done: adBudgetSet, detail: adBudgetSet ? B(DD.consts.AD_BUDGET) : 'ยังไม่ได้ตั้ง', modal: 'monthlyTarget' },
+    { label: `เป้าหมายเดือน ${monthLabel}`, done: targetSet, detail: targetSet ? B(md.consts.TARGET) : 'ยังไม่ได้ตั้ง', modal: 'monthlyTarget' },
+    { label: 'งบโฆษณา', done: adBudgetSet, detail: adBudgetSet ? B(md.consts.AD_BUDGET) : 'ยังไม่ได้ตั้ง', modal: 'monthlyTarget' },
     { label: 'กลุ่มลูกค้า', done: segSet, detail: segSet ? `${DD.segments.length} กลุ่ม` : 'ยังไม่อัปเดต', modal: 'customerSegment' },
-    { label: `ยอดขายเดือน ${monthLabel}`, done: ENTERED_DAYS > 0, detail: `กรอกแล้ว ${ENTERED_DAYS}/${DAYS_IN_MONTH} วัน`, modal: 'record' },
+    { label: `ยอดขายเดือน ${monthLabel}`, done: ENTERED_DAYS > 0, detail: `กรอกแล้ว ${ENTERED_DAYS}/${md.consts.DAYS} วัน`, modal: 'record' },
     { label: `ยอดขาย ${TODAY} ${monthLabel} (วันนี้)`, done: todayEntered, detail: todayEntered ? 'กรอกแล้ว' : 'ยังไม่กรอก', modal: 'record' },
     { label: 'ข้อมูลย้อนหลัง', done: monthsFilled > 0, detail: `${monthsFilled}/12 เดือน`, modal: 'historical' },
   ];
