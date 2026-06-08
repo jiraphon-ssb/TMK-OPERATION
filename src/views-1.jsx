@@ -127,7 +127,7 @@ export function HomeView({ go }) {
             <Ring pct={pace} size={128} stroke={11} color={st.c}>
               <div>
                 <div className="num" style={{ fontSize: 26, fontWeight: 700, color: st.c }}>{P(pace, 0)}</div>
-                <div className="cap" style={{ marginTop: 2 }}>Pace</div>
+                <div className="cap" style={{ marginTop: 2, cursor: 'help' }} title="Pace = ยอด MTD เทียบกับเป้าที่ควรได้ ณ วันนี้ (เป้า ÷ จำนวนวัน × วันที่ผ่านมา) · 100% = ตรงเป้า, เกิน 100% = นำเป้า">Pace ⓘ</div>
               </div>
             </Ring>
             <div style={{ marginTop: 8 }}><span className={`chip ${st.cls}`}>{st.label}</span></div>
@@ -654,6 +654,9 @@ function SalesAds({ dateProps, prevMonthName, md }) {
         <div className="table-wrap"><table className="table">
           <thead><tr><th>{'ชื่อแคมเปญ'}</th><th>{'แพลตฟอร์ม'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้ไป'}</th><th style={{textAlign:'right'}}>ROAS</th><th>{'สถานะ'}</th></tr></thead>
           <tbody>
+            {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).length === 0 && (
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีแคมเปญแอดในเดือนนี้ — สร้างที่หน้า "ตั้งค่ารายเดือน"</td></tr>
+            )}
             {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).map((c, i) => {
               const stMap = { live: { l: 'กำลังยิง', cls: 'chip-good' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'จบแล้ว', cls: '' } };
               const s = stMap[c.status] || stMap.done;

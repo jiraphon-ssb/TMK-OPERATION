@@ -230,6 +230,21 @@ function mapToTMK(raw) {
   // ใช้ปี/เดือนจริง (พ.ศ.) เป็นฐาน
   const currentYear = today.yearBE;
   const currentMonth = today.month;
+  // overlay เดือนปัจจุบันด้วยยอดสดจาก daily (ให้ month3/YoY/quarter ตรงกับ dashboard ไม่ใช่ ฿0)
+  {
+    const liveMTD = Object.values(dailyAgg).reduce((s, c) => s + (c.rev || 0), 0);
+    const liveORD = Object.values(dailyAgg).reduce((s, c) => s + (c.ord || 0), 0);
+    if (liveMTD > 0) {
+      const cur = monthly.find(m => Number(m.year) === currentYear && Number(m.month) === currentMonth);
+      if (cur) {
+        if (liveMTD > Number(cur.actual || 0)) cur.actual = liveMTD;
+        if (liveORD > Number(cur.orders || 0)) cur.orders = liveORD;
+        if (dailyAdTotal > Number(cur.ad_spend || 0)) cur.ad_spend = dailyAdTotal;
+      } else {
+        monthly.push({ year: currentYear, month: currentMonth, month_th: THAI_MONTH[currentMonth - 1], actual: liveMTD, orders: liveORD, ad_spend: dailyAdTotal, projected: 0, messages: 0, meta: {} });
+      }
+    }
+  }
   const month3 = monthly
     .filter(m => m.year === currentYear && m.month >= currentMonth - 2 && m.month <= currentMonth)
     .map(m => ({

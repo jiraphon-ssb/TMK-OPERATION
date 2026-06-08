@@ -699,8 +699,8 @@ export function SettingsView({ sub, dark, setDark }) {
     { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
     { id: 'updates', label: 'อัปเดต', icon: 'sparkle' },
   ];
-  // ใช้ sub prop โดยตรงเพื่อให้ tab persist เมื่อ reload (ไม่ใช่ local state)
-  const active = sub || 'general';
+  // ใช้ sub prop โดยตรง — ถ้า sub ไม่ถูกต้อง fallback เป็น 'general' (กันหน้าว่าง)
+  const active = TABS.some(t => t.id === sub) ? sub : 'general';
   const setActive = (id) => window.__goSection?.('settings', id);
   return (
     <div className="content-inner rise">
