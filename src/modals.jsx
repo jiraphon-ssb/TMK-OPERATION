@@ -926,15 +926,20 @@ export function HistoricalEntryModal({ onClose }) {
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   const year = getToday().yearBE;
   const monthlyRef = MD.monthly || [];
+  const _today = getToday();
+  const rnd = (x) => (x ? String(Math.round(x * 100) / 100) : ''); // กัน floating point (.79000001)
   const initRows = months.map((m, i) => {
+    // เดือนปัจจุบันคำนวณอัตโนมัติจากยอดรายวัน → ไม่ prefill/ไม่ให้กรอกทับ
+    const isCurrent = (i + 1) === _today.month && year === _today.yearBE;
     const ref = monthlyRef.find(r => r.year === year && r.month === i + 1);
     return {
       month: m,
-      rev: ref && ref.actual ? ref.actual : '',
-      orders: ref && ref.orders ? ref.orders : '',
-      ad: ref && ref.adSpend ? ref.adSpend : '',
-      newCust: ref && ref.newCust ? ref.newCust : '',
-      messages: ref && ref.messages ? ref.messages : '',
+      isCurrent,
+      rev: isCurrent ? '' : rnd(ref?.actual),
+      orders: isCurrent ? '' : (ref?.orders ? String(ref.orders) : ''),
+      ad: isCurrent ? '' : rnd(ref?.adSpend),
+      newCust: isCurrent ? '' : (ref?.newCust ? String(ref.newCust) : ''),
+      messages: isCurrent ? '' : (ref?.messages ? String(ref.messages) : ''),
     };
   });
   const [rows, setRows] = useState(initRows);
@@ -947,6 +952,7 @@ export function HistoricalEntryModal({ onClose }) {
     try {
       const dbRows = rows
         .map((r, i) => ({ r, i }))
+        .filter(({ r }) => !r.isCurrent) // เดือนปัจจุบัน auto จากยอดรายวัน — ไม่เขียนทับ
         .filter(({ r }) => r.rev !== '' || r.orders !== '' || r.ad !== '' || r.newCust !== '' || r.messages !== '')
         .map(({ r, i }) => {
           // คงค่า target/projected/meta เดิม (ตั้งจากหน้า "ตั้งค่ารายเดือน") ไม่ให้ถูกล้างเป็น 0
@@ -997,12 +1003,16 @@ export function HistoricalEntryModal({ onClose }) {
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.month}>
-                <td style={{ fontWeight: 600 }}>{r.month}</td>
-                <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
-                <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
-                <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
-                <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
-                <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
+                <td style={{ fontWeight: 600 }}>{r.month}{r.isCurrent && <span className="cap" style={{ marginLeft: 6, color: 'var(--accent-2)' }}>· อัตโนมัติ</span>}</td>
+                {r.isCurrent ? (
+                  <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึกรายวัน"</td>
+                ) : (<>
+                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
+                </>)}
               </tr>
             ))}
           </tbody>
