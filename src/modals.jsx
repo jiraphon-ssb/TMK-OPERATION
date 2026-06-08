@@ -148,7 +148,17 @@ export function RecordSalesModal({ data, onClose }) {
         ({ error } = await supabase.from('tmk_daily_sales').upsert(legacy));
       }
       if (error) throw error;
-      logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date}` });
+      // รายละเอียด: ยอดต่อช่องทาง (เก็บว่ากรอกอะไรบ้าง)
+      const chName = (id) => (MD.channels.find(c => c.id === id)?.name) || id;
+      const totRev = rows.reduce((a, r) => a + (Number(r.rev) || 0), 0);
+      const auditFields = [{ label: 'ยอดรวม', value: '฿' + totRev.toLocaleString() }];
+      rows.filter(r => Number(r.rev) > 0).forEach(r => auditFields.push({
+        label: chName(r.id),
+        value: '฿' + (Number(r.rev) || 0).toLocaleString() + (Number(r.ord) ? ` · ${r.ord} ออร์เดอร์` : '') + (Number(r.ad) ? ` · แอด ฿${(Number(r.ad)).toLocaleString()}` : ''),
+      }));
+      if (Number(chatTime) > 0) auditFields.push({ label: 'เวลาตอบแชท', value: `${chatTime} นาที` });
+      if (note) auditFields.push({ label: 'โน้ต', value: note });
+      logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date} (รวม ฿${totRev.toLocaleString()})`, fields: auditFields });
       toast(t('toastSaved'), 'success');
       onClose();
     } catch (err) {
@@ -451,6 +461,12 @@ export function ProductModal({ data, onClose }) {
     const ok = await saveRow('tmk_products', row, 'บันทึกสินค้า', {
       action: data ? 'update' : 'create', entityType: 'product', entityName: row.name,
       summary: `${data ? 'แก้ไข' : 'สร้าง'}สินค้า "${row.name}"`,
+      fields: [
+        { label: 'ราคา', value: B(Number(f.price) || 0) },
+        { label: 'จำนวนที่ขาย', value: N(Number(f.units) || 0) },
+        { label: 'สต็อกคงเหลือ', value: N(Number(f.onHand) || 0) },
+        { label: 'จุดสั่งผลิตซ้ำ', value: N(Number(f.reorder) || 0) },
+      ],
     });
     setBusy(false);
     if (ok) onClose();
@@ -494,9 +510,15 @@ export function CampaignModal({ data, onClose }) {
       status: f.status,
       channels: f.channels || [],
     };
+    const _cstTH = { live: 'กำลังดำเนินการ', upcoming: 'กำลังจะมา', done: 'จบแล้ว' };
     const ok = await saveRow('tmk_campaigns', row, 'บันทึกแคมเปญ', {
       action: data ? 'update' : 'create', entityType: 'campaign', entityName: row.name,
       summary: `${data ? 'แก้ไข' : 'สร้าง'}แคมเปญ "${row.name}"`,
+      fields: [
+        { label: 'สถานะ', value: _cstTH[f.status] || f.status },
+        { label: 'ช่วงเวลา', value: (f.start || f.end) ? `${f.start || '?'} - ${f.end || '?'}` : '—' },
+        { label: 'ช่องทาง', value: (f.channels || []).join(', ') || '—' },
+      ],
     });
     setBusy(false);
     if (ok) onClose();
@@ -558,6 +580,12 @@ export function POModal({ data, onClose }) {
     const ok = await saveRow('tmk_purchase_orders', row, 'บันทึก PO', {
       action: data ? 'update' : 'create', entityType: 'po', entityName: row.product,
       summary: `${data ? 'แก้ไข' : 'เปิด'} PO "${row.product}" (${row.quantity} ชิ้น)`,
+      fields: [
+        { label: 'จำนวน', value: N(row.quantity) + ' ชิ้น' },
+        { label: 'วันสั่ง', value: f.orderDate || '—' },
+        { label: 'กำหนดเข้า', value: f.arrivalDate || '—' },
+        { label: 'สถานะ', value: f.status },
+      ],
     });
     setBusy(false);
     if (ok) onClose();
@@ -657,7 +685,13 @@ export function MonthlyTargetModal({ data, onClose }) {
       };
       const { error } = await supabase.from('tmk_monthly_history').upsert(row);
       if (error) throw error;
-      logAudit({ action: 'update', entityType: 'monthly', entityName: `${months[monthIdx]} ${year}`, summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})` });
+      const tgtFields = [{ label: 'เป้ารวม', value: B(Number(total) || 0) }];
+      chTargets.forEach(c => { if (Number(c.target) > 0) tgtFields.push({ label: `เป้า ${c.name}`, value: B(Number(c.target)) }); });
+      if (Number(adTotal) > 0) tgtFields.push({ label: 'งบแอดรวม', value: B(Number(adTotal)) });
+      adChannels.forEach(c => { if (Number(c.budget) > 0) tgtFields.push({ label: `งบแอด ${c.name}`, value: B(Number(c.budget)) }); });
+      if (Number(newCustTarget) > 0) tgtFields.push({ label: 'เป้าลูกค้าใหม่', value: N(Number(newCustTarget)) });
+      tgtFields.push({ label: 'เพดาน ACOS', value: `${Number(acosCeil) || 25}%` });
+      logAudit({ action: 'update', entityType: 'monthly', entityName: `${months[monthIdx]} ${year}`, summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})`, fields: tgtFields });
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -769,6 +803,12 @@ export function AdCampaignModal({ data, onClose }) {
     const ok = await saveRow('tmk_ad_campaigns', row, 'บันทึกแคมเปญแอด', {
       action: data ? 'update' : 'create', entityType: 'ad', entityName: row.name,
       summary: `${data ? 'แก้ไข' : 'สร้าง'}แคมเปญแอด "${row.name}"`,
+      fields: [
+        { label: 'แพลตฟอร์ม', value: f.platform || '—' },
+        { label: 'งบ', value: B(Number(f.budget) || 0) },
+        { label: 'เป้าหมาย', value: f.goal || '—' },
+        { label: 'ช่วงเวลา', value: (f.startDate || f.endDate) ? `${f.startDate || '?'} - ${f.endDate || '?'}` : '—' },
+      ],
     });
     setBusy(false);
     if (ok) onClose();

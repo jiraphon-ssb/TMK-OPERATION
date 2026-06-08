@@ -14,16 +14,34 @@ import { getCurrentUser } from '../userContext.jsx';
  * @param {string} p.entityType  เช่น 'task','product','campaign','channel','duty','user','po','ad','segment','daily','monthly','settings'
  * @param {string} [p.entityName] ชื่อ/หัวข้อของรายการ
  * @param {string} [p.summary]    ข้อความสรุปสำหรับแสดงผล
+ * @param {Array<{label:string,value:string}>} [p.fields]  ค่าที่กรอก/บันทึก (แสดงรายละเอียด)
+ * @param {Array<{label:string,from:string,to:string}>} [p.changes]  สิ่งที่เปลี่ยน ก่อน→หลัง (สำหรับการแก้ไข)
  */
-export async function logAudit({ action, entityType, entityName = '', summary = '' }) {
+export async function logAudit({ action, entityType, entityName = '', summary = '', fields = null, changes = null }) {
   try {
     const email = getCurrentUser()?.email || 'system';
+    const payload = { entityType, entityName, summary };
+    if (fields && fields.length) payload.fields = fields;
+    if (changes && changes.length) payload.changes = changes;
     await supabase.from('tmk_audit_logs').insert({
       user_email: email,
       action,
-      details: JSON.stringify({ entityType, entityName, summary }),
+      details: JSON.stringify(payload),
     });
   } catch (e) {
     console.warn('logAudit non-fatal:', e?.message);
   }
+}
+
+// helper: เทียบ object เก่า/ใหม่ → รายการที่เปลี่ยน (ก่อน→หลัง)
+export function diffFields(oldObj, newObj, labels) {
+  const out = [];
+  for (const [key, label] of Object.entries(labels)) {
+    const a = oldObj ? oldObj[key] : undefined;
+    const b = newObj ? newObj[key] : undefined;
+    const sa = Array.isArray(a) ? a.join(', ') : (a == null ? '' : String(a));
+    const sb = Array.isArray(b) ? b.join(', ') : (b == null ? '' : String(b));
+    if (sa !== sb) out.push({ label, from: sa || '—', to: sb || '—' });
+  }
+  return out;
 }

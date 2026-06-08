@@ -1153,9 +1153,29 @@ function AuditView() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="sm"><strong>{a.user}</strong> · <span className="faint">{ENTITY_TH[a.entity] || a.entity}</span></div>
                   <div className="cap" style={{ marginTop: 2 }}>{a.summary}</div>
+                  {/* สิ่งที่เปลี่ยน ก่อน→หลัง */}
+                  {a.changes && a.changes.length > 0 && (
+                    <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {a.changes.map((c, j) => (
+                        <span key={j} className="chip" style={{ fontSize: 10, background: 'var(--surface-2)' }}>
+                          {c.label}: <span style={{ color: 'var(--ink-4)', textDecoration: 'line-through' }}>{c.from}</span> → <span style={{ color: 'var(--accent-2)', fontWeight: 700 }}>{c.to}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* ค่าที่กรอก/บันทึก */}
+                  {a.fields && a.fields.length > 0 && (
+                    <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {a.fields.map((fld, j) => (
+                        <span key={j} className="chip" style={{ fontSize: 10, background: 'var(--surface-2)' }}>
+                          {fld.label}: <span style={{ fontWeight: 700 }}>{fld.value}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <span className="chip" style={{ background: m.c+'1c', color: m.c, flexShrink: 0 }}>{m.l}</span>
-                <span className="cap" style={{ width: 96, textAlign: 'right', flexShrink: 0 }}>{a.time}</span>
+                <span className="chip" style={{ background: m.c+'1c', color: m.c, flexShrink: 0, alignSelf: 'flex-start' }}>{m.l}</span>
+                <span className="cap" style={{ width: 96, textAlign: 'right', flexShrink: 0, alignSelf: 'flex-start' }}>{a.time}</span>
               </div>
             );
           })}

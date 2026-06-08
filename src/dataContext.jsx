@@ -291,6 +291,8 @@ function mapToTMK(raw) {
       name: details.entityName || '',
       time: new Date(a.created_at).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
       summary: details.summary || a.action,
+      fields: Array.isArray(details.fields) ? details.fields : null,   // ค่าที่กรอก/บันทึก
+      changes: Array.isArray(details.changes) ? details.changes : null, // สิ่งที่เปลี่ยน ก่อน→หลัง
     };
   });
 

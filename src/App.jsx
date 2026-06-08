@@ -703,8 +703,27 @@ function AppInner() {
                 };
                 const { error } = await supabase.from('tmk_tasks').upsert(dbTask);
                 if (error) throw error;
+                // รายละเอียดประวัติ: สร้าง = ค่าที่กรอก / แก้ไข = ก่อน→หลัง
+                const _stTH = { todo: 'รอทำ', inprogress: 'กำลังทำ', review: 'รอตรวจ', done: 'เสร็จ' };
+                const _campName = (id) => (TMK.campaigns.find(c => c.id === id)?.name) || (id ? '-' : 'ไม่มี');
+                const _norm = (t) => ({
+                  'หัวข้อ': t?.title || '',
+                  'วันที่': parseTaskDate(t?.date) || t?.date || '',
+                  'สถานะ': _stTH[t?.status] || t?.status || '',
+                  'แคมเปญ': _campName(t?.camp),
+                  'ช่องทาง': (Array.isArray(t?.channel) ? t.channel : String(t?.channel || '').split(',').map(s => s.trim()).filter(Boolean)).join(', ') || 'ไม่มี',
+                  'ผู้รับผิดชอบ': (Array.isArray(t?.responsible) ? t.responsible : String(t?.responsible || '').split(',').map(s => s.trim()).filter(Boolean)).join(', ') || '—',
+                });
+                const _after = _norm(task);
+                let _fields = null, _changes = null;
+                if (modal.data?.id) {
+                  const _before = _norm(modal.data);
+                  _changes = Object.keys(_after).filter(k => _before[k] !== _after[k]).map(k => ({ label: k, from: _before[k] || '—', to: _after[k] || '—' }));
+                } else {
+                  _fields = Object.entries(_after).map(([k, v]) => ({ label: k, value: v }));
+                }
                 logAudit({ action: modal.data?.id ? 'update' : 'create', entityType: 'task', entityName: task.title,
-                  summary: `${modal.data ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"` });
+                  summary: `${modal.data?.id ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"`, fields: _fields, changes: _changes });
                 // Reload data so calendar/kanban show latest from Supabase
                 if (dataReload) await dataReload();
                 toast(t('toastSaved'), 'success');
