@@ -18,6 +18,65 @@ import { THAI_MONTHS, parseTaskDate, todayISO } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
 
+/* ---- Loading splash (โหลดข้อมูลครั้งแรก) ---- */
+function LoadingScreen() {
+  const tips = [
+    'กำลังเชื่อมต่อฐานข้อมูล TMK…',
+    'กำลังดึงยอดขายและข้อมูลรายวัน…',
+    'กำลังเตรียมแดชบอร์ด…',
+  ];
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI(v => (v + 1) % tips.length), 1400);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="tmk-splash">
+      <div className="splash-logo"><img src={tmkLogo} alt="TMK" /></div>
+      <div className="splash-ring" aria-hidden="true"></div>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>กำลังโหลดข้อมูล</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, minHeight: 18 }}>{tips[i]}</div>
+      </div>
+      <div className="splash-bar" aria-hidden="true"></div>
+    </div>
+  );
+}
+
+/* ---- Error screen (โหลดครั้งแรกล้มเหลว) ---- */
+function DataErrorScreen({ error, onRetry }) {
+  const [busy, setBusy] = useState(false);
+  const retry = async () => { setBusy(true); try { await onRetry?.(); } finally { setBusy(false); } };
+  return (
+    <div className="tmk-splash">
+      <div className="splash-logo" style={{ animation: 'none' }}><img src={tmkLogo} alt="TMK" /></div>
+      <div style={{ textAlign: 'center', maxWidth: 360, padding: '0 20px' }}>
+        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--bad-soft, rgba(255,90,90,0.14))', color: 'var(--bad, #ff5a5a)', display: 'grid', placeItems: 'center', margin: '0 auto 14px', fontSize: 26, fontWeight: 800 }}>
+          !
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>โหลดข้อมูลไม่สำเร็จ</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.7 }}>
+          เชื่อมต่อฐานข้อมูลไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง
+        </div>
+        {error && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, wordBreak: 'break-word' }}>{String(error)}</div>}
+        <button className="btn btn-primary" onClick={retry} disabled={busy} style={{ marginTop: 18 }}>
+          {busy ? 'กำลังลองใหม่…' : 'ลองใหม่อีกครั้ง'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---- Sync chip (ซิงค์ realtime หลังโหลดครั้งแรก) ---- */
+function SyncIndicator() {
+  return (
+    <>
+      <div className="tmk-syncbar" aria-hidden="true"></div>
+      <div className="tmk-syncchip"><span className="splash-ring"></span>กำลังซิงค์ข้อมูล…</div>
+    </>
+  );
+}
+
 /* ---- Spotlight Search ---- */
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -585,13 +644,22 @@ function AppInner() {
     </div>
   );
 
+  // สถานะโหลดข้อมูล: version===0 = ยังไม่เคยโหลดสำเร็จ (ครั้งแรก)
+  const firstError = authed && dataVersion === 0 && !!dataError;
+  const firstLoading = authed && dataVersion === 0 && dataLoading && !dataError;
+  const showShell = authed && !firstError && !firstLoading;
+  const syncing = authed && dataVersion >= 1 && dataLoading; // realtime reload หลังโหลดครั้งแรก
+
   return (
     <>
       {!authed && <LoginScreen onLogin={handleLogin} />}
-      {authed && Shell({ forced: false })}
+      {firstLoading && <LoadingScreen />}
+      {firstError && <DataErrorScreen error={dataError} onRetry={dataReload} />}
+      {showShell && Shell({ forced: false })}
+      {syncing && <SyncIndicator />}
 
       {/* Onboarding tour */}
-      {authed && showOnboarding && <Onboarding onComplete={completeOnboarding} />}
+      {showShell && showOnboarding && <Onboarding onComplete={completeOnboarding} />}
 
       {/* Help Center popup */}
       {authed && showHelp && !guide && (
