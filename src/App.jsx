@@ -680,7 +680,7 @@ function AppInner() {
             }}
             onSubmit={async (task) => {
               // 1. Optimistic local update — เห็นทันที
-              setTasks(ts => modal.data ? ts.map(x => x.id === task.id ? task : x) : [task, ...ts]);
+              setTasks(ts => modal.data?.id ? ts.map(x => x.id === task.id ? task : x) : [task, ...ts]);
               closeModal();
 
               // 2. แปลง task → DB format + บันทึก Supabase
@@ -703,7 +703,7 @@ function AppInner() {
                 };
                 const { error } = await supabase.from('tmk_tasks').upsert(dbTask);
                 if (error) throw error;
-                logAudit({ action: modal.data ? 'update' : 'create', entityType: 'task', entityName: task.title,
+                logAudit({ action: modal.data?.id ? 'update' : 'create', entityType: 'task', entityName: task.title,
                   summary: `${modal.data ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"` });
                 // Reload data so calendar/kanban show latest from Supabase
                 if (dataReload) await dataReload();

@@ -134,8 +134,14 @@ function CalendarView({ tasks, filtered, fProps }) {
   const isCurrentMonth = ym.y === curY && ym.m === curM;
   const todayDay = isCurrentMonth ? T.day : -1;
 
+  // จับคู่งานด้วยวันที่เต็มของ "เดือนที่เลือก" (ym) — ใช้ได้ทุกเดือน ไม่ใช่แค่เดือนปัจจุบัน
   const byDay = {};
-  if (isCurrentMonth) filtered.forEach(t => { const mm = t.date.match(/^(\d+)/); if (mm) (byDay[+mm[1]] = byDay[+mm[1]] || []).push(t); });
+  filtered.forEach(t => {
+    const iso = parseTaskDate(t.date);
+    if (!iso) return;
+    const [yy, mm, dd] = iso.split('-').map(Number);
+    if ((yy + 543) === ym.y && (mm - 1) === ym.m) (byDay[dd] = byDay[dd] || []).push(t);
+  });
 
   const shiftMonth = (delta) => {
     let m = ym.m + delta, y = ym.y;
@@ -221,7 +227,7 @@ function CalendarView({ tasks, filtered, fProps }) {
           <div className="eyebrow" style={{ marginBottom: 4 }}>{sel} {MONTHS_TH_SHORT[ym.m]} {ym.y}</div>
           <div className="row between" style={{ marginBottom: 14 }}>
             <h3>{selTasks.length} งาน</h3>
-            <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('task')}><Icon name="plus" /> เพิ่ม</button>
+            <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('task', { date: `${greg}-${String(ym.m + 1).padStart(2, '0')}-${String(sel).padStart(2, '0')}` })}><Icon name="plus" /> เพิ่ม</button>
           </div>
           {selTasks.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}>

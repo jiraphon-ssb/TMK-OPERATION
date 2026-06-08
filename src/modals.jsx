@@ -341,19 +341,21 @@ export function RecordSalesModal({ data, onClose }) {
 
 /* ---------- Task modal (add / edit) ---------- */
 export function TaskModal({ data, onClose, onSubmit, onDelete }) {
-  const edit = !!data;
+  const edit = !!data?.id; // มี id = แก้ไขจริง; ส่งแค่ {date} = งานใหม่ที่เลือกวันไว้
   // แตกค่าที่อาจเป็น string คั่น comma (หรือ array ที่มีสมาชิกเป็น comma-string) → array สะอาด
   const splitToArr = v => (Array.isArray(v) ? v : [v])
     .flatMap(x => String(x || '').split(','))
     .map(s => s.trim())
     .filter(Boolean);
   const [f, setF] = useState(() => {
-    if (!data) return { title: '', detail: '', date: thaiDate(todayISO()), responsible: [], channel: [], camp: '', status: 'todo' };
+    // วันที่เก็บเป็น ISO (YYYY-MM-DD) เพื่อใช้กับปฏิทิน <input type="date">
+    const isoDate = data?.date ? (parseTaskDate(data.date) || data.date) : todayISO();
+    if (!data?.id) return { title: '', detail: '', date: isoDate, responsible: [], channel: [], camp: '', status: 'todo' };
     const validNames = new Set((MD.channels || []).map(c => c.name));
     const chanPieces = splitToArr(data.channel);
     // เก็บเฉพาะช่องทางที่มีจริงในระบบ — ตัดข้อความอิสระเก่า (เช่น "FB Post") ที่ map ไม่ได้ทิ้ง
     const channel = chanPieces.filter(c => validNames.has(c));
-    return { ...data, responsible: splitToArr(data.responsible), channel };
+    return { ...data, date: isoDate, responsible: splitToArr(data.responsible), channel };
   });
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const toggle = (k, v) => setF(p => {
@@ -378,7 +380,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   return (
     <Modal icon="listChecks" title={edit ? 'แก้ไขงาน' : 'เพิ่มงานใหม่'} sub="มอบหมายงานให้ทีมพร้อมกำหนดวัน" onClose={onClose} footer={footer}>
       <div className="field-row">
-        <div className="field"><label>วันที่</label><input className="input" value={f.date} onChange={e => set('date', e.target.value)} placeholder="เช่น 20 มิ.ย." /></div>
+        <div className="field"><label>วันที่</label><input type="date" className="input" value={f.date} onChange={e => set('date', e.target.value)} /></div>
         <div className="field"><label>แคมเปญ</label>
           <select className="input" value={f.camp} onChange={e => set('camp', e.target.value)}>
             <option value="">— ยังไม่ได้เลือก —</option>
