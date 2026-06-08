@@ -307,6 +307,7 @@ function AppInner() {
   }, []);
   const closeModal = () => { setModal(null); setConfirmClose(null); };
   const logout = () => {
+    try { const u = JSON.parse(localStorage.getItem('tmk-user') || 'null'); if (u?.email) logAudit({ action: 'logout', entityType: 'auth', entityName: u.email, summary: `ออกจากระบบ (${u.email})` }); } catch {}
     setMenu(false); setDrawer(false); setAuthed(false); setCurrentUser(null);
     setSection('home'); setSubMap(DEFAULT_SUB);
     try {
@@ -330,6 +331,7 @@ function AppInner() {
     setCurrentUser(user);
     setAuthed(true);
     window.dispatchEvent(new Event('tmk-user-change'));
+    logAudit({ action: 'login', entityType: 'auth', entityName: userEmail, summary: `เข้าสู่ระบบ (${userEmail})` });
   };
 
   const go = (sec, s) => {

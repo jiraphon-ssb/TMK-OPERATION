@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
+import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section, readImageCompressed } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -1049,9 +1049,9 @@ export function ProfileView({ tasks }) {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
             </svg>
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
               const file = e.target.files?.[0];
-              if (file) { const r = new FileReader(); r.onload = ev => setAvatar(ev.target.result); r.readAsDataURL(file); }
+              if (file) { try { setAvatar(await readImageCompressed(file)); } catch { const r = new FileReader(); r.onload = ev => setAvatar(ev.target.result); r.readAsDataURL(file); } }
             }} />
           </label>
         </div>
@@ -1119,12 +1119,12 @@ export function ProfileView({ tasks }) {
         <div className="card">
           {myActivity.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}><div className="cap">ยังไม่มีประวัติ</div></div>}
           {myActivity.map((a, i) => {
-            const tc = a.type === 'create' ? 'var(--good)' : a.type === 'delete' ? 'var(--bad)' : 'var(--info)';
+            const m = actionMeta(a);
             return (
               <div key={i} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: tc, flexShrink: 0 }}></span>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.c, flexShrink: 0 }}></span>
                 <div style={{ flex: 1 }}>
-                  <div className="sm" style={{ fontWeight: 600 }}>{a.action}</div>
+                  <div className="sm" style={{ fontWeight: 600 }}>{m.l} · {ENTITY_TH[a.entity] || a.entity}</div>
                   <div className="cap">{a.summary}</div>
                 </div>
                 <span className="cap">{a.time}</span>
@@ -1137,32 +1137,47 @@ export function ProfileView({ tasks }) {
   );
 }
 
+// ความหมายของแต่ละ action (ครอบคลุมทุกประเภท) — ใช้ร่วม AuditView + ProfileView
+const ACTION_META = {
+  create:  { l: 'สร้าง',      c: 'var(--good)',  g: 'create' },
+  update:  { l: 'แก้ไข',      c: 'var(--info)',  g: 'update' },
+  delete:  { l: 'ลบ',         c: 'var(--bad)',   g: 'delete' },
+  purge:   { l: 'ลบถาวร',     c: 'var(--bad)',   g: 'delete' },
+  restore: { l: 'กู้คืน',      c: 'var(--good)',  g: 'create' },
+  move:    { l: 'ย้ายสถานะ',  c: 'var(--accent)',g: 'update' },
+  export:  { l: 'ส่งออก',     c: 'var(--warn)',  g: 'update' },
+  login:   { l: 'เข้าสู่ระบบ',  c: 'var(--good)',  g: 'auth' },
+  logout:  { l: 'ออกจากระบบ',  c: 'var(--ink-3)', g: 'auth' },
+};
+const actionMeta = (a) => ACTION_META[a.action] || { l: a.action || 'อื่นๆ', c: 'var(--info)', g: a.type || 'update' };
+const ENTITY_TH = { task:'งาน', product:'สินค้า', campaign:'แคมเปญ', channel:'ช่องทาง', duty:'หน้าที่', user:'ผู้ใช้', daily:'ยอดขายรายวัน', monthly:'รายเดือน', segment:'กลุ่มลูกค้า', adCampaign:'แคมเปญแอด', auth:'ระบบ', data:'ข้อมูล', system:'ระบบ' };
+
 function AuditView() {
   const [filter, setFilter] = useState('all');
-  const types = [['all','ทั้งหมด'],['create','สร้าง'],['update','แก้ไข'],['delete','ลบ']];
-  const list = filter === 'all' ? DD.audit : DD.audit.filter(a => a.type === filter);
+  const types = [['all','ทั้งหมด'],['create','สร้าง'],['update','แก้ไข'],['delete','ลบ'],['auth','เข้า/ออกระบบ']];
+  const list = filter === 'all' ? DD.audit : DD.audit.filter(a => actionMeta(a).g === filter);
   return (
     <div className="content-inner rise">
       <div className="card">
-        <div className="card-head">
-          <h3><span style={{color:'var(--accent)'}}><Icon name="clock" /></span> ประวัติการใช้งาน</h3>
-          <div className="segbar" style={{ background: 'var(--surface-2)' }}>
+        <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <h3><span style={{color:'var(--accent)'}}><Icon name="clock" /></span> ประวัติการใช้งาน <span className="cap" style={{ fontWeight: 500 }}>({DD.audit.length})</span></h3>
+          <div className="segbar" style={{ background: 'var(--surface-2)', flexWrap: 'wrap' }}>
             {types.map(t => <button key={t[0]} className={`seg ${filter===t[0]?'active':''}`} onClick={()=>setFilter(t[0])}>{t[1]}</button>)}
           </div>
         </div>
         <div>
+          {list.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีประวัติ</div>}
           {list.map((a, i) => {
             const s = DD.staff.find(x => x.name === a.user) || { color: '#888' };
-            const tc = a.type==='create'?'var(--good)':a.type==='delete'?'var(--bad)':'var(--info)';
-            const tl = a.type==='create'?'สร้าง':a.type==='delete'?'ลบ':'แก้ไข';
+            const m = actionMeta(a);
             return (
               <div key={i} className="row" style={{ gap: 13, padding: '13px 4px', borderBottom: '1px solid var(--line-2)' }}>
                 <Avatar name={a.user} color={s.color} size={34} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sm"><strong>{a.user}</strong> <span className="muted">{a.action}</span> · <span className="faint">{a.entity}</span></div>
+                  <div className="sm"><strong>{a.user}</strong> · <span className="faint">{ENTITY_TH[a.entity] || a.entity}</span></div>
                   <div className="cap" style={{ marginTop: 2 }}>{a.summary}</div>
                 </div>
-                <span className="chip" style={{ background: tc+'1c', color: tc }}>{tl}</span>
+                <span className="chip" style={{ background: m.c+'1c', color: m.c, flexShrink: 0 }}>{m.l}</span>
                 <span className="cap" style={{ width: 96, textAlign: 'right', flexShrink: 0 }}>{a.time}</span>
               </div>
             );
@@ -1959,12 +1974,11 @@ function RolesView() {
                           border: '2px solid var(--surface)', fontSize: 10,
                         }}>
                           <Icon name="pencil" />
-                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              const reader = new FileReader();
-                              reader.onload = ev => setEditAvatar(ev.target.result);
-                              reader.readAsDataURL(file);
+                              try { setEditAvatar(await readImageCompressed(file)); }
+                              catch { const reader = new FileReader(); reader.onload = ev => setEditAvatar(ev.target.result); reader.readAsDataURL(file); }
                             }
                           }} />
                         </label>

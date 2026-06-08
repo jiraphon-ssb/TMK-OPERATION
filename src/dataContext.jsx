@@ -62,7 +62,7 @@ async function loadAllTables() {
     tasks:       supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
     products:    supabase.from('tmk_products').select('*').is('deleted_at', null).order('created_at'),
     po:          supabase.from('tmk_purchase_orders').select('*').is('deleted_at', null).order('arrival_date'),
-    audit:       supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(50),
+    audit:       supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
     roles:       supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
     staff:       supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
     duties:      supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),

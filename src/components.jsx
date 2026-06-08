@@ -3,6 +3,32 @@
    ============================================================ */
 import React, { useState, useEffect } from 'react';
 
+/* ---------- Image upload helper ---------- */
+// อ่านรูป + ย่อขนาด (canvas) → data URL เล็ก ป้องกันรูปใหญ่ทำให้บันทึกพัง/ช้า/เกิน quota
+export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width >= height && width > maxSize) { height = Math.round(height * maxSize / width); width = maxSize; }
+        else if (height > width && height > maxSize) { width = Math.round(width * maxSize / height); height = maxSize; }
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (err) { resolve(e.target.result); } // fallback: ใช้ไฟล์เดิม
+      };
+      img.onerror = () => resolve(e.target.result);
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 /* ---------- Formatters ---------- */
 // formatters — คืน "—" เมื่อค่าไม่ใช่ตัวเลขจริง (กัน NaN/Infinity จากการหารด้วย 0)
 const _fin = n => typeof n === 'number' && isFinite(n);
