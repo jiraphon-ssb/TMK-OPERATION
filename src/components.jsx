@@ -59,6 +59,7 @@ export const ICONS = {
   wallet: 'M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v2M3 7v10a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-3M3 7h17M16 12h5v4h-5a2 2 0 0 1 0-4',
   bag: 'M6 8h12l1 12H5zM9 8V6a3 3 0 0 1 6 0v2',
   users: 'M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M22 19v-1a4 4 0 0 0-3-3.8M16 4.2a4 4 0 0 1 0 7.6',
+  user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
   userPlus: 'M15 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M19 8v6M22 11h-6',
   userCheck: 'M15 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M17 11l2 2 4-4',
   megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1M10 6l9-3v18l-9-3M19 9a3 3 0 0 1 0 6',
@@ -128,6 +129,18 @@ export function Avatar({ name, color, size = 28 }) {
   const safe = String(name || '?');
   const initials = safe.length <= 2 ? safe : safe.slice(0, 2);
   return <span className="avatar" style={{ background: color, width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
+}
+
+/* ---------- User icon (แทนรูปโปรไฟล์) ---------- */
+export function UserIcon({ size = 34, radius }) {
+  const s = Math.round(size * 0.56);
+  return (
+    <span style={{ width: size, height: size, borderRadius: radius ?? (size >= 56 ? 18 : '50%'), background: 'var(--surface-3)', color: 'var(--ink-3)', display: 'inline-grid', placeItems: 'center', flexShrink: 0 }}>
+      <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8" />
+      </svg>
+    </span>
+  );
 }
 
 /* ---------- ProgressRing ---------- */

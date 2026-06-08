@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section, readImageCompressed } from './components.jsx';
+import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section, UserIcon } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -951,19 +951,12 @@ export function ProfileView({ tasks }) {
   }
 
   const [name, setName] = useState(user.name);
-  const [avatar, setAvatar] = useState(user.avatarUrl || '');
   const [tab, setTab] = useState('tasks');
 
-  // Sync local state เมื่อ user.avatarUrl เปลี่ยนใน Supabase
-  // (เช่น user อัปโหลดรูปใหม่จาก Settings → สิทธิ์ผู้ใช้)
+  // Sync ชื่อเมื่อเปลี่ยนใน Supabase
   React.useEffect(() => {
-    if (user.avatarUrl && user.avatarUrl !== avatar) {
-      setAvatar(user.avatarUrl);
-    }
-    if (user.name && user.name !== name) {
-      setName(user.name);
-    }
-  }, [user.avatarUrl, user.name]);
+    if (user.name && user.name !== name) setName(user.name);
+  }, [user.name]);
 
   // Filter tasks — match user by:
   // 1. user.name (e.g. "มัง")
@@ -984,7 +977,7 @@ export function ProfileView({ tasks }) {
 
   const saveProfile = async () => {
     try {
-      // 1. Save to Supabase tmk_staff (รูป + ชื่อ + สี)
+      // 1. Save to Supabase tmk_staff (ชื่อ + สี)
       const existingStaff = (DD.staff || []).find(s => s.email === user.email);
       const staffId = existingStaff?.id || ('s-' + user.email.split('@')[0].replace(/[^a-z0-9]/gi, ''));
       const { error } = await supabase.from('tmk_staff').upsert({
@@ -993,7 +986,6 @@ export function ProfileView({ tasks }) {
         role: existingStaff?.role || user.department || 'Staff',
         email: user.email,
         color: existingStaff?.color || user.color || '#3b82f6',
-        avatar_url: avatar || '',
       });
       if (error) throw error;
 
@@ -1011,7 +1003,7 @@ export function ProfileView({ tasks }) {
       // 3. Cache to localStorage
       try {
         const saved = JSON.parse(localStorage.getItem('tmk-user') || '{}');
-        localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name, avatarUrl: avatar }));
+        localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name }));
         window.dispatchEvent(new Event('tmk-user-change'));
       } catch {}
 
@@ -1033,28 +1025,7 @@ export function ProfileView({ tasks }) {
     <div className="content-inner rise">
       {/* Profile Header */}
       <div className="card" style={{ padding: 24, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <div style={{ position: 'relative' }}>
-          {avatar ? (
-            <img src={avatar} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} alt="" />
-          ) : (
-            <Avatar name={name} color={user.color} size={80} />
-          )}
-          <label title="เปลี่ยนรูปโปรไฟล์" style={{
-            position: 'absolute', bottom: -4, right: -4, width: 30, height: 30,
-            borderRadius: '50%', background: 'var(--accent)', color: '#fff',
-            display: 'grid', placeItems: 'center', cursor: 'pointer',
-            border: '3px solid var(--surface)',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
-            </svg>
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
-              const file = e.target.files?.[0];
-              if (file) { try { setAvatar(await readImageCompressed(file)); } catch { const r = new FileReader(); r.onload = ev => setAvatar(ev.target.result); r.readAsDataURL(file); } }
-            }} />
-          </label>
-        </div>
+        <UserIcon size={80} radius={20} />
         <div style={{ flex: 1, minWidth: 200 }}>
           <div className="row" style={{ gap: 10, marginBottom: 4 }}>
             <input className="input" value={name} onChange={e => setName(e.target.value)}
@@ -1793,7 +1764,6 @@ function RolesView() {
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState('viewer');
   const [editDutyId, setEditDutyId] = useState('');
-  const [editAvatar, setEditAvatar] = useState('');
   const [busy, setBusy] = useState(false);
 
   // New user form
@@ -1807,7 +1777,6 @@ function RolesView() {
     setEditName(u.name);
     setEditRole(u.role);
     setEditDutyId(u.dutyId || '');
-    setEditAvatar(u.avatar || '');
   };
 
   // Save edit ลง Supabase จริง — defensive: ลอง column ใหม่ก่อน → fallback
@@ -1844,7 +1813,6 @@ function RolesView() {
         role: duty?.name || existingStaff?.role || 'Staff',
         email: editing,
         color: duty?.color || existingStaff?.color || '#3b82f6',
-        avatar_url: editAvatar || '',
       });
       if (e2) {
         // log แต่ไม่ throw — let user_roles save succeed
@@ -1961,28 +1929,7 @@ function RolesView() {
                     <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขโปรไฟล์</div>
                     {/* Avatar upload */}
                     <div className="row" style={{ gap: 14, marginBottom: 14 }}>
-                      <div style={{ position: 'relative' }}>
-                        {editAvatar ? (
-                          <img src={editAvatar} style={{ width: 52, height: 52, borderRadius: 14, objectFit: 'cover' }} alt="" />
-                        ) : (
-                          <Avatar name={editName || u.name} color={staffColor} size={52} />
-                        )}
-                        <label style={{
-                          position: 'absolute', bottom: -4, right: -4, width: 22, height: 22,
-                          borderRadius: '50%', background: 'var(--accent)', color: '#fff',
-                          display: 'grid', placeItems: 'center', cursor: 'pointer',
-                          border: '2px solid var(--surface)', fontSize: 10,
-                        }}>
-                          <Icon name="pencil" />
-                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              try { setEditAvatar(await readImageCompressed(file)); }
-                              catch { const reader = new FileReader(); reader.onload = ev => setEditAvatar(ev.target.result); reader.readAsDataURL(file); }
-                            }
-                          }} />
-                        </label>
-                      </div>
+                      <UserIcon size={52} radius={14} />
                       <div style={{ flex: 1 }}>
                         <div className="cap" style={{ marginBottom: 4 }}>ชื่อที่แสดง (ลิงก์กับงาน)</div>
                         <input className="input" value={editName} onChange={e => setEditName(e.target.value)}
@@ -2038,11 +1985,7 @@ function RolesView() {
 
               return (
                 <div key={u.email} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
-                  {u.avatar ? (
-                    <img src={u.avatar} alt="" style={{ width: 34, height: 34, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-                  ) : (
-                    <Avatar name={u.name} color={u.color || staffColor} size={34} />
-                  )}
+                  <UserIcon size={34} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="sm" style={{ fontWeight: 600 }}>{u.name}</div>
                     <div className="cap">{u.email}</div>

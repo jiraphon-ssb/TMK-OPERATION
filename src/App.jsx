@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, Avatar } from './components.jsx';
+import { Icon, B, Bk, N, Avatar, UserIcon } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 import { PlannerView, CatalogView, SettingsView, ProfileView } from './views-2.jsx';
@@ -731,11 +731,7 @@ function RailAvatar({ onClick }) {
   return (
     <button className="rail-avatar" onClick={onClick}
       style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
-      {user?.avatarUrl ? (
-        <img src={user.avatarUrl} alt="" style={{ width: 34, height: 34, borderRadius: 10, objectFit: 'cover' }} />
-      ) : (
-        <Avatar name={user?.name || 'มัง'} color={user?.color || '#b07d33'} size={34} />
-      )}
+      <UserIcon size={34} radius={10} />
     </button>
   );
 }
@@ -747,11 +743,7 @@ function ProfileMenu({ go, dark, setDark, close, onLogout }) {
       <div className="scrim" style={{ background: 'transparent', zIndex: 94 }} onClick={close}></div>
       <div className="menu-pop">
         <div className="row" style={{ gap: 10, padding: '8px 10px 12px' }}>
-          {user?.avatarUrl ? (
-            <img src={user.avatarUrl} style={{ width: 38, height: 38, borderRadius: 10, objectFit: 'cover' }} alt="" />
-          ) : (
-            <Avatar name={user?.name || 'มัง'} color={user?.color || '#b07d33'} size={38} />
-          )}
+          <UserIcon size={38} radius={10} />
           <div>
             <div className="sm" style={{ fontWeight: 700 }}>{user?.name || 'มัง'}</div>
             <div className="cap">{user?.email || 'jiraphon.e@tmk.co'}</div>
