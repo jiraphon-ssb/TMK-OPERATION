@@ -392,21 +392,60 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
       </div>
 
-      {/* channel split */}
+      {/* per-platform: เป้า · ผลงาน · คุมแอด */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3>{'สัดส่วนรายได้ตามช่องทาง'}</h3>
-          <span className="cap">{B(C.MTD)} {'รวม'}</span></div>
-        {channels.map(ch => (
-          <div key={ch.id} className="row" style={{ gap: 12, marginBottom: 10 }}>
-            <span className="sm" style={{ width: 78, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex }}></span>{ch.name}</span>
-            <div style={{ flex: 1, height: 20, borderRadius: 6, background: 'var(--surface-3)', overflow: 'hidden', display: 'flex' }}>
-              <div style={{ width: `${C.MTD > 0 ? (ch.actual/C.MTD)*100 : 0}%`, background: ch.hex }}></div>
-            </div>
-            <span className="num sm" style={{ width: 70, textAlign: 'right', fontWeight: 700 }}>{B(ch.actual)}</span>
-            <span className="num cap" style={{ width: 36, textAlign: 'right' }}>{C.MTD > 0 ? P((ch.actual/C.MTD)*100,0) : '—'}</span>
-          </div>
-        ))}
+        <div className="card-head"><h3>{'เป้า · ผลงาน · คุมแอด — รายแพลตฟอร์ม (MTD)'}</h3>
+          <span className="cap">{'เพดาน ACOS'} {consts.ACOS_CEIL}%</span></div>
+        <div className="table-wrap"><table className="table">
+          <thead><tr>
+            <th>{'ช่องทาง'}</th>
+            <th style={{ textAlign: 'right' }}>{'เป้าเดือน'}</th>
+            <th style={{ textAlign: 'right' }}>{'ยอด MTD'}</th>
+            <th style={{ textAlign: 'right' }}>{'% เป้า'}</th>
+            <th style={{ textAlign: 'right' }}>{'ค่าแอด'}</th>
+            <th style={{ textAlign: 'right' }}>ROAS</th>
+            <th style={{ textAlign: 'right' }}>{'% แอด'}</th>
+          </tr></thead>
+          <tbody>
+            {channels.map(ch => {
+              const tgtPct = ch.target > 0 ? (ch.actual / ch.target) * 100 : null;
+              const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
+              const adPct = ch.actual > 0 ? (ch.ad / ch.actual) * 100 : null; // ACOS
+              return (
+                <tr key={ch.id}>
+                  <td><span className="row" style={{ gap: 8, fontWeight: 600 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>{ch.name}</span></td>
+                  <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.target > 0 ? Bk(ch.target) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{Bk(ch.actual)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: tgtPct == null ? 'var(--ink-3)' : tgtPct >= 100 ? 'var(--good)' : tgtPct >= 70 ? 'var(--warn)' : 'var(--bad)' }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.ad > 0 ? Bk(ch.ad) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: adPct == null ? 'var(--ink-3)' : adPct <= consts.ACOS_CEIL ? 'var(--good)' : adPct <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{adPct == null ? '—' : P(adPct, 0)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            {(() => {
+              const tT = channels.reduce((s, c) => s + (c.target || 0), 0);
+              const tA = channels.reduce((s, c) => s + (c.actual || 0), 0);
+              const tAd = channels.reduce((s, c) => s + (c.ad || 0), 0);
+              const tgtPct = tT > 0 ? (tA / tT) * 100 : null;
+              const roas = tAd > 0 ? tA / tAd : null;
+              const adPct = tA > 0 ? (tAd / tA) * 100 : null;
+              return (
+                <tr style={{ borderTop: '2px solid var(--line)' }}>
+                  <td style={{ fontWeight: 800 }}>{'รวม'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tT > 0 ? Bk(tT) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{Bk(tA)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tAd > 0 ? Bk(tAd) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{adPct == null ? '—' : P(adPct, 0)}</td>
+                </tr>
+              );
+            })()}
+          </tfoot>
+        </table></div>
       </div>
 
       {/* charts */}
