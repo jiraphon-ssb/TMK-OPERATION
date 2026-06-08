@@ -441,7 +441,7 @@ export function ProductModal({ data, onClose }) {
       name: f.name.trim(),
       price: Number(f.price) || 0,
       target_units: Number(f.units) || 0,
-      actual_units: Number(data?.units) || 0,
+      actual_units: Number(f.units) || 0, // = จำนวนที่ขาย (แสดงผล + คิดรายได้)
       stock_on_hand: Number(f.onHand) || 0,
       reorder_point: Number(f.reorder) || 0,
       strategy: f.strategy || '',
@@ -459,12 +459,11 @@ export function ProductModal({ data, onClose }) {
       <div className="field"><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อโปโล Signature" /></div>
       <div className="field-row">
         <div className="field"><label>ราคาขาย (฿)</label><input type="number" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>เป้าจำนวน (ตัว)</label><input type="number" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
       </div>
-      <div className="field-row-3">
+      <div className="field-row">
         <div className="field"><label>สต็อกคงเหลือ</label><input type="number" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" /></div>
         <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>ขายไปแล้ว</label><input type="number" className="input num" placeholder="0" disabled /></div>
       </div>
       <div className="field"><label>กลยุทธ์ / โน้ต</label><textarea className="input" value={f.strategy} onChange={e => set('strategy', e.target.value)} placeholder="เช่น สินค้าเรือธง ดันต่อเนื่อง" /></div>
     </Modal>

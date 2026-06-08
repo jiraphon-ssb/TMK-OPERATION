@@ -208,24 +208,20 @@ function mapToTMK(raw) {
     return { date: d.date, year: yy + 543, month: mm, day: dd, adSpend: Number(d.ad_spend || 0), replyMin: Number(d.avg_reply_minutes || 0), note: d.note || '', dayName: d.day_name || '', ch };
   });
 
-  // Daily sales — แปลงเป็น dailyMonth (1-30) + dailyLog (7 ล่าสุด)
-  const daily = raw.daily || [];
-  const dailyMonth = daily.map((d, i) => {
-    const day = parseInt(String(d.date).split('-')[2], 10);
-    const rev = Number(d.shopee || 0) + Number(d.tiktok || 0) + Number(d.lazada || 0) +
-                Number(d.facebook || 0) + Number(d.line_oa || 0) + Number(d.crm || 0);
-    return { d: day, rev };
-  });
-  const dailyLog = [...daily].reverse().slice(0, 7).map(d => ({
+  // Daily sales (เดือนปัจจุบัน) — derive จาก channels jsonb (ตรงกับ computeMonth, ไม่ใช้ legacy)
+  const _cyM = today.yearBE, _cmM = today.month;
+  const _curDaily = dailyAll.filter(d => d.year === _cyM && d.month === _cmM);
+  const dailyMonth = _curDaily.map(d => ({ d: d.day, rev: Object.values(d.ch).reduce((s, c) => s + c.rev, 0) }));
+  const dailyLog = [..._curDaily].sort((a, b) => b.day - a.day).slice(0, 7).map(d => ({
     date: thaiDate(d.date),
-    day: d.day_name,
-    shopee: Number(d.shopee || 0),
-    tiktok: Number(d.tiktok || 0),
-    lazada: Number(d.lazada || 0),
-    facebook: Number(d.facebook || 0),
-    line: Number(d.line_oa || 0),
-    crm: Number(d.crm || 0),
-    ad: Number(d.ad_spend || 0),
+    day: d.dayName,
+    shopee: d.ch.shopee?.rev || 0,
+    tiktok: d.ch.tiktok?.rev || 0,
+    lazada: d.ch.lazada?.rev || 0,
+    facebook: d.ch.facebook?.rev || 0,
+    line: d.ch.line?.rev || 0,
+    crm: d.ch.crm?.rev || 0,
+    ad: d.adSpend,
     note: d.note || '',
   }));
 
