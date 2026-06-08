@@ -452,7 +452,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       <div className="grid g3">
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>{'ยอดขายรายวัน'}</div>
-          <MiniArea data={md.dailyMonth.map(d=>d.rev)} h={150} id="so" />
+          <MiniArea data={md.dailyMonth.map(d=>d.rev)} labels={md.dailyMonth.map(d=>'วันที่ '+d.d)} h={150} id="so" />
         </div>
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>3 {'เดือนล่าสุด'}</div>
@@ -490,8 +490,16 @@ function YoYChart() {
       <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 150 }}>
         <path d={path(line('y25'))} fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeDasharray="4 4" />
         <path d={path(line('y26'))} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" />
+        {line('y25').map((p,i)=><circle key={'a'+i} cx={p[0]} cy={p[1]} r="2.5" fill="var(--ink-4)" />)}
         {line('y26').map((p,i)=><circle key={i} cx={p[0]} cy={p[1]} r="3" fill="var(--accent)" />)}
         {data.map((d,i)=><text key={i} x={X(i)} y={h-2} fontSize="9" fill="var(--ink-3)" textAnchor="middle">{d.m}</text>)}
+        {/* hover columns — เอาเมาส์วางแสดงตัวเลขเทียบปี */}
+        {data.map((d,i)=>{
+          const dd = data.length>1 ? w/(data.length-1) : w;
+          return <rect key={'h'+i} x={X(i)-dd/2} y="0" width={dd} height={h} fill="transparent" style={{ cursor:'default' }}>
+            <title>{`${d.m} · 2569: ${B(d.y26)} · 2568: ${B(d.y25)}`}</title>
+          </rect>;
+        })}
       </svg>
       <div className="row" style={{ gap: 14, marginTop: 6 }}>
         <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--accent)', verticalAlign:'middle', marginRight:5 }}></span>2569</span>
@@ -533,6 +541,10 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
               <div className="row" style={{ gap: 8, marginTop: 8 }}>
                 <div className="bar" style={{ flex: 1 }}><span style={{ width: `${tgtPct}%`, background: ch.hex }}></span></div>
                 <span className="num cap" style={{ fontWeight: 700, color: ch.hex }}>{ch.target > 0 ? P((ch.actual/ch.target)*100,0) : '—'}</span>
+              </div>
+              <div className="row between" style={{ marginTop: 6 }}>
+                <span className="cap">{'เป้า'} <span className="num" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{ch.target > 0 ? B(ch.target) : '— ยังไม่ตั้ง'}</span></span>
+                {ch.target > 0 && <span className="cap">{ch.actual >= ch.target ? '✓ ถึงเป้าแล้ว' : <>{'ขาดอีก'} <span className="num" style={{ fontWeight: 700 }}>{B(ch.target - ch.actual)}</span></>}</span>}
               </div>
               <div className="grid g3" style={{ marginTop: 14, gap: 8 }}>
                 <div><div className="cap">{'ออร์เดอร์'}</div><div className="num h3">{ch.orders}</div></div>
@@ -691,7 +703,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
           </div>
           <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
             <div className="cap" style={{ marginBottom: 8 }}>{'ปริมาณข้อความ'} (6 {'ด.'})</div>
-            <MiniArea data={D.fbMsgTrend.map(d=>d.v)} h={70} color="var(--ch-facebook)" id="fbmsg" />
+            <MiniArea data={D.fbMsgTrend.map(d=>d.v)} labels={D.fbMsgTrend.map(d=>d.m)} fmt={N} h={70} color="var(--ch-facebook)" id="fbmsg" />
           </div>
         </div>
       </div>

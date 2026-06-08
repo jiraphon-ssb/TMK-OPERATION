@@ -163,8 +163,9 @@ export function Ring({ pct, size = 76, stroke = 8, color = 'var(--accent)', trac
 }
 
 /* ---------- MiniArea (sparkline-style area chart) ---------- */
-export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill = true, id }) {
+export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill = true, id, labels, fmt = Bk }) {
   const gid = 'ga-' + (id || color.replace(/[^a-z]/gi, ''));
+  const [hover, setHover] = useState(null); // hovered index
   const safeData = Array.isArray(data) ? data.filter(v => typeof v === 'number' && isFinite(v)) : [];
 
   // ถ้าไม่มีข้อมูล → empty state แบบ HTML (ไม่ยืด/ไม่บิดเบี้ยวเหมือน SVG text)
@@ -188,15 +189,33 @@ export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill 
   const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
   // area path: ต้องเริ่มด้วย M เสมอ — guard เผื่อ line ว่าง
   const area = line ? line + ` L${w} ${h} L0 ${h} Z` : '';
+  const n = points.length;
+  const onMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    setHover(Math.round(ratio * (n - 1)));
+  };
+  const hv = hover != null && hover >= 0 && hover < n ? hover : null;
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
-      <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor={color} stopOpacity="0.22" />
-        <stop offset="100%" stopColor={color} stopOpacity="0" />
-      </linearGradient></defs>
-      {fill && area && <path d={area} fill={`url(#${gid})`} />}
-      {line && <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
-    </svg>
+    <div style={{ position: 'relative', width: '100%', height: h }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
+        <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient></defs>
+        {fill && area && <path d={area} fill={`url(#${gid})`} />}
+        {line && <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+        {hv != null && <line x1={pts[hv][0]} y1="0" x2={pts[hv][0]} y2={h} stroke={color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
+      </svg>
+      {hv != null && (
+        <>
+          <span style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: pts[hv][1], width: 8, height: 8, marginLeft: -4, marginTop: -4, borderRadius: '50%', background: color, border: '2px solid var(--surface)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: 0, transform: `translateX(${hv > n / 2 ? '-100%' : '0'})`, background: 'var(--ink)', color: '#fff', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 5, fontFamily: 'var(--font)' }}>
+            {labels && labels[hv] ? <span style={{ opacity: 0.8, marginRight: 6 }}>{labels[hv]}</span> : null}{fmt(safeData[hv])}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -212,7 +231,7 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
         const main = safeH(d[valueKey]);
         const proj = safeH(d.proj);
         return (
-          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
+          <div key={i} title={`${d[labelKey]}: ${fmt(d[valueKey] || 0)}${d.proj ? ' (+คาดการณ์ ' + fmt(d.proj) + ')' : ''}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end', cursor: 'default' }}>
             <div className="num cap" style={{ fontWeight: 600, color: 'var(--ink-2)' }}>{fmt(d[valueKey] + (d.proj || 0))}</div>
             <div style={{ width: '100%', maxWidth: 46, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: h - 44 }}>
               {proj > 0 && <div style={{ height: proj, background: color, opacity: 0.28, borderRadius: '6px 6px 0 0' }} />}
