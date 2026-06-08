@@ -513,8 +513,8 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
               {ch.hasAd && (
                 <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
                   <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
-                  <div><div className="cap">ROAS</div><div className="num sm" style={{ fontWeight: 700, color: roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
-                  <div><div className="cap">ACOS</div><div className="num sm" style={{ fontWeight: 700, color: acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
+                  <div><div className="cap">ROAS</div><div className="num sm" style={{ fontWeight: 700, color: roas==null?'var(--ink-3)':roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+                  <div><div className="cap">ACOS</div><div className="num sm" style={{ fontWeight: 700, color: acos==null?'var(--ink-3)':acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
                 </div>
               )}
             </div>
@@ -584,8 +584,8 @@ function SalesAds({ dateProps, prevMonthName, md }) {
                   <td><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></td>
                   <td className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</td>
                   <td className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r!=null ? r.toFixed(1)+'x' : '—'}</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a<=consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{a!=null ? P(a,0) : '—'}</td>
+                  <td className="num" style={{textAlign:'right', fontWeight:700, color: r==null?'var(--ink-3)':r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r!=null ? r.toFixed(1)+'x' : '—'}</td>
+                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a==null?'var(--ink-3)':a<=consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{a!=null ? P(a,0) : '—'}</td>
                 </tr>
               );
             })}

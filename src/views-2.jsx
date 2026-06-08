@@ -8,7 +8,7 @@ import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { getToday, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
+import { getToday, parseTaskDate, todayISO, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
 
 const DD = TMK;
 
@@ -353,13 +353,16 @@ function TimelineView({ filtered, fProps }) {
   DD.tasks.forEach(t => { campTasks[t.camp] = campTasks[t.camp] || []; campTasks[t.camp].push(t); });
 
   // Stats
-  const todayTasks = filtered.filter(t => parse(t.date) === TODAY).length;
-  const overdue = filtered.filter(t => parse(t.date) < TODAY && t.status !== 'done').length;
+  // เทียบด้วยวันที่จริง (รองรับงานข้ามเดือน) — ไม่ใช่แค่เลขวัน
+  const todayIso = todayISO();
+  const dayDiff = (s) => { const iso = parseTaskDate(s); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(todayIso + 'T00:00:00')) / 86400000); };
+  const todayTasks = filtered.filter(t => dayDiff(t.date) === 0).length;
+  const overdue = filtered.filter(t => { const d = dayDiff(t.date); return d != null && d < 0 && t.status !== 'done'; }).length;
 
-  // Group filtered tasks by date, sorted
+  // Group filtered tasks by FULL date string (กันงานคนละเดือนวันเดียวกันมารวมกัน)
   const byDate = {};
-  filtered.forEach(t => { const d = parse(t.date); byDate[d] = byDate[d] || []; byDate[d].push(t); });
-  const dates = Object.keys(byDate).map(Number).sort((a, b) => a - b);
+  filtered.forEach(t => { const k = t.date || '—'; (byDate[k] = byDate[k] || []).push(t); });
+  const dateKeys = Object.keys(byDate).sort((a, b) => { const ia = parseTaskDate(a) || a, ib = parseTaskDate(b) || b; return ia < ib ? -1 : ia > ib ? 1 : 0; });
 
   return (
     <div className="content-inner rise">
@@ -391,26 +394,29 @@ function TimelineView({ filtered, fProps }) {
           <span></span>
           <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('task')}><Icon name="plus" /> เพิ่มงาน</button>
         </div>
-        {dates.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-3)' }}><Icon name="search" /><div className="cap" style={{ marginTop: 6 }}>ไม่พบงานตามเงื่อนไข</div></div>}
+        {dateKeys.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-3)' }}><Icon name="search" /><div className="cap" style={{ marginTop: 6 }}>ไม่พบงานตามเงื่อนไข</div></div>}
         <div style={{ position: 'relative', paddingLeft: 32 }}>
           {/* Vertical line */}
-          {dates.length > 0 && <div style={{ position: 'absolute', left: 14, top: 8, bottom: 8, width: 2, background: 'var(--line)', borderRadius: 1 }}></div>}
+          {dateKeys.length > 0 && <div style={{ position: 'absolute', left: 14, top: 8, bottom: 8, width: 2, background: 'var(--line)', borderRadius: 1 }}></div>}
 
-          {dates.map((day, di) => {
-            const tasks = byDate[day];
-            const isToday = day === TODAY;
-            const isPast = day < TODAY;
+          {dateKeys.map((dateKey, di) => {
+            const tasks = byDate[dateKey];
+            const diff = dayDiff(dateKey);
+            const isToday = diff === 0;
+            const isPast = diff != null && diff < 0;
+            const iso = parseTaskDate(dateKey);
+            const beYear = iso ? Number(iso.slice(0, 4)) + 543 : '';
             return (
-              <div key={day} style={{ marginBottom: di < dates.length - 1 ? 20 : 0 }}>
+              <div key={dateKey} style={{ marginBottom: di < dateKeys.length - 1 ? 20 : 0 }}>
                 {/* Date node */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, marginLeft: -32 }}>
                   <div style={{ width: 28, display: 'flex', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>
                     <div style={{ width: isToday ? 14 : 10, height: isToday ? 14 : 10, borderRadius: '50%', background: isToday ? 'var(--accent)' : isPast ? 'var(--good)' : 'var(--ink-4)', border: isToday ? '2px solid var(--accent-ring)' : 'none' }}></div>
                   </div>
                   <div>
-                    <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 700, color: isToday ? 'var(--accent-2)' : 'var(--ink)' }}>{String(day).padStart(2, '0')} มิ.ย.</span>
+                    <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 700, color: isToday ? 'var(--accent-2)' : 'var(--ink)' }}>{dateKey}</span>
                     {isToday && <span className="chip chip-accent" style={{ marginLeft: 8 }}>วันนี้</span>}
-                    <span className="cap" style={{ marginLeft: 8 }}>2569</span>
+                    {beYear && <span className="cap" style={{ marginLeft: 8 }}>{beYear}</span>}
                   </div>
                 </div>
                 {/* Task cards */}
@@ -418,7 +424,7 @@ function TimelineView({ filtered, fProps }) {
                   {tasks.map(t => {
                     const c = DD.campaigns.find(x => x.id === t.camp);
                     const isDone = t.status === 'done';
-                    const isOverdue = day < TODAY && !isDone;
+                    const isOverdue = isPast && !isDone;
                     return (
                       <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
                         <div className="row between" style={{ marginBottom: 6 }}>

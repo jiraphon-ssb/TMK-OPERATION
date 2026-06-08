@@ -348,15 +348,17 @@ function AppInner() {
   const myDept = currentUserCtx?.department || '';
   const seeAll = currentUserCtx?.role === 'admin';
   const isMine = (tk) => seeAll || (tk.responsible || []).some(r => r === myDuty || r === myDept);
-  const dayOf = (x) => +(x.date.match(/^(\d+)/)?.[1] || 0);
+  // ผลต่างวันแบบวันที่จริง (รองรับข้ามเดือน/ปี) — ไม่ใช่แค่เลขวัน
+  const _todayIso = todayISO();
+  const diffOf = (x) => { const iso = parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
   const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
 
   // 1) วันนี้
-  const notifsToday = openTasks.filter(x => dayOf(x) === todayDay)
+  const notifsToday = openTasks.filter(x => diffOf(x) === 0)
     .map(x => ({ ...x, kind: 'task', sev: 'today', txt: t('dueToday') }));
   // 2) ตามวันที่ (เกินกำหนด + ใกล้ถึง ภายใน reminderDays)
-  const notifsDated = openTasks.filter(x => dayOf(x) !== todayDay)
-    .map(x => { const diff = dayOf(x) - todayDay; return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
+  const notifsDated = openTasks.filter(x => { const d = diffOf(x); return d != null && d !== 0; })
+    .map(x => { const diff = diffOf(x); return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
     .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
     .sort((a, b) => a._diff - b._diff);
   // 3) เดือนที่แล้ว — เตือนถ้ายังไม่ได้สรุปยอดเดือนก่อน (จาก monthly_history จริง)
