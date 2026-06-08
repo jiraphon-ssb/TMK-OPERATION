@@ -545,7 +545,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
         <div className="grid g4" style={{ marginBottom: 12 }}>
           <div>
             <div className="cap">{'งบทั้งหมด'}</div>
-            <div className="num h1">{Bk(totalBudget)}</div>
+            <div className="num h1">{totalBudget > 0 ? Bk(totalBudget) : '— ยังไม่ตั้งงบ'}</div>
           </div>
           <div>
             <div className="cap">{'ใช้ไปแล้ว'}</div>
@@ -553,7 +553,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
           </div>
           <div>
             <div className="cap">{'คงเหลือ'}</div>
-            <div className="num h1" style={{ color: remaining > 0 ? 'var(--good)' : 'var(--bad)' }}>{Bk(remaining)}</div>
+            <div className="num h1" style={{ color: totalBudget <= 0 ? 'var(--ink-3)' : remaining > 0 ? 'var(--good)' : 'var(--bad)' }}>{totalBudget > 0 ? Bk(remaining) : '—'}</div>
           </div>
           <div>
             <div className="cap">Burn rate/{'วัน'}</div>
@@ -660,7 +660,9 @@ function SalesAds({ dateProps, prevMonthName, md }) {
 
 function SalesCustomers({ dateProps, prevMonthName, md }) {
   const C = md.computed;
-  const newPct = C.MTD > 0 ? (C.NEW_REV / C.MTD) * 100 : 0;
+  // สัดส่วนลูกค้าใหม่คิดจาก "จำนวนคน" (ไม่ได้แยกรายได้ใหม่/เก่า)
+  const custTot = C.NEW_C + C.OLD_C;
+  const newPct = custTot > 0 ? (C.NEW_C / custTot) * 100 : 0;
   return (
     <div className="content-inner rise">
       <SalesDateBar {...dateProps} />
@@ -694,12 +696,12 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
             <div style={{ marginBottom: 14 }}>
               <div className="row" style={{ gap: 7 }}><span style={{width:9,height:9,borderRadius:'50%',background:'var(--good)'}}></span><span className="cap">{'ลูกค้าใหม่'}</span></div>
               <div className="num h1" style={{ color: 'var(--good)' }}>{N(C.NEW_C)} <span className="cap">{'คน'}</span></div>
-              <div className="cap">{'รายได้'} {B(C.NEW_REV)} {'·'} {P(newPct)} {'·'} AOV {C.NEW_C > 0 ? B(C.NEW_REV/C.NEW_C) : '—'}</div>
+              <div className="cap">{custTot > 0 ? P(newPct) : '—'} {'ของลูกค้าทั้งหมด'}</div>
             </div>
             <div>
               <div className="row" style={{ gap: 7 }}><span style={{width:9,height:9,borderRadius:'50%',background:'var(--info)'}}></span><span className="cap">{'ลูกค้าเก่า'}</span></div>
               <div className="num h1" style={{ color: 'var(--info)' }}>{N(C.OLD_C)} <span className="cap">{'คน'}</span></div>
-              <div className="cap">{'รายได้'} {B(C.OLD_REV)} {'·'} AOV {C.OLD_C > 0 ? B(C.OLD_REV/C.OLD_C) : '—'}</div>
+              <div className="cap">{custTot > 0 ? P(100 - newPct) : '—'} {'ของลูกค้าทั้งหมด'}</div>
             </div>
           </div>
         </div>
