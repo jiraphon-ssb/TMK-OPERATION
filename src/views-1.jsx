@@ -134,26 +134,28 @@ export function HomeView({ go }) {
           </div>
         </div>
 
-        <div className="card card-pad-sm" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="card card-pad-sm" style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer' }} onClick={() => go('sales', 'channels')}>
           <div className="row between" style={{ marginBottom: 12 }}>
-            <span className="eyebrow">{'แคมเปญ'}</span>
-            <span className="chip">{(D.campaigns || []).length}</span>
+            <span className="eyebrow">{'ยอดขายแยกช่องทาง'} (MTD)</span>
+            <span className="chip">{B(C.MTD)}</span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 11, flex: 1 }}>
             {(() => {
-              const order = { live: 0, upcoming: 1, done: 2 };
-              const stMeta = { live: { l: 'กำลังดำเนินการ', c: 'var(--good)' }, upcoming: { l: 'กำลังจะมา', c: 'var(--warn)' }, done: { l: 'จบแล้ว', c: 'var(--ink-3)' } };
-              const list = [...(D.campaigns || [])].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)).slice(0, 5);
-              if (list.length === 0) return <div className="cap" style={{ color: 'var(--ink-4)', padding: '12px 0' }}>ยังไม่มีแคมเปญ</div>;
-              return list.map(c => {
-                const st = stMeta[c.status] || stMeta.upcoming;
+              const chs = [...(D.channels || [])].sort((a, b) => (b.actual || 0) - (a.actual || 0));
+              if (!chs.length || C.MTD <= 0) return <div className="cap" style={{ color: 'var(--ink-4)', padding: '12px 0' }}>ยังไม่มียอดขายเดือนนี้</div>;
+              return chs.map((c, i) => {
+                const pct = C.MTD > 0 ? (c.actual / C.MTD) * 100 : 0;
                 return (
-                  <div key={c.id} onClick={() => go('settings', 'campaigns')} style={{ display: 'flex', gap: 10, padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', borderLeft: `3px solid ${c.color || '#888'}`, cursor: 'pointer', alignItems: 'center' }}>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div className="sm" style={{ fontWeight: 600, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
-                      <div className="cap" style={{ marginTop: 2 }}>{c.start && c.end ? `${c.start} - ${c.end}` : 'ยังไม่กำหนดช่วงเวลา'}</div>
+                  <div key={c.id}>
+                    <div className="row between" style={{ marginBottom: 4, gap: 8 }}>
+                      <span className="sm" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex, flexShrink: 0 }}></span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                        {i === 0 && c.actual > 0 && <span className="chip chip-good" style={{ fontSize: 9, padding: '1px 6px' }}>อันดับ 1</span>}
+                      </span>
+                      <span className="num sm" style={{ fontWeight: 700, flexShrink: 0 }}>{B(c.actual)} <span className="cap" style={{ fontWeight: 500 }}>{P(pct, 0)}</span></span>
                     </div>
-                    <span className="chip" style={{ background: st.c + '1c', color: st.c, flexShrink: 0 }}>{st.l}</span>
+                    <div className="bar" style={{ height: 6 }}><span style={{ width: `${Math.min(pct, 100)}%`, background: c.hex }}></span></div>
                   </div>
                 );
               });
@@ -207,7 +209,7 @@ export function HomeView({ go }) {
         <div className="card">
           <div className="card-head">
             <h3><span style={{color:'var(--accent)'}}><Icon name="clock" /></span> {'ความเคลื่อนไหวล่าสุด'}</h3>
-            <button className="btn btn-sm btn-ghost" onClick={() => go('system', 'audit')}>{'ทั้งหมด'} <Icon name="arrowR" /></button>
+            <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'audit')}>{'ทั้งหมด'} <Icon name="arrowR" /></button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {D.audit.slice(0, 5).map((a, i) => {
