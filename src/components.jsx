@@ -163,12 +163,15 @@ export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill 
 
 /* ---------- Bars (vertical) ---------- */
 export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', valueKey = 'rev', fmt = Bk }) {
-  const max = Math.max(...data.map(d => d[valueKey] + (d.proj || 0)));
+  // กัน NaN/Infinity: ถ้าข้อมูลว่างหรือทุกค่าเป็น 0 → max = 1 (บาร์สูง 0 ไม่พัง)
+  const _rawMax = data.length ? Math.max(...data.map(d => (Number(d[valueKey]) || 0) + (Number(d.proj) || 0))) : 0;
+  const max = _rawMax > 0 ? _rawMax : 1;
+  const safeH = (v) => { const x = ((Number(v) || 0) / max) * (h - 28); return isFinite(x) && x > 0 ? x : 0; };
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: h, paddingTop: 8 }}>
       {data.map((d, i) => {
-        const main = (d[valueKey] / max) * (h - 28);
-        const proj = ((d.proj || 0) / max) * (h - 28);
+        const main = safeH(d[valueKey]);
+        const proj = safeH(d.proj);
         return (
           <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
             <div className="num cap" style={{ fontWeight: 600, color: 'var(--ink-2)' }}>{fmt(d[valueKey] + (d.proj || 0))}</div>

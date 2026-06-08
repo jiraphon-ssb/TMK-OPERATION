@@ -108,14 +108,24 @@ function mapToTMK(raw) {
   // รายได้ต่อช่องทาง derive จาก tmk_daily_sales จริง (single source of truth)
   // กรอกยอดรายวัน → MTD/ช่องทางอัปเดตเอง; ถ้ายังไม่มี daily → 0
   const DAILY_COL = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
-  const _dailyRows = raw.daily || [];
-  const dailyRevByCh = {};
+  // Aggregate ต่อช่องทางจาก daily jsonb เฉพาะ "เดือนปัจจุบัน" (ตรงกับ computeMonth — Home<->Sales ตรงกัน)
+  const _curY = today.yearBE, _curM = today.month;
+  const _chIdList = (raw.channels || []).map(c => c.id);
+  const dailyAgg = {};
   let dailyAdTotal = 0;
-  _dailyRows.forEach(d => {
+  (raw.daily || []).forEach(d => {
+    const [yy, mm] = String(d.date).split('-').map(Number);
+    if ((yy + 543) !== _curY || mm !== _curM) return; // เฉพาะเดือนปัจจุบัน
     dailyAdTotal += Number(d.ad_spend || 0);
-    for (const [id, col] of Object.entries(DAILY_COL)) {
-      dailyRevByCh[id] = (dailyRevByCh[id] || 0) + Number(d[col] || 0);
-    }
+    const cj = (d.channels && typeof d.channels === 'object') ? d.channels : {};
+    _chIdList.forEach(id => {
+      const j = cj[id] || {};
+      const legacyCol = DAILY_COL[id];
+      const rev = Number(j.rev != null ? j.rev : (legacyCol ? d[legacyCol] : 0)) || 0;
+      const a = dailyAgg[id] || (dailyAgg[id] = { rev: 0, ord: 0, ad: 0, newC: 0, oldC: 0, inq: 0 });
+      a.rev += rev; a.ord += Number(j.ord || 0); a.ad += Number(j.ad || 0);
+      a.newC += Number(j.newC || 0); a.oldC += Number(j.oldC || 0); a.inq += Number(j.inq || 0);
+    });
   });
 
   // Channels
@@ -128,16 +138,15 @@ function mapToTMK(raw) {
     hex: ch.color,
     // เป้าต่อช่องทาง = ค่าของเดือนปัจจุบัน (meta.channelTargets); ไม่มี = 0
     target: Number((_curMeta.channelTargets && _curMeta.channelTargets[ch.id]) || 0),
-    // รายได้ต่อช่องทาง = ยอดจริงจาก daily (ช่องทางมาตรฐาน); อื่นๆ ใช้ค่าใน channels
-    actual: (ch.id in DAILY_COL) ? (dailyRevByCh[ch.id] || 0) : Number(ch.actual || 0),
+    // รายได้/ออร์เดอร์/ลูกค้า/ค่าแอด ต่อช่องทาง = ยอดจริงจาก daily เดือนปัจจุบัน (ตรงกับ computeMonth)
+    actual: dailyAgg[ch.id]?.rev || 0,
     sortOrder: Number(ch.sort_order || 0),
-    // metric รายช่องทาง (ยังไม่ได้เก็บจากการกรอกจริง — มาจากคอลัมน์ channels)
-    orders: Number(ch.orders || 0),
-    newRev: Number(ch.new_rev || 0),
-    oldRev: Number(ch.old_rev || 0),
-    newCust: Number(ch.new_cust || 0),
-    oldCust: Number(ch.old_cust || 0),
-    ad: Number(ch.ad || 0),
+    orders: dailyAgg[ch.id]?.ord || 0,
+    newRev: 0, oldRev: 0, // ไม่ได้แยกรายได้ใหม่/เก่า
+    newCust: dailyAgg[ch.id]?.newC || 0,
+    oldCust: dailyAgg[ch.id]?.oldC || 0,
+    inq: dailyAgg[ch.id]?.inq || 0,
+    ad: dailyAgg[ch.id]?.ad || 0,
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
   }));
@@ -352,6 +361,19 @@ function mapToTMK(raw) {
     adSpend: Number(m.ad_spend || 0), newCust: Number(m.new_cust || 0),
     messages: Number(m.messages || 0), meta: m.meta || {},
   }));
+  // ซิงค์เดือนปัจจุบันด้วยยอดรายวัน (live) — monthly_history.actual มักยังไม่อัปเดตจาก daily
+  // → หน้าไตรมาส / กราฟ 3 เดือน / YoY แสดงเดือนนี้ตรงกับ dashboard
+  if (MTD > 0) {
+    const _cur = monthlyRaw.find(m => m.year === currentYear && m.month === currentMonth);
+    if (_cur) {
+      if (MTD > _cur.actual) _cur.actual = MTD;
+      if (ORD > _cur.orders) _cur.orders = ORD;
+      if (AD > _cur.adSpend) _cur.adSpend = AD;
+    } else {
+      monthlyRaw.push({ month: currentMonth, year: currentYear, monthTh: THAI_MONTH[currentMonth - 1],
+        target: TARGET, actual: MTD, projected: 0, orders: ORD, adSpend: AD, newCust: NEW_C, messages: 0, meta: {} });
+    }
+  }
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
