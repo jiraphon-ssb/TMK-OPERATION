@@ -581,33 +581,6 @@ function ProductsView() {
           </tbody>
         </table></div>
       </div>
-      <div className="grid g2">
-        <div className="card">
-          <div className="eyebrow" style={{ marginBottom: 14 }}>สีขายดี</div>
-          {DD.colorMix.length === 0 && <div className="cap" style={{ color: 'var(--ink-4)', padding: '8px 0' }}>ยังไม่มีข้อมูลสี</div>}
-          {DD.colorMix.map(c => (
-            <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
-              <span style={{ width: 18, height: 18, borderRadius: 5, background: c.hex, border: '1px solid var(--line)', flexShrink: 0 }}></span>
-              <span className="sm" style={{ flex: 1 }}>{c.name}</span>
-              <div className="bar" style={{ width: 110 }}><span style={{ width: `${Math.min(100, (c.pct / Math.max(1, ...DD.colorMix.map(x => x.pct || 0))) * 100)}%`, background: c.hex }}></span></div>
-              <span className="num sm" style={{ width: 34, textAlign: 'right', fontWeight: 700 }}>{c.pct}%</span>
-            </div>
-          ))}
-        </div>
-        <div className="card">
-          <div className="eyebrow" style={{ marginBottom: 14 }}>ไซส์ขายดี</div>
-          {DD.sizeMix.length === 0 && <div className="cap" style={{ color: 'var(--ink-4)', padding: '8px 0' }}>ยังไม่มีข้อมูลไซส์</div>}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, height: 180, paddingTop: 10 }}>
-            {DD.sizeMix.map(s => (
-              <div key={s.s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
-                <span className="num cap" style={{ fontWeight: 700 }}>{s.pct}%</span>
-                <div style={{ width: '100%', maxWidth: 38, height: `${(s.pct / Math.max(1, ...DD.sizeMix.map(x => x.pct || 0))) * 140}px`, background: 'var(--accent)', borderRadius: '6px 6px 0 0' }}></div>
-                <span className="cap" style={{ fontWeight: 600 }}>{s.s}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
