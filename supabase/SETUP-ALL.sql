@@ -319,6 +319,11 @@ alter table public.tmk_monthly_history   add column if not exists meta jsonb not
 alter table public.tmk_daily_sales       add column if not exists channels jsonb not null default '{}'::jsonb;
 -- เวลาตอบแชทเฉลี่ย/วัน (นาที)
 alter table public.tmk_daily_sales       add column if not exists avg_reply_minutes numeric not null default 0;
+-- soft-delete รายวัน (ลบ→ถังขยะ กู้คืนได้)
+alter table public.tmk_daily_sales       add column if not exists deleted_at timestamptz;
+create index if not exists tmk_daily_sales_deleted_idx on public.tmk_daily_sales(deleted_at);
+-- ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (%) — ใช้คำนวณกำไรสุทธิแทน 5% ตายตัว
+alter table public.tmk_channels          add column if not exists platform_fee_pct numeric not null default 0;
 
 -- รูปสินค้า + ล็อต (batch) ต่อสินค้า — มีล็อต → สต็อก = ผลรวม qty ของทุกล็อต
 alter table public.tmk_products          add column if not exists image_url text;

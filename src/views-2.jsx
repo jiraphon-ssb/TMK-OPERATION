@@ -992,7 +992,7 @@ function SalesReportView() {
             <div className="eyebrow">มูลค่าคลังตามเวลา</div>
             <div className="cap">ล่าสุด <b style={{ color: 'var(--ink)' }}>{B(snapVals[snapVals.length - 1])}</b></div>
           </div>
-          <MiniArea data={snapVals} labels={snapLabels} h={120} color="var(--good)" id="rep-invval" fmt={B} />
+          <MiniArea data={snapVals} labels={snapLabels} h={120} color="var(--good)" id="rep-invval" fmt={B} metricLabel="มูลค่าคลัง" />
         </div>
       )}
 
@@ -1001,7 +1001,7 @@ function SalesReportView() {
         <div className="grid g2" style={{ marginBottom: 16 }}>
           <div className="card">
             <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายวัน ({rangeLabel})</div>
-            <MiniArea data={dailyArr.map(d => d.amount)} labels={dailyArr.map(d => dailyLabel(d.day))} h={120} color="var(--accent)" id="rep-daily" fmt={B} />
+            <MiniArea data={dailyArr.map(d => d.amount)} labels={dailyArr.map(d => dailyLabel(d.day))} h={120} color="var(--accent)" id="rep-daily" fmt={B} metricLabel="ยอดขาย" />
           </div>
           <div className="card">
             <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน (8 เดือนล่าสุด)</div>
@@ -1192,6 +1192,8 @@ function OrdersView() {
   const changeStatus = (o, status) => {
     if (!o || o.status === status) return;
     if (!guardEdit()) return;
+    // กันสต็อกหาย: ออเดอร์ที่ "ส่งแล้ว" ตัดสต็อกไปแล้ว — ย้อนสถานะกลับไม่ได้ (ระบบไม่คืนสต็อกอัตโนมัติ)
+    if (o.status === 'shipped') { window.alert(`ออเดอร์ ${o.code} "ส่งแล้ว" — เปลี่ยนสถานะไม่ได้\nสต็อกถูกตัดไปแล้ว ถ้าต้องการคืนสต็อกให้ใช้ "ปรับสต็อก" ที่สินค้า`); return; }
     if (status === 'shipped' && !window.confirm(`ยืนยัน "ส่งแล้ว" ออเดอร์ ${o.code}?\nระบบจะตัดสต็อกจริงตามออเดอร์นี้ (กู้คืนไม่ได้)`)) return;
     if (status === 'cancelled' && !window.confirm(`ยกเลิกออเดอร์ ${o.code}?\nระบบจะปล่อยสต็อกที่จองคืน`)) return;
     advanceOrderStatus(o, status);
@@ -2486,12 +2488,14 @@ function DutiesView() {
     try {
       const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('d-' + Date.now());
       const maxOrder = Math.max(0, ...duties.map(d => d.sortOrder || 0));
-      const { error } = await supabase.from('tmk_duties').insert({
+      // upsert + deleted_at:null → ถ้าชื่อนี้เคยถูกลบ (soft-delete) จะกู้กลับมาแทนที่จะชน PK
+      const { error } = await supabase.from('tmk_duties').upsert({
         id,
         name,
         color: newColor,
         description: newDesc.trim(),
         sort_order: maxOrder + 1,
+        deleted_at: null,
       });
       if (error) throw error;
       logAudit({ action: 'create', entityType: 'duty', entityName: name, summary: `เพิ่มหน้าที่ "${name}"` });

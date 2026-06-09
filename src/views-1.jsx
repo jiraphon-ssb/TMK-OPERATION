@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useMemo } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section, InfoTip } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, thaiDate, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
@@ -30,7 +30,7 @@ export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, acce
       onKeyDown={onClick ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }) : undefined}
       style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: onClick ? 'pointer' : 'default', transition: 'box-shadow 0.15s' }}>
       <div className="row between">
-        <span className="metric-label" title={hint || undefined} tabIndex={hint ? 0 : undefined} aria-label={hint ? `${label}: ${hint}` : undefined} style={hint ? { cursor: 'help' } : undefined}>{label}{hint ? ' ⓘ' : ''}</span>
+        <span className="metric-label">{label}{hint ? <InfoTip text={hint} label={label} /> : null}</span>
         {icon && <span style={{ color: accent || 'var(--ink-3)' }}><Icon name={icon} /></span>}
       </div>
       <div className="metric-value">{value}</div>
@@ -92,7 +92,7 @@ export function HomeView({ go }) {
       <div className="grid" style={{ gridTemplateColumns: '1.7fr 1fr', marginBottom: 16 }}>
         <div className="card" style={{ display: 'flex', gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="eyebrow" style={{ marginBottom: 8, cursor: 'help' }} title="MTD (Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน">{'ยอดขายรวมเดือนนี้'} (MTD) ⓘ</div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขายรวมเดือนนี้'} (MTD) <InfoTip text="MTD (Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน" label="ยอดขายรวมเดือนนี้" /></div>
             <div className="num" style={{ fontSize: 'clamp(26px,5vw,40px)', fontWeight: 700, letterSpacing: '-1px', lineHeight: 1.05, wordBreak: 'break-word' }}>{B(mtd)}</div>
             <div className="row" style={{ gap: 14, marginTop: 14 }}>
               <div>
@@ -101,7 +101,7 @@ export function HomeView({ go }) {
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
               <div>
-                <div className="cap" style={{ cursor: 'help' }} title="Run rate = คาดการณ์ยอดสิ้นเดือน = (ยอด MTD ÷ วันที่ผ่านมา) × จำนวนวันทั้งเดือน">{'คาดสิ้นเดือน'} (Run rate) ⓘ</div>
+                <div className="cap">{'คาดสิ้นเดือน'} (Run rate) <InfoTip text="Run rate = คาดการณ์ยอดสิ้นเดือน = (ยอด MTD ÷ วันที่ผ่านมา) × จำนวนวันทั้งเดือน" label="คาดสิ้นเดือน (Run rate)" /></div>
                 <div className="num h3" style={{ color: gap > 0 ? 'var(--warn)' : 'var(--good)' }}>{B(C.RUN)}</div>
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
@@ -115,7 +115,7 @@ export function HomeView({ go }) {
             <Ring pct={pace} size={128} stroke={11} color={st.c}>
               <div>
                 <div className="num" style={{ fontSize: 26, fontWeight: 700, color: st.c }}>{P(pace, 0)}</div>
-                <div className="cap" style={{ marginTop: 2, cursor: 'help' }} title="Pace = ยอด MTD เทียบกับเป้าที่ควรได้ ณ วันนี้ (เป้า ÷ จำนวนวัน × วันที่ผ่านมา) · 100% = ตรงเป้า, เกิน 100% = นำเป้า">Pace ⓘ</div>
+                <div className="cap" style={{ marginTop: 2 }}>Pace <InfoTip text="Pace = ยอด MTD เทียบกับ 'เป้าที่ควรได้ ณ วันนี้' (เป้าเดือน ÷ จำนวนวัน × วันที่ผ่านไป) · 100% = ตรงจังหวะเป้า, เกิน 100% = นำเป้า, ต่ำกว่า = ช้ากว่าเป้า" label="Pace" align="right" /></div>
               </div>
             </Ring>
             <div style={{ marginTop: 8 }}><span className={`chip ${TMK.consts.TARGET > 0 ? st.cls : 'chip-accent'}`}>{TMK.consts.TARGET > 0 ? st.label : 'ยังไม่ตั้งเป้า'}</span></div>
@@ -226,7 +226,7 @@ export function HomeView({ go }) {
               <div className="cap">{'รวม'} {D.dailyMonth.length} {'วัน'} {'·'} {'เฉลี่ย'} {D.dailyMonth.length ? B(C.MTD / D.dailyMonth.length) : '—'}/{'วัน'}</div>
             </div>
           </div>
-          <MiniArea data={dailyVals} h={110} id="home" />
+          <MiniArea data={dailyVals} labels={dailyVals.map((_, i) => 'วันที่ ' + (i + 1))} h={110} id="home" metricLabel="ยอดขาย" />
           <div className="grid g3" style={{ marginTop: 16, gap: 10 }}>
             {D.channels.slice(0, 6).map(ch => (
               <div key={ch.id} className="row" style={{ gap: 9 }}>
@@ -440,7 +440,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       <div className="grid g3">
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>{'ยอดขายรายวัน'}</div>
-          <MiniArea data={md.dailyMonth.map(d=>d.rev)} labels={md.dailyMonth.map(d=>'วันที่ '+d.d)} h={150} id="so" />
+          <MiniArea data={md.dailyMonth.map(d=>d.rev)} labels={md.dailyMonth.map(d=>'วันที่ '+d.d)} h={150} id="so" metricLabel="ยอดขาย" />
         </div>
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>3 {'เดือนล่าสุด'}</div>
@@ -457,6 +457,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
 }
 
 function YoYChart({ data: dataProp, year }) {
+  const [hi, setHi] = useState(null);
   const data = dataProp || D.yoy;
   const cy = year || (new Date().getFullYear() + 543), py = cy - 1; // ปี พ.ศ. ตามที่เลือก (ไม่ฮาร์ดโค้ด)
   const w = 320, h = 150;
@@ -472,27 +473,41 @@ function YoYChart({ data: dataProp, year }) {
   const max = Math.max(...all), min = Math.min(...all) * 0.9;
   const range = (max - min) || 1; // กันหารศูนย์เมื่อค่าเท่ากันหมด
   const X = (i) => (i / (data.length - 1)) * w;
-  const line = (key) => data.map((d,i)=>[X(i), h-20-((d[key]-min)/range)*(h-30)]);
-  const path = pts => pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const Y = (v) => h - 20 - ((v - min) / range) * (h - 30);
+  const lineP = (key) => data.map((d, i) => [X(i), Y(d[key])]);
+  const path = pts => pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const onMove = (e) => { const r = e.currentTarget.getBoundingClientRect(); const ratio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); setHi(Math.round(ratio * (data.length - 1))); };
+  const yTicks = [max, (max + min) / 2, min];
   return (
     <div>
-      <svg viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 150 }}>
-        <path d={path(line('y25'))} fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeDasharray="4 4" />
-        <path d={path(line('y26'))} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" />
-        {line('y25').map((p,i)=><circle key={'a'+i} cx={p[0]} cy={p[1]} r="2.5" fill="var(--ink-4)" />)}
-        {line('y26').map((p,i)=><circle key={i} cx={p[0]} cy={p[1]} r="3" fill="var(--accent)" />)}
-        {data.map((d,i)=><text key={i} x={X(i)} y={h-2} fontSize="9" fill="var(--ink-3)" textAnchor="middle">{d.m}</text>)}
-        {/* hover columns — เอาเมาส์วางแสดงตัวเลขเทียบปี */}
-        {data.map((d,i)=>{
-          const dd = data.length>1 ? w/(data.length-1) : w;
-          return <rect key={'h'+i} x={X(i)-dd/2} y="0" width={dd} height={h} fill="transparent" style={{ cursor:'default' }}>
-            <title>{`${d.m} · ${cy}: ${B(d.y26)} · ${py}: ${B(d.y25)}`}</title>
-          </rect>;
-        })}
-      </svg>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 6, fontFamily: 'var(--font)' }}>
+        {/* แกน Y (เงิน) */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', color: 'var(--ink-4)', fontSize: 9, height: 150, paddingBottom: 18, lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {yTicks.map((v, i) => <span key={i}>{Bc(v)}</span>)}
+        </div>
+        <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+          <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: 150, display: 'block' }}>
+            <path d={path(lineP('y25'))} fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+            <path d={path(lineP('y26'))} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            {data.map((d, i) => <text key={i} x={X(i)} y={h - 2} fontSize="9" fill="var(--ink-3)" textAnchor="middle">{d.m}</text>)}
+            {hi != null && data[hi] && <line x1={X(hi)} y1="0" x2={X(hi)} y2={h - 14} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
+          </svg>
+          {/* จุด (วาดด้วย HTML กันยืดเป็นวงรีจาก preserveAspectRatio=none) */}
+          {[['y25', 'var(--ink-4)', 5], ['y26', 'var(--accent)', 6]].map(([k, col, sz]) => data.map((d, i) => (
+            <span key={k + i} style={{ position: 'absolute', left: `${(i / (data.length - 1)) * 100}%`, top: `${(Y(d[k]) / h) * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: '50%', background: col, pointerEvents: 'none' }} />
+          )))}
+          {hi != null && data[hi] && (
+            <div style={{ position: 'absolute', left: `${(hi / Math.max(data.length - 1, 1)) * 100}%`, top: 0, transform: `translateX(${hi > data.length / 2 ? '-100%' : '0'})`, background: 'var(--ink)', color: 'var(--paper)', padding: '7px 11px', borderRadius: 8, fontSize: 12, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 5, textAlign: 'left', lineHeight: 1.45, boxShadow: '0 6px 20px rgba(0,0,0,.25)' }}>
+              <div style={{ opacity: 0.75, fontWeight: 600, fontSize: 11 }}>{data[hi].m}</div>
+              <div style={{ fontWeight: 700 }}>{cy} : {B(data[hi].y26)}</div>
+              <div style={{ opacity: 0.55, fontWeight: 600 }}>{py} : {B(data[hi].y25)}</div>
+            </div>
+          )}
+        </div>
+      </div>
       <div className="row" style={{ gap: 14, marginTop: 6 }}>
-        <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--accent)', verticalAlign:'middle', marginRight:5 }}></span>{cy}</span>
-        <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--ink-4)', verticalAlign:'middle', marginRight:5 }}></span>{py}</span>
+        <span className="cap"><span style={{ display: 'inline-block', width: 14, height: 2, background: 'var(--accent)', verticalAlign: 'middle', marginRight: 5 }}></span>{cy}</span>
+        <span className="cap"><span style={{ display: 'inline-block', width: 14, height: 2, background: 'var(--ink-4)', verticalAlign: 'middle', marginRight: 5 }}></span>{py}</span>
       </div>
     </div>
   );
@@ -555,8 +570,8 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
               {ch.hasAd && (
                 <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
                   <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
-                  <div><div className="cap" style={{ cursor: 'help' }} title="ROAS = ยอดขาย ÷ ค่าแอด — คืนกี่เท่าของเงินแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)">ROAS ⓘ</div><div className="num sm" style={{ fontWeight: 700, color: roas==null?'var(--ink-3)':roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
-                  <div><div className="cap" style={{ cursor: 'help' }} title="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป">ACOS ⓘ</div><div className="num sm" style={{ fontWeight: 700, color: acos==null?'var(--ink-3)':acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
+                  <div><div className="cap">ROAS <InfoTip text="ROAS = ยอดขาย ÷ ค่าแอด — คืนกี่เท่าของเงินแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)" label="ROAS" align="right" /></div><div className="num sm" style={{ fontWeight: 700, color: roas==null?'var(--ink-3)':roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+                  <div><div className="cap">ACOS <InfoTip text="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป" label="ACOS" align="right" /></div><div className="num sm" style={{ fontWeight: 700, color: acos==null?'var(--ink-3)':acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
                 </div>
               )}
             </div>
@@ -598,7 +613,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
             <div className="num h1" style={{ color: totalBudget <= 0 ? 'var(--ink-3)' : remaining > 0 ? 'var(--good)' : 'var(--bad)' }}>{totalBudget > 0 ? Bk(remaining) : '—'}</div>
           </div>
           <div>
-            <div className="cap" style={{ cursor: 'help' }} title="Burn rate = ค่าแอดเฉลี่ยที่ใช้ต่อวันในเดือนนี้">Burn rate/{'วัน'} ⓘ</div>
+            <div className="cap">Burn rate/{'วัน'} <InfoTip text="Burn rate = ค่าแอดเฉลี่ยที่ใช้ต่อวันในเดือนนี้ (ค่าแอดรวม ÷ วันที่ผ่านไป)" label="Burn rate/วัน" /></div>
             <div className="num h1">{Bk(burnRate)}</div>
             <span className="cap" style={{ color: projectedSpend > totalBudget ? 'var(--bad)' : 'var(--good)' }}>
               {'คาดใช้'} {Bk(projectedSpend)}
@@ -698,7 +713,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
           </div>
           <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
             <div className="cap" style={{ marginBottom: 8 }}>{'ปริมาณข้อความ'} (6 {'ด.'})</div>
-            <MiniArea data={(md.fbMsgTrend||[]).map(d=>d.v)} labels={(md.fbMsgTrend||[]).map(d=>d.m)} fmt={N} h={70} color="var(--ch-facebook)" id="fbmsg" />
+            <MiniArea data={(md.fbMsgTrend||[]).map(d=>d.v)} labels={(md.fbMsgTrend||[]).map(d=>d.m)} fmt={N} axisFmt={N} h={86} color="var(--ch-facebook)" id="fbmsg" metricLabel="ข้อความ" />
           </div>
         </div>
       </div>

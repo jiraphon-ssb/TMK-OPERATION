@@ -474,7 +474,9 @@ function mapToTMK(raw) {
       platform: c.platform,
       budget: Number(c.budget || 0),
       spent: Number(c.spent || 0),
+      revenue: Number(c.revenue || 0),   // กันแก้แล้ว revenue หาย (กลายเป็น 0)
       roas: Number(c.roas || 0),
+      acos: Number(c.acos || 0),         // กันแก้แล้ว acos หาย (กลายเป็น 0)
       status: c.status || 'live',
       goal: c.goal || 'Conversion',   // กันแก้แล้ว goal หาย
       startDate: c.start_date || null,
@@ -581,7 +583,11 @@ export function computeMonth(monthIdx0, yearBE) {
     let mo = monthNum - off, yr = yearBE;
     while (mo < 1) { mo += 12; yr -= 1; }
     const r = _allM.find(m => m.year === yr && m.month === mo);
-    month3.push({ m: _ABBR[mo - 1], actual: Number(r?.actual || 0), proj: Number(r?.projected || 0) });
+    const isSel = off === 0;
+    // เดือนที่เลือก & เป็นเดือนปัจจุบัน → ทำได้ = MTD (ทึบ) + คาดการณ์ที่เหลือ = Run rate − MTD (จาง)
+    const a = (isSel && isCurrent) ? MTD : Number(r?.actual || 0);
+    const pj = (isSel && isCurrent) ? Math.max(0, RUN - MTD) : Number(r?.projected || 0);
+    month3.push({ m: _ABBR[mo - 1], actual: a, proj: pj });
   }
   const _lastYr = yearBE - 1;
   const yoy = [];

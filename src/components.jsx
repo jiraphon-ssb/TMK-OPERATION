@@ -42,6 +42,26 @@ export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—'; 
 // คอมแพกต์ k/M — ใช้เฉพาะ "ป้ายบนกราฟ" (กันล้นแท่งแคบ) ค่าเต็มดูได้ตอน hover
 export const Bc = n => { if (!_fin(n)) return '—'; const a = Math.abs(n), s = n < 0 ? '-' : ''; return a >= 1e6 ? '฿' + s + (a / 1e6).toFixed(1) + 'M' : a >= 1000 ? '฿' + s + Math.round(a / 1000) + 'k' : '฿' + Math.round(a); };
 
+/* ---------- InfoTip — ปุ่ม ⓘ กด/ชี้แล้วเด้งคำอธิบาย (ใช้ได้ทั้งเมาส์และแตะมือถือ) ---------- */
+export function InfoTip({ text, label, align = 'left' }) {
+  const [open, setOpen] = useState(false);
+  if (!text) return null;
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', verticalAlign: 'middle' }}>
+      <button type="button" title={text} aria-label={label ? `คำอธิบาย: ${label}` : 'คำอธิบาย'} aria-expanded={open}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen(o => !o); }}
+        style={{ border: 'none', background: 'none', padding: 0, marginLeft: 4, cursor: 'pointer', color: open ? 'var(--accent)' : 'var(--ink-4)', fontSize: '0.95em', lineHeight: 1, display: 'inline-flex' }}>ⓘ</button>
+      {open && (
+        <>
+          <span onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 200 }}></span>
+          <span role="tooltip" onClick={(e) => e.stopPropagation()}
+            style={{ position: 'absolute', zIndex: 201, top: 'calc(100% + 6px)', [align === 'right' ? 'right' : 'left']: 0, width: 230, maxWidth: '72vw', background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--line)', padding: '9px 11px', borderRadius: 'var(--r-sm)', fontSize: 'var(--fs-cap)', fontWeight: 400, lineHeight: 1.55, textAlign: 'left', whiteSpace: 'normal', boxShadow: 'var(--sh-pop, 0 8px 28px rgba(0,0,0,.18))' }}>{text}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
 /* ---------- Lot / variant helpers (เสื้อพิมพ์ลาย: ล็อต = ตาราง ไซส์ × สี) ---------- */
 // ไซส์มาตรฐาน เรียงลำดับ (XS → 10XL) — ใช้เป็นคอลัมน์ของตารางล็อต/สต็อก
 export const SIZES = ['XS','S','M','L','XL','2XL','3XL','4XL','5XL','6XL','7XL','8XL','9XL','10XL'];
@@ -282,13 +302,13 @@ export function Ring({ pct, size = 76, stroke = 8, color = 'var(--accent)', trac
   );
 }
 
-/* ---------- MiniArea (sparkline-style area chart) ---------- */
-export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill = true, id, labels, fmt = Bk }) {
+/* ---------- MiniArea (area chart + แกน Y เงิน/ค่า + แกน X วัน/เดือน) ---------- */
+export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill = true, id, labels, fmt = Bk, axisFmt = Bc, metricLabel = '' }) {
   const gid = 'ga-' + (id || color.replace(/[^a-z]/gi, ''));
   const [hover, setHover] = useState(null); // hovered index
   const safeData = Array.isArray(data) ? data.filter(v => typeof v === 'number' && isFinite(v)) : [];
 
-  // ถ้าไม่มีข้อมูล → empty state แบบ HTML (ไม่ยืด/ไม่บิดเบี้ยวเหมือน SVG text)
+  // ไม่มีข้อมูล → empty state
   if (safeData.length === 0) {
     return (
       <div style={{ height: h, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, color: 'var(--ink-4)' }}>
@@ -300,41 +320,58 @@ export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill 
       </div>
     );
   }
-  // ถ้ามีจุดเดียว → ใช้ค่าซ้ำเพื่อให้ line ลากได้
   const points = safeData.length === 1 ? [safeData[0], safeData[0]] : safeData;
-
-  const max = Math.max(...points), min = Math.min(...points);
-  const range = max - min || 1;
-  const pts = points.map((v, i) => [ (i / (points.length - 1)) * w, h - 6 - ((v - min) / range) * (h - 16) ]);
-  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  // area path: ต้องเริ่มด้วย M เสมอ — guard เผื่อ line ว่าง
-  const area = line ? line + ` L${w} ${h} L0 ${h} Z` : '';
   const n = points.length;
+  const yMax = Math.max(...points, 1);                  // baseline 0 → yMax (กราฟเงินเริ่มจาก 0)
+  const PT = 4, PB = 3;                                  // pad บน/ล่างใน svg
+  const yOf = (v) => (h - PB) - (v / yMax) * (h - PT - PB);
+  const pts = points.map((v, i) => [(i / (n - 1)) * w, yOf(v)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = line ? line + ` L${w} ${h} L0 ${h} Z` : '';
   const onMove = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     setHover(Math.round(ratio * (n - 1)));
   };
   const hv = hover != null && hover >= 0 && hover < n ? hover : null;
+
+  const yTicks = [yMax, yMax / 2, 0];                    // แกน Y: บน/กลาง/ล่าง
+  const xLabels = (labels && labels.length === n) ? labels : points.map((_, i) => String(i + 1));
+  const step = Math.max(1, Math.ceil(n / 13));           // แกน X: เลือกป้ายไม่เกิน ~13 (กันแน่น)
+  const xTicks = xLabels.map((lb, i) => ({ i, lb })).filter(t => t.i % step === 0 || t.i === n - 1);
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: h }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block' }}>
-        <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient></defs>
-        {fill && area && <path d={area} fill={`url(#${gid})`} />}
-        {line && <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
-        {hv != null && <line x1={pts[hv][0]} y1="0" x2={pts[hv][0]} y2={h} stroke={color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
-      </svg>
-      {hv != null && (
-        <>
-          <span style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: pts[hv][1], width: 8, height: 8, marginLeft: -4, marginTop: -4, borderRadius: '50%', background: color, border: '2px solid var(--surface)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: 0, transform: `translateX(${hv > n / 2 ? '-100%' : '0'})`, background: 'var(--ink)', color: 'var(--paper)', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 5, fontFamily: 'var(--font)' }}>
-            {labels && labels[hv] ? <span style={{ opacity: 0.8, marginRight: 6 }}>{labels[hv]}</span> : null}{fmt(safeData[hv])}
-          </div>
-        </>
-      )}
+    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gridTemplateRows: `${h}px auto`, columnGap: 6, rowGap: 3, fontSize: 9, fontFamily: 'var(--font)' }}>
+      {/* แกน Y (ค่าเงิน/จำนวน) */}
+      <div style={{ gridColumn: 1, gridRow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', color: 'var(--ink-4)', whiteSpace: 'nowrap', lineHeight: 1 }}>
+        {yTicks.map((v, i) => <span key={i}>{axisFmt(v)}</span>)}
+      </div>
+      {/* พื้นที่กราฟ + เส้นกริด */}
+      <div style={{ gridColumn: 2, gridRow: 1, position: 'relative', height: h }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        {yTicks.map((v, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: `${(yOf(v) / h) * 100}%`, borderTop: '1px dashed var(--line)', opacity: 0.45 }} />)}
+        <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block', position: 'relative' }}>
+          <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient></defs>
+          {fill && area && <path d={area} fill={`url(#${gid})`} />}
+          {line && <path d={line} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+          {hv != null && <line x1={pts[hv][0]} y1="0" x2={pts[hv][0]} y2={h} stroke={color} strokeWidth="1" strokeDasharray="3 3" opacity="0.5" vectorEffect="non-scaling-stroke" />}
+        </svg>
+        {hv != null && (
+          <>
+            <span style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: `${(pts[hv][1] / h) * 100}%`, width: 8, height: 8, marginLeft: -4, marginTop: -4, borderRadius: '50%', background: color, border: '2px solid var(--surface)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: 0, transform: `translateX(${hv > n / 2 ? '-100%' : '0'})`, background: 'var(--ink)', color: 'var(--paper)', padding: '7px 11px', borderRadius: 8, fontSize: 12, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 5, textAlign: 'left', lineHeight: 1.45, boxShadow: '0 6px 20px rgba(0,0,0,.25)' }}>
+              {labels && labels[hv] ? <div style={{ opacity: 0.75, fontWeight: 600, fontSize: 11 }}>{labels[hv]}</div> : null}
+              <div style={{ fontWeight: 700 }}>{metricLabel ? metricLabel + ' : ' : ''}{fmt(safeData[hv])}</div>
+            </div>
+          </>
+        )}
+      </div>
+      {/* แกน X (วัน/เดือน) */}
+      <div style={{ gridColumn: 2, gridRow: 2, position: 'relative', height: 13, color: 'var(--ink-4)' }}>
+        {xTicks.map(t => <span key={t.i} style={{ position: 'absolute', left: `${(t.i / Math.max(n - 1, 1)) * 100}%`, transform: t.i === n - 1 ? 'translateX(-100%)' : t.i === 0 ? 'none' : 'translateX(-50%)', whiteSpace: 'nowrap' }}>{t.lb}</span>)}
+      </div>
     </div>
   );
 }
@@ -345,15 +382,27 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
   const _rawMax = data.length ? Math.max(...data.map(d => (Number(d[valueKey]) || 0) + (Number(d.proj) || 0))) : 0;
   const max = _rawMax > 0 ? _rawMax : 1;
   const safeH = (v) => { const x = ((Number(v) || 0) / max) * (h - 28); return isFinite(x) && x > 0 ? x : 0; };
+  const [hi, setHi] = useState(null);
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: h, paddingTop: 8 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 6, height: h, fontFamily: 'var(--font)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', color: 'var(--ink-4)', fontSize: 9, paddingTop: 8, paddingBottom: 22, lineHeight: 1, whiteSpace: 'nowrap' }}>
+        {[max, max / 2, 0].map((v, i) => <span key={i}>{Bc(v)}</span>)}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: h, paddingTop: 8 }}>
       {data.map((d, i) => {
         const main = safeH(d[valueKey]);
         const proj = safeH(d.proj);
+        const aVal = Number(d[valueKey]) || 0, pVal = Number(d.proj) || 0;
         return (
-          <div key={i} title={`${d[labelKey]}: ${fmt(d[valueKey] || 0)}${d.proj ? ' (+คาดการณ์ ' + fmt(d.proj) + ')' : ''}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end', cursor: 'default' }}>
-            <div className="num cap" style={{ fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>{Bc(d[valueKey] + (d.proj || 0))}</div>
-            <div style={{ width: '100%', maxWidth: 46, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: h - 44 }}>
+          <div key={i} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end', cursor: 'default' }}>
+            {hi === i && (
+              <div style={{ position: 'absolute', bottom: 'calc(100% - 14px)', left: '50%', transform: 'translateX(-50%)', background: 'var(--ink)', color: 'var(--paper)', padding: '7px 11px', borderRadius: 8, fontSize: 12, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10, textAlign: 'left', lineHeight: 1.45, boxShadow: '0 6px 20px rgba(0,0,0,.25)' }}>
+                <div style={{ opacity: 0.75, fontWeight: 600, fontSize: 11 }}>{d[labelKey]}</div>
+                <div style={{ fontWeight: 700 }}>ทำได้ : {fmt(aVal)}</div>
+                {pVal > 0 && <div style={{ opacity: 0.55, fontWeight: 600 }}>คาดการณ์ : {fmt(pVal)}</div>}
+              </div>
+            )}
+            <div style={{ width: '100%', maxWidth: 46, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: h - 28 }}>
               {proj > 0 && <div style={{ height: proj, background: color, opacity: 0.28, borderRadius: '6px 6px 0 0' }} />}
               <div style={{ height: main, background: color, borderRadius: proj > 0 ? 0 : '6px 6px 0 0' }} />
             </div>
@@ -361,6 +410,7 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
           </div>
         );
       })}
+      </div>
     </div>
   );
 }

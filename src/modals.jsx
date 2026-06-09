@@ -17,7 +17,7 @@ const toast = (m, k = 'success') => window.__toast?.(m, k);
 // แปลงเลข + กันค่าติดลบ + clamp เพดาน 1e12 (กันเลขมหาศาล 1e308 ทำลายกราฟ/ยอดรวม)
 const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
 // ปัดเงินเป็น 2 ตำแหน่งสตางค์ (ตัด noise float เช่น 1473.8400000000001 → 1473.84) — ค่าจริงครบ
-const money = (v) => Math.round((Number(v) || 0) * 100) / 100;
+const money = (v) => Math.max(0, Math.round((Number(v) || 0) * 100) / 100); // เงิน ≥ 0 เสมอ (กันค่าติดลบจากการ paste)
 // เงิน → ข้อความ ฿ + สตางค์ 2 ตำแหน่งเสมอ (ใช้ใน confirm/audit ให้ตรงกับทั้งเว็บ)
 const bahtStr = (v) => '฿' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -2185,8 +2185,8 @@ export function MonthlyTargetModal({ data, onClose }) {
 export function AdCampaignModal({ data, onClose }) {
   const _statusTH = { upcoming: 'รอเริ่ม', live: 'กำลังรัน', paused: 'หยุดชั่วคราว', done: 'เสร็จสิ้น', cancelled: 'ยกเลิก' };
   const [f, setF] = useState(() => data
-    ? { ...data, status: _statusTH[data.status] || 'กำลังดำเนินการ' } // map internal→ไทย ให้ชิปตรง; status แปลก → default
-    : { name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'กำลังดำเนินการ' });
+    ? { ...data, status: _statusTH[data.status] || 'กำลังรัน' } // map internal→ไทย ให้ชิปตรง; status แปลก → default
+    : { name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'รอเริ่ม' });
   const [touched, setTouched] = useState(false);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const platforms = ['Facebook', 'TikTok', 'Shopee', 'Lazada'];

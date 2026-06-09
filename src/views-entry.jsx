@@ -358,8 +358,9 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
     if (!window.confirm(warn)) return;
     try {
       const newMeta = { ...selMeta, entryMode: toMode };
-      const { error } = await supabase.from('tmk_monthly_history').update({ meta: newMeta }).eq('month', month + 1).eq('year', year);
+      const { data: upd, error } = await supabase.from('tmk_monthly_history').update({ meta: newMeta }).eq('month', month + 1).eq('year', year).select('id');
       if (error) throw error;
+      if (!upd || upd.length === 0) { window.__toast?.('ยังไม่มีข้อมูลเดือนนี้ — ตั้งเป้า/กรอกยอดก่อนเปลี่ยนโหมด', 'warn'); return; }
       logAudit({ action: 'update', entityType: 'monthly', entityName: `${monthLabel} ${year}`, summary: `เปลี่ยนโหมดข้อมูลเดือน${monthLabel} ${year} → ${toMode === 'daily' ? 'รายวัน' : 'รายเดือน'}` });
       window.__reload?.();
       window.__toast?.('เปลี่ยนโหมดข้อมูลแล้ว', 'success');
