@@ -15,6 +15,9 @@ const DataContext = createContext();
 
 const THAI_MONTH = THAI_MONTHS;
 
+// ปัดเงินเป็น 2 ตำแหน่งสตางค์ — ตัด noise float จากการบวก (เช่น 703.84+770 = 1473.8400000000001 → 1473.84)
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
 // แปลง "2026-06-18" → "18 มิ.ย."
 function thaiDate(dateStr) {
   if (!dateStr) return '';
@@ -145,14 +148,14 @@ function mapToTMK(raw) {
     // เป้าต่อช่องทาง = ค่าของเดือนปัจจุบัน (meta.channelTargets); ไม่มี = 0
     target: Number((_curMeta.channelTargets && _curMeta.channelTargets[ch.id]) || 0),
     // รายได้/ออร์เดอร์/ลูกค้า/ค่าแอด ต่อช่องทาง = ยอดจริงจาก daily เดือนปัจจุบัน (ตรงกับ computeMonth)
-    actual: dailyAgg[ch.id]?.rev || 0,
+    actual: round2(dailyAgg[ch.id]?.rev || 0),
     sortOrder: Number(ch.sort_order || 0),
     orders: dailyAgg[ch.id]?.ord || 0,
     newRev: 0, oldRev: 0, // ไม่ได้แยกรายได้ใหม่/เก่า
     newCust: dailyAgg[ch.id]?.newC || 0,
     oldCust: dailyAgg[ch.id]?.oldC || 0,
     inq: dailyAgg[ch.id]?.inq || 0,
-    ad: dailyAgg[ch.id]?.ad || 0,
+    ad: round2(dailyAgg[ch.id]?.ad || 0),
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
     platformFeePct: Number(ch.platform_fee_pct || 0), // ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (0 = ยังไม่ตั้ง)
@@ -355,11 +358,11 @@ function mapToTMK(raw) {
     s: s.size, pct: Number(s.pct || 0),
   }));
 
-  // Computed aggregates
-  const MTD = channels.reduce((s, c) => s + c.actual, 0);
+  // Computed aggregates (ปัดเงินเป็นสตางค์ — ตัด noise float จากการบวก)
+  const MTD = round2(channels.reduce((s, c) => s + c.actual, 0));
   const ORD = channels.reduce((s, c) => s + c.orders, 0);
   // ค่าแอดรวมจาก daily จริง (fallback เป็นผลรวม per-channel ถ้าไม่มี daily)
-  const AD  = dailyAdTotal || channels.reduce((s, c) => s + c.ad, 0);
+  const AD  = round2(dailyAdTotal || channels.reduce((s, c) => s + c.ad, 0));
   const NEW_REV = channels.reduce((s, c) => s + c.newRev, 0);
   const OLD_REV = channels.reduce((s, c) => s + c.oldRev, 0);
   const NEW_C = channels.reduce((s, c) => s + c.newCust, 0);
@@ -457,15 +460,15 @@ export function computeMonth(monthIdx0, yearBE) {
   const channels = (TMK.channels || []).map(base => {
     let rev = 0, ord = 0, ad = 0, newC = 0, oldC = 0, inq = 0;
     rows.forEach(r => { const c = r.ch[base.id]; if (c) { rev += c.rev; ord += c.ord; ad += c.ad; newC += c.newC; oldC += c.oldC; inq += (c.inq || 0); } });
-    return { ...base, actual: rev, orders: ord, ad, newCust: newC, oldCust: oldC, inq, newRev: 0, oldRev: 0,
+    return { ...base, actual: round2(rev), orders: ord, ad: round2(ad), newCust: newC, oldCust: oldC, inq, newRev: 0, oldRev: 0,
       target: Number((meta.channelTargets && meta.channelTargets[base.id]) || 0) };
   });
 
   // fallback: เดือนอดีตที่กรอกผ่าน "ข้อมูลย้อนหลัง" (มี monthly.actual แต่ไม่มี daily) → ใช้ยอดรายเดือน (กัน SalesView โชว์ ฿0 ทั้งที่กราฟมียอด)
   const _useMonthly = rows.length === 0 && !isFuture && !isCurrent && Number(mRow?.actual || 0) > 0; // เฉพาะอดีต (เดือนปัจจุบันต้องสดจาก daily เสมอ)
-  const MTD = _useMonthly ? Number(mRow.actual || 0) : channels.reduce((s, c) => s + c.actual, 0);
+  const MTD = round2(_useMonthly ? Number(mRow.actual || 0) : channels.reduce((s, c) => s + c.actual, 0));
   const ORD = _useMonthly ? Number(mRow.orders || 0) : channels.reduce((s, c) => s + c.orders, 0);
-  const AD = _useMonthly ? Number(mRow.adSpend || 0) : rows.reduce((s, r) => s + r.adSpend, 0);
+  const AD = round2(_useMonthly ? Number(mRow.adSpend || 0) : rows.reduce((s, r) => s + r.adSpend, 0));
   const NEW_C = _useMonthly ? Number(mRow.newCust || 0) : channels.reduce((s, c) => s + c.newCust, 0);
   const OLD_C = channels.reduce((s, c) => s + c.oldCust, 0);
   const AOV = ORD > 0 ? MTD / ORD : 0;
@@ -475,7 +478,7 @@ export function computeMonth(monthIdx0, yearBE) {
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
   const CAC = NEW_C > 0 ? AD / NEW_C : 0;
 
-  const dailyMonth = rows.map(r => ({ d: r.day, rev: Object.values(r.ch).reduce((s, c) => s + c.rev, 0) }));
+  const dailyMonth = rows.map(r => ({ d: r.day, rev: round2(Object.values(r.ch).reduce((s, c) => s + c.rev, 0)) }));
   const dailyLog = [...rows].sort((a, b) => b.day - a.day).slice(0, 7).map(r => ({
     date: `${r.day} ${_ABBR[monthNum - 1]}`, day: r.dayName,
     iso: `${yearBE - 543}-${String(monthNum).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`,

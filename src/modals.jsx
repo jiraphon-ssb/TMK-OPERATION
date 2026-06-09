@@ -16,6 +16,8 @@ const toast = (m, k = 'success') => window.__toast?.(m, k);
 
 // แปลงเลข + กันค่าติดลบ + clamp เพดาน 1e12 (กันเลขมหาศาล 1e308 ทำลายกราฟ/ยอดรวม)
 const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
+// ปัดเงินเป็น 2 ตำแหน่งสตางค์ (ตัด noise float เช่น 1473.8400000000001 → 1473.84) — ค่าจริงครบ
+const money = (v) => Math.round((Number(v) || 0) * 100) / 100;
 
 // เตือนทิ้งข้อมูลก่อนปิด (ใช้ร่วมกับ Modal + ปุ่มยกเลิก ให้สม่ำเสมอ)
 const DISCARD_MSG = 'ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
@@ -167,7 +169,7 @@ export function RecordSalesModal({ data, onClose }) {
       const channels = {};
       for (const r of rows) {
         channels[r.id] = {
-          rev: Number(r.rev) || 0, ord: Number(r.ord) || 0, ad: Number(r.ad) || 0,
+          rev: money(r.rev), ord: Number(r.ord) || 0, ad: money(r.ad),
           inq: Number(r.inq) || 0, newC: Number(r.newC) || 0, oldC: Number(r.oldC) || 0,
         };
       }
@@ -176,14 +178,14 @@ export function RecordSalesModal({ data, onClose }) {
         date,
         day_name,
         // คอลัมน์เดิม (รายได้) — คงไว้เพื่อ backward-compat
-        shopee: Number(byId.shopee?.rev) || 0,
-        tiktok: Number(byId.tiktok?.rev) || 0,
-        lazada: Number(byId.lazada?.rev) || 0,
-        facebook: Number(byId.facebook?.rev) || 0,
-        line_oa: Number(byId.line?.rev) || 0,
-        crm: Number(byId.crm?.rev) || 0,
+        shopee: money(byId.shopee?.rev),
+        tiktok: money(byId.tiktok?.rev),
+        lazada: money(byId.lazada?.rev),
+        facebook: money(byId.facebook?.rev),
+        line_oa: money(byId.line?.rev),
+        crm: money(byId.crm?.rev),
         channels,
-        ad_spend: rows.reduce((a, r) => a + (Number(r.ad) || 0), 0),
+        ad_spend: money(rows.reduce((a, r) => a + (Number(r.ad) || 0), 0)),
         avg_reply_minutes: Number(chatTime) || 0,
         note: note || '',
         deleted_at: null, // กรอกวันเดิมที่เคยลบ → กู้กลับ (กันข้อมูลล่องหน)
