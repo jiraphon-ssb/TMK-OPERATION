@@ -461,7 +461,7 @@ export function computeMonth(monthIdx0, yearBE) {
   });
 
   // fallback: เดือนอดีตที่กรอกผ่าน "ข้อมูลย้อนหลัง" (มี monthly.actual แต่ไม่มี daily) → ใช้ยอดรายเดือน (กัน SalesView โชว์ ฿0 ทั้งที่กราฟมียอด)
-  const _useMonthly = rows.length === 0 && !isFuture && Number(mRow?.actual || 0) > 0;
+  const _useMonthly = rows.length === 0 && !isFuture && !isCurrent && Number(mRow?.actual || 0) > 0; // เฉพาะอดีต (เดือนปัจจุบันต้องสดจาก daily เสมอ)
   const MTD = _useMonthly ? Number(mRow.actual || 0) : channels.reduce((s, c) => s + c.actual, 0);
   const ORD = _useMonthly ? Number(mRow.orders || 0) : channels.reduce((s, c) => s + c.orders, 0);
   const AD = _useMonthly ? Number(mRow.adSpend || 0) : rows.reduce((s, r) => s + r.adSpend, 0);
@@ -596,8 +596,17 @@ export function DataProvider({ children }) {
     mountedRef.current = true;
     load();
 
-    // Realtime subscription
-    let timer = null;
+    // Realtime subscription — ถ้าต่อ WS ไม่ได้ (เน็ตหลุด/ปิด realtime) → degrade เป็น polling (ไม่ retry รัวจน console รก)
+    let timer = null, pollTimer = null, connectTimeout = null, usingPoll = false;
+    const onVis = () => { if (document.visibilityState === 'visible' && mountedRef.current) load(); };
+    const startPolling = () => {
+      if (usingPoll || !mountedRef.current) return;
+      usingPoll = true;
+      try { supabase?.realtime?.disconnect?.(); } catch {} // หยุด WS reconnect storm
+      pollTimer = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000); // รีเฟรชทุก 60 วิ
+      document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ
+      console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (60 วิ + ตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
+    };
     const channel = supabase?.channel('tmk-realtime');
     if (channel) {
       [
@@ -612,13 +621,24 @@ export function DataProvider({ children }) {
           timer = setTimeout(load, 300);
         });
       });
-      channel.subscribe();
+      channel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); }
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          clearTimeout(connectTimeout);
+          try { supabase.removeChannel(channel); } catch {}
+          startPolling();
+        }
+      });
+      connectTimeout = setTimeout(() => { try { supabase.removeChannel(channel); } catch {} startPolling(); }, 8000); // WS ค้าง → fallback
+    } else {
+      startPolling();
     }
 
     return () => {
       mountedRef.current = false;
-      clearTimeout(timer);
-      if (channel) supabase.removeChannel(channel);
+      clearTimeout(timer); clearTimeout(connectTimeout); clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVis);
+      if (channel) { try { supabase.removeChannel(channel); } catch {} }
     };
   }, [load]);
 

@@ -63,7 +63,8 @@ export function HomeView({ go }) {
 
   const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
   const alerts = [];
-  if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: _daysLeft > 0 ? `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${_daysLeft} วัน` : 'วันสุดท้ายของเดือนแล้ว' });
+  if (TMK.consts.TARGET > 0 && C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: _daysLeft > 0 ? `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${_daysLeft} วัน` : 'วันสุดท้ายของเดือนแล้ว' });
+  if (!(TMK.consts.TARGET > 0)) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'target', t: 'ยังไม่ได้ตั้งเป้าเดือนนี้', d: 'ตั้งเป้าที่หน้า "ตั้งค่ารายเดือน" เพื่อดู Pace และเปอร์เซ็นต์เป้า' });
   if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
   // เตือนงบแอดใกล้เกิน — คาดการณ์จาก burn rate จริง
   const _adBudget = TMK.consts.AD_BUDGET;
@@ -117,7 +118,7 @@ export function HomeView({ go }) {
                 <div className="cap" style={{ marginTop: 2, cursor: 'help' }} title="Pace = ยอด MTD เทียบกับเป้าที่ควรได้ ณ วันนี้ (เป้า ÷ จำนวนวัน × วันที่ผ่านมา) · 100% = ตรงเป้า, เกิน 100% = นำเป้า">Pace ⓘ</div>
               </div>
             </Ring>
-            <div style={{ marginTop: 8 }}><span className={`chip ${st.cls}`}>{st.label}</span></div>
+            <div style={{ marginTop: 8 }}><span className={`chip ${TMK.consts.TARGET > 0 ? st.cls : 'chip-accent'}`}>{TMK.consts.TARGET > 0 ? st.label : 'ยังไม่ตั้งเป้า'}</span></div>
           </div>
         </div>
 
@@ -617,6 +618,9 @@ function SalesAds({ dateProps, prevMonthName, md }) {
         <div className="table-wrap"><table className="table">
           <thead><tr><th>{'ช่องทาง'}</th><th style={{textAlign:'right'}}>{'รายได้'}</th><th style={{textAlign:'right'}}>{'ค่าแอด'}</th><th style={{textAlign:'right'}}>ROAS</th><th style={{textAlign:'right'}}>ACOS</th></tr></thead>
           <tbody>
+            {channels.filter(c=>c.hasAd).length === 0 && (
+              <tr><td colSpan={5} style={{ textAlign:'center', padding:18, color:'var(--ink-4)' }} className="cap">ยังไม่มีช่องทางที่เปิดโฆษณา</td></tr>
+            )}
             {channels.filter(c=>c.hasAd).map(c => {
               const r = c.ad > 0 ? c.actual/c.ad : null;
               const a = c.actual > 0 ? (c.ad/c.actual)*100 : null;
@@ -715,6 +719,11 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
       <div className="row between" style={{ marginBottom: 12 }}>
         <span className="eyebrow">กลุ่มลูกค้า</span>
       </div>
+      {getSegments().length === 0 && (
+        <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)', marginBottom: 16 }}>
+          <div className="cap">ยังไม่มีกลุ่มลูกค้า — ตั้งค่าที่หน้า "ตั้งค่ารายเดือน" → กลุ่มลูกค้า</div>
+        </div>
+      )}
       <div className="grid g4" style={{ marginBottom: 16 }}>
         {getSegments().map(seg => (
           <div key={seg.name} className="card card-pad-sm" style={{ borderLeft: `3px solid ${seg.color}` }}>
@@ -767,7 +776,8 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
         </div>
       </div>
 
-      {/* Cohort table */}
+      {/* Cohort table — ซ่อนจนกว่าจะมี tmk_cohort จริง (กันการ์ดว่างถาวร) */}
+      {false && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>{'ตาราง'} Cohort Retention</h3></div>
         <div className="table-wrap"><table className="table">
@@ -801,6 +811,7 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
           </tbody>
         </table></div>
       </div>
+      )}
 
       {/* New vs old by channel */}
       <div className="card">

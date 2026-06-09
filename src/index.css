@@ -574,6 +574,11 @@ input, select, textarea { font-family: inherit; }
   box-shadow: var(--sh-pop); animation: rise 0.26s var(--ease) both; overflow: hidden;
 }
 .modal-lg { max-width: 740px; }
+/* มือถือ: modal เต็มจอ (กรอกยอด/ฟอร์มยาว ไม่อึดอัด) */
+@media (max-width: 600px) {
+  .modal-scrim { padding: 0; align-items: stretch; }
+  .modal, .modal-lg { max-width: 100%; max-height: 100%; height: 100%; border-radius: 0; border: none; }
+}
 .modal-head { display: flex; align-items: center; gap: 12px; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .mh-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex-shrink: 0; }
 .mh-icon .ico { width: 20px; height: 20px; }

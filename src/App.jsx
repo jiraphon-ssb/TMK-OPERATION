@@ -230,15 +230,42 @@ const navStyle = 'panel';
 const accent = '#0a5aa0';
 const mobilePreview = false;
 
+// กันจอขาว: ถ้า render throw → แสดงหน้า error + ปุ่มล้างข้อมูลเข้าใหม่ (แทนจอว่างถาวร)
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err) { console.error('App crashed:', err); }
+  render() {
+    if (this.state.err) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, fontFamily: 'sans-serif', background: '#f3f6fb', color: '#10203a' }}>
+          <div style={{ textAlign: 'center', maxWidth: 420 }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>เกิดข้อผิดพลาด</div>
+            <div style={{ fontSize: 13, color: '#5a6b82', marginBottom: 18, lineHeight: 1.7 }}>ระบบสะดุดชั่วคราว — ลองรีเฟรช หรือล้างข้อมูลเข้าสู่ระบบแล้วเริ่มใหม่</div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button onClick={() => location.reload()} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #dce4f0', background: '#fff', cursor: 'pointer' }}>รีเฟรช</button>
+              <button onClick={() => { try { localStorage.removeItem('tmk-user'); } catch {} location.reload(); }} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#0a5aa0', color: '#fff', cursor: 'pointer' }}>ล้างข้อมูล &amp; เข้าใหม่</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <LangProvider>
-      <ToastProvider>
-        <DataProvider>
-          <AppShellWithUser />
-        </DataProvider>
-      </ToastProvider>
-    </LangProvider>
+    <ErrorBoundary>
+      <LangProvider>
+        <ToastProvider>
+          <DataProvider>
+            <AppShellWithUser />
+          </DataProvider>
+        </ToastProvider>
+      </LangProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -249,6 +276,8 @@ function loadValidSession() {
     const saved = localStorage.getItem('tmk-user');
     if (!saved) return null;
     const u = JSON.parse(saved);
+    // กัน session เสีย (ไม่มี email/ไม่ใช่ string) → จอขาว; ล้างแล้วบังคับ login ใหม่
+    if (!u || typeof u.email !== 'string' || !u.email.trim()) { localStorage.removeItem('tmk-user'); return null; }
     if (u?.loginAt) {
       const ageMs = Date.now() - new Date(u.loginAt).getTime();
       if (ageMs > SESSION_MAX_DAYS * 86400000) {

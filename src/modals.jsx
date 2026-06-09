@@ -14,8 +14,8 @@ import { computeMonth } from './dataContext.jsx';
 // Toast helper
 const toast = (m, k = 'success') => window.__toast?.(m, k);
 
-// แปลงเลข + กันค่าติดลบ (เป้า/ราคา/สต็อก/งบ/จำนวน ไม่ควรติดลบ)
-const nn = (v) => Math.max(0, Number(v) || 0);
+// แปลงเลข + กันค่าติดลบ + clamp เพดาน 1e12 (กันเลขมหาศาล 1e308 ทำลายกราฟ/ยอดรวม)
+const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
 
 // เตือนทิ้งข้อมูลก่อนปิด (ใช้ร่วมกับ Modal + ปุ่มยกเลิก ให้สม่ำเสมอ)
 const DISCARD_MSG = 'ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
@@ -467,6 +467,8 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
     return { ...p, [k]: arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v] };
   }); };
   const valid = f.title.trim();
+  const [submitting, setSubmitting] = useState(false); // กันกดบันทึกซ้ำ → งานซ้ำ
+  const taskId = useMemo(() => data?.id || uid('tn'), [data?.id]); // id เดียวต่อการเปิดฟอร์ม (กดซ้ำไม่ได้ id ใหม่)
   const footer = (
     <>
       {edit && onDelete && (
@@ -476,7 +478,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
         </button>
       )}
       <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={!valid} style={{ opacity: valid ? 1 : 0.5 }} onClick={() => valid && onSubmit({ ...f, id: data?.id || uid('tn') })}>
+      <button className="btn btn-primary" disabled={!valid || submitting} style={{ opacity: valid && !submitting ? 1 : 0.5 }} onClick={() => { if (!valid || submitting) return; setSubmitting(true); onSubmit({ ...f, id: taskId }); }}>
         <Icon name="check" /> {edit ? 'บันทึกการแก้ไข' : 'เพิ่มงาน'}
       </button>
     </>
@@ -549,7 +551,7 @@ export function ProductModal({ data, onClose }) {
       price: nn(f.price),
       target_units: Number(f.units) || 0,
       actual_units: nn(f.units), // = จำนวนที่ขาย (แสดงผล + คิดรายได้)
-      stock_on_hand: nn(f.onHand),
+      stock_on_hand: f.onHand === '' || f.onHand == null ? null : nn(f.onHand), // เว้นว่าง = ไม่ track (null→'ok') ไม่ใช่ 0→'หมด'
       reorder_point: nn(f.reorder),
       strategy: f.strategy || '',
     };

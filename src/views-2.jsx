@@ -361,7 +361,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
 function TimelineView({ filtered, fProps }) {
   const parse = s => { const m = String(s || '').match(/^(\d+)/); return m ? +m[1] : 0; };
   const TODAY = getToday().day;
-  const stMeta = { live: { l: 'Live', cls: 'chip-good' }, upcoming: { l: 'เตรียม', cls: 'chip-accent' }, done: { l: 'จบ', cls: '' } };
+  const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, done: { l: 'จบแล้ว', cls: '' } };
 
   // Campaign progress
   const campTasks = {};
@@ -511,6 +511,7 @@ function ProductsView() {
       <div className="grid g2">
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 14 }}>สีขายดี</div>
+          {DD.colorMix.length === 0 && <div className="cap" style={{ color: 'var(--ink-4)', padding: '8px 0' }}>ยังไม่มีข้อมูลสี</div>}
           {DD.colorMix.map(c => (
             <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
               <span style={{ width: 18, height: 18, borderRadius: 5, background: c.hex, border: '1px solid var(--line)', flexShrink: 0 }}></span>
@@ -522,6 +523,7 @@ function ProductsView() {
         </div>
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 14 }}>ไซส์ขายดี</div>
+          {DD.sizeMix.length === 0 && <div className="cap" style={{ color: 'var(--ink-4)', padding: '8px 0' }}>ยังไม่มีข้อมูลไซส์</div>}
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, height: 180, paddingTop: 10 }}>
             {DD.sizeMix.map(s => (
               <div key={s.s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
@@ -1048,7 +1050,7 @@ export function ProfileView({ tasks }) {
     try {
       // 1. Save to Supabase tmk_staff (ชื่อ + สี)
       const existingStaff = (DD.staff || []).find(s => s.email === user.email);
-      const staffId = existingStaff?.id || ('s-' + user.email.split('@')[0].replace(/[^a-z0-9]/gi, ''));
+      const staffId = existingStaff?.id || ('s-' + user.email.replace(/[^a-z0-9]/gi, '').toLowerCase());
       const { error } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name: name.trim() || user.email.split('@')[0],
@@ -1919,7 +1921,7 @@ function RolesView() {
 
       // === 2. Update tmk_staff (รูป + ชื่อ + สี) ===
       const existingStaff = (TMK.staff || []).find(s => s.email === editing);
-      const staffId = existingStaff?.id || ('s-' + editing.split('@')[0].replace(/[^a-z0-9]/gi, ''));
+      const staffId = existingStaff?.id || ('s-' + editing.replace(/[^a-z0-9]/gi, '').toLowerCase());
       const { error: e2 } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name: editName,
@@ -2001,7 +2003,7 @@ function RolesView() {
       if (e1) throw e1;
 
       // 2. Upsert tmk_staff (+ deleted_at:null)
-      const staffId = 's-' + email.split('@')[0].replace(/[^a-z0-9]/gi, '');
+      const staffId = 's-' + email.replace(/[^a-z0-9]/gi, '').toLowerCase();
       const { error: e2 } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name,

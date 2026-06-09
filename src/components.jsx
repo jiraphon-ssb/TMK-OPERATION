@@ -210,7 +210,7 @@ export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill 
       {hv != null && (
         <>
           <span style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: pts[hv][1], width: 8, height: 8, marginLeft: -4, marginTop: -4, borderRadius: '50%', background: color, border: '2px solid var(--surface)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: 0, transform: `translateX(${hv > n / 2 ? '-100%' : '0'})`, background: 'var(--ink)', color: '#fff', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 5, fontFamily: 'var(--font)' }}>
+          <div style={{ position: 'absolute', left: `${(hv / Math.max(n - 1, 1)) * 100}%`, top: 0, transform: `translateX(${hv > n / 2 ? '-100%' : '0'})`, background: 'var(--ink)', color: 'var(--paper)', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 5, fontFamily: 'var(--font)' }}>
             {labels && labels[hv] ? <span style={{ opacity: 0.8, marginRight: 6 }}>{labels[hv]}</span> : null}{fmt(safeData[hv])}
           </div>
         </>

@@ -35,7 +35,7 @@ export function UserProvider({ children, version }) {
 
   // Enrich user with profile from Supabase (tmk_staff + tmk_user_roles)
   const enriched = React.useMemo(() => {
-    if (!user) return null;
+    if (!user || typeof user.email !== 'string' || !user.email) return null; // กัน session เสีย → ไม่ throw
     // 1. Look in tmk_staff by email
     const staffByEmail = (TMK.staff || []).find(s => s.email === user.email);
     // 2. Look in tmk_user_roles by email
