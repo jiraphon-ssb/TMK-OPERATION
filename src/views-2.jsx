@@ -13,7 +13,7 @@ import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_S
 const DD = TMK;
 
 // guard สิทธิ์ (ฝั่ง client) — กัน viewer แก้ผ่านหน้าตั้งค่า + จัดการผู้ใช้/สิทธิ์เฉพาะ admin
-const guardEdit = () => { if (window.__canEdit === false) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
+const guardEdit = () => { if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
 const guardAdmin = () => { if (!window.__isAdmin) { window.__toast?.('เฉพาะแอดมินจัดการผู้ใช้และสิทธิ์ได้', 'warn'); return false; } return true; };
 
 /* ====================  PLANNER  ==================== */
@@ -276,7 +276,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
     const id = dragId.current;
     dragId.current = null; setOver(null);
     if (!id) return;
-    if (window.__canEdit === false) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
+    if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
     const prev = tasks.find(t => t.id === id)?.status;
     if (prev === status) return;
     const task = tasks.find(t => t.id === id);
@@ -696,6 +696,8 @@ function POView() {
 
 /* ====================  SETTINGS (replaces System)  ==================== */
 export function SettingsView({ sub, dark, setDark }) {
+  const _isAdmin = window.__isAdmin === true;
+  const _canEdit = window.__canEdit !== false;
   const TABS = [
     { id: 'general', label: 'ทั่วไป', icon: 'system' },
     { id: 'channels', label: 'ช่องทาง', icon: 'layers' },
@@ -705,7 +707,7 @@ export function SettingsView({ sub, dark, setDark }) {
     { id: 'audit', label: 'ประวัติการใช้งาน', icon: 'clock' },
     { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
     { id: 'updates', label: 'อัปเดต', icon: 'sparkle' },
-  ];
+  ].filter(t => (t.id === 'roles' ? _isAdmin : t.id === 'trash' ? _canEdit : true)); // สิทธิ์ผู้ใช้=admin, ถังขยะ=ผู้แก้ไขขึ้นไป
   // ใช้ sub prop โดยตรง — ถ้า sub ไม่ถูกต้อง fallback เป็น 'general' (กันหน้าว่าง)
   const active = TABS.some(t => t.id === sub) ? sub : 'general';
   const setActive = (id) => window.__goSection?.('settings', id);
@@ -723,9 +725,9 @@ export function SettingsView({ sub, dark, setDark }) {
       {active === 'channels' && <ChannelsView />}
       {active === 'campaigns' && <CampaignsView />}
       {active === 'duties' && <DutiesView />}
-      {active === 'roles' && <RolesView />}
+      {active === 'roles' && _isAdmin && <RolesView />}
       {active === 'audit' && <AuditView />}
-      {active === 'trash' && <TrashView />}
+      {active === 'trash' && _canEdit && <TrashView />}
       {active === 'updates' && <UpdatesView />}
     </div>
   );
@@ -1034,6 +1036,7 @@ export function ProfileView({ tasks }) {
   });
 
   const saveProfile = async () => {
+    if (!guardEdit()) return;
     try {
       // 1. Save to Supabase tmk_staff (ชื่อ + สี)
       const existingStaff = (DD.staff || []).find(s => s.email === user.email);
@@ -2213,6 +2216,7 @@ function TrashView() {
 
   const restore = async (it) => {
     if (!guardEdit()) return;
+    if ((it.meta.table === 'tmk_user_roles' || it.meta.table === 'tmk_staff') && !guardAdmin()) return; // ผู้ใช้/สิทธิ์ = admin
     if (busy) return;
     setBusy(true);
     try {
@@ -2233,6 +2237,7 @@ function TrashView() {
 
   const purge = async (it) => {
     if (!guardEdit()) return;
+    if ((it.meta.table === 'tmk_user_roles' || it.meta.table === 'tmk_staff') && !guardAdmin()) return; // ผู้ใช้/สิทธิ์ = admin
     if (busy) return;
     if (!confirm(`ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`)) return;
     setBusy(true);

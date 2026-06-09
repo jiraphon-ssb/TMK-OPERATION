@@ -15,32 +15,12 @@ const C = TMK.computed;
 // ❌ ไม่ destructure constants เพราะ primitive snapshot จะค้างที่ 0
 // ✅ ใช้ TMK.consts.X inline เพื่อให้อัปเดตจาก Supabase ทันที
 
-/* ---------- Previous month — from tmk_monthly_history (Supabase) ---------- */
-// Computed live from TMK.month3 (which is from monthly_history)
-function getPrev() {
-  const m3 = TMK.month3 || [];
-  // Get 2nd-to-last month (current is last)
-  const prev = m3.length >= 2 ? m3[m3.length - 2] : null;
-  return {
-    revenue: prev?.actual || 0,
-    orders: 0,  // not in month3, will use TMK.computed if needed
-    aov: 0,
-    ad: 0,
-  };
-}
-
 /* ---------- Ad campaigns from Supabase (TMK.adCampaigns) ---------- */
 // Will fall back to empty array if table not seeded
 function getAdCampaigns() { return TMK.adCampaigns || []; }
 
 /* ---------- Customer segments from Supabase (TMK.segments) ---------- */
 function getSegments() { return TMK.segments || []; }
-
-/* ---------- Channel growth from Supabase (channel.growthPct) ---------- */
-function getGrowth(channelId) {
-  const ch = (TMK.channels || []).find(c => c.id === channelId);
-  return ch?.growthPct || 0;
-}
 
 /* small KPI tile — clickable with optional onClick */
 export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, accent, onClick, hint }) {
@@ -560,9 +540,9 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                 <div className="cap" style={{ marginBottom: 6, cursor: 'help' }} title={`กำไร = รายได้ − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ' (ยังไม่ตั้งค่าธรรมเนียม = 0)'}`}>P&L {ch.platformFeePct > 0 ? `· ค่าธรรมเนียม ${ch.platformFeePct}%` : ''}</div>
                 <div className="row between" style={{ gap: 4 }}>
-                  <span className="sm">{Bk(ch.actual)} - {Bk(ch.ad)} - {Bk(platformFee)}</span>
+                  <span className="sm">{B(ch.actual)} - {B(ch.ad)} - {B(platformFee)}</span>
                   <span className="num sm" style={{ fontWeight: 700, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>
-                    = {Bk(profit)} ({P(margin, 0)})
+                    = {B(profit)} ({P(margin, 0)})
                   </span>
                 </div>
               </div>
@@ -662,7 +642,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีแคมเปญแอดในเดือนนี้ — สร้างที่หน้า "ตั้งค่ารายเดือน"</td></tr>
             )}
             {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).map((c, i) => {
-              const stMap = { live: { l: 'กำลังยิง', cls: 'chip-good' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'จบแล้ว', cls: '' } };
+              const stMap = { live: { l: 'กำลังยิง', cls: 'chip-good' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'จบแล้ว', cls: '' } };
               const s = stMap[c.status] || stMap.done;
               return (
                 <tr key={i}>

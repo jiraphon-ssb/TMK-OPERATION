@@ -23,6 +23,7 @@ async function saveRow(table, row, label = 'บันทึก', audit = null) {
     const { error } = await supabase.from(table).upsert(row);
     if (error) throw error;
     if (audit) logAudit(audit);
+    window.__reload?.(); // รีโหลดทันที (กันหน้าค้างถ้า realtime ช้า)
     toast(label + 'สำเร็จ', 'success');
     return true;
   } catch (err) {
@@ -178,6 +179,7 @@ export function RecordSalesModal({ data, onClose }) {
       if (Number(chatTime) > 0) auditFields.push({ label: 'เวลาตอบแชท', value: `${chatTime} นาที` });
       if (note) auditFields.push({ label: 'โน้ต', value: note });
       logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date} (รวม ฿${totRev.toLocaleString()})`, fields: auditFields });
+      window.__reload?.();
       toast(t('toastSaved'), 'success');
       onClose();
     } catch (err) {
@@ -231,6 +233,7 @@ export function RecordSalesModal({ data, onClose }) {
         throw error;
       }
       logAudit({ action: 'delete', entityType: 'daily', entityName: date, summary: `ลบยอดขายรายวันวันที่ ${date}` });
+      window.__reload?.();
       toast('ย้ายข้อมูลรายวันไปถังขยะแล้ว', 'success');
       onClose();
     } catch (err) { toast('ลบไม่สำเร็จ: ' + err.message, 'error'); }
@@ -562,6 +565,7 @@ export function CampaignModal({ data, onClose }) {
   const [busy, setBusy] = useState(false);
   const handleSave = async () => {
     if (busy || !f.name.trim()) return;
+    if (f.start && f.end && f.end < f.start) { toast('วันสิ้นสุดต้องไม่ก่อนวันเริ่ม', 'error'); return; }
     setBusy(true);
     const row = {
       id: data?.id || uid('c'),
@@ -635,6 +639,7 @@ export function POModal({ data, onClose }) {
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const handleSave = async () => {
     if (busy || !f.product) return;
+    if (f.orderDate && f.arrivalDate && f.arrivalDate < f.orderDate) { toast('กำหนดของเข้าต้องไม่ก่อนวันสั่ง', 'error'); return; }
     setBusy(true);
     const row = {
       id: data?.id || uid('po'),
@@ -764,6 +769,7 @@ export function MonthlyTargetModal({ data, onClose }) {
       if (Number(newCustTarget) > 0) tgtFields.push({ label: 'เป้าลูกค้าใหม่', value: N(Number(newCustTarget)) });
       tgtFields.push({ label: 'เพดาน ACOS', value: `${Number(acosCeil) || 25}%` });
       logAudit({ action: 'update', entityType: 'monthly', entityName: `${months[monthIdx]} ${year}`, summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})`, fields: tgtFields });
+      window.__reload?.();
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -859,6 +865,7 @@ export function AdCampaignModal({ data, onClose }) {
   const [busy, setBusy] = useState(false);
   const handleSave = async () => {
     if (busy || !f.name.trim()) return;
+    if (f.startDate && f.endDate && f.endDate < f.startDate) { toast('วันจบต้องไม่ก่อนวันเริ่ม', 'error'); return; }
     setBusy(true);
     const row = {
       id: data?.id || uid('ac'),
@@ -986,6 +993,7 @@ export function CustomerSegmentModal({ onClose }) {
       const { error } = await supabase.from('tmk_customer_segments').upsert(rows);
       if (error) throw error;
       logAudit({ action: 'update', entityType: 'segment', entityName: 'กลุ่มลูกค้า', summary: 'อัปเดตกลุ่มลูกค้า (RFM)' });
+      window.__reload?.();
       toast('บันทึกกลุ่มลูกค้าเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -1097,6 +1105,7 @@ export function HistoricalEntryModal({ onClose }) {
       const { error } = await supabase.from('tmk_monthly_history').upsert(dbRows);
       if (error) throw error;
       logAudit({ action: 'update', entityType: 'monthly', entityName: 'ข้อมูลย้อนหลัง', summary: `บันทึกข้อมูลย้อนหลัง ${dbRows.length} เดือน` });
+      window.__reload?.();
       toast('บันทึกข้อมูลย้อนหลังเรียบร้อย', 'success');
       onClose();
     } catch (err) {

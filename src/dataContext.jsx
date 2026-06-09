@@ -411,6 +411,7 @@ function mapToTMK(raw) {
       spent: Number(c.spent || 0),
       roas: Number(c.roas || 0),
       status: c.status || 'live',
+      goal: c.goal || 'Conversion',   // กันแก้แล้ว goal หาย
       startDate: c.start_date || null,
       endDate: c.end_date || null,
     })),

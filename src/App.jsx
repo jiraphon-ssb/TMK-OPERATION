@@ -108,7 +108,7 @@ function Spotlight({ onClose, onGo }) {
     });
     // Campaigns
     (TMK.campaigns || []).filter(c => lc(c.name).includes(ql)).slice(0, 3).forEach(c => {
-      results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, action: () => { onGo('catalog', 'campaigns'); onClose(); } });
+      results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, action: () => { onGo('settings', 'campaigns'); onClose(); } });
     });
     // Staff
     (TMK.staff || []).filter(s => lc(s.name).includes(ql) || lc(s.role).includes(ql)).forEach(s => {
@@ -348,6 +348,7 @@ function AppInner() {
       setModal({ type, data });
     };
     window.__toast = toast;
+    window.__reload = dataReload; // ให้โมดัลรีโหลดทันทีหลังบันทึก (กันค้างถ้า realtime ช้า/หลุด)
     window.__goSection = (sec, s) => go(sec, s);
     window.__startGuide = (topicId, steps, onDone) => {
       // Navigate to first step
@@ -450,17 +451,25 @@ function AppInner() {
     return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
   })();
 
+  // สต็อกใกล้/หมด (ใช้ toggle tmk-notif-stock)
+  const notifsStock = readFlag('tmk-notif-stock')
+    ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low')
+        .map(p => ({ id: 'stock-' + p.id, kind: 'stock', title: `${p.name} ${p.stock === 'out' ? 'หมดสต็อก' : 'ใกล้หมด'}`, txt: 'ดูสินค้า' }))
+    : [];
+
   const notifGroups = [
     { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
     { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
     { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
+    { key: 'stock', label: 'สต็อก', items: notifsStock, color: 'var(--info)' },
     { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
   ].filter(g => g.items.length > 0);
-  const notifs = [...notifsTodaySales, ...notifsToday, ...notifsDated, ...notifsLastMonth];
+  const notifs = [...notifsTodaySales, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
 
   const onNotifClick = (n) => {
     setNotif(false);
     if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
+    if (n.kind === 'stock') { go('catalog', 'products'); return; }
     if (n.kind === 'lastmonth') { go('sales', 'status'); setTimeout(() => window.__openModal('historical'), 100); return; }
     go('planner', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
