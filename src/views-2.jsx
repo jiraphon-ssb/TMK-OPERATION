@@ -484,6 +484,9 @@ function ProductsView() {
         <div className="table-wrap"><table className="table">
           <thead><tr><th style={{width:34}}>#</th><th>สินค้า</th><th style={{textAlign:'right'}}>ราคา</th><th style={{textAlign:'right'}}>ขายแล้ว</th><th style={{textAlign:'right'}}>รายได้</th><th style={{textAlign:'right'}}>คงเหลือ</th><th style={{textAlign:'right'}}>สถานะ</th></tr></thead>
           <tbody>
+            {DD.products.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">ยังไม่มีสินค้า — กด "เพิ่มสินค้า" เพื่อเริ่ม</td></tr>
+            )}
             {DD.products.map(p => {
               const sm = stockMeta(p.stock);
               return (
@@ -676,6 +679,9 @@ function POView() {
         <div className="table-wrap"><table className="table">
           <thead><tr><th>สินค้า</th><th style={{textAlign:'right'}}>จำนวน</th><th>วันสั่ง</th><th>กำหนดเข้า</th><th style={{textAlign:'right'}}>สถานะ</th></tr></thead>
           <tbody>
+            {DD.poTracker.length === 0 && (
+              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">ยังไม่มี PO — กด "เปิด PO ใหม่" เพื่อเริ่ม</td></tr>
+            )}
             {DD.poTracker.map(po => (
               <tr key={po.id}>
                 <td style={{ fontWeight: 600 }}>{po.product}</td>
@@ -832,7 +838,7 @@ function GeneralSettings({ dark, setDark }) {
       <div className="card">
         <div className="card-head"><h3><Icon name="bell" /> การแจ้งเตือน</h3></div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนงานเกินกำหนด</div><div className="cap">เตือนเมื่อมีงานเลยวันที่กำหนด</div></div>
+          <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนงาน &amp; สรุปเดือน</div><div className="cap">เตือนงานวันนี้/เกินกำหนด/ใกล้ถึง และเตือนสรุปยอดเดือนที่แล้ว</div></div>
           <NotifToggle storeKey="tmk-notif-overdue" />
         </div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>

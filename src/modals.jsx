@@ -14,6 +14,10 @@ import { computeMonth } from './dataContext.jsx';
 // Toast helper
 const toast = (m, k = 'success') => window.__toast?.(m, k);
 
+// เตือนทิ้งข้อมูลก่อนปิด (ใช้ร่วมกับ Modal + ปุ่มยกเลิก ให้สม่ำเสมอ)
+const DISCARD_MSG = 'ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
+const guardClose = (touched, onClose) => { if (touched && !window.confirm(DISCARD_MSG)) return; onClose(); };
+
 // ID ที่ไม่ชนกัน (กันกดบันทึกซ้ำ/หลายคนพร้อมกัน → ข้อมูลซ้ำหรือทับกัน)
 const uid = (prefix) => prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -39,7 +43,7 @@ const MD = TMK;
 export function Modal({ icon, title, sub, onClose, footer, wide, children, confirmOnClose }) {
   // กันข้อมูลหายเงียบ: ถ้ามีการแก้ไขค้าง (confirmOnClose) → ถามก่อนปิดด้วย ESC/พื้นหลัง/ปุ่ม X
   const tryClose = () => {
-    if (confirmOnClose && !window.confirm('ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป')) return;
+    if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
     onClose();
   };
   useEffect(() => {
@@ -260,7 +264,7 @@ export function RecordSalesModal({ data, onClose }) {
   const footer = step === 1 ? (
     <>
       {exists && <button className="btn btn-sm" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={saving} onClick={handleDelete}><Icon name="trash" /> ลบข้อมูลวันนี้</button>}
-      <button className="btn" onClick={onClose}>{t('cancel')}</button>
+      <button className="btn" onClick={() => guardClose(touched, onClose)}>{t('cancel')}</button>
       <button className="btn btn-primary" disabled={!s.ok} style={{ opacity: s.ok ? 1 : 0.5 }} onClick={() => setStep(2)}>{t('reviewBefore')} <Icon name="arrowR" /></button>
     </>
   ) : (
@@ -444,7 +448,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
           <Icon name="trash" /> ลบงาน
         </button>
       )}
-      <button className="btn" onClick={onClose}>ยกเลิก</button>
+      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
       <button className="btn btn-primary" disabled={!valid} style={{ opacity: valid ? 1 : 0.5 }} onClick={() => valid && onSubmit({ ...f, id: data?.id || uid('tn') })}>
         <Icon name="check" /> {edit ? 'บันทึกการแก้ไข' : 'เพิ่มงาน'}
       </button>
@@ -535,7 +539,7 @@ export function ProductModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
   return (
     <Modal icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้าและสต็อกคงเหลือ" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อโปโล Signature" /></div>
@@ -591,7 +595,7 @@ export function CampaignModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกแคมเปญ'}</button></>);
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกแคมเปญ'}</button></>);
   return (
     <Modal icon="megaphone" title={data ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'} sub="ตั้งชื่อ ช่วงเวลา และช่องทาง" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>ชื่อแคมเปญ</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Payday Push" /></div>
@@ -662,7 +666,7 @@ export function POModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
   return (
     <Modal icon="box" title={data ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>รายการสินค้า</label>
@@ -778,7 +782,7 @@ export function MonthlyTargetModal({ data, onClose }) {
   };
   const footer = (
     <>
-      <button className="btn" onClick={onClose}>ยกเลิก</button>
+      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
       <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
@@ -854,7 +858,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 export function AdCampaignModal({ data, onClose }) {
   const _statusTH = { live: 'กำลังดำเนินการ', paused: 'หยุดชั่วคราว', done: 'จบแล้ว' };
   const [f, setF] = useState(() => data
-    ? { ...data, status: _statusTH[data.status] || data.status || 'กำลังดำเนินการ' } // map 'live'→ไทย ให้ชิปตรง + ไม่เด้งกลับ live
+    ? { ...data, status: _statusTH[data.status] || 'กำลังดำเนินการ' } // map 'live/paused/done'→ไทย ให้ชิปตรง; status แปลก → default
     : { name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'กำลังดำเนินการ' });
   const [touched, setTouched] = useState(false);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
@@ -897,7 +901,7 @@ export function AdCampaignModal({ data, onClose }) {
 
   const footer = (
     <>
-      <button className="btn" onClick={onClose}>ยกเลิก</button>
+      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
       <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
@@ -1002,7 +1006,7 @@ export function CustomerSegmentModal({ onClose }) {
   };
   const footer = (
     <>
-      <button className="btn" onClick={onClose}>ยกเลิก</button>
+      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
       <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );
@@ -1114,7 +1118,7 @@ export function HistoricalEntryModal({ onClose }) {
   };
   const footer = (
     <>
-      <button className="btn" onClick={onClose}>ยกเลิก</button>
+      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
       <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
     </>
   );

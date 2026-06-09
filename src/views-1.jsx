@@ -445,15 +445,16 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>{'เทียบปีก่อน'} (YoY)</div>
-          <YoYChart data={md.yoy} />
+          <YoYChart data={md.yoy} year={dateProps.year} />
         </div>
       </div>
     </div>
   );
 }
 
-function YoYChart({ data: dataProp }) {
+function YoYChart({ data: dataProp, year }) {
   const data = dataProp || D.yoy;
+  const cy = year || (new Date().getFullYear() + 543), py = cy - 1; // ปี พ.ศ. ตามที่เลือก (ไม่ฮาร์ดโค้ด)
   const w = 320, h = 150;
   // กันบั๊ก: ต้องมีอย่างน้อย 2 จุดถึงจะวาดเส้นได้ (ไม่งั้นหารด้วย 0 → NaN)
   if (!data || data.length < 2) {
@@ -481,13 +482,13 @@ function YoYChart({ data: dataProp }) {
         {data.map((d,i)=>{
           const dd = data.length>1 ? w/(data.length-1) : w;
           return <rect key={'h'+i} x={X(i)-dd/2} y="0" width={dd} height={h} fill="transparent" style={{ cursor:'default' }}>
-            <title>{`${d.m} · 2569: ${B(d.y26)} · 2568: ${B(d.y25)}`}</title>
+            <title>{`${d.m} · ${cy}: ${B(d.y26)} · ${py}: ${B(d.y25)}`}</title>
           </rect>;
         })}
       </svg>
       <div className="row" style={{ gap: 14, marginTop: 6 }}>
-        <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--accent)', verticalAlign:'middle', marginRight:5 }}></span>2569</span>
-        <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--ink-4)', verticalAlign:'middle', marginRight:5 }}></span>2568</span>
+        <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--accent)', verticalAlign:'middle', marginRight:5 }}></span>{cy}</span>
+        <span className="cap"><span style={{ display:'inline-block', width:14, height:2, background:'var(--ink-4)', verticalAlign:'middle', marginRight:5 }}></span>{py}</span>
       </div>
     </div>
   );

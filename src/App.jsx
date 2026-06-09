@@ -11,7 +11,7 @@ import { Onboarding, HelpCenter, GuideOverlay } from './onboarding.jsx';
 import { EntryView } from './views-entry.jsx';
 import { RecordSalesModal, TaskModal, ProductModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
-import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
+import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
 import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
@@ -287,7 +287,6 @@ function AppInner() {
   const [currentUser, setCurrentUser] = useState(() => loadValidSession());
   const [authed, setAuthed] = useState(() => Boolean(loadValidSession()));
   const [modal, setModal] = useState(null);
-  const [confirmClose, setConfirmClose] = useState(null); // for unsaved changes
   const [spotlight, setSpotlight] = useState(false);
   // Persist section + subMap → กด refresh แล้วอยู่หน้าเดิม
   const [section, setSection] = useState(() => {
@@ -377,7 +376,7 @@ function AppInner() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const closeModal = () => { setModal(null); setConfirmClose(null); };
+  const closeModal = () => { setModal(null); };
   const logout = () => {
     try { const u = JSON.parse(localStorage.getItem('tmk-user') || 'null'); if (u?.email) logAudit({ action: 'logout', entityType: 'auth', entityName: u.email, summary: `ออกจากระบบ (${u.email})` }); } catch {}
     setMenu(false); setDrawer(false); setAuthed(false); setCurrentUser(null);
@@ -744,19 +743,6 @@ function AppInner() {
       )}
 
       {/* Help button removed — now in rail */}
-
-      {/* Confirm dialog for unsaved changes */}
-      {confirmClose && (
-        <ConfirmDialog
-          title={t('unsavedTitle')}
-          message={t('unsavedMsg')}
-          confirmLabel={t('discardClose')}
-          cancelLabel={t('goBack')}
-          onConfirm={() => { closeModal(); }}
-          onCancel={() => setConfirmClose(null)}
-          danger
-        />
-      )}
 
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />

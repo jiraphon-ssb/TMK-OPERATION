@@ -192,7 +192,8 @@ function mapToTMK(raw) {
     price: Number(p.price || 0),
     units: Number(p.actual_units || 0),
     rev: Number(p.price || 0) * Number(p.actual_units || 0),
-    stock: p.stock_on_hand <= 0 ? 'out' : p.stock_on_hand < p.reorder_point ? 'low' : 'ok',
+    // stock = null/undefined → 'ok' (ยังไม่กรอก ไม่ใช่หมด); กัน null<=0 ขึ้น "หมดสต็อก" ผิด
+    stock: p.stock_on_hand == null ? 'ok' : p.stock_on_hand <= 0 ? 'out' : p.stock_on_hand < Number(p.reorder_point || 0) ? 'low' : 'ok',
     onHand: Number(p.stock_on_hand || 0),
     reorder: Number(p.reorder_point || 0),
     strategy: p.strategy || '',
@@ -548,6 +549,8 @@ export function DataProvider({ children }) {
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0); // bump on reload → forces re-render
   const mountedRef = useRef(true);
+  const inFlightRef = useRef(false); // กันโหลดซ้อน (window.__reload + realtime ยิงพร้อมกัน)
+  const pendingRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -555,6 +558,8 @@ export function DataProvider({ children }) {
       setError('Supabase ยังไม่ได้ตั้งค่า');
       return;
     }
+    if (inFlightRef.current) { pendingRef.current = true; return; } // กำลังโหลดอยู่ → จองโหลดอีกรอบหลังเสร็จ
+    inFlightRef.current = true;
     try {
       setLoading(true);
       const raw = await loadAllTables();
@@ -577,7 +582,9 @@ export function DataProvider({ children }) {
       console.error('❌ Load failed:', e);
       if (mountedRef.current) setError(e.message);
     } finally {
+      inFlightRef.current = false;
       if (mountedRef.current) setLoading(false);
+      if (pendingRef.current && mountedRef.current) { pendingRef.current = false; load(); } // มีคำขอค้าง → โหลดอีกรอบให้ได้ข้อมูลล่าสุด
     }
   }, []);
 
