@@ -333,8 +333,17 @@ function AppInner() {
     try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch {}
   }, [dark]);
 
+  // สิทธิ์แก้ไข: 'viewer' = ดูอย่างเดียว (เจ้าของ/แอดมิน/ผู้แก้ไข = แก้ได้) — default viewer ถ้าไม่อยู่ในระบบ
+  const canEdit = (currentUserCtx?.role || 'viewer') !== 'viewer';
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
+  if (typeof window !== 'undefined') window.__canEdit = canEdit; // ให้ view อื่น (kanban drag, settings) เช็คได้
+
   useEffect(() => {
-    window.__openModal = (type, data) => setModal({ type, data });
+    window.__openModal = (type, data) => {
+      if (!canEditRef.current) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — แก้ไขข้อมูลไม่ได้ (ติดต่อแอดมินเพื่อขอสิทธิ์)', 'warn'); return; }
+      setModal({ type, data });
+    };
     window.__toast = toast;
     window.__goSection = (sec, s) => go(sec, s);
     window.__startGuide = (topicId, steps, onDone) => {
@@ -529,6 +538,7 @@ function AppInner() {
           </div>
           <div className="topbar-spacer"></div>
           <div className="topbar-actions">
+            {!canEdit && <span className="chip" title="บัญชีนี้แก้ไขข้อมูลไม่ได้ — ติดต่อแอดมินเพื่อขอสิทธิ์" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 600 }}><Icon name="eye" /> ดูอย่างเดียว</span>}
             <button className="search desktop-only" onClick={() => setSpotlight(true)} style={{ cursor: 'pointer' }}>
               <Icon name="search" /><span style={{ flex: 1, color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' }}>{t('search')}...</span><kbd>{modKey}K</kbd>
             </button>
@@ -646,7 +656,7 @@ function AppInner() {
           ))}
         </div>
       </nav>
-      <button className="fab mobile-only" onClick={() => { go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100); }}><Icon name="plus" /></button>
+      {canEdit && <button className="fab mobile-only" onClick={() => { go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100); }}><Icon name="plus" /></button>}
     </div>
   );
 

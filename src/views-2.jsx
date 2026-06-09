@@ -272,6 +272,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
     const id = dragId.current;
     dragId.current = null; setOver(null);
     if (!id) return;
+    if (window.__canEdit === false) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
     const prev = tasks.find(t => t.id === id)?.status;
     if (prev === status) return;
     const task = tasks.find(t => t.id === id);
