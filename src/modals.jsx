@@ -120,6 +120,14 @@ export function RecordSalesModal({ data, onClose }) {
   // Save handler — upsert ลง tmk_daily_sales (id = "d-YYYY-MM-DD")
   const handleSave = async () => {
     if (saving) return;
+    // กันพิมพ์ผิดหลัก (fat-finger): ถ้ายอดวันนี้สูงกว่าค่าเฉลี่ยรายวันมาก → ถามยืนยัน
+    const _tot = rows.reduce((a, r) => a + (Number(r.rev) || 0), 0);
+    const _days = (MD.dailyMonth || []).map(d => d.rev).filter(v => v > 0);
+    const _avg = _days.length ? _days.reduce((a, b) => a + b, 0) / _days.length : 0;
+    if (_avg > 0 && _tot > _avg * 3) {
+      const x = (_tot / _avg).toFixed(1);
+      if (!window.confirm(`⚠️ ยอดวันนี้ ฿${_tot.toLocaleString()} สูงกว่าค่าเฉลี่ยรายวัน ${x} เท่า (เฉลี่ย ฿${Math.round(_avg).toLocaleString()})\nตรวจสอบว่าพิมพ์ถูกหรือไม่ — ยืนยันบันทึก?`)) return;
+    }
     setSaving(true);
     try {
       const dayNames = ['อา','จ','อ','พ','พฤ','ศ','ส'];
@@ -228,6 +236,23 @@ export function RecordSalesModal({ data, onClose }) {
     finally { setSaving(false); }
   };
 
+  // คัดลอกยอดของเมื่อวานมาเป็นจุดเริ่ม (กรอกเร็วขึ้น) — ปรับแก้ได้ก่อนบันทึก
+  const copyYesterday = async () => {
+    const prev = new Date(date + 'T00:00:00'); prev.setDate(prev.getDate() - 1);
+    const pid = 'd-' + `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+    const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', pid).maybeSingle();
+    if (!row || row.deleted_at) { toast('ไม่พบข้อมูลของเมื่อวาน', 'error'); return; }
+    const cj = (row.channels && typeof row.channels === 'object') ? row.channels : {};
+    setRows(MD.channels.map(c => {
+      const j = cj[c.id] || {}; const col = colMap[c.id];
+      const rev = j.rev != null ? j.rev : (col ? row[col] : 0);
+      return { id: c.id, rev: numStr(rev), ord: numStr(j.ord), ad: numStr(j.ad), inq: numStr(j.inq), newC: numStr(j.newC), oldC: numStr(j.oldC) };
+    }));
+    setChatTime(numStr(row.avg_reply_minutes));
+    setTouched(true);
+    toast('คัดลอกยอดเมื่อวานแล้ว — ปรับแก้ได้ก่อนบันทึก', 'success');
+  };
+
   const footer = step === 1 ? (
     <>
       {exists && <button className="btn btn-sm" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={saving} onClick={handleDelete}><Icon name="trash" /> ลบข้อมูลวันนี้</button>}
@@ -255,10 +280,15 @@ export function RecordSalesModal({ data, onClose }) {
 
       {step === 1 && (
         <>
-          {/* Date */}
-          <div className="field" style={{ maxWidth: 220 }}>
-            <label>วันที่</label>
-            <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
+          {/* Date + คัดลอกเมื่อวาน */}
+          <div className="row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div className="field" style={{ maxWidth: 220, margin: 0 }}>
+              <label>วันที่</label>
+              <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+            <button type="button" className="btn btn-sm" onClick={copyYesterday} title="ดึงยอดของเมื่อวานมาเป็นจุดเริ่ม">
+              <Icon name="refresh" /> คัดลอกเมื่อวาน
+            </button>
           </div>
 
           {/* Channel cards — each channel is a card */}

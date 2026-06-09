@@ -476,6 +476,7 @@ export function computeMonth(monthIdx0, yearBE) {
   const dailyMonth = rows.map(r => ({ d: r.day, rev: Object.values(r.ch).reduce((s, c) => s + c.rev, 0) }));
   const dailyLog = [...rows].sort((a, b) => b.day - a.day).slice(0, 7).map(r => ({
     date: `${r.day} ${_ABBR[monthNum - 1]}`, day: r.dayName,
+    iso: `${yearBE - 543}-${String(monthNum).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`,
     shopee: r.ch.shopee?.rev || 0, tiktok: r.ch.tiktok?.rev || 0, lazada: r.ch.lazada?.rev || 0,
     facebook: r.ch.facebook?.rev || 0, line: r.ch.line?.rev || 0, crm: r.ch.crm?.rev || 0,
     ord: Object.values(r.ch).reduce((s, c) => s + (c.ord || 0), 0), // รวมออร์เดอร์ทุกช่อง

@@ -418,6 +418,28 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
         </div>
       </div>
 
+      {/* วันที่ยังไม่กรอก (เห็นช่องว่างทั้งเดือนในที่เดียว + คลิกกรอกได้) */}
+      {(() => {
+        const entered = new Set(md.dailyMonth.map(d => d.d));
+        const last = Math.min(TODAY, DAYS_IN_MONTH);
+        const missing = [];
+        for (let d = 1; d <= last; d++) if (!entered.has(d)) missing.push(d);
+        if (!missing.length) return null;
+        const isoOf = (d) => `${year - 543}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return (
+          <div className="card" style={{ padding: 16, background: 'var(--warn-soft)', borderLeft: '4px solid var(--warn)' }}>
+            <div className="sm" style={{ fontWeight: 700, marginBottom: 8 }}>ยังไม่กรอก {missing.length} วันในเดือนนี้ — คลิกวันเพื่อกรอกย้อนหลัง</div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              {missing.slice(0, 15).map(d => (
+                <button key={d} className="chip" style={{ cursor: 'pointer', border: '1px solid var(--warn)', background: 'var(--surface)', fontWeight: 600 }}
+                  onClick={() => window.__openModal('record', { date: isoOf(d) })}>{d}</button>
+              ))}
+              {missing.length > 15 && <span className="cap" style={{ alignSelf: 'center' }}>+{missing.length - 15} วัน</span>}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Quick Entry Button */}
       <button className="card" onClick={() => window.__openModal('record')}
         style={{ padding: 28, textAlign: 'center', cursor: 'pointer', border: '2px dashed var(--accent)', background: 'var(--accent-soft)' }}>
@@ -440,14 +462,14 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
             <div key={d} className="cap" style={{ textAlign: 'center', padding: '4px 0', fontWeight: 600 }}>{d}</div>
           ))}
           {/* offset วันแรกของเดือนจริง (อาทิตย์เป็นคอลัมน์แรก) */}
-          {Array.from({ length: new Date(_T.yearCE, _T.month - 1, 1).getDay() }, (_, i) => <div key={'blank-' + i}></div>)}
+          {Array.from({ length: new Date(year - 543, month, 1).getDay() }, (_, i) => <div key={'blank-' + i}></div>)}
           {Array.from({ length: DAYS_IN_MONTH }, (_, i) => {
             const day = i + 1;
             const isToday = day === TODAY;
             const entered = dayRevMap[day] != null; // กรอกจริงไหม
             const futureDay = day > TODAY;
             const rev = dayRevMap[day];
-            const iso = `${_T.yearCE}-${String(_T.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const iso = `${year - 543}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             return (
               <div key={day} style={{
                 textAlign: 'center', padding: '6px 2px', borderRadius: 'var(--r-sm)',
@@ -495,7 +517,7 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
                 const entered = dayNum < TODAY;
                 const isToday = dayNum === TODAY;
                 return (
-                  <tr key={i}>
+                  <tr key={i} style={{ cursor: 'pointer' }} title="คลิกเพื่อแก้ไขยอดวันนี้" onClick={() => log.iso && window.__openModal('record', { date: log.iso })}>
                     <td>
                       <div className="row" style={{ gap: 6 }}>
                         <span className="sm" style={{ fontWeight: 600 }}>{log.date}</span>

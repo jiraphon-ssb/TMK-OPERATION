@@ -422,6 +422,10 @@ function AppInner() {
     .map(x => { const diff = diffOf(x); return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
     .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
     .sort((a, b) => a._diff - b._diff);
+  // 2.5) ยังไม่ได้กรอกยอดขายวันนี้
+  const notifsTodaySales = (notifOn && !((TMK.dailyMonth || []).some(d => d.d === todayDay)))
+    ? [{ id: 'today-sales', kind: 'todaysales', title: 'ยังไม่ได้กรอกยอดขายวันนี้', txt: 'กรอกเลย' }]
+    : [];
   // 3) เดือนที่แล้ว — เตือนถ้ายังไม่ได้สรุปยอดเดือนก่อน (จาก monthly_history จริง)
   const notifsLastMonth = (() => {
     if (!notifOn) return [];
@@ -434,14 +438,16 @@ function AppInner() {
   })();
 
   const notifGroups = [
+    { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
     { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
     { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
     { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
   ].filter(g => g.items.length > 0);
-  const notifs = [...notifsToday, ...notifsDated, ...notifsLastMonth];
+  const notifs = [...notifsTodaySales, ...notifsToday, ...notifsDated, ...notifsLastMonth];
 
   const onNotifClick = (n) => {
     setNotif(false);
+    if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
     if (n.kind === 'lastmonth') { go('sales', 'status'); setTimeout(() => window.__openModal('historical'), 100); return; }
     go('planner', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
