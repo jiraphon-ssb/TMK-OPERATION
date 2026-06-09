@@ -5,7 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section, UserIcon } from './components.jsx';
 import { useUser } from './userContext.jsx';
-import { useData } from './dataContext.jsx';
+import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
@@ -764,6 +764,41 @@ function exportAllCSV() {
   if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
 }
 
+// รายงานรายเดือน (CSV) — สรุปต่อช่องทาง (เป้า/ยอด/ค่าแอด/ROAS) + ยอดรายวันของเดือนนั้น (สำหรับส่งผู้บริหาร)
+function exportMonthlyReportCSV() {
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const t = getToday();
+  const md = computeMonth(t.month - 1, t.yearBE);
+  const monthTH = MONTHS_TH_SHORT[t.month - 1];
+  let csv = `รายงานยอดขายเดือน ${monthTH} ${t.yearBE}\n\n`;
+  // สรุปรวม
+  csv += 'สรุปรวม\n';
+  csv += `เป้าเดือน,${md.consts.TARGET}\nยอด MTD,${md.computed.MTD}\nออร์เดอร์,${md.computed.ORD}\nค่าแอดรวม,${md.computed.AD}\nลูกค้าใหม่,${md.computed.NEW_C}\n\n`;
+  // ต่อช่องทาง
+  csv += 'ช่องทาง,เป้า,ยอด MTD,%เป้า,ออร์เดอร์,ค่าแอด,ROAS\n';
+  (md.channels || []).forEach(c => {
+    const pct = c.target > 0 ? ((c.actual / c.target) * 100).toFixed(1) : '';
+    const roas = c.ad > 0 ? (c.actual / c.ad).toFixed(2) : '';
+    csv += [esc(c.name), c.target, c.actual, pct, c.orders, c.ad, roas].join(',') + '\n';
+  });
+  csv += '\n';
+  // ยอดรายวันของเดือน (จาก dailyAll จริง)
+  csv += 'ยอดรายวัน\nวันที่,รายได้รวม,ค่าแอด\n';
+  const rows = (TMK.dailyAll || []).filter(r => r.year === t.yearBE && r.month === t.month).sort((a, b) => a.day - b.day);
+  rows.forEach(r => {
+    const rev = Object.values(r.ch || {}).reduce((s, c) => s + (c.rev || 0), 0);
+    csv += [`${r.year - 543}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`, rev, r.adSpend || 0].join(',') + '\n';
+  });
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `tmk-report-${t.yearBE}-${String(t.month).padStart(2, '0')}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+  logAudit({ action: 'export', entityType: 'data', entityName: `รายงาน ${monthTH} ${t.yearBE}`, summary: `ส่งออกรายงานรายเดือน ${monthTH} ${t.yearBE}` });
+  if (window.__toast) window.__toast('ส่งออกรายงานเดือนนี้เรียบร้อย', 'success');
+}
+
 function GeneralSettings({ dark, setDark }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -809,6 +844,12 @@ function GeneralSettings({ dark, setDark }) {
           <div><div className="sm" style={{ fontWeight: 600 }}>Export ข้อมูล</div><div className="cap">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV (รองรับภาษาไทยใน Excel)</div></div>
           <button className="btn btn-sm btn-outline" onClick={exportAllCSV}>
             <Icon name="external" /> Export
+          </button>
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>รายงานยอดขายเดือนนี้</div><div className="cap">สรุปต่อช่องทาง (เป้า/ยอด/ROAS) + ยอดรายวัน — สำหรับส่งผู้บริหาร</div></div>
+          <button className="btn btn-sm btn-outline" onClick={exportMonthlyReportCSV}>
+            <Icon name="external" /> รายงานเดือนนี้
           </button>
         </div>
       </div>

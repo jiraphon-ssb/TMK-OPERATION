@@ -43,11 +43,11 @@ function getGrowth(channelId) {
 }
 
 /* small KPI tile — clickable with optional onClick */
-export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, accent, onClick }) {
+export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, accent, onClick, hint }) {
   return (
     <div className="card card-pad-sm" onClick={onClick} style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: onClick ? 'pointer' : 'default', transition: 'box-shadow 0.15s' }}>
       <div className="row between">
-        <span className="metric-label">{label}</span>
+        <span className="metric-label" title={hint || undefined} style={hint ? { cursor: 'help' } : undefined}>{label}{hint ? ' ⓘ' : ''}</span>
         {icon && <span style={{ color: accent || 'var(--ink-3)' }}><Icon name={icon} /></span>}
       </div>
       <div className="metric-value">{value}</div>
@@ -82,6 +82,10 @@ export function HomeView({ go }) {
   const alerts = [];
   if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: _daysLeft > 0 ? `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${_daysLeft} วัน` : 'วันสุดท้ายของเดือนแล้ว' });
   if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
+  // เตือนงบแอดใกล้เกิน — คาดการณ์จาก burn rate จริง
+  const _adBudget = TMK.consts.AD_BUDGET;
+  const _projAd = TMK.consts.DAY > 0 ? (C.AD / TMK.consts.DAY) * TMK.consts.DAYS : 0;
+  if (_adBudget > 0 && _projAd > _adBudget) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'zap', t: `งบแอดจะเกิน — คาดใช้ ${Bk(_projAd)} / งบ ${Bk(_adBudget)}`, d: 'ทบทวนงบโฆษณาเดือนนี้ ก่อนใช้เกิน' });
   const outOfStock = D.products.filter(p => p.stock === 'out' || p.stock === 'low');
   if (outOfStock.length) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'box', t: `สินค้าใกล้/หมดสต็อก ${outOfStock.length} รายการ`, d: outOfStock.map(p => p.name).slice(0,2).join(', ') });
 
@@ -104,7 +108,7 @@ export function HomeView({ go }) {
       <div className="grid" style={{ gridTemplateColumns: '1.7fr 1fr', marginBottom: 16 }}>
         <div className="card" style={{ display: 'flex', gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขายรวมเดือนนี้'} (MTD)</div>
+            <div className="eyebrow" style={{ marginBottom: 8, cursor: 'help' }} title="MTD (Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน">{'ยอดขายรวมเดือนนี้'} (MTD) ⓘ</div>
             <div className="num" style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{B(mtd)}</div>
             <div className="row" style={{ gap: 14, marginTop: 14 }}>
               <div>
@@ -113,7 +117,7 @@ export function HomeView({ go }) {
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
               <div>
-                <div className="cap">{'คาดสิ้นเดือน'} (Run rate)</div>
+                <div className="cap" style={{ cursor: 'help' }} title="Run rate = คาดการณ์ยอดสิ้นเดือน = (ยอด MTD ÷ วันที่ผ่านมา) × จำนวนวันทั้งเดือน">{'คาดสิ้นเดือน'} (Run rate) ⓘ</div>
                 <div className="num h3" style={{ color: gap > 0 ? 'var(--warn)' : 'var(--good)' }}>{B(C.RUN)}</div>
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
@@ -167,8 +171,8 @@ export function HomeView({ go }) {
       {/* KPI row — click navigates to relevant page */}
       <div className="grid g4" style={{ marginBottom: 24 }}>
         <Kpi label={'ออร์เดอร์รวม'} value={N(C.ORD)} icon="bag" sub="เดือนนี้" onClick={() => go('sales', 'overview')} />
-        <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" sub={'เฉลี่ยต่อบิล'} onClick={() => go('sales', 'channels')} />
-        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)}
+        <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" sub={'เฉลี่ยต่อบิล'} hint="AOV (Average Order Value) = ยอดขายรวม ÷ จำนวนออร์เดอร์ — มูลค่าเฉลี่ยต่อบิล" onClick={() => go('sales', 'channels')} />
+        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)} hint="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป"
           deltaDir={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'up' : 'down'}
           deltaColor={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'var(--bad)' : 'var(--good)'}
           sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
