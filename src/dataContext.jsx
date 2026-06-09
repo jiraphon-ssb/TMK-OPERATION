@@ -295,10 +295,7 @@ function mapToTMK(raw) {
   fb.cpInq = fb.inquiries > 0 ? fb.spend / fb.inquiries : 0;
   fb.cpOrd = fb.orders > 0 ? fb.spend / fb.orders : 0;
   fb.cac = fb.newCust > 0 ? fb.spend / fb.newCust : 0;
-  // FB message trend — ใช้ค่าจริงจาก column messages (กรอกผ่าน "กรอกข้อมูลย้อนหลัง")
-  const fbMsgTrend = monthly
-    .filter(m => m.year === currentYear && m.month <= currentMonth)
-    .map(m => ({ m: m.month_th, v: Number(m.messages || 0) }));
+  // FB message trend ย้ายไปคำนวณใน computeMonth (ตามเดือนที่เลือก) — global ตัวนี้ไม่ใช้แล้ว
 
   // Audit log
   const audit = (raw.audit || []).map(a => {
@@ -403,7 +400,7 @@ function mapToTMK(raw) {
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
     channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw, dailyAll,
-    colorMix, sizeMix, staff, poTracker, fb, fbMsgTrend, audit, roles, duties,
+    colorMix, sizeMix, staff, poTracker, fb, audit, roles, duties,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
       name: c.name,
@@ -463,10 +460,12 @@ export function computeMonth(monthIdx0, yearBE) {
       target: Number((meta.channelTargets && meta.channelTargets[base.id]) || 0) };
   });
 
-  const MTD = channels.reduce((s, c) => s + c.actual, 0);
-  const ORD = channels.reduce((s, c) => s + c.orders, 0);
-  const AD = rows.reduce((s, r) => s + r.adSpend, 0);
-  const NEW_C = channels.reduce((s, c) => s + c.newCust, 0);
+  // fallback: เดือนอดีตที่กรอกผ่าน "ข้อมูลย้อนหลัง" (มี monthly.actual แต่ไม่มี daily) → ใช้ยอดรายเดือน (กัน SalesView โชว์ ฿0 ทั้งที่กราฟมียอด)
+  const _useMonthly = rows.length === 0 && !isFuture && Number(mRow?.actual || 0) > 0;
+  const MTD = _useMonthly ? Number(mRow.actual || 0) : channels.reduce((s, c) => s + c.actual, 0);
+  const ORD = _useMonthly ? Number(mRow.orders || 0) : channels.reduce((s, c) => s + c.orders, 0);
+  const AD = _useMonthly ? Number(mRow.adSpend || 0) : rows.reduce((s, r) => s + r.adSpend, 0);
+  const NEW_C = _useMonthly ? Number(mRow.newCust || 0) : channels.reduce((s, c) => s + c.newCust, 0);
   const OLD_C = channels.reduce((s, c) => s + c.oldCust, 0);
   const AOV = ORD > 0 ? MTD / ORD : 0;
   const PACE_TGT = (DAYS > 0 && DAY > 0) ? (TARGET / DAYS) * DAY : 0; // ไม่ปัดเศษ
@@ -541,7 +540,7 @@ function mutateTMK(mapped) {
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
   ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
-   'colorMix','sizeMix','staff','poTracker','fbMsgTrend','audit','roles','duties',
+   'colorMix','sizeMix','staff','poTracker','audit','roles','duties',
    'adCampaigns','segments'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
     TMK[key].length = 0;

@@ -868,9 +868,10 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
                 { label: 'เป้าหมาย', detail: rec.target ? B(rec.target) : '—' },
                 { label: 'ยอดขายจริง', detail: B(rec.actual) },
                 { label: 'ออร์เดอร์', detail: rec.orders ? N(rec.orders) : '—' },
+                { label: 'ลูกค้าใหม่', detail: rec.newCust ? N(rec.newCust) : '—' },
                 { label: 'จำนวนข้อความ', detail: rec.messages ? N(rec.messages) : '—' },
-              ].map((item, i) => (
-                <div key={i} className="row between" style={{ padding: '12px 4px', borderBottom: i < 3 ? '1px solid var(--line)' : 'none', gap: 12 }}>
+              ].map((item, i, arr) => (
+                <div key={i} className="row between" style={{ padding: '12px 4px', borderBottom: i < arr.length - 1 ? '1px solid var(--line)' : 'none', gap: 12 }}>
                   <div className="sm" style={{ fontWeight: 600 }}>{item.label}</div>
                   <span className="cap" style={{ fontWeight: 600 }}>{item.detail}</span>
                 </div>

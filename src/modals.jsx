@@ -222,7 +222,10 @@ export function RecordSalesModal({ data, onClose }) {
     return computeMonth((mm || 1) - 1, (yy || 2026) + 543);
   }, [date]);
   const M_TARGET = sel.consts.TARGET, M_DAY = sel.consts.DAY, M_DAYS = sel.consts.DAYS, M_ACOS = sel.consts.ACOS_CEIL;
-  const MTD = sel.computed.MTD;
+  // base MTD = ยอดเดือนนี้ "ไม่รวมวันที่กำลังกรอก/แก้" → กัน preview บวกซ้ำตอนแก้วันเดิม
+  const _selDay = Number(String(date).slice(8, 10));
+  const _otherDays = (sel.dailyMonth || []).filter(d => d.d !== _selDay);
+  const MTD = _otherDays.reduce((a, d) => a + (d.rev || 0), 0);
   const s = useMemo(() => {
     const tRev = rows.reduce((a, r) => a + (+r.rev || 0), 0);
     const tOrd = rows.reduce((a, r) => a + (+r.ord || 0), 0);
@@ -236,7 +239,7 @@ export function RecordSalesModal({ data, onClose }) {
     const paceDay = M_DAY > 0 ? M_DAY : 1;
     const pPct = M_TARGET > 0 ? (newMtd / ((M_TARGET / M_DAYS) * paceDay)) * 100 : 0;
     const rr = Math.round(newMtd / paceDay * M_DAYS);
-    const avg = sel.dailyMonth.length > 0 ? sel.dailyMonth.reduce((a, d) => a + d.rev, 0) / sel.dailyMonth.length : 0;
+    const avg = _otherDays.length > 0 ? _otherDays.reduce((a, d) => a + d.rev, 0) / _otherDays.length : 0; // เฉลี่ยจากวันอื่น (ไม่รวมวันที่กำลังแก้)
     const vsAvg = avg > 0 ? ((tRev - avg) / avg) * 100 : 0;
     const tips = [];
     if (tRev > 0) {
