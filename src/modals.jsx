@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon } from './components.jsx';
+import { B, Bk, P, N, Icon, readImageCompressed, SIZES, SHIRT_COLORS, lotTotal as calcLotTotal, lotValue as calcLotValue, barcodeSVGString, Barcode, ORDER_STATUSES, orderStatusMeta } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -18,6 +18,8 @@ const toast = (m, k = 'success') => window.__toast?.(m, k);
 const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
 // ปัดเงินเป็น 2 ตำแหน่งสตางค์ (ตัด noise float เช่น 1473.8400000000001 → 1473.84) — ค่าจริงครบ
 const money = (v) => Math.round((Number(v) || 0) * 100) / 100;
+// เงิน → ข้อความ ฿ + สตางค์ 2 ตำแหน่งเสมอ (ใช้ใน confirm/audit ให้ตรงกับทั้งเว็บ)
+const bahtStr = (v) => '฿' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // เตือนทิ้งข้อมูลก่อนปิด (ใช้ร่วมกับ Modal + ปุ่มยกเลิก ให้สม่ำเสมอ)
 const DISCARD_MSG = 'ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
@@ -157,7 +159,7 @@ export function RecordSalesModal({ data, onClose }) {
     const _avg = _days.length ? _days.reduce((a, b) => a + b, 0) / _days.length : 0;
     if (_avg > 0 && _tot > _avg * 3) {
       const x = (_tot / _avg).toFixed(1);
-      if (!window.confirm(`⚠️ ยอดวันนี้ ฿${_tot.toLocaleString()} สูงกว่าค่าเฉลี่ยรายวัน ${x} เท่า (เฉลี่ย ฿${Math.round(_avg).toLocaleString()})\nตรวจสอบว่าพิมพ์ถูกหรือไม่ — ยืนยันบันทึก?`)) return;
+      if (!window.confirm(`⚠️ ยอดวันนี้ ${bahtStr(_tot)} สูงกว่าค่าเฉลี่ยรายวัน ${x} เท่า (เฉลี่ย ${bahtStr(_avg)})\nตรวจสอบว่าพิมพ์ถูกหรือไม่ — ยืนยันบันทึก?`)) return;
     }
     setSaving(true);
     try {
@@ -201,14 +203,14 @@ export function RecordSalesModal({ data, onClose }) {
       // รายละเอียด: ยอดต่อช่องทาง (เก็บว่ากรอกอะไรบ้าง)
       const chName = (id) => (MD.channels.find(c => c.id === id)?.name) || id;
       const totRev = rows.reduce((a, r) => a + (Number(r.rev) || 0), 0);
-      const auditFields = [{ label: 'ยอดรวม', value: '฿' + totRev.toLocaleString() }];
+      const auditFields = [{ label: 'ยอดรวม', value: bahtStr(totRev) }];
       rows.filter(r => Number(r.rev) > 0).forEach(r => auditFields.push({
         label: chName(r.id),
-        value: '฿' + (Number(r.rev) || 0).toLocaleString() + (Number(r.ord) ? ` · ${r.ord} ออร์เดอร์` : '') + (Number(r.ad) ? ` · แอด ฿${(Number(r.ad)).toLocaleString()}` : ''),
+        value: bahtStr(r.rev) + (Number(r.ord) ? ` · ${r.ord} ออร์เดอร์` : '') + (Number(r.ad) ? ` · แอด ${bahtStr(r.ad)}` : ''),
       }));
       if (Number(chatTime) > 0) auditFields.push({ label: 'เวลาตอบแชท', value: `${chatTime} นาที` });
       if (note) auditFields.push({ label: 'โน้ต', value: note });
-      logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date} (รวม ฿${totRev.toLocaleString()})`, fields: auditFields });
+      logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date} (รวม ${bahtStr(totRev)})`, fields: auditFields });
       window.__reload?.();
       toast(t('toastSaved'), 'success');
       onClose();
@@ -539,31 +541,119 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
 }
 
 /* ---------- Product modal ---------- */
+// ล็อต = ตาราง ไซส์ × สี (เสื้อพิมพ์ลาย): { id, lotNo, date, cost, note, sizes[], colors[{id,name,hex}], grid{colorId:{size:qty}} }
+const newLot = (proto) => ({
+  id: uid('lot'), lotNo: '', date: '', cost: proto?.cost ?? '', note: '',
+  sizes: proto ? [...proto.sizes] : ['S', 'M', 'L', 'XL'],
+  colors: proto ? proto.colors.map(c => ({ id: uid('clr'), name: c.name, hex: c.hex })) : [],
+  grid: {}, // คัดลอกโครงสร้าง = ลอกสี+ไซส์ แต่จำนวนเริ่มว่าง
+});
+// normalize ล็อตที่โหลดมา → กัน legacy/พัง (ให้มี sizes/colors/grid เสมอ)
+const normLot = (l) => ({
+  id: l.id || uid('lot'), lotNo: l.lotNo || '', date: l.date || '', cost: l.cost ?? '', note: l.note || '',
+  sizes: Array.isArray(l.sizes) ? SIZES.filter(s => l.sizes.includes(s)) : [],
+  colors: Array.isArray(l.colors) ? l.colors.map(c => ({ id: c.id || uid('clr'), name: c.name || '', hex: c.hex || '#cccccc' })) : [],
+  grid: (l.grid && typeof l.grid === 'object' && !Array.isArray(l.grid)) ? l.grid : {},
+});
+// จำนวนช่อง grid (สำหรับ input ในตาราง — string ว่างเมื่อ 0)
+const cellQty = (l, cid, s) => { const v = l.grid?.[cid]?.[s]; return v ? String(v) : ''; };
+const rowSum = (l, cid) => l.sizes.reduce((a, s) => a + (Number(l.grid?.[cid]?.[s]) || 0), 0);
+const colSum = (l, s) => l.colors.reduce((a, c) => a + (Number(l.grid?.[c.id]?.[s]) || 0), 0);
+
 export function ProductModal({ data, onClose }) {
-  const [f, setF] = useState(data || { name: '', price: '', units: '', onHand: '', reorder: '', strategy: '' });
+  const [f, setF] = useState(data
+    ? { ...data, image: data.image || '', category: data.category || '', supplier: data.supplier || '', sku: data.sku || '', barcode: data.barcode || '', lots: Array.isArray(data.lots) ? data.lots.map(normLot) : [] }
+    : { name: '', price: '', units: '', onHand: '', reorder: '', strategy: '', image: '', category: '', supplier: '', sku: '', barcode: '', lots: [] });
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [open, setOpen] = useState({}); // ล็อตไหนกางอยู่ (key = lot id)
+  const imgRef = useRef(null);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
+
+  const lots = f.lots || [];
+  const hasLots = lots.length > 0;
+  // มีล็อต → สต็อก = ผลรวมทุกช่องทุกล็อต (อ่านอย่างเดียว); ไม่มีล็อต → ใช้ช่องสต็อกเดิม
+  const grandTotal = lots.reduce((a, l) => a + calcLotTotal(l), 0);
+  const grandValue = lots.reduce((a, l) => a + calcLotValue(l), 0);
+
+  // ===== mutators ล็อต (immutable) =====
+  const mutateLot = (i, fn) => { setTouched(true); setF(p => ({ ...p, lots: p.lots.map((l, j) => j === i ? fn(l) : l) })); };
+  const setLotField = (i, k, v) => mutateLot(i, l => ({ ...l, [k]: v }));
+  const toggleSize = (i, size) => mutateLot(i, l => {
+    const has = l.sizes.includes(size);
+    if (!has) return { ...l, sizes: SIZES.filter(s => l.sizes.includes(s) || s === size) }; // เพิ่ม คงลำดับ
+    const grid = {}; // ลบไซส์ → เคลียร์คอลัมน์นั้นออกจากทุกสี
+    for (const cid in l.grid) { const row = { ...l.grid[cid] }; delete row[size]; grid[cid] = row; }
+    return { ...l, sizes: l.sizes.filter(s => s !== size), grid };
+  });
+  const addColor = (i, proto) => mutateLot(i, l => ({ ...l, colors: [...l.colors, { id: uid('clr'), name: proto?.name || '', hex: proto?.hex || '#cccccc' }] }));
+  const setColor = (i, cid, k, v) => mutateLot(i, l => ({ ...l, colors: l.colors.map(c => c.id === cid ? { ...c, [k]: v } : c) }));
+  const removeColor = (i, cid) => mutateLot(i, l => { const grid = { ...l.grid }; delete grid[cid]; return { ...l, colors: l.colors.filter(c => c.id !== cid), grid }; }); // ลบสี = ลบทั้งแถว
+  const setCell = (i, cid, size, v) => mutateLot(i, l => {
+    const q = Math.max(0, Math.round(Number(v) || 0)); // clamp 0+ จำนวนเต็ม (grid key = colorId คงที่ → rename สีไม่กระทบ)
+    const row = { ...(l.grid[cid] || {}) };
+    if (q > 0) row[size] = q; else delete row[size];
+    return { ...l, grid: { ...l.grid, [cid]: row } };
+  });
+  const addLot = (proto) => { const lot = newLot(proto); setTouched(true); setF(p => ({ ...p, lots: [...(p.lots || []), lot] })); setOpen(o => ({ ...o, [lot.id]: true })); };
+  const removeLot = (i) => { setTouched(true); setF(p => ({ ...p, lots: p.lots.filter((_, j) => j !== i) })); };
+
+  const pickImage = async (file) => {
+    if (!file) return;
+    try {
+      const url = await readImageCompressed(file, 640, 0.82); // ย่อ ≤640px → data URL เล็ก
+      set('image', url);
+    } catch { toast('อ่านรูปไม่สำเร็จ', 'error'); }
+  };
+
   const handleSave = async () => {
     if (busy || !f.name.trim()) return;
     setBusy(true);
+    // normalize ล็อต — เก็บเฉพาะสีที่มีจำนวน, ไซส์ที่ใช้จริง, ทิ้งล็อตว่างเปล่า
+    const cleanLots = lots.map(l => {
+      const orderedSizes = SIZES.filter(s => l.sizes.includes(s));
+      const colors = []; const grid = {};
+      l.colors.forEach(c => {
+        const row = {};
+        orderedSizes.forEach(s => { const q = Math.max(0, Math.round(Number(l.grid?.[c.id]?.[s]) || 0)); if (q > 0) row[s] = q; });
+        if (Object.keys(row).length) {
+          const cid = c.id || uid('clr');
+          colors.push({ id: cid, name: String(c.name || '').trim() || 'สี', hex: c.hex || '#cccccc' });
+          grid[cid] = row;
+        }
+      });
+      const usedSizes = orderedSizes.filter(s => colors.some(c => grid[c.id][s] != null));
+      return { id: l.id || uid('lot'), lotNo: String(l.lotNo || '').trim(), date: l.date || '', cost: nn(l.cost), note: String(l.note || '').trim(), sizes: usedSizes, colors, grid };
+    }).filter(l => l.colors.length > 0 || l.lotNo); // ทิ้งล็อตที่ไม่มีทั้งจำนวนและรหัส
+    const cleanHasLots = cleanLots.length > 0;
+    const cleanTotal = cleanLots.reduce((a, l) => a + calcLotTotal(l), 0);
+    const cleanValue = cleanLots.reduce((a, l) => a + calcLotValue(l), 0);
     const row = {
       id: data?.id || uid('p'),
       name: f.name.trim(),
       price: nn(f.price),
       target_units: Number(f.units) || 0,
       actual_units: nn(f.units), // = จำนวนที่ขาย (แสดงผล + คิดรายได้)
-      stock_on_hand: f.onHand === '' || f.onHand == null ? null : nn(f.onHand), // เว้นว่าง = ไม่ track (null→'ok') ไม่ใช่ 0→'หมด'
+      // มีล็อต → สต็อก = ผลรวมล็อต; ไม่มีล็อต → ช่องสต็อกเดิม (เว้นว่าง = ไม่ track null→'ok')
+      stock_on_hand: cleanHasLots ? cleanTotal : (f.onHand === '' || f.onHand == null ? null : nn(f.onHand)),
       reorder_point: nn(f.reorder),
       strategy: f.strategy || '',
+      image_url: f.image || null,
+      category: (f.category || '').trim() || null,
+      supplier: (f.supplier || '').trim() || null,
+      sku: (f.sku || '').trim() || null,
+      barcode: (f.barcode || '').trim() || null,
+      lots: cleanLots,
     };
-    const ok = await saveRow('tmk_products', row, 'บันทึกสินค้า', {
+    const ok = await saveProductRow(row, !!data, {
       action: data ? 'update' : 'create', entityType: 'product', entityName: row.name,
       summary: `${data ? 'แก้ไข' : 'สร้าง'}สินค้า "${row.name}"`,
       fields: [
         { label: 'ราคา', value: B(Number(f.price) || 0) },
         { label: 'จำนวนที่ขาย', value: N(Number(f.units) || 0) },
-        { label: 'สต็อกคงเหลือ', value: N(Number(f.onHand) || 0) },
+        { label: 'สต็อกคงเหลือ', value: N(cleanHasLots ? cleanTotal : (Number(f.onHand) || 0)) },
+        { label: 'มูลค่าสต็อก', value: B(cleanValue) },
+        { label: 'จำนวนล็อต', value: cleanHasLots ? `${cleanLots.length} ล็อต` : '—' },
         { label: 'จุดสั่งผลิตซ้ำ', value: N(Number(f.reorder) || 0) },
       ],
     });
@@ -571,18 +661,371 @@ export function ProductModal({ data, onClose }) {
     if (ok) onClose();
   };
   const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_products', data.id, 'สินค้า', { action: 'delete', entityType: 'product', entityName: data.name, summary: `ลบสินค้า "${data.name}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
+
+  // สไตล์ช่องในตาราง ไซส์×สี
+  const cellInput = { width: 46, textAlign: 'center', padding: '5px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)', fontVariantNumeric: 'tabular-nums' };
+  const stickyTh = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-2)', minWidth: 156, textAlign: 'left' };
+  const stickyTd = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', minWidth: 156 };
+
   return (
-    <Modal icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้าและสต็อกคงเหลือ" onClose={onClose} footer={footer} confirmOnClose={touched}>
-      <div className="field"><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อโปโล Signature" /></div>
+    <Modal wide icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้า รูป และล็อต (ไซส์ × สี)" onClose={onClose} footer={footer} confirmOnClose={touched}>
+      {/* รูปสินค้า + ชื่อ */}
+      <div className="row" style={{ alignItems: 'flex-start', gap: 14, marginBottom: 14 }}>
+        <div style={{ flexShrink: 0 }}>
+          <input ref={imgRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { pickImage(e.target.files?.[0]); e.target.value = ''; }} />
+          <button
+            type="button"
+            onClick={() => imgRef.current?.click()}
+            title={f.image ? 'เปลี่ยนรูป' : 'เพิ่มรูป'}
+            style={{ width: 92, height: 92, borderRadius: 'var(--r-sm)', border: '1px dashed var(--line)', background: 'var(--surface-2)', overflow: 'hidden', cursor: 'pointer', display: 'grid', placeItems: 'center', padding: 0 }}
+          >
+            {f.image
+              ? <img src={f.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <span style={{ color: 'var(--ink-4)', display: 'grid', placeItems: 'center', gap: 4 }}><Icon name="bag" /><span className="cap">เพิ่มรูป</span></span>}
+          </button>
+          {f.image && <button type="button" className="btn btn-sm btn-ghost" style={{ width: 92, marginTop: 6, color: 'var(--bad)' }} onClick={() => set('image', '')}>ลบรูป</button>}
+        </div>
+        <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อยืดลาย Summer" /></div>
+      </div>
       <div className="field-row">
         <div className="field"><label>ราคาขาย (฿)</label><input type="number" min="0" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
         <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" min="0" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
       </div>
       <div className="field-row">
-        <div className="field"><label>สต็อกคงเหลือ</label><input type="number" min="0" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" /></div>
+        <div className="field">
+          <label>สต็อกคงเหลือ{hasLots && <span className="cap" style={{ marginLeft: 6, color: 'var(--ink-4)' }}>(คิดจากล็อต)</span>}</label>
+          {hasLots
+            ? <input type="number" className="input num" value={grandTotal} readOnly disabled style={{ opacity: 0.7 }} />
+            : <input type="number" min="0" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" />}
+        </div>
         <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" min="0" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
       </div>
-      <div className="field"><label>กลยุทธ์ / โน้ต</label><textarea className="input" value={f.strategy} onChange={e => set('strategy', e.target.value)} placeholder="เช่น สินค้าเรือธง ดันต่อเนื่อง" /></div>
+      {hasLots && <div className="cap" style={{ marginTop: -4, marginBottom: 12, color: 'var(--ink-3)' }}>มูลค่าสต็อก (ต้นทุน): <b style={{ color: 'var(--ink)' }}>{B(grandValue)}</b></div>}
+
+      {/* ล็อต (ไซส์ × สี) */}
+      <div className="field">
+        <div className="row between" style={{ marginBottom: 8 }}>
+          <label style={{ margin: 0 }}>ล็อต (ไซส์ × สี){hasLots && <span className="cap" style={{ marginLeft: 6, color: 'var(--ink-3)' }}>· {lots.length} ล็อต · รวม {N(grandTotal)} ตัว</span>}</label>
+          <div className="row" style={{ gap: 6 }}>
+            {hasLots && <button type="button" className="btn btn-sm btn-ghost" title="คัดลอกสี+ไซส์จากล็อตล่าสุด" onClick={() => addLot(lots[lots.length - 1])}><Icon name="layers" /> คัดลอกโครงสร้าง</button>}
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => addLot()}><Icon name="plus" /> เพิ่มล็อต</button>
+          </div>
+        </div>
+        {!hasLots && <div className="cap" style={{ color: 'var(--ink-4)', padding: '4px 0 2px' }}>ยังไม่มีล็อต — กด "เพิ่มล็อต" เพื่อกรอกจำนวนแยกตามไซส์ × สี (สต็อกคงเหลือคิดจากผลรวมทุกล็อตอัตโนมัติ)</div>}
+
+        {lots.map((l, i) => {
+          const isOpen = !!open[l.id];
+          return (
+            <div key={l.id || i} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', marginBottom: 8, background: 'var(--surface)' }}>
+              {/* หัวการ์ด (คลิกพับ/กาง) */}
+              <div className="row between" style={{ padding: '10px 12px', cursor: 'pointer', gap: 8 }} onClick={() => setOpen(o => ({ ...o, [l.id]: !o[l.id] }))}>
+                <div className="row" style={{ gap: 8, minWidth: 0 }}>
+                  <span style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--ink-3)' }}><Icon name="chevR" /></span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700 }}>ล็อต {i + 1}{l.lotNo ? ` · ${l.lotNo}` : ''}</div>
+                    <div className="cap" style={{ color: 'var(--ink-3)' }}>รวม {N(calcLotTotal(l))} ตัว · {l.colors.length} สี × {l.sizes.length} ไซส์{calcLotValue(l) ? ` · มูลค่า ${B(calcLotValue(l))}` : ''}</div>
+                  </div>
+                </div>
+                <button type="button" className="icon-btn" title="ลบล็อตนี้" onClick={(e) => { e.stopPropagation(); removeLot(i); }} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="trash" /></button>
+              </div>
+
+              {isOpen && (
+                <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--line)' }}>
+                  <div className="field-row" style={{ marginTop: 12, marginBottom: 8 }}>
+                    <div className="field" style={{ marginBottom: 0 }}><label>รหัสล็อต</label><input className="input" value={l.lotNo} onChange={e => setLotField(i, 'lotNo', e.target.value)} placeholder="เช่น LOT-2406" /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>วันที่รับเข้า</label><input type="date" className="input" value={l.date} onChange={e => setLotField(i, 'date', e.target.value)} /></div>
+                  </div>
+                  <div className="field-row" style={{ marginBottom: 10 }}>
+                    <div className="field" style={{ marginBottom: 0 }}><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" className="input num" value={l.cost} onChange={e => setLotField(i, 'cost', e.target.value)} placeholder="0" /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={l.note} onChange={e => setLotField(i, 'note', e.target.value)} placeholder="เช่น โรงงาน A / ผ้า Cotton" /></div>
+                  </div>
+
+                  {/* เลือกไซส์ */}
+                  <div className="field" style={{ marginBottom: 10 }}>
+                    <label>ไซส์ในล็อตนี้</label>
+                    <div className="chips-pick">
+                      {SIZES.map(s => <button type="button" key={s} className={'pick' + (l.sizes.includes(s) ? ' on' : '')} onClick={() => toggleSize(i, s)}>{s}</button>)}
+                    </div>
+                  </div>
+
+                  {/* ตารางจำนวน ไซส์ × สี */}
+                  <label style={{ display: 'block', marginBottom: 6 }}>จำนวนต่อ สี × ไซส์</label>
+                  {l.sizes.length === 0
+                    ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '2px 0 8px' }}>เลือกไซส์ด้านบนก่อน แล้วเพิ่มสีเพื่อกรอกจำนวน</div>
+                    : l.colors.length === 0
+                      ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '2px 0 8px' }}>ยังไม่มีสี — เพิ่มสีด้านล่างเพื่อเริ่มกรอกจำนวน</div>
+                      : (
+                        <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', marginBottom: 10 }}>
+                          <table className="table" style={{ margin: 0, minWidth: 'max-content' }}>
+                            <thead>
+                              <tr>
+                                <th style={stickyTh}>สี \ ไซส์</th>
+                                {l.sizes.map(s => <th key={s} style={{ textAlign: 'center', minWidth: 50 }}>{s}</th>)}
+                                <th style={{ textAlign: 'center' }}>รวม</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {l.colors.map(c => (
+                                <tr key={c.id}>
+                                  <td style={stickyTd}>
+                                    <div className="row" style={{ gap: 6 }}>
+                                      <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : '#cccccc'} onChange={e => setColor(i, c.id, 'hex', e.target.value)} title="เลือกสี" style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, background: 'none', cursor: 'pointer', flexShrink: 0 }} />
+                                      <input value={c.name} onChange={e => setColor(i, c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)' }} />
+                                      <button type="button" className="icon-btn" title="ลบสีนี้" onClick={() => removeColor(i, c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></button>
+                                    </div>
+                                  </td>
+                                  {l.sizes.map(s => (
+                                    <td key={s} style={{ textAlign: 'center', padding: 4 }}>
+                                      <input inputMode="numeric" value={cellQty(l, c.id, s)} onChange={e => setCell(i, c.id, s, e.target.value)} placeholder="0" style={cellInput} />
+                                    </td>
+                                  ))}
+                                  <td style={{ textAlign: 'center', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{N(rowSum(l, c.id))}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr style={{ fontWeight: 700 }}>
+                                <td style={stickyTd}>รวมต่อไซส์</td>
+                                {l.sizes.map(s => <td key={s} style={{ textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{N(colSum(l, s))}</td>)}
+                                <td style={{ textAlign: 'center', fontWeight: 800, color: 'var(--accent-2)', fontVariantNumeric: 'tabular-nums' }}>{N(calcLotTotal(l))}</td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+
+                  {/* เพิ่มสี */}
+                  <label style={{ display: 'block', marginBottom: 6 }}>เพิ่มสี</label>
+                  <div className="chips-pick" style={{ marginBottom: 6 }}>
+                    {SHIRT_COLORS.map(sc => (
+                      <button type="button" key={sc.name} className="pick" onClick={() => addColor(i, sc)} disabled={l.colors.some(c => c.name === sc.name)} style={{ opacity: l.colors.some(c => c.name === sc.name) ? 0.4 : 1 }}>
+                        <span style={{ width: 12, height: 12, borderRadius: 3, background: sc.hex, border: '1px solid var(--line)', display: 'inline-block', marginRight: 4, verticalAlign: '-1px' }}></span>{sc.name}
+                      </button>
+                    ))}
+                    <button type="button" className="pick" onClick={() => addColor(i)}><Icon name="plus" /> สีกำหนดเอง</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ข้อมูลเพิ่มเติม — หมวดหมู่ / ซัพพลายเออร์ / SKU / บาร์โค้ด */}
+      <div className="eyebrow" style={{ margin: '14px 0 8px' }}>ข้อมูลเพิ่มเติม</div>
+      <datalist id="cat-list">{[...new Set((MD.products || []).map(p => p.category).filter(Boolean))].map(c => <option key={c} value={c} />)}</datalist>
+      <datalist id="sup-list">{[...new Set((MD.products || []).map(p => p.supplier).filter(Boolean))].map(s => <option key={s} value={s} />)}</datalist>
+      <div className="field-row">
+        <div className="field"><label>หมวดหมู่</label><input className="input" list="cat-list" value={f.category} onChange={e => set('category', e.target.value)} placeholder="เช่น เสื้อยืด, โปโล" /></div>
+        <div className="field"><label>ผู้ผลิต / ซัพพลายเออร์</label><input className="input" list="sup-list" value={f.supplier} onChange={e => set('supplier', e.target.value)} placeholder="เช่น โรงงาน A" /></div>
+      </div>
+      <div className="field-row">
+        <div className="field"><label>SKU</label><input className="input" value={f.sku} onChange={e => set('sku', e.target.value)} placeholder="เช่น TS-SUMMER-01" /></div>
+        <div className="field"><label>บาร์โค้ด</label><input className="input" value={f.barcode} onChange={e => set('barcode', e.target.value)} placeholder="เช่น 885xxxxxxxxxx" /></div>
+      </div>
+
+      <div className="field" style={{ marginBottom: 0 }}><label>กลยุทธ์ / โน้ต</label><textarea className="input" value={f.strategy} onChange={e => set('strategy', e.target.value)} placeholder="เช่น สินค้าเรือธง ดันต่อเนื่อง" /></div>
+    </Modal>
+  );
+}
+
+// บันทึกสินค้า — เผื่อ DB ยังไม่มีคอลัมน์ image_url/lots ให้ fallback ตัดออกแล้วลองใหม่ (เตือนให้รัน migration)
+async function saveProductRow(row, isUpdate, audit) {
+  // คอลัมน์เสริมที่อาจยังไม่มีใน DB (ยังไม่ได้รัน migration) → ตัดออกทีละตัวแล้วลองใหม่
+  // (PostgREST ฟ้องทีละคอลัมน์ จึงวน loop จนสำเร็จ; เก็บข้อมูลให้ได้มากที่สุด)
+  const OPTIONAL_COLS = ['category', 'supplier', 'sku', 'barcode', 'image_url', 'lots'];
+  const payload = { ...row };
+  const dropped = [];
+  try {
+    for (let attempt = 0; attempt <= OPTIONAL_COLS.length; attempt++) {
+      const { error } = await supabase.from('tmk_products').upsert(payload);
+      if (!error) break;
+      const isColErr = /column|schema cache|PGRST204|does not exist/i.test(error.message || '');
+      const target = OPTIONAL_COLS.find(c => (c in payload) && (error.message || '').includes(c));
+      if (isColErr && target) { delete payload[target]; dropped.push(target); continue; } // ตัดคอลัมน์ที่ไม่มี ลองใหม่
+      throw error; // error อื่น → โยนออก
+    }
+    if (dropped.length) toast(`บันทึกแล้ว แต่บางช่อง (${dropped.join(', ')}) ยังไม่ถูกเก็บ — ต้องรัน SQL migration ก่อน`, 'warn');
+    if (audit) logAudit(audit);
+    window.__reload?.();
+    toast('บันทึกสินค้าสำเร็จ', 'success');
+    return true;
+  } catch (err) {
+    console.error('Save tmk_products failed:', err);
+    toast('บันทึกสินค้าไม่สำเร็จ: ' + err.message, 'error');
+    return false;
+  }
+}
+
+/* ---------- Sell / stock-out modal (ตัดสต็อกเมื่อขาย: เลือกล็อต→สี→ไซส์→จำนวน) ---------- */
+const emptySellLine = () => ({ id: uid('sl'), lotId: '', colorId: '', size: '', qty: '' });
+// คงเหลือของช่อง (ล็อต/สี/ไซส์)
+const cellAvail = (lot, colorId, size) => Number(lot?.grid?.[colorId]?.[size]) || 0;
+
+export function SellModal({ data, onClose }) {
+  const lotProducts = (MD.products || []).filter(p => p.hasLots);
+  const [productId, setProductId] = useState(data?.id || (lotProducts.length === 1 ? lotProducts[0].id : ''));
+  const [lines, setLines] = useState([emptySellLine()]);
+  const [date, setDate] = useState(todayISO());
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const product = (MD.products || []).find(p => p.id === productId) || null;
+  const lots = product?.lots || [];
+  const lotById = (id) => lots.find(l => l.id === id);
+
+  const setLine = (i, patch) => { setTouched(true); setLines(ls => ls.map((l, j) => j === i ? { ...l, ...patch } : l)); };
+  const addLine = () => { setTouched(true); setLines(ls => [...ls, emptySellLine()]); };
+  const removeLine = (i) => { setTouched(true); setLines(ls => ls.length > 1 ? ls.filter((_, j) => j !== i) : [emptySellLine()]); };
+  const changeProduct = (id) => { setTouched(true); setProductId(id); setLines([emptySellLine()]); };
+
+  // จำนวนจริงที่จะตัดของแต่ละ line (clamp ตามคงเหลือ)
+  const lineQty = (l) => Math.max(0, Math.min(Math.round(Number(l.qty) || 0), cellAvail(lotById(l.lotId), l.colorId, l.size)));
+  const totalQty = lines.reduce((a, l) => a + lineQty(l), 0);
+  const totalAmount = totalQty * (product?.price || 0);
+
+  const handleSave = async () => {
+    if (busy || !product) return;
+    // รวม deduction ต่อ (lotId, colorId, size)
+    const agg = {};
+    lines.forEach(l => {
+      if (!l.lotId || !l.colorId || !l.size) return;
+      const q = Math.max(0, Math.round(Number(l.qty) || 0));
+      if (!q) return;
+      const key = `${l.lotId}||${l.colorId}||${l.size}`;
+      agg[key] = (agg[key] || 0) + q;
+    });
+    const keys = Object.keys(agg);
+    if (!keys.length) { toast('เพิ่มรายการที่จะขายก่อน (เลือกล็อต / สี / ไซส์ / จำนวน)', 'error'); return; }
+    setBusy(true);
+    // clone lots (deep grid) แล้วหักช่อง
+    const newLots = lots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
+    const idxById = {}; newLots.forEach((l, idx) => { idxById[l.id] = idx; });
+    let soldTotal = 0, soldCost = 0, clamped = false;
+    const auditFields = [];
+    const saleLines = []; // structured สำหรับรายงาน: { color, size, qty, cost }
+    keys.forEach(key => {
+      const [lotId, colorId, size] = key.split('||');
+      const lot = newLots[idxById[lotId]];
+      if (!lot) return;
+      const avail = Number(lot.grid?.[colorId]?.[size]) || 0;
+      let take = agg[key];
+      if (take > avail) { take = avail; clamped = true; }
+      if (take <= 0) return;
+      const row = { ...(lot.grid[colorId] || {}) };
+      const left = avail - take;
+      if (left > 0) row[size] = left; else delete row[size];
+      lot.grid[colorId] = row;
+      soldTotal += take;
+      const unitCost = Number(lot.cost) || 0;
+      soldCost += take * unitCost; // ต้นทุนขาย (จากต้นทุนต่อตัวของล็อต) → ใช้คิดกำไรในรายงาน
+      const colorName = (lot.colors || []).find(c => c.id === colorId)?.name || 'สี';
+      auditFields.push({ label: `${colorName} ${size}`, value: `×${take} (${lot.lotNo || 'ล็อต'})` });
+      saleLines.push({ color: colorName, size, qty: take, cost: unitCost });
+    });
+    if (soldTotal <= 0) { setBusy(false); toast('ไม่มีจำนวนที่ตัดได้ — สต็อกอาจหมดแล้ว', 'error'); return; }
+    const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
+    const newUnits = Number(product.units || 0) + soldTotal;
+    try {
+      const { error } = await supabase.from('tmk_products')
+        .update({ lots: newLots, stock_on_hand: newStock, actual_units: newUnits, updated_at: new Date().toISOString() })
+        .eq('id', product.id);
+      if (error) throw error;
+      logAudit({
+        action: 'sale', entityType: 'product', entityName: product.name,
+        summary: `ขาย "${product.name}" ${soldTotal} ตัว (ตัดสต็อก)${note ? ' — ' + note : ''}`,
+        fields: [
+          { label: 'รวมขาย', value: `${N(soldTotal)} ตัว` },
+          { label: 'มูลค่าขาย', value: B(soldTotal * (product.price || 0)) },
+          { label: 'วันที่', value: thaiDate(date) || date || '—' },
+          ...auditFields,
+        ],
+        // machine-readable สำหรับหน้า "รายงานขาย"
+        data: { productId: product.id, productName: product.name, category: product.category || '', price: Number(product.price) || 0, date: date || todayISO(), totalQty: soldTotal, totalAmount: soldTotal * (Number(product.price) || 0), totalCost: soldCost, lines: saleLines },
+      });
+      window.__reload?.();
+      toast(`ตัดสต็อก ${soldTotal} ตัวเรียบร้อย${clamped ? ' (บางรายการปรับตามคงเหลือ)' : ''}`, clamped ? 'warn' : 'success');
+      onClose();
+    } catch (err) {
+      toast('บันทึกการขายไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const canSave = !!product && totalQty > 0;
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกการขาย'}</button></>);
+
+  return (
+    <Modal wide icon="wallet" title="บันทึกการขาย / ตัดสต็อก" sub="เลือก ล็อต → สี → ไซส์ → จำนวน แล้วระบบจะหักสต็อกให้" onClose={onClose} footer={footer} confirmOnClose={touched}>
+      {lotProducts.length === 0
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้าที่มีล็อต — ไปหน้า "สินค้า" เพิ่มล็อต (ไซส์ × สี) ก่อน</div>
+        : (<>
+          <div className="field"><label>สินค้า</label>
+            <select className="input" value={productId} onChange={e => changeProduct(e.target.value)}>
+              <option value="">— เลือกสินค้า —</option>
+              {lotProducts.map(p => <option key={p.id} value={p.id}>{p.name} (เหลือ {p.onHand})</option>)}
+            </select>
+          </div>
+
+          {product && product.reservedTotal > 0 && (
+            <div className="cap" style={{ marginBottom: 10, padding: '6px 10px', background: 'var(--accent-soft)', color: 'var(--accent-2)', borderRadius: 'var(--r-xs)' }}>
+              <Icon name="clock" /> สินค้านี้มีจอง {N(product.reservedTotal)} ตัว · พร้อมขาย {N(product.available)} ตัว — ระวังขายทับของจอง
+            </div>
+          )}
+          {product && (<>
+            <div className="row between" style={{ marginBottom: 8 }}>
+              <label style={{ margin: 0 }}>รายการที่ขาย</label>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</button>
+            </div>
+            {lines.map((l, i) => {
+              const lot = lotById(l.lotId);
+              const colorsAvail = (lot?.colors || []).filter(c => Object.values(lot.grid?.[c.id] || {}).some(v => Number(v) > 0));
+              const sizesAvail = lot ? (lot.sizes || []).filter(s => Number(lot.grid?.[l.colorId]?.[s]) > 0) : [];
+              const avail = cellAvail(lot, l.colorId, l.size);
+              return (
+                <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <div className="field" style={{ margin: 0 }}><label>ล็อต</label>
+                      <select className="input" value={l.lotId} onChange={e => setLine(i, { lotId: e.target.value, colorId: '', size: '', qty: '' })}>
+                        <option value="">— เลือกล็อต —</option>
+                        {lots.filter(x => calcLotTotal(x) > 0).map((x, xi) => <option key={x.id} value={x.id}>{(x.lotNo || `ล็อต ${xi + 1}`)}{x.date ? ` · ${x.date}` : ''} (เหลือ {calcLotTotal(x)})</option>)}
+                      </select>
+                    </div>
+                    <div className="field" style={{ margin: 0 }}><label>สี</label>
+                      <select className="input" value={l.colorId} disabled={!l.lotId} onChange={e => setLine(i, { colorId: e.target.value, size: '', qty: '' })}>
+                        <option value="">{l.lotId ? '— เลือกสี —' : '— เลือกล็อตก่อน —'}</option>
+                        {colorsAvail.map(c => { const n = Object.values(lot.grid?.[c.id] || {}).reduce((a, v) => a + (Number(v) || 0), 0); return <option key={c.id} value={c.id}>{c.name} (เหลือ {n})</option>; })}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                    <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
+                      <select className="input" value={l.size} disabled={!l.colorId} onChange={e => setLine(i, { size: e.target.value, qty: '' })}>
+                        <option value="">{l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'}</option>
+                        {sizesAvail.map(s => <option key={s} value={s}>{s} (เหลือ {cellAvail(lot, l.colorId, s)})</option>)}
+                      </select>
+                    </div>
+                    <div className="field" style={{ margin: 0 }}><label>จำนวน{l.size ? ` / เหลือ ${avail}` : ''}</label>
+                      <input type="number" min="0" max={avail || undefined} className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
+                    </div>
+                    <button type="button" className="icon-btn" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
+                  </div>
+                  {l.size && Number(l.qty) > avail && <div className="cap" style={{ color: 'var(--warn)', marginTop: 6 }}>เกินคงเหลือ — จะตัดได้สูงสุด {avail} ตัว</div>}
+                </div>
+              );
+            })}
+
+            <div className="field-row" style={{ marginTop: 4 }}>
+              <div className="field" style={{ marginBottom: 0 }}><label>วันที่ขาย</label><input type="date" className="input" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ลูกค้า / ช่องทาง" /></div>
+            </div>
+
+            <div className="row between" style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
+              <span className="cap">รวมตัดสต็อก</span>
+              <span><b style={{ fontSize: 16 }}>{N(totalQty)}</b> ตัว · มูลค่าขาย <b style={{ color: 'var(--accent-2)' }}>{B(totalAmount)}</b></span>
+            </div>
+          </>)}
+        </>)}
     </Modal>
   );
 }
@@ -664,6 +1107,858 @@ export function CampaignModal({ data, onClose }) {
   );
 }
 
+/* ---------- Stock adjust modal (ปรับสต็อก: รับเข้า/รับคืน/เสียหาย/นับใหม่) ---------- */
+const ADJUST_REASONS = [
+  { id: 'in', label: 'รับเข้าเพิ่ม', sign: 1, mode: 'delta' },
+  { id: 'return', label: 'รับคืนจากลูกค้า', sign: 1, mode: 'delta', units: -1 }, // คืนสต็อก + ลดยอดขายแล้ว
+  { id: 'damage', label: 'เสียหาย / สูญหาย', sign: -1, mode: 'delta' },
+  { id: 'recount', label: 'นับสต็อกใหม่ (ตั้งค่า)', sign: 0, mode: 'set' },
+];
+const emptyAdjLine = () => ({ id: uid('aj'), lotId: '', colorId: '', size: '', reason: 'in', qty: '' });
+
+export function StockAdjustModal({ data, onClose }) {
+  const lotProducts = (MD.products || []).filter(p => p.hasLots);
+  const [productId, setProductId] = useState(data?.id || (lotProducts.length === 1 ? lotProducts[0].id : ''));
+  const [lines, setLines] = useState([emptyAdjLine()]);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const product = (MD.products || []).find(p => p.id === productId) || null;
+  const lots = product?.lots || [];
+  const lotById = (id) => lots.find(l => l.id === id);
+
+  const setLine = (i, patch) => { setTouched(true); setLines(ls => ls.map((l, j) => j === i ? { ...l, ...patch } : l)); };
+  const addLine = () => { setTouched(true); setLines(ls => [...ls, emptyAdjLine()]); };
+  const removeLine = (i) => { setTouched(true); setLines(ls => ls.length > 1 ? ls.filter((_, j) => j !== i) : [emptyAdjLine()]); };
+  const changeProduct = (id) => { setTouched(true); setProductId(id); setLines([emptyAdjLine()]); };
+
+  // ผลลัพธ์ของ 1 line: { avail, reason, newQty }
+  const computeLine = (l) => {
+    const lot = lotById(l.lotId);
+    const avail = cellAvail(lot, l.colorId, l.size);
+    const reason = ADJUST_REASONS.find(r => r.id === l.reason) || ADJUST_REASONS[0];
+    const q = Math.max(0, Math.round(Number(l.qty) || 0));
+    const newQty = reason.mode === 'set' ? q : Math.max(0, avail + reason.sign * q);
+    return { avail, reason, q, newQty };
+  };
+  const lineReady = (l) => l.lotId && l.colorId && l.size && (Number(l.qty) > 0 || l.reason === 'recount');
+
+  const handleSave = async () => {
+    if (busy || !product) return;
+    const valid = lines.filter(lineReady);
+    if (!valid.length) { toast('เพิ่มรายการปรับสต็อกก่อน (เลือกล็อต / สี / ไซส์ / เหตุผล / จำนวน)', 'error'); return; }
+    setBusy(true);
+    const newLots = lots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
+    const idxById = {}; newLots.forEach((l, idx) => { idxById[l.id] = idx; });
+    let unitsDelta = 0;
+    const auditFields = [];
+    valid.forEach(l => {
+      const lot = newLots[idxById[l.lotId]]; if (!lot) return;
+      const avail = Number(lot.grid?.[l.colorId]?.[l.size]) || 0;
+      const reason = ADJUST_REASONS.find(r => r.id === l.reason) || ADJUST_REASONS[0];
+      const q = Math.max(0, Math.round(Number(l.qty) || 0));
+      const newQty = reason.mode === 'set' ? q : Math.max(0, avail + reason.sign * q);
+      const row = { ...(lot.grid[l.colorId] || {}) };
+      if (newQty > 0) row[l.size] = newQty; else delete row[l.size];
+      lot.grid[l.colorId] = row;
+      const actualDelta = newQty - avail;
+      if (reason.units && actualDelta > 0) unitsDelta += reason.units * actualDelta; // รับคืน → ลด actual_units
+      const colorName = (lot.colors || []).find(c => c.id === l.colorId)?.name || 'สี';
+      auditFields.push({ label: `${colorName} ${l.size} · ${reason.label}`, value: `${avail} → ${newQty} (${lot.lotNo || 'ล็อต'})` });
+    });
+    const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
+    const newUnits = Math.max(0, Number(product.units || 0) + unitsDelta);
+    try {
+      const { error } = await supabase.from('tmk_products')
+        .update({ lots: newLots, stock_on_hand: newStock, actual_units: newUnits, updated_at: new Date().toISOString() })
+        .eq('id', product.id);
+      if (error) throw error;
+      logAudit({ action: 'adjust', entityType: 'product', entityName: product.name, summary: `ปรับสต็อก "${product.name}"${note ? ' — ' + note : ''}`, fields: auditFields });
+      window.__reload?.();
+      toast('ปรับสต็อกเรียบร้อย', 'success');
+      onClose();
+    } catch (err) {
+      toast('ปรับสต็อกไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const canSave = !!product && lines.some(lineReady);
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกการปรับสต็อก'}</button></>);
+
+  return (
+    <Modal wide icon="box" title="ปรับสต็อก / นับสต็อก" sub="รับเข้า / รับคืน / ของเสีย / นับสต็อกใหม่ — แยกตาม ล็อต × สี × ไซส์" onClose={onClose} footer={footer} confirmOnClose={touched}>
+      {lotProducts.length === 0
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้าที่มีล็อต — ไปหน้า "สินค้า" เพิ่มล็อตก่อน</div>
+        : (<>
+          <div className="field"><label>สินค้า</label>
+            <select className="input" value={productId} onChange={e => changeProduct(e.target.value)}>
+              <option value="">— เลือกสินค้า —</option>
+              {lotProducts.map(p => <option key={p.id} value={p.id}>{p.name} (เหลือ {p.onHand})</option>)}
+            </select>
+          </div>
+
+          {product && (<>
+            <div className="row between" style={{ marginBottom: 8 }}>
+              <label style={{ margin: 0 }}>รายการปรับสต็อก</label>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</button>
+            </div>
+            {lines.map((l, i) => {
+              const lot = lotById(l.lotId);
+              const colorsAvail = (lot?.colors || []).filter(c => Object.values(lot.grid?.[c.id] || {}).some(v => Number(v) > 0));
+              const sizesAll = lot ? (lot.sizes || []) : [];
+              const { avail, reason, newQty } = computeLine(l);
+              const isSet = reason.mode === 'set';
+              return (
+                <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <div className="field" style={{ margin: 0 }}><label>ล็อต</label>
+                      <select className="input" value={l.lotId} onChange={e => setLine(i, { lotId: e.target.value, colorId: '', size: '' })}>
+                        <option value="">— เลือกล็อต —</option>
+                        {lots.map((x, xi) => <option key={x.id} value={x.id}>{x.lotNo || `ล็อต ${xi + 1}`}{x.date ? ` · ${x.date}` : ''} (เหลือ {calcLotTotal(x)})</option>)}
+                      </select>
+                    </div>
+                    <div className="field" style={{ margin: 0 }}><label>สี</label>
+                      <select className="input" value={l.colorId} disabled={!l.lotId} onChange={e => setLine(i, { colorId: e.target.value, size: '' })}>
+                        <option value="">{l.lotId ? '— เลือกสี —' : '— เลือกล็อตก่อน —'}</option>
+                        {/* รับเข้า/นับใหม่ = โชว์ทุกสีในล็อต; ของเสีย/รับคืน = เฉพาะที่มีของ */}
+                        {(reason.sign >= 0 && isSet ? (lot?.colors || []) : reason.sign > 0 ? (lot?.colors || []) : colorsAvail).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 8, marginBottom: 8 }}>
+                    <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
+                      <select className="input" value={l.size} disabled={!l.colorId} onChange={e => setLine(i, { size: e.target.value })}>
+                        <option value="">{l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'}</option>
+                        {sizesAll.map(s => <option key={s} value={s}>{s} (เหลือ {cellAvail(lot, l.colorId, s)})</option>)}
+                      </select>
+                    </div>
+                    <div className="field" style={{ margin: 0 }}><label>เหตุผล</label>
+                      <select className="input" value={l.reason} onChange={e => setLine(i, { reason: e.target.value })}>
+                        {ADJUST_REASONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'end' }}>
+                    <div className="field" style={{ margin: 0 }}><label>{isSet ? 'ตั้งเป็น (ตัว)' : 'จำนวน (ตัว)'}</label>
+                      <input type="number" min="0" className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
+                    </div>
+                    <div className="cap" style={{ paddingBottom: 8, whiteSpace: 'nowrap', color: 'var(--ink-3)' }}>{l.size ? <>คงเหลือ {N(avail)} → <b style={{ color: newQty >= avail ? 'var(--good)' : 'var(--bad)' }}>{N(newQty)}</b></> : ''}</div>
+                    <button type="button" className="icon-btn" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="field" style={{ marginTop: 4, marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ตรวจนับประจำเดือน / ลูกค้าคืนของ" /></div>
+          </>)}
+        </>)}
+    </Modal>
+  );
+}
+
+/* ---------- Reservation modal (จองสต็อก: สี×ไซส์ ให้ลูกค้า) ---------- */
+const emptyRsvItem = () => ({ id: uid('ri'), color: '', size: '', qty: '' });
+
+export function ReservationModal({ data, onClose }) {
+  const lotProducts = (MD.products || []).filter(p => p.hasLots);
+  const [productId, setProductId] = useState(data?.id || (lotProducts.length === 1 ? lotProducts[0].id : ''));
+  const [items, setItems] = useState([emptyRsvItem()]);
+  const [customer, setCustomer] = useState('');
+  const [date, setDate] = useState(todayISO());
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const product = (MD.products || []).find(p => p.id === productId) || null;
+  const variants = product?.variants || {};         // { color: { size: qty } }
+  const reserved = product?.reservedByVariant || {}; // { color: { size: qty } }
+  const availOf = (color, size) => Math.max(0, (Number(variants[color]?.[size]) || 0) - (Number(reserved[color]?.[size]) || 0));
+
+  const setItem = (i, patch) => { setTouched(true); setItems(it => it.map((x, j) => j === i ? { ...x, ...patch } : x)); };
+  const addItem = () => { setTouched(true); setItems(it => [...it, emptyRsvItem()]); };
+  const removeItem = (i) => { setTouched(true); setItems(it => it.length > 1 ? it.filter((_, j) => j !== i) : [emptyRsvItem()]); };
+  const changeProduct = (id) => { setTouched(true); setProductId(id); setItems([emptyRsvItem()]); };
+
+  const lineQty = (it) => Math.max(0, Math.min(Math.round(Number(it.qty) || 0), availOf(it.color, it.size)));
+  const totalQty = items.reduce((a, it) => a + lineQty(it), 0);
+
+  const handleSave = async () => {
+    if (busy || !product) return;
+    const clean = items.filter(it => it.color && it.size && lineQty(it) > 0).map(it => ({ color: it.color, size: it.size, qty: lineQty(it) }));
+    if (!clean.length) { toast('เพิ่มรายการจองก่อน (สี / ไซส์ / จำนวน)', 'error'); return; }
+    setBusy(true);
+    try {
+      const rsv = { id: uid('rsv'), customer: customer.trim(), date: date || todayISO(), note: note.trim(), items: clean };
+      const newRes = [...(product.reservations || []), rsv];
+      const { error } = await supabase.from('tmk_products').update({ reservations: newRes, updated_at: new Date().toISOString() }).eq('id', product.id);
+      if (error) {
+        if (/reservations|column|schema cache|PGRST204/i.test(error.message || '')) { toast('ต้องรัน SQL migration (reservations) ก่อนจึงจะจองได้', 'error'); setBusy(false); return; }
+        throw error;
+      }
+      logAudit({ action: 'reserve', entityType: 'product', entityName: product.name, summary: `จองสต็อก "${product.name}" ${clean.reduce((a, x) => a + x.qty, 0)} ตัว${customer ? ' — ' + customer : ''}`, fields: clean.map(x => ({ label: `${x.color} ${x.size}`, value: `×${x.qty}` })) });
+      window.__reload?.();
+      toast('จองสต็อกเรียบร้อย', 'success');
+      onClose();
+    } catch (err) {
+      toast('จองไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const canSave = !!product && totalQty > 0;
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'จองสต็อก'}</button></>);
+
+  return (
+    <Modal wide icon="clock" title="จองสต็อก" sub="กันสินค้า (สี × ไซส์) ให้ลูกค้า → พร้อมขายจะลดลงตามจอง" onClose={onClose} footer={footer} confirmOnClose={touched}>
+      {lotProducts.length === 0
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้าที่มีล็อต</div>
+        : (<>
+          <div className="field-row">
+            <div className="field"><label>สินค้า</label>
+              <select className="input" value={productId} onChange={e => changeProduct(e.target.value)}>
+                <option value="">— เลือกสินค้า —</option>
+                {lotProducts.map(p => <option key={p.id} value={p.id}>{p.name} (พร้อมขาย {p.available})</option>)}
+              </select>
+            </div>
+            <div className="field"><label>ลูกค้า / อ้างอิง</label><input className="input" value={customer} onChange={e => { setTouched(true); setCustomer(e.target.value); }} placeholder="เช่น คุณเอ / ออเดอร์ #123" /></div>
+          </div>
+
+          {product && (<>
+            <div className="row between" style={{ marginBottom: 8 }}>
+              <label style={{ margin: 0 }}>รายการจอง</label>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={addItem}><Icon name="plus" /> เพิ่มรายการ</button>
+            </div>
+            {items.map((it, i) => {
+              const colors = Object.keys(variants).filter(c => Object.entries(variants[c]).some(([s, q]) => availOf(c, s) > 0 || s === it.size));
+              const sizes = it.color ? Object.keys(variants[it.color] || {}).filter(s => availOf(it.color, s) > 0 || s === it.size) : [];
+              const av = availOf(it.color, it.size);
+              return (
+                <div key={it.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                  <div className="field" style={{ margin: 0 }}><label>สี</label>
+                    <select className="input" value={it.color} onChange={e => setItem(i, { color: e.target.value, size: '' })}>
+                      <option value="">— สี —</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
+                    <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}>
+                      <option value="">— ไซส์ —</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {availOf(it.color, s)})</option>)}
+                    </select>
+                  </div>
+                  <div className="field" style={{ margin: 0 }}><label>จำนวน{it.size ? ` / ว่าง ${av}` : ''}</label>
+                    <input type="number" min="0" max={av || undefined} className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="0" />
+                  </div>
+                  <button type="button" className="icon-btn" onClick={() => removeItem(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
+                </div>
+              );
+            })}
+            <div className="field-row" style={{ marginTop: 4 }}>
+              <div className="field" style={{ marginBottom: 0 }}><label>วันที่จอง</label><input type="date" className="input" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น รอโอน / นัดรับศุกร์" /></div>
+            </div>
+            <div className="row between" style={{ marginTop: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
+              <span className="cap">รวมจอง</span><span><b style={{ fontSize: 16 }}>{N(totalQty)}</b> ตัว</span>
+            </div>
+          </>)}
+        </>)}
+    </Modal>
+  );
+}
+
+/* ---------- Movement ledger modal (ประวัติเข้า-ออกต่อสินค้า) ---------- */
+const LEDGER_META = {
+  receive: { l: 'รับเข้า', c: 'var(--good)', sign: '+' },
+  sale: { l: 'ขาย', c: 'var(--accent-2)', sign: '−' },
+  adjust: { l: 'ปรับสต็อก', c: 'var(--info)', sign: '±' },
+  reserve: { l: 'จอง', c: 'var(--accent)', sign: '·' },
+  release: { l: 'ปล่อยจอง', c: 'var(--ink-3)', sign: '·' },
+};
+export function MovementLedgerModal({ data, onClose }) {
+  const product = data || {};
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      const { data: logs, error } = await supabase.from('tmk_audit_logs')
+        .select('created_at,action,details').in('action', ['receive', 'sale', 'adjust', 'reserve', 'release'])
+        .order('created_at', { ascending: false }).limit(500);
+      if (cancel) return;
+      if (error) { setRows([]); return; }
+      const parsed = (logs || []).map(r => {
+        let d = {}; try { d = typeof r.details === 'string' ? JSON.parse(r.details) : (r.details || {}); } catch { /* ข้าม */ }
+        return { action: r.action, at: r.created_at, name: d.entityName || '', summary: d.summary || '', fields: Array.isArray(d.fields) ? d.fields : [] };
+      }).filter(x => x.name === product.name);
+      setRows(parsed);
+    })();
+    return () => { cancel = true; };
+  }, [product.name]);
+
+  const footer = <button className="btn" onClick={onClose}>ปิด</button>;
+  return (
+    <Modal wide icon="route" title="ประวัติเข้า-ออกสต็อก" sub={product.name || ''} onClose={onClose} footer={footer}>
+      {rows === null
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>กำลังโหลด…</div>
+        : rows.length === 0
+          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีประวัติเคลื่อนไหวของสินค้านี้</div>
+          : (
+            <div className="table-wrap" style={{ maxHeight: 460, overflowY: 'auto' }}><table className="table">
+              <thead><tr><th>วันที่/เวลา</th><th>รายการ</th><th>รายละเอียด</th></tr></thead>
+              <tbody>
+                {rows.map((r, i) => { const m = LEDGER_META[r.action] || { l: r.action, c: 'var(--ink-3)', sign: '·' }; return (
+                  <tr key={i}>
+                    <td className="cap" style={{ whiteSpace: 'nowrap' }}>{new Date(r.at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                    <td><span className="chip" style={{ background: 'var(--surface-2)', color: m.c, fontWeight: 700 }}>{m.sign} {m.l}</span></td>
+                    <td><div className="cap">{(r.fields || []).filter(f => !['รวมขาย', 'มูลค่าขาย', 'วันที่', 'ล็อต', 'ต้นทุน/ตัว'].includes(f.label)).map(f => `${f.label} ${f.value}`).join(', ') || r.summary}</div></td>
+                  </tr>
+                ); })}
+              </tbody>
+            </table></div>
+          )}
+    </Modal>
+  );
+}
+
+/* ---------- Receive PO into a lot modal (รับเข้า PO → สร้างล็อต ไซส์×สี) ---------- */
+export function ReceiveModal({ data, onClose }) {
+  const po = data || {};
+  const product = (MD.products || []).find(p => p.name === po.product) || null;
+  const [lot, setLotObj] = useState(() => ({ ...newLot(), date: po.arrivalISO || todayISO() }));
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+
+  const patchLot = (fn) => { setTouched(true); setLotObj(fn); };
+  const toggleSize = (size) => patchLot(l => {
+    const has = l.sizes.includes(size);
+    if (!has) return { ...l, sizes: SIZES.filter(s => l.sizes.includes(s) || s === size) };
+    const grid = {}; for (const cid in l.grid) { const row = { ...l.grid[cid] }; delete row[size]; grid[cid] = row; }
+    return { ...l, sizes: l.sizes.filter(s => s !== size), grid };
+  });
+  const addColor = (proto) => patchLot(l => ({ ...l, colors: [...l.colors, { id: uid('clr'), name: proto?.name || '', hex: proto?.hex || '#cccccc' }] }));
+  const setColor = (cid, k, v) => patchLot(l => ({ ...l, colors: l.colors.map(c => c.id === cid ? { ...c, [k]: v } : c) }));
+  const removeColor = (cid) => patchLot(l => { const grid = { ...l.grid }; delete grid[cid]; return { ...l, colors: l.colors.filter(c => c.id !== cid), grid }; });
+  const setCell = (cid, size, v) => patchLot(l => { const q = Math.max(0, Math.round(Number(v) || 0)); const row = { ...(l.grid[cid] || {}) }; if (q > 0) row[size] = q; else delete row[size]; return { ...l, grid: { ...l.grid, [cid]: row } }; });
+
+  const lotTot = calcLotTotal(lot);
+  const cellInput = { width: 46, textAlign: 'center', padding: '5px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)' };
+  const stickyTh = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-2)', minWidth: 156, textAlign: 'left' };
+  const stickyTd = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', minWidth: 156 };
+
+  const handleSave = async () => {
+    if (busy || !product) return;
+    // normalize ล็อต (เหมือนตอนเซฟใน ProductModal)
+    const orderedSizes = SIZES.filter(s => lot.sizes.includes(s));
+    const colors = [], grid = {};
+    lot.colors.forEach(c => {
+      const row = {}; orderedSizes.forEach(s => { const q = Math.max(0, Math.round(Number(lot.grid?.[c.id]?.[s]) || 0)); if (q > 0) row[s] = q; });
+      if (Object.keys(row).length) { const cid = c.id || uid('clr'); colors.push({ id: cid, name: String(c.name || '').trim() || 'สี', hex: c.hex || '#cccccc' }); grid[cid] = row; }
+    });
+    if (!colors.length) { toast('กรอกจำนวนรับเข้าอย่างน้อย 1 ช่อง', 'error'); return; }
+    const usedSizes = orderedSizes.filter(s => colors.some(c => grid[c.id][s] != null));
+    const newLotObj = { id: lot.id || uid('lot'), lotNo: String(lot.lotNo || '').trim() || (po.product ? `PO-${po.id?.slice(-4) || ''}` : ''), date: lot.date || todayISO(), cost: nn(lot.cost), note: String(lot.note || '').trim() || `รับเข้าจาก PO`, sizes: usedSizes, colors, grid };
+    const received = colors.reduce((a, c) => a + Object.values(grid[c.id]).reduce((x, y) => x + y, 0), 0);
+    setBusy(true);
+    try {
+      const newLots = [...(product.lots || []), newLotObj];
+      const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
+      const { error } = await supabase.from('tmk_products').update({ lots: newLots, stock_on_hand: newStock, updated_at: new Date().toISOString() }).eq('id', product.id);
+      if (error) throw error;
+      // มาร์ค PO ว่าของเข้าแล้ว
+      if (po.id) await supabase.from('tmk_purchase_orders').update({ status: 'Completed', updated_at: new Date().toISOString() }).eq('id', po.id);
+      logAudit({ action: 'receive', entityType: 'product', entityName: product.name, summary: `รับเข้า PO "${po.product}" ${received} ตัว → ล็อต "${newLotObj.lotNo}"`, fields: [{ label: 'รับเข้า', value: `${N(received)} ตัว` }, { label: 'ล็อต', value: newLotObj.lotNo }, { label: 'ต้นทุน/ตัว', value: B(newLotObj.cost) }] });
+      window.__reload?.();
+      toast(`รับเข้าสต็อก ${received} ตัวเรียบร้อย`, 'success');
+      onClose();
+    } catch (err) {
+      toast('รับเข้าไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const canSave = !!product && lotTot > 0;
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'รับเข้าสต็อก'}</button></>);
+
+  return (
+    <Modal wide icon="box" title="รับเข้าสต็อกจาก PO" sub={`${po.product || ''} · สั่ง ${N(po.quantity || 0)} ตัว`} onClose={onClose} footer={footer} confirmOnClose={touched}>
+      {!product
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--bad)' }}>ไม่พบสินค้าชื่อ "{po.product}" ในแคตตาล็อก — สร้างสินค้าชื่อนี้ก่อน หรือแก้ชื่อ PO ให้ตรงกับสินค้า</div>
+        : (<>
+          <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>กรอกจำนวนที่รับเข้าจริงแยกตาม ไซส์ × สี → จะสร้างเป็นล็อตใหม่ให้สินค้า <b style={{ color: 'var(--ink)' }}>{product.name}</b> และมาร์ค PO นี้ว่าของเข้าแล้ว</div>
+          <div className="field-row">
+            <div className="field"><label>รหัสล็อต</label><input className="input" value={lot.lotNo} onChange={e => patchLot(l => ({ ...l, lotNo: e.target.value }))} placeholder="เช่น LOT-2406 (เว้นว่าง = อัตโนมัติ)" /></div>
+            <div className="field"><label>วันที่รับเข้า</label><input type="date" className="input" value={lot.date} onChange={e => patchLot(l => ({ ...l, date: e.target.value }))} /></div>
+          </div>
+          <div className="field-row">
+            <div className="field"><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" className="input num" value={lot.cost} onChange={e => patchLot(l => ({ ...l, cost: e.target.value }))} placeholder="0" /></div>
+            <div className="field"><label>โน้ต</label><input className="input" value={lot.note} onChange={e => patchLot(l => ({ ...l, note: e.target.value }))} placeholder="เช่น โรงงาน A" /></div>
+          </div>
+
+          <div className="field" style={{ marginBottom: 10 }}>
+            <label>ไซส์ในล็อตนี้</label>
+            <div className="chips-pick">{SIZES.map(s => <button type="button" key={s} className={'pick' + (lot.sizes.includes(s) ? ' on' : '')} onClick={() => toggleSize(s)}>{s}</button>)}</div>
+          </div>
+
+          <label style={{ display: 'block', marginBottom: 6 }}>จำนวนรับเข้า ต่อ สี × ไซส์ <span className="cap" style={{ fontWeight: 400 }}>· รวม {N(lotTot)} ตัว</span></label>
+          {lot.sizes.length === 0
+            ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '2px 0 8px' }}>เลือกไซส์ด้านบนก่อน</div>
+            : lot.colors.length === 0
+              ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '2px 0 8px' }}>เพิ่มสีด้านล่างเพื่อกรอกจำนวน</div>
+              : (
+                <div style={{ overflowX: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', marginBottom: 10 }}>
+                  <table className="table" style={{ margin: 0, minWidth: 'max-content' }}>
+                    <thead><tr><th style={stickyTh}>สี \ ไซส์</th>{lot.sizes.map(s => <th key={s} style={{ textAlign: 'center', minWidth: 50 }}>{s}</th>)}<th style={{ textAlign: 'center' }}>รวม</th></tr></thead>
+                    <tbody>
+                      {lot.colors.map(c => (
+                        <tr key={c.id}>
+                          <td style={stickyTd}>
+                            <div className="row" style={{ gap: 6 }}>
+                              <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : '#cccccc'} onChange={e => setColor(c.id, 'hex', e.target.value)} style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, background: 'none', cursor: 'pointer', flexShrink: 0 }} />
+                              <input value={c.name} onChange={e => setColor(c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)' }} />
+                              <button type="button" className="icon-btn" onClick={() => removeColor(c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></button>
+                            </div>
+                          </td>
+                          {lot.sizes.map(s => <td key={s} style={{ textAlign: 'center', padding: 4 }}><input inputMode="numeric" value={cellQty(lot, c.id, s)} onChange={e => setCell(c.id, s, e.target.value)} placeholder="0" style={cellInput} /></td>)}
+                          <td className="num" style={{ textAlign: 'center', fontWeight: 700 }}>{N(rowSum(lot, c.id))}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr style={{ fontWeight: 700 }}><td style={stickyTd}>รวมต่อไซส์</td>{lot.sizes.map(s => <td key={s} className="num" style={{ textAlign: 'center' }}>{N(colSum(lot, s))}</td>)}<td className="num" style={{ textAlign: 'center', color: 'var(--accent-2)' }}>{N(lotTot)}</td></tr></tfoot>
+                  </table>
+                </div>
+              )}
+
+          <label style={{ display: 'block', marginBottom: 6 }}>เพิ่มสี</label>
+          <div className="chips-pick">
+            {SHIRT_COLORS.map(sc => <button type="button" key={sc.name} className="pick" onClick={() => addColor(sc)} disabled={lot.colors.some(c => c.name === sc.name)} style={{ opacity: lot.colors.some(c => c.name === sc.name) ? 0.4 : 1 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: sc.hex, border: '1px solid var(--line)', display: 'inline-block', marginRight: 4, verticalAlign: '-1px' }}></span>{sc.name}</button>)}
+            <button type="button" className="pick" onClick={() => addColor()}><Icon name="plus" /> สีกำหนดเอง</button>
+          </div>
+        </>)}
+    </Modal>
+  );
+}
+
+/* ---------- Quick find / barcode scan → ขายเร็ว ---------- */
+export function QuickFindModal({ onClose }) {
+  const products = MD.products || [];
+  const [q, setQ] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [scanErr, setScanErr] = useState('');
+  const inputRef = useRef(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const norm = s => String(s || '').trim().toLowerCase();
+  const ql = norm(q);
+  const exact = ql ? products.find(p => norm(p.barcode) === ql || norm(p.sku) === ql) : null;
+  const matches = ql ? products.filter(p => norm(p.name).includes(ql) || (p.sku && norm(p.sku).includes(ql)) || (p.barcode && norm(p.barcode).includes(ql))).slice(0, 8) : [];
+
+  const stopCam = () => { try { streamRef.current?.getTracks().forEach(t => t.stop()); } catch { /* ignore */ } streamRef.current = null; setScanning(false); };
+  useEffect(() => { inputRef.current?.focus(); return () => stopCam(); }, []);
+
+  const close = () => { stopCam(); onClose(); };
+  const goSell = (p) => { stopCam(); onClose(); window.__openModal('sell', p); };
+  const onKey = (e) => { if (e.key === 'Enter') { if (exact) goSell(exact); else if (matches.length === 1) goSell(matches[0]); } };
+
+  const startCam = async () => {
+    if (!('BarcodeDetector' in window)) { setScanErr('เบราว์เซอร์นี้ไม่รองรับสแกนด้วยกล้อง — พิมพ์ชื่อ/SKU หรือใช้เครื่องยิงบาร์โค้ดแทนได้'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream; setScanning(true); setScanErr('');
+      const video = videoRef.current; video.srcObject = stream; await video.play();
+      const detector = new window.BarcodeDetector();
+      const loop = async () => {
+        if (!streamRef.current) return;
+        try {
+          const codes = await detector.detect(video);
+          if (codes && codes.length) {
+            const val = codes[0].rawValue; setQ(val);
+            const found = products.find(p => norm(p.barcode) === norm(val) || norm(p.sku) === norm(val));
+            if (found) { goSell(found); return; }
+          }
+        } catch { /* detect อาจ throw ระหว่างเฟรม — ข้าม */ }
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+    } catch (err) { setScanErr('เปิดกล้องไม่ได้: ' + err.message); }
+  };
+
+  const footer = <button className="btn" onClick={close}>ปิด</button>;
+  return (
+    <Modal icon="search" title="ขายเร็ว / สแกนบาร์โค้ด" sub="พิมพ์ชื่อ / SKU / บาร์โค้ด หรือยิงสแกนเนอร์ แล้วกด Enter → ไปหน้าขาย" onClose={close} footer={footer}>
+      <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <input ref={inputRef} className="input" style={{ flex: 1 }} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} placeholder="🔍 บาร์โค้ด / SKU / ชื่อสินค้า" />
+        {!scanning
+          ? <button className="btn btn-sm" onClick={startCam} title="สแกนด้วยกล้อง"><Icon name="search" /> กล้อง</button>
+          : <button className="btn btn-sm" onClick={stopCam} style={{ color: 'var(--bad)' }}><Icon name="x" /> หยุด</button>}
+      </div>
+      {scanErr && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>{scanErr}</div>}
+      {scanning && <div style={{ marginBottom: 10, borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--line)', background: '#000' }}><video ref={videoRef} muted playsInline style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }} /></div>}
+
+      {ql && matches.length === 0 && <div className="cap" style={{ color: 'var(--ink-4)', padding: '6px 0' }}>ไม่พบสินค้าที่ตรงกับ "{q}"</div>}
+      {matches.map(p => (
+          <button key={p.id} onClick={() => goSell(p)} className="row between" style={{ width: '100%', textAlign: 'left', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--surface)', marginBottom: 6, cursor: 'pointer' }}>
+            <span className="row" style={{ gap: 10, minWidth: 0 }}>
+              <span style={{ width: 30, height: 30, borderRadius: 7, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>{p.image ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Icon name="bag" />}</span>
+              <span style={{ minWidth: 0 }}><span style={{ fontWeight: 600 }}>{p.name}</span><span className="cap" style={{ display: 'block' }}>{[p.sku && ('SKU ' + p.sku), p.barcode].filter(Boolean).join(' · ') || `คงเหลือ ${p.onHand}`}</span></span>
+            </span>
+            <span className="cap" style={{ flexShrink: 0 }}>เหลือ {p.onHand} · {B(p.price)}</span>
+          </button>
+        ))}
+      {!ql && <div className="cap" style={{ color: 'var(--ink-4)', padding: '6px 0' }}>เริ่มพิมพ์หรือยิงบาร์โค้ดเพื่อค้นหาสินค้า แล้วไปหน้าขายทันที</div>}
+    </Modal>
+  );
+}
+
+/* ---------- Print product labels (ป้ายราคา/บาร์โค้ด) ---------- */
+function printLabels(items, opts = {}) {
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const { height = 46, module = 1.5 } = opts;
+  let cells = '';
+  items.forEach(it => {
+    const code = it.barcode || it.sku || it.name;
+    const svg = barcodeSVGString(code, { height, module, color: '#000' });
+    for (let k = 0; k < it.copies; k++) {
+      cells += `<div class="lbl"><div class="nm">${esc(it.name)}</div><div class="pr">฿${Number(it.price || 0).toLocaleString('en-US')}</div><div class="bc">${svg}</div><div class="cd">${esc(code)}</div></div>`;
+    }
+  });
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>ป้ายสินค้า</title><style>
+    *{box-sizing:border-box;font-family:'Sarabun','Noto Sans Thai',system-ui,sans-serif;}
+    body{margin:8px;}
+    .sheet{display:flex;flex-wrap:wrap;gap:4mm;}
+    .lbl{width:48mm;border:1px dashed #ccc;border-radius:4px;padding:3mm;text-align:center;break-inside:avoid;page-break-inside:avoid;}
+    .nm{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .pr{font-size:18px;font-weight:800;margin:2px 0;}
+    .bc svg{max-width:100%;height:auto;}
+    .cd{font-size:9px;letter-spacing:1px;margin-top:1px;font-family:monospace;}
+    @media print{.lbl{border:1px solid #eee;} @page{margin:6mm;}}
+  </style></head><body><div class="sheet">${cells}</div></body></html>`;
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow.document; doc.open(); doc.write(html); doc.close();
+  setTimeout(() => { try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch { /* ignore */ } setTimeout(() => iframe.remove(), 1500); }, 350);
+}
+
+export function LabelModal({ data, onClose }) {
+  const products = MD.products || [];
+  const SIZE_OPTS = { s: { height: 36, module: 1.2, label: 'เล็ก' }, m: { height: 46, module: 1.5, label: 'กลาง' }, l: { height: 60, module: 1.9, label: 'ใหญ่' } };
+  const [copies, setCopies] = useState(() => Object.fromEntries(products.map(p => [p.id, data?.id ? (p.id === data.id ? 1 : 0) : 1])));
+  const [size, setSize] = useState('m');
+  const setC = (id, v) => setCopies(c => ({ ...c, [id]: Math.max(0, Math.min(99, Math.round(Number(v) || 0))) }));
+  const items = products.filter(p => (copies[p.id] || 0) > 0).map(p => ({ name: p.name, price: p.price, sku: p.sku, barcode: p.barcode, copies: copies[p.id] }));
+  const totalLabels = items.reduce((a, it) => a + it.copies, 0);
+  const so = SIZE_OPTS[size];
+  const preview = products.find(p => (copies[p.id] || 0) > 0) || products[0];
+  const previewCode = preview ? (preview.barcode || preview.sku || preview.name) : '';
+
+  const doPrint = () => {
+    if (!totalLabels) { toast('เลือกจำนวนป้ายอย่างน้อย 1 ดวง', 'error'); return; }
+    printLabels(items, so);
+    logAudit({ action: 'export', entityType: 'data', entityName: 'ป้ายสินค้า', summary: `พิมพ์ป้ายสินค้า ${totalLabels} ดวง` });
+    toast(`กำลังเปิดหน้าพิมพ์ ${totalLabels} ดวง`, 'success');
+  };
+
+  const footer = (<><button className="btn" onClick={onClose}>ปิด</button><button className="btn btn-primary" disabled={!totalLabels} style={{ opacity: totalLabels ? 1 : 0.5 }} onClick={doPrint}><Icon name="external" /> พิมพ์ป้าย ({totalLabels})</button></>);
+  return (
+    <Modal wide icon="bag" title="พิมพ์ป้ายราคา / บาร์โค้ด" sub="เลือกจำนวนป้ายต่อสินค้า แล้วกดพิมพ์ (ใช้กับเครื่องพิมพ์ทั่วไป/ป้ายสติกเกอร์)" onClose={onClose} footer={footer}>
+      {products.length === 0
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้า</div>
+        : (<>
+          <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <span className="cap">ขนาดป้าย</span>
+              <div className="segbar">{Object.entries(SIZE_OPTS).map(([id, o]) => <button key={id} className={'seg' + (size === id ? ' active' : '')} onClick={() => setSize(id)}>{o.label}</button>)}</div>
+            </div>
+            {/* พรีวิวป้าย */}
+            {preview && <div style={{ border: '1px dashed var(--line)', borderRadius: 6, padding: 8, textAlign: 'center', minWidth: 150 }}>
+              <div style={{ fontWeight: 600, fontSize: 11 }}>{preview.name}</div>
+              <div style={{ fontWeight: 800, fontSize: 18 }}>{B(preview.price)}</div>
+              <Barcode value={previewCode} height={so.height} module={so.module} />
+              <div className="cap" style={{ fontFamily: 'monospace', letterSpacing: 1 }}>{previewCode}</div>
+            </div>}
+          </div>
+          <div className="row between" style={{ marginBottom: 6 }}>
+            <label style={{ margin: 0 }}>จำนวนป้ายต่อสินค้า</label>
+            <div className="row" style={{ gap: 6 }}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCopies(Object.fromEntries(products.map(p => [p.id, 1])))}>ทุกชิ้น ×1</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCopies(Object.fromEntries(products.map(p => [p.id, 0])))}>ล้าง</button>
+            </div>
+          </div>
+          <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}><table className="table">
+            <tbody>
+              {products.map(p => (
+                <tr key={p.id}>
+                  <td><div className="row" style={{ gap: 8 }}>
+                    <span style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>{p.image ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Icon name="bag" />}</span>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{p.name}</div><div className="cap">{[p.sku && ('SKU ' + p.sku), p.barcode].filter(Boolean).join(' · ') || B(p.price)}</div></div>
+                  </div></td>
+                  <td style={{ width: 90, textAlign: 'right' }}><input type="number" min="0" max="99" className="input num" style={{ width: 70 }} value={copies[p.id] || 0} onChange={e => setC(p.id, e.target.value)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </>)}
+    </Modal>
+  );
+}
+
+/* ============================================================
+   Order system (ออเดอร์ + ลูกค้า + ติดตามสถานะ)
+   ============================================================ */
+// โค้ดออเดอร์: ORD-YYMMDD-XXXX
+function genOrderCode() {
+  const d = new Date();
+  const yy = String(d.getFullYear()).slice(-2), mm = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+  return `ORD-${yy}${mm}${dd}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+// ตัดสต็อกแบบ FIFO (ล็อตเก่าก่อน) สำหรับ 1 variant → คืน lots ใหม่ + จำนวนที่ตัดได้ + ต้นทุนรวม
+function deductVariantFIFO(lots, color, size, qty) {
+  let need = Math.max(0, Math.round(Number(qty) || 0)), costTotal = 0;
+  const newLots = (lots || []).map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
+  const order = newLots.map((l, i) => i).sort((a, b) => String(newLots[a].date || '9999').localeCompare(String(newLots[b].date || '9999')));
+  for (const idx of order) {
+    if (need <= 0) break;
+    const lot = newLots[idx];
+    const col = (lot.colors || []).find(c => c.name === color);
+    if (!col) continue;
+    const avail = Number(lot.grid?.[col.id]?.[size]) || 0;
+    if (avail <= 0) continue;
+    const take = Math.min(need, avail);
+    const row = { ...(lot.grid[col.id] || {}) }; const left = avail - take; if (left > 0) row[size] = left; else delete row[size];
+    lot.grid[col.id] = row;
+    need -= take; costTotal += take * (Number(lot.cost) || 0);
+  }
+  return { newLots, deducted: qty - need, costTotal };
+}
+// จองสต็อกตามออเดอร์ (เขียน reservations ที่มี orderId ลงแต่ละสินค้า)
+async function applyOrderReservations(order) {
+  const byProd = {};
+  (order.items || []).forEach(it => { (byProd[it.productId] = byProd[it.productId] || []).push({ color: it.color, size: it.size, qty: nn(it.qty) }); });
+  await Promise.all(Object.entries(byProd).map(([pid, items]) => {
+    const p = (MD.products || []).find(x => x.id === pid); if (!p) return null;
+    const others = (p.reservations || []).filter(r => r.orderId !== order.id);
+    const rsv = { id: 'rsv-' + order.id, orderId: order.id, customer: order.customerName || '', date: todayISO(), note: `ออเดอร์ ${order.code}`, items };
+    return supabase.from('tmk_products').update({ reservations: [...others, rsv], updated_at: new Date().toISOString() }).eq('id', pid);
+  }).filter(Boolean));
+}
+async function releaseOrderReservations(orderId) {
+  const affected = (MD.products || []).filter(p => (p.reservations || []).some(r => r.orderId === orderId));
+  await Promise.all(affected.map(p => supabase.from('tmk_products').update({ reservations: (p.reservations || []).filter(r => r.orderId !== orderId), updated_at: new Date().toISOString() }).eq('id', p.id)));
+}
+// ส่งแล้ว → ตัดสต็อกจริง (FIFO) + ปล่อยจองของออเดอร์ + บวกขายแล้ว + บันทึก sale (เข้ารายงาน)
+async function fulfillOrderStock(order) {
+  const byProd = {};
+  (order.items || []).forEach(it => (byProd[it.productId] = byProd[it.productId] || []).push(it));
+  const updates = [];
+  let totReq = 0, totDeducted = 0; // กันตัดสต็อกขาดเงียบๆ — เตือนถ้าสต็อกไม่พอ
+  for (const pid in byProd) {
+    const p = (MD.products || []).find(x => x.id === pid); if (!p) continue;
+    let lots = p.lots || []; let costTotal = 0, soldQty = 0, amount = 0; const lines = [];
+    byProd[pid].forEach(it => {
+      const r = deductVariantFIFO(lots, it.color, it.size, nn(it.qty));
+      lots = r.newLots; costTotal += r.costTotal; soldQty += r.deducted; amount += r.deducted * (Number(it.price) || 0);
+      totReq += nn(it.qty); totDeducted += r.deducted;
+      if (r.deducted > 0) lines.push({ color: it.color, size: it.size, qty: r.deducted, cost: r.deducted ? r.costTotal / r.deducted : 0 });
+    });
+    updates.push({ pid, p, lots, soldQty, amount, costTotal, lines, newRes: (p.reservations || []).filter(rr => rr.orderId !== order.id) });
+  }
+  await Promise.all(updates.map(u => supabase.from('tmk_products').update({ lots: u.lots, stock_on_hand: u.lots.reduce((a, l) => a + calcLotTotal(l), 0), reservations: u.newRes, actual_units: Number(u.p.units || 0) + u.soldQty, updated_at: new Date().toISOString() }).eq('id', u.pid)));
+  updates.forEach(u => { if (u.soldQty > 0) logAudit({ action: 'sale', entityType: 'product', entityName: u.p.name, summary: `ขาย (ออเดอร์ ${order.code}) "${u.p.name}" ${u.soldQty} ตัว`, fields: [{ label: 'ออเดอร์', value: order.code }, { label: 'รวมขาย', value: N(u.soldQty) + ' ตัว' }, { label: 'มูลค่า', value: B(u.amount) }], data: { productId: u.pid, productName: u.p.name, category: u.p.category || '', price: u.soldQty ? u.amount / u.soldQty : 0, date: todayISO(), totalQty: u.soldQty, totalAmount: u.amount, totalCost: u.costTotal, lines: u.lines } }); });
+  if (totDeducted < totReq) toast(`⚠️ สต็อกไม่พอ — ส่งได้ ${N(totDeducted)}/${N(totReq)} ตัว (ตัดสต็อกเท่าที่มี) ตรวจสอบสต็อกด้วย`, 'warn');
+}
+// เปลี่ยนสถานะออเดอร์ + จัดการสต็อกตามสถานะ (เรียกจากบอร์ด Kanban)
+export async function advanceOrderStatus(order, newStatus, by = '') {
+  try {
+    if (order.status === newStatus) return true;
+    if (newStatus === 'shipped' && order.status !== 'shipped') await fulfillOrderStock(order);
+    if (newStatus === 'cancelled' && order.status !== 'shipped' && order.status !== 'cancelled') await releaseOrderReservations(order.id);
+    const log = [...(order.statusLog || []), { status: newStatus, at: new Date().toISOString(), by }];
+    const { error } = await supabase.from('tmk_orders').update({ status: newStatus, status_log: log, updated_at: new Date().toISOString() }).eq('id', order.id);
+    if (error) throw error;
+    logAudit({ action: 'order', entityType: 'order', entityName: order.code, summary: `ออเดอร์ ${order.code} → ${orderStatusMeta(newStatus).label}` });
+    window.__reload?.();
+    toast(`อัปเดตเป็น "${orderStatusMeta(newStatus).label}"`, 'success');
+    return true;
+  } catch (err) { toast('เปลี่ยนสถานะไม่สำเร็จ: ' + err.message, 'error'); return false; }
+}
+
+/* ---------- Order modal (สร้าง/แก้ออเดอร์) ---------- */
+const emptyOrderItem = () => ({ id: uid('oi'), productId: '', color: '', size: '', qty: '', price: '' });
+export function OrderModal({ data, onClose }) {
+  const products = (MD.products || []).filter(p => p.hasLots);
+  const customers = MD.customers || [];
+  const [custId, setCustId] = useState(data?.customerId || '');
+  const [custNew, setCustNew] = useState(data ? null : { name: '', phone: '', line: '', address: '' });
+  const [items, setItems] = useState(data?.items?.length ? data.items.map(it => ({ ...it, id: uid('oi') })) : [emptyOrderItem()]);
+  const [discount, setDiscount] = useState(data?.discount || '');
+  const [channel, setChannel] = useState(data?.channel || '');
+  const [note, setNote] = useState(data?.note || '');
+  const [trackingNo, setTrackingNo] = useState(data?.trackingNo || '');
+  const [carrier, setCarrier] = useState(data?.carrier || '');
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const _t = (fn) => (...a) => { setTouched(true); fn(...a); };
+
+  const prodById = (id) => products.find(p => p.id === id);
+  const setItem = (i, patch) => { setTouched(true); setItems(its => its.map((x, j) => j === i ? { ...x, ...patch } : x)); };
+  const addItem = () => { setTouched(true); setItems(its => [...its, emptyOrderItem()]); };
+  const removeItem = (i) => { setTouched(true); setItems(its => its.length > 1 ? its.filter((_, j) => j !== i) : [emptyOrderItem()]); };
+
+  const lineAmt = (it) => (Number(it.qty) || 0) * (Number(it.price) || 0);
+  const subtotal = items.reduce((a, it) => a + lineAmt(it), 0);
+  const total = Math.max(0, subtotal - (Number(discount) || 0));
+  const totalQty = items.reduce((a, it) => a + (Number(it.qty) || 0), 0);
+
+  const handleSave = async () => {
+    if (busy) return;
+    const cleanItems = items.filter(it => it.productId && it.color && it.size && Number(it.qty) > 0).map(it => {
+      const p = prodById(it.productId);
+      return { productId: it.productId, name: p?.name || '', color: it.color, size: it.size, qty: nn(it.qty), price: nn(it.price), cost: 0 };
+    });
+    if (!cleanItems.length) { toast('เพิ่มรายการสินค้าก่อน', 'error'); return; }
+    const custName = (custNew ? custNew.name : (customers.find(c => c.id === custId)?.name || '')).trim();
+    if (!custName) { toast('ระบุชื่อลูกค้า', 'error'); return; }
+    setBusy(true);
+    try {
+      // ลูกค้าใหม่ → สร้างเรคคอร์ด
+      let customerId = custId;
+      if (custNew && custNew.name.trim()) {
+        customerId = uid('cust');
+        const cRow = { id: customerId, code: 'C' + customerId.slice(-5).toUpperCase(), name: custNew.name.trim(), phone: custNew.phone.trim(), line: custNew.line.trim(), address: custNew.address.trim(), note: '' };
+        const { error: cErr } = await supabase.from('tmk_customers').insert(cRow);
+        if (cErr) throw cErr;
+      }
+      const oid = data?.id || uid('o');
+      const code = data?.code || genOrderCode();
+      const status = data?.status || 'pending';
+      const sub = cleanItems.reduce((a, it) => a + it.qty * it.price, 0);
+      const tot = Math.max(0, sub - nn(discount));
+      const order = { id: oid, code, customer_id: customerId || null, customer_name: custName, items: cleanItems, subtotal: sub, discount: nn(discount), total: tot, status, channel: channel.trim(), tracking_no: trackingNo.trim(), carrier: carrier.trim(), note: note.trim(), status_log: data?.statusLog || [{ status, at: new Date().toISOString(), by: '' }] };
+      const { error } = await supabase.from('tmk_orders').upsert(order);
+      if (error) throw error;
+      // จองสต็อก (ยังไม่ส่ง) — ออเดอร์ที่ยัง active
+      if (status !== 'shipped' && status !== 'cancelled') await applyOrderReservations({ ...order, customerName: custName });
+      logAudit({ action: 'order', entityType: 'order', entityName: code, summary: `${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์ ${code} (${custName}) ${totalQty} ตัว`, fields: [{ label: 'ลูกค้า', value: custName }, { label: 'ยอดรวม', value: B(tot) }, { label: 'สถานะ', value: orderStatusMeta(status).label }] });
+      window.__reload?.();
+      toast(`${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์สำเร็จ`, 'success');
+      onClose();
+    } catch (err) {
+      if (/tmk_orders|tmk_customers|column|schema cache|PGRST/i.test(err.message || '')) toast('ต้องรัน SQL migration (orders, customers) ก่อน', 'error');
+      else toast('บันทึกออเดอร์ไม่สำเร็จ: ' + err.message, 'error');
+    } finally { setBusy(false); }
+  };
+
+  const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (window.confirm('ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)')) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ปิด</button><button className="btn btn-primary" disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</button></>);
+
+  return (
+    <Modal wide icon="listChecks" title={data ? `ออเดอร์ ${data.code}` : 'สร้างออเดอร์'} sub={data ? orderStatusMeta(data.status).label : 'เลือกลูกค้า + สินค้า → จองสต็อกอัตโนมัติ'} onClose={onClose} footer={footer} confirmOnClose={touched}>
+      {products.length === 0
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้าที่มีล็อต — เพิ่มสินค้า+ล็อตก่อน</div>
+        : (<>
+          {/* ลูกค้า */}
+          <div className="field"><label>ลูกค้า</label>
+            {custNew ? (
+              <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10 }}>
+                <div className="field-row" style={{ marginBottom: 8 }}>
+                  <div className="field" style={{ margin: 0 }}><label>ชื่อลูกค้า</label><input className="input" value={custNew.name} onChange={e => _t(setCustNew)({ ...custNew, name: e.target.value })} placeholder="ชื่อ-นามสกุล / ชื่อร้าน" /></div>
+                  <div className="field" style={{ margin: 0 }}><label>เบอร์โทร</label><input className="input" value={custNew.phone} onChange={e => _t(setCustNew)({ ...custNew, phone: e.target.value })} placeholder="08x-xxx-xxxx" /></div>
+                </div>
+                <div className="field-row" style={{ marginBottom: 0 }}>
+                  <div className="field" style={{ margin: 0 }}><label>LINE</label><input className="input" value={custNew.line} onChange={e => _t(setCustNew)({ ...custNew, line: e.target.value })} placeholder="LINE ID" /></div>
+                  <div className="field" style={{ margin: 0 }}><label>ที่อยู่จัดส่ง</label><input className="input" value={custNew.address} onChange={e => _t(setCustNew)({ ...custNew, address: e.target.value })} placeholder="ที่อยู่" /></div>
+                </div>
+                {customers.length > 0 && <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 8 }} onClick={() => { setCustNew(null); setCustId(''); }}>← เลือกจากลูกค้าเดิม</button>}
+              </div>
+            ) : (
+              <div className="row" style={{ gap: 8 }}>
+                <select className="input" style={{ flex: 1 }} value={custId} onChange={e => _t(setCustId)(e.target.value)}>
+                  <option value="">— เลือกลูกค้า —</option>
+                  {customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>)}
+                </select>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setCustNew({ name: '', phone: '', line: '', address: '' }); }}><Icon name="userPlus" /> ลูกค้าใหม่</button>
+              </div>
+            )}
+          </div>
+
+          {/* รายการสินค้า */}
+          <div className="row between" style={{ marginBottom: 8 }}>
+            <label style={{ margin: 0 }}>รายการสินค้า</label>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={addItem}><Icon name="plus" /> เพิ่มสินค้า</button>
+          </div>
+          {items.map((it, i) => {
+            const p = prodById(it.productId);
+            const colors = p ? Object.keys(p.variants || {}) : [];
+            const sizes = (p && it.color) ? Object.keys(p.variants[it.color] || {}) : [];
+            const avail = (p && it.color && it.size) ? (Number(p.variants[it.color]?.[it.size]) || 0) - (Number(p.reservedByVariant?.[it.color]?.[it.size]) || 0) : null;
+            return (
+              <div key={it.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8 }}>
+                  <select className="input" value={it.productId} onChange={e => { const np = prodById(e.target.value); setItem(i, { productId: e.target.value, color: '', size: '', price: np?.price || '' }); }}>
+                    <option value="">— เลือกสินค้า —</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <button type="button" className="icon-btn" onClick={() => removeItem(i)} style={{ color: 'var(--bad)' }}><Icon name="x" /></button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                  <select className="input" value={it.color} disabled={!it.productId} onChange={e => setItem(i, { color: e.target.value, size: '' })}><option value="">สี</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                  <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}><option value="">ไซส์</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {Math.max(0, (Number(p.variants[it.color]?.[s]) || 0) - (Number(p.reservedByVariant?.[it.color]?.[s]) || 0))})</option>)}</select>
+                  <input type="number" min="0" className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="จำนวน" />
+                  <input type="number" min="0" className="input num" value={it.price} onChange={e => setItem(i, { price: e.target.value })} placeholder="ราคา/ตัว" />
+                </div>
+                {avail != null && Number(it.qty) > avail && <div className="cap" style={{ color: 'var(--warn)', marginTop: 6 }}>พร้อมขายเหลือ {avail} (เกินจะกลายเป็นค้างส่ง)</div>}
+              </div>
+            );
+          })}
+
+          <div className="field-row" style={{ marginTop: 4 }}>
+            <div className="field" style={{ marginBottom: 0 }}><label>ส่วนลด (฿)</label><input type="number" min="0" className="input num" value={discount} onChange={e => _t(setDiscount)(e.target.value)} placeholder="0" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง</label><input className="input" value={channel} onChange={e => _t(setChannel)(e.target.value)} placeholder="เช่น LINE / Shopee / หน้าร้าน" /></div>
+          </div>
+          <div className="field-row">
+            <div className="field" style={{ marginBottom: 0 }}><label>เลขแทร็กกิ้ง</label><input className="input" value={trackingNo} onChange={e => _t(setTrackingNo)(e.target.value)} placeholder="(ใส่ตอนส่ง)" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>ขนส่ง</label><input className="input" value={carrier} onChange={e => _t(setCarrier)(e.target.value)} placeholder="เช่น Flash / Kerry / J&T" /></div>
+          </div>
+          <div className="field" style={{ marginTop: 8, marginBottom: 0 }}><label>โน้ต</label><input className="input" value={note} onChange={e => _t(setNote)(e.target.value)} placeholder="เช่น พิมพ์ลายพิเศษ / นัดรับ" /></div>
+
+          <div className="row between" style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
+            <span className="cap">{N(totalQty)} ตัว · ส่วนลด {B(Number(discount) || 0)}</span>
+            <span>ยอดรวม <b style={{ fontSize: 17, color: 'var(--accent-2)' }}>{B(total)}</b></span>
+          </div>
+        </>)}
+    </Modal>
+  );
+}
+
+/* ---------- Customer modal (แก้/เพิ่มลูกค้า) ---------- */
+export function CustomerModal({ data, onClose }) {
+  const [f, setF] = useState(data || { name: '', phone: '', line: '', address: '', note: '' });
+  const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
+  const handleSave = async () => {
+    if (busy || !f.name.trim()) return;
+    setBusy(true);
+    try {
+      const id = data?.id || uid('cust');
+      const row = { id, code: data?.code || 'C' + id.slice(-5).toUpperCase(), name: f.name.trim(), phone: (f.phone || '').trim(), line: (f.line || '').trim(), address: (f.address || '').trim(), note: (f.note || '').trim() };
+      const { error } = await supabase.from('tmk_customers').upsert(row);
+      if (error) throw error;
+      logAudit({ action: data ? 'update' : 'create', entityType: 'customer', entityName: row.name, summary: `${data ? 'แก้ไข' : 'เพิ่ม'}ลูกค้า "${row.name}"` });
+      window.__reload?.();
+      toast('บันทึกลูกค้าสำเร็จ', 'success');
+      onClose();
+    } catch (err) { toast('บันทึกไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }
+  };
+  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button></>);
+  return (
+    <Modal icon="user" title={data ? 'แก้ไขลูกค้า' : 'เพิ่มลูกค้า'} onClose={onClose} footer={footer} confirmOnClose={touched}>
+      <div className="field"><label>ชื่อลูกค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="ชื่อ-นามสกุล / ชื่อร้าน" /></div>
+      <div className="field-row">
+        <div className="field"><label>เบอร์โทร</label><input className="input" value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="08x-xxx-xxxx" /></div>
+        <div className="field"><label>LINE</label><input className="input" value={f.line} onChange={e => set('line', e.target.value)} placeholder="LINE ID" /></div>
+      </div>
+      <div className="field"><label>ที่อยู่จัดส่ง</label><textarea className="input" value={f.address} onChange={e => set('address', e.target.value)} placeholder="ที่อยู่" /></div>
+      <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={f.note} onChange={e => set('note', e.target.value)} placeholder="เช่น ลูกค้าประจำ / ขายส่ง" /></div>
+    </Modal>
+  );
+}
+
 /* ---------- PO modal ---------- */
 export function POModal({ data, onClose }) {
   const [f, setF] = useState(() => data
@@ -699,7 +1994,7 @@ export function POModal({ data, onClose }) {
   };
   const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_purchase_orders', data.id, 'PO', { action: 'delete', entityType: 'po', entityName: data.product, summary: `ลบ PO "${data.product}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
   return (
-    <Modal icon="box" title={data ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer} confirmOnClose={touched}>
+    <Modal icon="box" title={data?.id ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>รายการสินค้า</label>
         <select className="input" value={f.product} onChange={e => set('product', e.target.value)}>
           <option value="">{MD.products.length ? '— ยังไม่ได้เลือก —' : '— ยังไม่มีสินค้า (เพิ่มสินค้าก่อน) —'}</option>
@@ -781,6 +2076,7 @@ export function MonthlyTargetModal({ data, onClose }) {
       const _t = getToday();
       const isCurMonth = (monthIdx + 1) === _t.month && year === _t.yearBE;
       const meta = {
+        ...((existing && existing.meta) || {}), // preserve คีย์อื่น เช่น entryMode (กันโหมดรายวัน/รายเดือนถูกรีเซ็ตตอนเซฟเป้า)
         adBudget: Number(adTotal) || 0,
         channelTargets: Object.fromEntries(chTargets.map(c => [c.id, nn(c.target)])),
         adChannels: Object.fromEntries(adChannels.map(c => [c.id, nn(c.budget)])),
@@ -887,16 +2183,16 @@ export function MonthlyTargetModal({ data, onClose }) {
 
 /* ---------- Ad Campaign modal ---------- */
 export function AdCampaignModal({ data, onClose }) {
-  const _statusTH = { live: 'กำลังดำเนินการ', paused: 'หยุดชั่วคราว', done: 'จบแล้ว' };
+  const _statusTH = { upcoming: 'รอเริ่ม', live: 'กำลังรัน', paused: 'หยุดชั่วคราว', done: 'เสร็จสิ้น', cancelled: 'ยกเลิก' };
   const [f, setF] = useState(() => data
-    ? { ...data, status: _statusTH[data.status] || 'กำลังดำเนินการ' } // map 'live/paused/done'→ไทย ให้ชิปตรง; status แปลก → default
+    ? { ...data, status: _statusTH[data.status] || 'กำลังดำเนินการ' } // map internal→ไทย ให้ชิปตรง; status แปลก → default
     : { name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'กำลังดำเนินการ' });
   const [touched, setTouched] = useState(false);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const platforms = ['Facebook', 'TikTok', 'Shopee', 'Lazada'];
   const goals = ['Awareness', 'Conversion', 'Retargeting'];
-  const statuses = ['กำลังดำเนินการ', 'หยุดชั่วคราว', 'จบแล้ว'];
-  const statusMap = { 'กำลังดำเนินการ': 'live', 'หยุดชั่วคราว': 'paused', 'จบแล้ว': 'done' };
+  const statuses = ['รอเริ่ม', 'กำลังรัน', 'หยุดชั่วคราว', 'เสร็จสิ้น', 'ยกเลิก'];
+  const statusMap = { 'รอเริ่ม': 'upcoming', 'กำลังรัน': 'live', 'หยุดชั่วคราว': 'paused', 'เสร็จสิ้น': 'done', 'ยกเลิก': 'cancelled' };
   const [busy, setBusy] = useState(false);
   const handleSave = async () => {
     if (busy || !f.name.trim()) return;
@@ -1177,7 +2473,7 @@ export function HistoricalEntryModal({ onClose, data }) {
               <tr key={r.month}>
                 <td style={{ fontWeight: 600 }}>{r.month}{r.isCurrent && <span className="cap" style={{ marginLeft: 6, color: 'var(--accent-2)' }}>· อัตโนมัติ</span>}</td>
                 {r.isCurrent ? (
-                  <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึกรายวัน"</td>
+                  <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึก & ภาพรวมเดือน"</td>
                 ) : (<>
                   <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
                   <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>

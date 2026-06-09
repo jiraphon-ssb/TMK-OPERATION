@@ -7,6 +7,8 @@ import React, { useState, useEffect } from 'react';
 // อ่านรูป + ย่อขนาด (canvas) → data URL เล็ก ป้องกันรูปใหญ่ทำให้บันทึกพัง/ช้า/เกิน quota
 export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
   return new Promise((resolve, reject) => {
+    if (!file || !/^image\//.test(file.type || '')) return reject(new Error('ไม่ใช่ไฟล์รูป'));
+    if (file.size > 15 * 1024 * 1024) return reject(new Error('ไฟล์ใหญ่เกิน 15MB')); // กันอ่านไฟล์ยักษ์เข้าหน่วยความจำ
     const reader = new FileReader();
     reader.onload = e => {
       const img = new Image();
@@ -19,9 +21,9 @@ export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
           canvas.width = width; canvas.height = height;
           canvas.getContext('2d').drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL('image/jpeg', quality));
-        } catch (err) { resolve(e.target.result); } // fallback: ใช้ไฟล์เดิม
+        } catch (err) { reject(new Error('ย่อรูปไม่สำเร็จ')); } // ไม่ fallback เป็นไฟล์เต็ม (กันเก็บ data-URL ยักษ์)
       };
-      img.onerror = () => resolve(e.target.result);
+      img.onerror = () => reject(new Error('รูปเสียหรือเปิดไม่ได้')); // เช่น HEIC/ไฟล์เสีย — ไม่เก็บไฟล์ดิบ
       img.src = e.target.result;
     };
     reader.onerror = reject;
@@ -32,10 +34,128 @@ export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
 /* ---------- Formatters ---------- */
 // formatters — คืน "—" เมื่อค่าไม่ใช่ตัวเลขจริง (กัน NaN/Infinity จากการหารด้วย 0)
 const _fin = n => typeof n === 'number' && isFinite(n);
-export const B  = n => _fin(n) ? '฿' + Math.round(n).toLocaleString('en-US') : '—';
-export const Bk = n => { if (!_fin(n)) return '—'; const a = Math.abs(n), s = n < 0 ? '-' : ''; return a >= 1e6 ? '฿' + s + (a/1e6).toFixed(2) + 'M' : a >= 1000 ? '฿' + s + Math.round(a/1000) + 'k' : '฿' + Math.round(n); };
+// เงิน — โชว์ค่าจริงเต็ม + สตางค์ 2 ตำแหน่งเสมอ (ไม่ย่อ k/M, ไม่ปัดเต็มบาท) เช่น ฿115,690.79 · ฿44,260.00
+export const B  = n => _fin(n) ? '฿' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+export const Bk = B; // เลิกย่อ k/M — ใช้รูปแบบเต็มเหมือน B (ค่าจริงทุกที่)
 export const P  = (n, d=1) => _fin(n) ? n.toFixed(d) + '%' : '—';
-export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—';
+export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—'; // จำนวนนับ (ออร์เดอร์/ชิ้น) = จำนวนเต็ม
+// คอมแพกต์ k/M — ใช้เฉพาะ "ป้ายบนกราฟ" (กันล้นแท่งแคบ) ค่าเต็มดูได้ตอน hover
+export const Bc = n => { if (!_fin(n)) return '—'; const a = Math.abs(n), s = n < 0 ? '-' : ''; return a >= 1e6 ? '฿' + s + (a / 1e6).toFixed(1) + 'M' : a >= 1000 ? '฿' + s + Math.round(a / 1000) + 'k' : '฿' + Math.round(a); };
+
+/* ---------- Lot / variant helpers (เสื้อพิมพ์ลาย: ล็อต = ตาราง ไซส์ × สี) ---------- */
+// ไซส์มาตรฐาน เรียงลำดับ (XS → 10XL) — ใช้เป็นคอลัมน์ของตารางล็อต/สต็อก
+export const SIZES = ['XS','S','M','L','XL','2XL','3XL','4XL','5XL','6XL','7XL','8XL','9XL','10XL'];
+// สีเสื้อยอดนิยม สำหรับ quick-add (ตั้งชื่อ/แก้ได้ภายหลัง)
+export const SHIRT_COLORS = [
+  { name: 'ขาว', hex: '#ffffff' }, { name: 'ดำ', hex: '#1a1a1a' }, { name: 'กรม', hex: '#1f2d50' },
+  { name: 'แดง', hex: '#c0392b' }, { name: 'เทา', hex: '#9aa0a6' }, { name: 'เขียว', hex: '#2f9e6e' },
+  { name: 'เหลือง', hex: '#e8c23b' }, { name: 'ฟ้า', hex: '#4a8be0' }, { name: 'ชมพู', hex: '#e06aa0' },
+  { name: 'ส้ม', hex: '#e0772f' }, { name: 'ม่วง', hex: '#6b5ce0' }, { name: 'น้ำตาล', hex: '#8a5a2f' },
+];
+// clamp จำนวน: ตัดลบ, ปัดจำนวนเต็ม, กัน NaN/Infinity, เพดาน 1e9
+const _q = v => { const n = Math.round(Number(v) || 0); return n > 0 ? Math.min(n, 1e9) : 0; };
+
+// ผลรวมจำนวนทุกช่องใน 1 ล็อต — รองรับ legacy lot (มี qty ไม่มี grid)
+export function lotTotal(lot) {
+  if (!lot) return 0;
+  if (lot.grid && typeof lot.grid === 'object') {
+    let t = 0;
+    for (const c in lot.grid) { const row = lot.grid[c]; for (const s in row) t += _q(row[s]); }
+    return t;
+  }
+  return _q(lot.qty); // legacy fallback
+}
+// มูลค่าต้นทุนของล็อต = จำนวนรวม × ต้นทุน/ชิ้น
+export function lotValue(lot) { return lotTotal(lot) * (Number(lot?.cost) || 0); }
+
+// รวมจำนวนต่อไซส์ ข้ามทุกล็อต → { [size]: qty }
+export function sizeBreakdown(lots) {
+  const out = {};
+  (lots || []).forEach(l => { if (!l?.grid) return; for (const c in l.grid) { const row = l.grid[c]; for (const s in row) out[s] = (out[s] || 0) + _q(row[s]); } });
+  return out;
+}
+// รวมจำนวนต่อสี (ตามชื่อสี) ข้ามทุกล็อต → { [colorName]: qty }
+export function colorBreakdown(lots) {
+  const out = {};
+  (lots || []).forEach(l => {
+    if (!l?.grid || !Array.isArray(l.colors)) return;
+    l.colors.forEach(col => { const row = l.grid[col.id] || {}; let n = 0; for (const s in row) n += _q(row[s]); if (n) out[col.name] = (out[col.name] || 0) + n; });
+  });
+  return out;
+}
+// รวมทุกล็อตเป็นตารางเดียว { [colorName]: { [size]: qty } } — สำหรับ drill-down หน้าสต็อก
+export function variantGrid(lots) {
+  const out = {};
+  (lots || []).forEach(l => {
+    if (!l?.grid || !Array.isArray(l.colors)) return;
+    l.colors.forEach(col => {
+      const row = l.grid[col.id] || {};
+      for (const s in row) { const q = _q(row[s]); if (!q) continue; (out[col.name] || (out[col.name] = {}))[s] = (out[col.name][s] || 0) + q; }
+    });
+  });
+  return out;
+}
+// สรุปสต็อกของสินค้า 1 ตัว จากทุกล็อต
+export function productStock(lots) {
+  return {
+    total: (lots || []).reduce((a, l) => a + lotTotal(l), 0),
+    value: (lots || []).reduce((a, l) => a + lotValue(l), 0),
+    sizeStock: sizeBreakdown(lots),
+    colorStock: colorBreakdown(lots),
+  };
+}
+
+/* ---------- Order status pipeline (ออเดอร์ + ติดตามสถานะ) ---------- */
+// ลำดับสถานะ: สร้าง → พิมพ์ → นับเช็ค → แพ็ค → รอขนส่ง → ส่งแล้ว (+ ยกเลิก แยก)
+export const ORDER_STATUSES = [
+  { id: 'pending',  label: 'รอยืนยัน', color: 'var(--ink-3)' },
+  { id: 'printing', label: 'รอพิมพ์',  color: 'var(--accent)' },
+  { id: 'checking', label: 'นับเช็ค',  color: 'var(--info)' },
+  { id: 'packing',  label: 'แพ็ค',     color: 'var(--accent-2)' },
+  { id: 'shipping', label: 'รอขนส่ง',  color: 'var(--warn)' },
+  { id: 'shipped',  label: 'ส่งแล้ว',  color: 'var(--good)' },
+];
+export const ORDER_CANCELLED = { id: 'cancelled', label: 'ยกเลิก', color: 'var(--bad)' };
+export const orderStatusMeta = (id) => ORDER_STATUSES.find(s => s.id === id) || (id === 'cancelled' ? ORDER_CANCELLED : ORDER_STATUSES[0]);
+export const orderStatusIndex = (id) => { const i = ORDER_STATUSES.findIndex(s => s.id === id); return i < 0 ? 0 : i; };
+
+/* ---------- Code128 barcode (สำหรับป้ายสินค้า) ---------- */
+// ตาราง pattern มาตรฐาน Code128 (107 ค่า: 0–105 + STOP), แต่ละค่า = ความกว้างแท่ง/ช่อง 6 หลัก (STOP=7)
+const CODE128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+// คืน array ความกว้าง module (แท่ง,ช่อง,แท่ง,...) เริ่มด้วยแท่ง — Code Set B (ASCII 32–126); คืน null ถ้าว่าง
+export function code128B(text) {
+  const s = String(text || '').replace(/[^\x20-\x7E]/g, '');
+  if (!s) return null;
+  const codes = [104]; // START B
+  let sum = 104;
+  for (let i = 0; i < s.length; i++) { const v = s.charCodeAt(i) - 32; codes.push(v); sum += v * (i + 1); }
+  codes.push(sum % 103); // checksum
+  codes.push(106);        // STOP
+  const widths = [];
+  codes.forEach(code => { for (const ch of CODE128[code]) widths.push(Number(ch)); });
+  return widths;
+}
+// สร้าง SVG string (สำหรับหน้าต่างพิมพ์)
+export function barcodeSVGString(value, { height = 46, module = 1.5, color = '#000', quiet = 10 } = {}) {
+  const widths = code128B(value);
+  if (!widths) return '';
+  const totalM = widths.reduce((a, b) => a + b, 0) + quiet * 2;
+  const w = totalM * module;
+  let x = quiet, rects = '';
+  widths.forEach((wd, i) => { if (i % 2 === 0) rects += `<rect x="${(x * module).toFixed(2)}" y="0" width="${(wd * module).toFixed(2)}" height="${height}"/>`; x += wd; });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(1)}" height="${height}" viewBox="0 0 ${w.toFixed(1)} ${height}" fill="${color}">${rects}</svg>`;
+}
+// React component (พรีวิวในแอป)
+export function Barcode({ value, height = 46, module = 1.5, color = 'var(--ink)' }) {
+  const widths = code128B(value);
+  if (!widths) return <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>;
+  const quiet = 10;
+  const totalM = widths.reduce((a, b) => a + b, 0) + quiet * 2;
+  const w = totalM * module;
+  let x = quiet; const bars = [];
+  widths.forEach((wd, i) => { if (i % 2 === 0) bars.push(<rect key={i} x={(x * module).toFixed(2)} y={0} width={(wd * module).toFixed(2)} height={height} fill={color} />); x += wd; });
+  return <svg width={w} height={height} viewBox={`0 0 ${w} ${height}`} style={{ maxWidth: '100%' }}>{bars}</svg>;
+}
 
 /* ---------- Icons (lucide-style, 24 grid, currentColor stroke) ---------- */
 export const ICONS = {
@@ -232,7 +352,7 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
         const proj = safeH(d.proj);
         return (
           <div key={i} title={`${d[labelKey]}: ${fmt(d[valueKey] || 0)}${d.proj ? ' (+คาดการณ์ ' + fmt(d.proj) + ')' : ''}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end', cursor: 'default' }}>
-            <div className="num cap" style={{ fontWeight: 600, color: 'var(--ink-2)' }}>{fmt(d[valueKey] + (d.proj || 0))}</div>
+            <div className="num cap" style={{ fontWeight: 600, color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>{Bc(d[valueKey] + (d.proj || 0))}</div>
             <div style={{ width: '100%', maxWidth: 46, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', height: h - 44 }}>
               {proj > 0 && <div style={{ height: proj, background: color, opacity: 0.28, borderRadius: '6px 6px 0 0' }} />}
               <div style={{ height: main, background: color, borderRadius: proj > 0 ? 0 : '6px 6px 0 0' }} />

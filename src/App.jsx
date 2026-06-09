@@ -3,13 +3,13 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, Avatar, UserIcon } from './components.jsx';
+import { Icon, B, Bk, N, Avatar, UserIcon, ORDER_STATUSES, orderStatusMeta, orderStatusIndex } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 import { PlannerView, CatalogView, SettingsView, ProfileView } from './views-2.jsx';
 import { Onboarding, HelpCenter, GuideOverlay } from './onboarding.jsx';
 import { EntryView } from './views-entry.jsx';
-import { RecordSalesModal, TaskModal, ProductModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
+import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -200,9 +200,7 @@ const NAV_DEF = [
     { id: 'channels', labelKey: 'subChannels', icon: 'layers' },
     { id: 'ads', labelKey: 'subAds', icon: 'zap' },
     { id: 'customers', labelKey: 'subCustomers', icon: 'users' },
-    { id: 'daily', labelKey: 'subDaily', icon: 'pencil' },
-    { id: 'monthly', labelKey: 'subMonthly', icon: 'target' },
-    { id: 'status', labelKey: 'subStatus', icon: 'listChecks' },
+    { id: 'monthly', labelKey: 'subMonthly', icon: 'pencil' },
   ]},
   { id: 'planner', labelKey: 'navPlanner', icon: 'planner', subs: [
     { id: 'calendar', labelKey: 'subCalendar', icon: 'calendarDays' },
@@ -211,6 +209,10 @@ const NAV_DEF = [
   ]},
   { id: 'catalog', labelKey: 'navCatalog', icon: 'catalog', subs: [
     { id: 'products', labelKey: 'subProducts', icon: 'bag' },
+    { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
+    { id: 'customers', labelKey: 'subCustomers2', icon: 'users' },
+    { id: 'stock', labelKey: 'subStock', icon: 'grid' },
+    { id: 'report', labelKey: 'subReport', icon: 'sales' },
     { id: 'po', labelKey: 'subPO', icon: 'box' },
   ]},
 ];
@@ -255,7 +257,97 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+/* ---- หน้าติดตามสถานะออเดอร์ (สาธารณะ — ลูกค้าเปิดเองไม่ต้องล็อกอิน) ---- */
+function PublicTrackPage({ code }) {
+  const [input, setInput] = useState(code || '');
+  const [search, setSearch] = useState(code || '');
+  const [order, setOrder] = useState(code ? undefined : null); // undefined=loading, null=ว่าง/ไม่พบ
+  useEffect(() => {
+    if (!search) { setOrder(null); return; }
+    let cancel = false; setOrder(undefined);
+    (async () => {
+      const { data } = await supabase.from('tmk_orders')
+        .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
+        .eq('code', String(search).trim().toUpperCase()).maybeSingle();
+      if (!cancel) setOrder(data || null);
+    })();
+    return () => { cancel = true; };
+  }, [search]);
+
+  const isCancelled = order && order.status === 'cancelled';
+  const curIdx = order ? orderStatusIndex(order.status) : 0;
+  const doSearch = () => setSearch(input);
+
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--paper,#f4f6fb)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 16px', fontFamily: 'var(--font)' }}>
+      <div style={{ width: '100%', maxWidth: 460 }}>
+        <div style={{ textAlign: 'center', marginBottom: 18 }}>
+          <img src={tmkLogo} alt="TMK" style={{ height: 44, marginBottom: 8 }} />
+          <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--ink)' }}>ติดตามสถานะออเดอร์</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <input className="input" style={{ flex: 1 }} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} placeholder="กรอกรหัสออเดอร์ (เช่น ORD-260609-AB12)" />
+          <button className="btn btn-primary" onClick={doSearch}><Icon name="search" /> ค้นหา</button>
+        </div>
+
+        {order === undefined && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กำลังค้นหา…</div>}
+        {order === null && search && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>ไม่พบออเดอร์รหัสนี้ — ตรวจสอบรหัสอีกครั้ง</div>}
+        {order === null && !search && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กรอกรหัสออเดอร์เพื่อดูสถานะ</div>}
+
+        {order && (
+          <div className="card">
+            <div className="row between" style={{ marginBottom: 4 }}>
+              <span style={{ fontWeight: 800, fontSize: 16 }}>{order.code}</span>
+              {isCancelled && <span className="chip chip-bad">ยกเลิกแล้ว</span>}
+            </div>
+            <div className="cap" style={{ marginBottom: 16 }}>{order.customer_name || ''} · {new Date(order.created_at || Date.now()).toLocaleDateString('th-TH')}</div>
+
+            {!isCancelled && (
+              <div style={{ marginBottom: 18 }}>
+                {ORDER_STATUSES.map((s, i) => {
+                  const done = i < curIdx, active = i === curIdx;
+                  return (
+                    <div key={s.id} className="row" style={{ gap: 12, alignItems: 'flex-start', minHeight: 38 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', alignSelf: 'stretch' }}>
+                        <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', background: done || active ? s.color : 'var(--surface-2)', color: '#fff', border: done || active ? 'none' : '2px solid var(--line)', fontSize: 12, fontWeight: 800 }}>{done ? '✓' : active ? '•' : ''}</span>
+                        {i < ORDER_STATUSES.length - 1 && <span style={{ width: 2, flex: 1, minHeight: 16, background: done ? s.color : 'var(--line)' }} />}
+                      </div>
+                      <div style={{ paddingBottom: 10 }}>
+                        <div style={{ fontWeight: active ? 800 : done ? 600 : 400, color: active ? s.color : done ? 'var(--ink)' : 'var(--ink-4)' }}>{s.label}{active && ' ← ตอนนี้'}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {order.tracking_no && <div style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 12 }}><div className="cap">เลขพัสดุ {order.carrier ? `· ${order.carrier}` : ''}</div><div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{order.tracking_no}</div></div>}
+
+            <div className="eyebrow" style={{ marginBottom: 8 }}>รายการ</div>
+            {(order.items || []).map((it, i) => (
+              <div key={i} className="row between" style={{ padding: '4px 0', fontSize: 'var(--fs-sm)' }}>
+                <span>{it.name} · {it.color} {it.size} ×{it.qty}</span><span className="num">{B((it.qty || 0) * (it.price || 0))}</span>
+              </div>
+            ))}
+            <div className="row between" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontWeight: 800 }}><span>ยอดรวม</span><span className="num">{B(order.total)}</span></div>
+          </div>
+        )}
+        <div className="cap" style={{ textAlign: 'center', marginTop: 16, color: 'var(--ink-4)' }}>TMK Operation</div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  // ลูกค้าเปิดลิงก์ ?track=<code> → หน้าติดตามสาธารณะ (ไม่ต้องล็อกอิน, ไม่โหลดข้อมูลร้าน)
+  const trackCode = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('track') : null;
+  if (trackCode != null) {
+    return (
+      <ErrorBoundary>
+        <LangProvider><ToastProvider><PublicTrackPage code={trackCode} /></ToastProvider></LangProvider>
+      </ErrorBoundary>
+    );
+  }
   return (
     <ErrorBoundary>
       <LangProvider>
@@ -323,7 +415,11 @@ function AppInner() {
   const [subMap, setSubMap] = useState(() => {
     try {
       const saved = localStorage.getItem('tmk-submap');
-      return saved ? { ...DEFAULT_SUB, ...JSON.parse(saved) } : DEFAULT_SUB;
+      const merged = saved ? { ...DEFAULT_SUB, ...JSON.parse(saved) } : { ...DEFAULT_SUB };
+      // migrate stale sub ids (เช่น sales 'daily'/'status' ที่ถูกรวมไปแล้ว) → กัน sub-nav ไม่มี active + breadcrumb ว่าง
+      const valid = {}; NAV_DEF.forEach(n => { if (n.subs) valid[n.id] = n.subs.map(s => s.id); });
+      Object.keys(merged).forEach(sec => { if (valid[sec] && !valid[sec].includes(merged[sec])) merged[sec] = DEFAULT_SUB[sec] || valid[sec][0]; });
+      return merged;
     } catch { return DEFAULT_SUB; }
   });
   const [tasks, setTasks] = useState(TMK.tasks);
@@ -504,7 +600,7 @@ function AppInner() {
     setNotif(false);
     if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
     if (n.kind === 'stock') { go('catalog', 'products'); return; }
-    if (n.kind === 'lastmonth') { go('sales', 'status'); setTimeout(() => window.__openModal('historical'), 100); return; }
+    if (n.kind === 'lastmonth') { go('sales', 'monthly'); setTimeout(() => window.__openModal('historical'), 100); return; }
     go('planner', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
   };
@@ -852,6 +948,15 @@ function AppInner() {
               }
             }} />
         : modal.type === 'product' ? <ProductModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'sell' ? <SellModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'adjust' ? <StockAdjustModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'receive' ? <ReceiveModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'quickfind' ? <QuickFindModal onClose={closeModal} />
+        : modal.type === 'label' ? <LabelModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'reserve' ? <ReservationModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'ledger' ? <MovementLedgerModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'order' ? <OrderModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'customer' ? <CustomerModal data={modal.data} onClose={closeModal} />
         : modal.type === 'campaign' ? <CampaignModal data={modal.data} onClose={closeModal} />
         : modal.type === 'po' ? <POModal data={modal.data} onClose={closeModal} />
         : modal.type === 'monthlyTarget' ? <MonthlyTargetModal data={modal.data} onClose={closeModal} />

@@ -16,13 +16,15 @@ import { getCurrentUser } from '../userContext.jsx';
  * @param {string} [p.summary]    ข้อความสรุปสำหรับแสดงผล
  * @param {Array<{label:string,value:string}>} [p.fields]  ค่าที่กรอก/บันทึก (แสดงรายละเอียด)
  * @param {Array<{label:string,from:string,to:string}>} [p.changes]  สิ่งที่เปลี่ยน ก่อน→หลัง (สำหรับการแก้ไข)
+ * @param {object} [p.data]  ข้อมูลโครงสร้าง (machine-readable) สำหรับรายงาน เช่น sale lines — เก็บใน details.data
  */
-export async function logAudit({ action, entityType, entityName = '', summary = '', fields = null, changes = null }) {
+export async function logAudit({ action, entityType, entityName = '', summary = '', fields = null, changes = null, data = null }) {
   try {
     const email = getCurrentUser()?.email || 'system';
     const payload = { entityType, entityName, summary };
     if (fields && fields.length) payload.fields = fields;
     if (changes && changes.length) payload.changes = changes;
+    if (data) payload.data = data;
     await supabase.from('tmk_audit_logs').insert({
       user_email: email,
       action,

@@ -64,7 +64,7 @@ export function HomeView({ go }) {
   const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
   const alerts = [];
   if (TMK.consts.TARGET > 0 && C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: _daysLeft > 0 ? `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${_daysLeft} วัน` : 'วันสุดท้ายของเดือนแล้ว' });
-  if (!(TMK.consts.TARGET > 0)) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'target', t: 'ยังไม่ได้ตั้งเป้าเดือนนี้', d: 'ตั้งเป้าที่หน้า "ตั้งค่ารายเดือน" เพื่อดู Pace และเปอร์เซ็นต์เป้า' });
+  if (!(TMK.consts.TARGET > 0)) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'target', t: 'ยังไม่ได้ตั้งเป้าเดือนนี้', d: 'ตั้งเป้าที่หน้า "ภาพรวมรายเดือน" เพื่อดู Pace และเปอร์เซ็นต์เป้า' });
   if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
   // เตือนงบแอดใกล้เกิน — คาดการณ์จาก burn rate จริง
   const _adBudget = TMK.consts.AD_BUDGET;
@@ -93,7 +93,7 @@ export function HomeView({ go }) {
         <div className="card" style={{ display: 'flex', gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
             <div className="eyebrow" style={{ marginBottom: 8, cursor: 'help' }} title="MTD (Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน">{'ยอดขายรวมเดือนนี้'} (MTD) ⓘ</div>
-            <div className="num" style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{B(mtd)}</div>
+            <div className="num" style={{ fontSize: 'clamp(26px,5vw,40px)', fontWeight: 700, letterSpacing: '-1px', lineHeight: 1.05, wordBreak: 'break-word' }}>{B(mtd)}</div>
             <div className="row" style={{ gap: 14, marginTop: 14 }}>
               <div>
                 <div className="cap">{'เป้าเดือน'}</div>
@@ -647,10 +647,10 @@ function SalesAds({ dateProps, prevMonthName, md }) {
           <thead><tr><th>{'ชื่อแคมเปญ'}</th><th>{'แพลตฟอร์ม'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้ไป'}</th><th style={{textAlign:'right'}}>ROAS</th><th>{'สถานะ'}</th></tr></thead>
           <tbody>
             {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีแคมเปญแอดในเดือนนี้ — สร้างที่หน้า "ตั้งค่ารายเดือน"</td></tr>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีแคมเปญแอดในเดือนนี้ — สร้างที่หน้า "ภาพรวมรายเดือน"</td></tr>
             )}
             {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).map((c, i) => {
-              const stMap = { live: { l: 'กำลังยิง', cls: 'chip-good' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'จบแล้ว', cls: '' } };
+              const stMap = { live: { l: 'กำลังรัน', cls: 'chip-good' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'เสร็จสิ้น', cls: '' }, cancelled: { l: 'ยกเลิก', cls: 'chip-bad' } };
               const s = stMap[c.status] || stMap.done;
               return (
                 <tr key={i}>
@@ -721,7 +721,7 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
       </div>
       {getSegments().length === 0 && (
         <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)', marginBottom: 16 }}>
-          <div className="cap">ยังไม่มีกลุ่มลูกค้า — ตั้งค่าที่หน้า "ตั้งค่ารายเดือน" → กลุ่มลูกค้า</div>
+          <div className="cap">ยังไม่มีกลุ่มลูกค้า — ตั้งค่าที่หน้า "ภาพรวมรายเดือน" → กลุ่มลูกค้า</div>
         </div>
       )}
       <div className="grid g4" style={{ marginBottom: 16 }}>

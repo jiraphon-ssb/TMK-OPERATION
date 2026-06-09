@@ -10,6 +10,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { TMK } from './data.js';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.js';
 import { getToday, THAI_MONTHS } from './lib/dateUtils.js';
+import { productStock, variantGrid } from './components.jsx';
 
 const DataContext = createContext();
 
@@ -77,6 +78,8 @@ async function loadAllTables() {
     monthly:     supabase.from('tmk_monthly_history').select('*').order('year').order('month'),
     colorMix:    supabase.from('tmk_color_mix').select('*').order('sort_order'),
     sizeMix:     supabase.from('tmk_size_mix').select('*').order('sort_order'),
+    customers:   supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }),
+    orders:      supabase.from('tmk_orders').select('*').order('created_at', { ascending: false }).limit(500),
   };
 
   const keys = Object.keys(tables);
@@ -189,19 +192,59 @@ function mapToTMK(raw) {
   }));
 
   // Products
-  const products = (raw.products || []).map((p, i) => ({
-    id: p.id,
-    rank: i + 1,
-    name: p.name,
-    price: Number(p.price || 0),
-    units: Number(p.actual_units || 0),
-    rev: Number(p.price || 0) * Number(p.actual_units || 0),
-    // stock = null/undefined → 'ok' (ยังไม่กรอก ไม่ใช่หมด); กัน null<=0 ขึ้น "หมดสต็อก" ผิด
-    stock: p.stock_on_hand == null ? 'ok' : p.stock_on_hand <= 0 ? 'out' : p.stock_on_hand < Number(p.reorder_point || 0) ? 'low' : 'ok',
-    onHand: Number(p.stock_on_hand || 0),
-    reorder: Number(p.reorder_point || 0),
-    strategy: p.strategy || '',
-  }));
+  const products = (raw.products || []).map((p, i) => {
+    // ล็อต (batch) = ตาราง ไซส์ × สี: [{ id, lotNo, date, cost, note, sizes, colors, grid }]
+    // มีล็อต → สต็อก = ผลรวมทุกช่อง grid ทุกล็อต (helper รองรับ legacy lot ที่มี qty เดี่ยวด้วย)
+    const lots = Array.isArray(p.lots) ? p.lots : [];
+    const hasLots = lots.length > 0;
+    const { total: lotTotal, value: stockValue, sizeStock, colorStock } = productStock(lots);
+    // มีล็อต = ใช้ผลรวมล็อต (track เสมอ); ไม่มีล็อต = ใช้ stock_on_hand เดิม (null = ยังไม่กรอก)
+    const stockRaw = hasLots ? lotTotal : p.stock_on_hand;
+    const reorder = Number(p.reorder_point || 0);
+    const onHand = Number(stockRaw || 0);
+    // จองสต็อก (reservations): [{ id, customer, date, note, items:[{color,size,qty}] }]
+    const reservations = Array.isArray(p.reservations) ? p.reservations : [];
+    const reservedByVariant = {}; let reservedTotal = 0;
+    reservations.forEach(r => (r.items || []).forEach(it => {
+      const q = Math.max(0, Number(it.qty) || 0); if (!q) return;
+      reservedTotal += q;
+      (reservedByVariant[it.color] || (reservedByVariant[it.color] = {}))[it.size] = (reservedByVariant[it.color]?.[it.size] || 0) + q;
+    }));
+    const available = Math.max(0, onHand - reservedTotal); // พร้อมขาย (ATP)
+    // วันที่ล็อตเก่าสุด (อายุสต็อก) — เอาเฉพาะล็อตที่มีของ
+    const lotDates = lots.filter(l => l.date).map(l => l.date).sort();
+    const oldestLotDate = lotDates[0] || '';
+    return {
+      id: p.id,
+      rank: i + 1,
+      name: p.name,
+      price: Number(p.price || 0),
+      units: Number(p.actual_units || 0),
+      rev: Number(p.price || 0) * Number(p.actual_units || 0),
+      // stock = null/undefined → 'ok' (ยังไม่กรอก ไม่ใช่หมด); กัน null<=0 ขึ้น "หมดสต็อก" ผิด
+      stock: stockRaw == null ? 'ok' : stockRaw <= 0 ? 'out' : stockRaw < reorder ? 'low' : 'ok',
+      onHand,
+      reorder,
+      strategy: p.strategy || '',
+      image: p.image_url || '',
+      category: p.category || '',
+      supplier: p.supplier || '',
+      sku: p.sku || '',
+      barcode: p.barcode || '',
+      lots,
+      hasLots,
+      lotTotal,
+      stockValue,                       // มูลค่าต้นทุนคงคลัง (Σ จำนวน×ต้นทุน)
+      sizeStock,                        // { size: qty } รวมทุกล็อต
+      colorStock,                       // { colorName: qty } รวมทุกล็อต
+      variants: variantGrid(lots),      // { colorName: { size: qty } } สำหรับ drill-down หน้าสต็อก
+      reservations,                     // รายการจอง
+      reservedTotal,                    // จองรวม (ตัว)
+      reservedByVariant,                // { color: { size: qty } } ที่จองไว้
+      available,                        // พร้อมขาย = onHand − reservedTotal
+      oldestLotDate,                    // วันที่ล็อตเก่าสุด (อายุสต็อก)
+    };
+  });
 
   // dailyAll — ทุกแถว daily ทุกเดือน + รายละเอียดต่อช่องทาง (สำหรับ dashboard รายเดือน)
   const _chIds = (raw.channels || []).map(c => c.id);
@@ -403,10 +446,28 @@ function mapToTMK(raw) {
     }
   }
 
+  // ออเดอร์ + ลูกค้า (Phase 1)
+  const orders = (raw.orders || []).map(o => {
+    const items = Array.isArray(o.items) ? o.items : [];
+    return {
+      id: o.id, code: o.code, customerId: o.customer_id || '', customerName: o.customer_name || '',
+      items, subtotal: Number(o.subtotal || 0), discount: Number(o.discount || 0), total: Number(o.total || 0),
+      status: o.status || 'pending', channel: o.channel || '', trackingNo: o.tracking_no || '', carrier: o.carrier || '',
+      note: o.note || '', statusLog: Array.isArray(o.status_log) ? o.status_log : [],
+      createdAt: o.created_at, qty: items.reduce((a, it) => a + (Number(it.qty) || 0), 0),
+    };
+  });
+  const _ordByCust = {};
+  orders.forEach(o => { if (!o.customerId) return; const c = _ordByCust[o.customerId] || (_ordByCust[o.customerId] = { count: 0, spent: 0 }); c.count++; if (o.status !== 'cancelled') c.spent += o.total; });
+  const customers = (raw.customers || []).map(c => ({
+    id: c.id, code: c.code || '', name: c.name || '', phone: c.phone || '', line: c.line || '', address: c.address || '', note: c.note || '',
+    createdAt: c.created_at, orderCount: _ordByCust[c.id]?.count || 0, totalSpent: _ordByCust[c.id]?.spent || 0,
+  }));
+
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
     channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw, dailyAll,
-    colorMix, sizeMix, staff, poTracker, fb, audit, roles, duties,
+    colorMix, sizeMix, staff, poTracker, fb, audit, roles, duties, orders, customers,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
       name: c.name,
@@ -467,7 +528,10 @@ export function computeMonth(monthIdx0, yearBE) {
   });
 
   // fallback: เดือนอดีตที่กรอกผ่าน "ข้อมูลย้อนหลัง" (มี monthly.actual แต่ไม่มี daily) → ใช้ยอดรายเดือน (กัน SalesView โชว์ ฿0 ทั้งที่กราฟมียอด)
-  const _useMonthly = rows.length === 0 && !isFuture && !isCurrent && Number(mRow?.actual || 0) > 0; // เฉพาะอดีต (เดือนปัจจุบันต้องสดจาก daily เสมอ)
+  // โหมดข้อมูลของเดือน (meta.entryMode): 'monthly' = ใช้ยอดรวมรายเดือน · 'daily' = ใช้ผลรวมรายวัน
+  // อดีตที่มียอดรวมรายเดือน → ใช้ยอดรวมเสมอ (กันข้อมูลรายวันบางส่วนมา "ทับ" ยอดรวมหาย) เว้นแต่เลือกโหมด 'daily' ชัดเจน
+  // (เดือนปัจจุบัน/อนาคต = สดจาก daily เสมอ)
+  const _useMonthly = !isFuture && !isCurrent && Number(mRow?.actual || 0) > 0 && meta.entryMode !== 'daily';
   const MTD = round2(_useMonthly ? Number(mRow.actual || 0) : channels.reduce((s, c) => s + c.actual, 0));
   const ORD = _useMonthly ? Number(mRow.orders || 0) : channels.reduce((s, c) => s + c.orders, 0);
   const AD = round2(_useMonthly ? Number(mRow.adSpend || 0) : rows.reduce((s, r) => s + r.adSpend, 0));
@@ -547,12 +611,29 @@ function mutateTMK(mapped) {
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
   ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
-   'colorMix','sizeMix','staff','poTracker','audit','roles','duties',
+   'colorMix','sizeMix','staff','poTracker','audit','roles','duties','orders','customers',
    'adCampaigns','segments'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
     TMK[key].length = 0;
     TMK[key].push(...(mapped[key] || []));
   });
+}
+
+// บันทึก snapshot มูลค่า/จำนวนคลังรวมของวันนี้ (1 แถว/วัน) → กราฟแนวโน้มในรายงาน
+// เขียนเฉพาะเมื่อค่าเปลี่ยน (กันเขียนซ้ำตอน re-render/อ่านเฉยๆ) · fire-and-forget · ตารางไม่มีก็เงียบ
+let _lastSnap = { day: null, value: null };
+function recordInventorySnapshot() {
+  try {
+    const products = TMK.products || [];
+    if (!products.length) return;
+    const units = products.reduce((a, p) => a + (p.onHand || 0), 0);
+    const value = Math.round(products.reduce((a, p) => a + (p.stockValue || 0), 0));
+    const d = new Date();
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (_lastSnap.day === day && _lastSnap.value === value) return;
+    _lastSnap = { day, value };
+    supabase.from('tmk_inventory_snapshots').upsert({ id: day, date: day, units, value, updated_at: new Date().toISOString() }).then(() => {}, () => {});
+  } catch { /* non-fatal */ }
 }
 
 export function DataProvider({ children }) {
@@ -577,6 +658,7 @@ export function DataProvider({ children }) {
       if (!mountedRef.current) return;
       const mapped = mapToTMK(raw);
       mutateTMK(mapped);
+      if (window.__canEdit !== false) recordInventorySnapshot(); // บันทึกมูลค่าคลังของวันนี้ (ถ้าเปลี่ยน) — ข้ามถ้าเป็น viewer (กัน viewer เขียน DB)
       setError(null);
       setVersion(v => v + 1);
       if (raw.__errors?.length) window.__toast?.(`บางตารางโหลดไม่สำเร็จ: ${raw.__errors.join(', ')} — อาจต้องรัน migration หรือสิทธิ์ไม่พอ`, 'warn');

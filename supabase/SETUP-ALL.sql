@@ -178,7 +178,7 @@ create table if not exists public.tmk_ad_campaigns (
   revenue numeric not null default 0,
   roas numeric not null default 0,
   acos numeric not null default 0,
-  status text not null default 'live' check (status in ('upcoming', 'live', 'done', 'paused')),
+  status text not null default 'live' check (status in ('upcoming', 'live', 'done', 'paused', 'cancelled')),
   start_date date,
   end_date date,
   goal text default 'Conversion',
@@ -320,6 +320,25 @@ alter table public.tmk_daily_sales       add column if not exists channels jsonb
 -- เวลาตอบแชทเฉลี่ย/วัน (นาที)
 alter table public.tmk_daily_sales       add column if not exists avg_reply_minutes numeric not null default 0;
 
+-- รูปสินค้า + ล็อต (batch) ต่อสินค้า — มีล็อต → สต็อก = ผลรวม qty ของทุกล็อต
+alter table public.tmk_products          add column if not exists image_url text;
+alter table public.tmk_products          add column if not exists lots jsonb not null default '[]'::jsonb;
+-- ข้อมูลสินค้าเสริม: หมวดหมู่ / ซัพพลายเออร์ / SKU / บาร์โค้ด
+alter table public.tmk_products          add column if not exists category text;
+alter table public.tmk_products          add column if not exists supplier text;
+alter table public.tmk_products          add column if not exists sku text;
+alter table public.tmk_products          add column if not exists barcode text;
+-- จองสต็อก (reservations) ต่อสินค้า — พร้อมขาย = สต็อก − จอง
+alter table public.tmk_products          add column if not exists reservations jsonb not null default '[]'::jsonb;
+
+-- snapshot มูลค่า/จำนวนคลังรวมต่อวัน (กราฟแนวโน้มในรายงาน)
+create table if not exists public.tmk_inventory_snapshots (
+  id text primary key, date date not null, units integer not null default 0,
+  value numeric not null default 0, updated_at timestamptz not null default now()
+);
+grant select, insert, update, delete on public.tmk_inventory_snapshots to anon, authenticated;
+alter table public.tmk_inventory_snapshots disable row level security;
+
 -- ============================================================
 -- SECTION 5 — Indexes
 -- ============================================================
@@ -443,6 +462,51 @@ on conflict (id) do update set
 -- ============================================================
 -- DONE — ตรวจสอบจำนวน rows
 -- ============================================================
+-- ============================================================
+-- ลูกค้า + ออเดอร์ + ติดตามสถานะ (idempotent — รวมจาก 20260609-orders-customers.sql)
+-- ============================================================
+create table if not exists public.tmk_customers (
+  id text primary key, code text, name text not null default '',
+  phone text, line text, address text, note text,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table if not exists public.tmk_orders (
+  id text primary key, code text not null, customer_id text, customer_name text not null default '',
+  items jsonb not null default '[]'::jsonb, subtotal numeric not null default 0, discount numeric not null default 0,
+  total numeric not null default 0, status text not null default 'pending', channel text,
+  tracking_no text, carrier text, note text, status_log jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create index if not exists tmk_orders_code_idx   on public.tmk_orders(code);
+create index if not exists tmk_orders_status_idx on public.tmk_orders(status);
+create index if not exists tmk_orders_cust_idx   on public.tmk_orders(customer_id);
+grant select, insert, update, delete on public.tmk_customers to anon, authenticated;
+grant select, insert, update, delete on public.tmk_orders    to anon, authenticated;
+alter table public.tmk_customers disable row level security;
+alter table public.tmk_orders    disable row level security;
+do $$ begin
+  perform 1 from pg_proc where proname = 'tmk_touch_updated_at';
+  if found then
+    execute 'drop trigger if exists tmk_customers_touch_updated_at on public.tmk_customers';
+    execute 'create trigger tmk_customers_touch_updated_at before update on public.tmk_customers for each row execute function public.tmk_touch_updated_at()';
+    execute 'drop trigger if exists tmk_orders_touch_updated_at on public.tmk_orders';
+    execute 'create trigger tmk_orders_touch_updated_at before update on public.tmk_orders for each row execute function public.tmk_touch_updated_at()';
+  end if;
+end $$;
+do $$ begin
+  alter table public.tmk_orders replica identity full;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tmk_orders') then
+    alter publication supabase_realtime add table public.tmk_orders;
+  end if;
+  alter table public.tmk_customers replica identity full;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tmk_customers') then
+    alter publication supabase_realtime add table public.tmk_customers;
+  end if;
+end $$;
+
+-- ============================================================
+-- VERIFY — นับแถวแต่ละตาราง
+-- ============================================================
 select 'tmk_channels'           as table_name, count(*) from public.tmk_channels
 union all select 'tmk_campaigns',         count(*) from public.tmk_campaigns
 union all select 'tmk_tasks',             count(*) from public.tmk_tasks
@@ -458,4 +522,6 @@ union all select 'tmk_fb_metrics',        count(*) from public.tmk_fb_metrics
 union all select 'tmk_monthly_history',   count(*) from public.tmk_monthly_history
 union all select 'tmk_color_mix',         count(*) from public.tmk_color_mix
 union all select 'tmk_size_mix',          count(*) from public.tmk_size_mix
-union all select 'tmk_purchase_orders',   count(*) from public.tmk_purchase_orders;
+union all select 'tmk_purchase_orders',   count(*) from public.tmk_purchase_orders
+union all select 'tmk_orders',            count(*) from public.tmk_orders
+union all select 'tmk_customers',         count(*) from public.tmk_customers;

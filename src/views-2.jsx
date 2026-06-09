@@ -3,7 +3,8 @@
    ============================================================ */
 import React, { useState, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section, UserIcon } from './components.jsx';
+import { B, Bk, P, N, Icon, paceStatus, stockMeta, useCountUp, Avatar, Ring, MiniArea, Bars, Section, UserIcon, SIZES, ORDER_STATUSES, ORDER_CANCELLED, orderStatusMeta, orderStatusIndex, barcodeSVGString } from './components.jsx';
+import { advanceOrderStatus } from './modals.jsx';
 import { useUser } from './userContext.jsx';
 import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -474,29 +475,101 @@ function TimelineView({ filtered, fProps }) {
 export function CatalogView({ sub }) {
   if (sub === 'campaigns') return <CampaignsView />;
   if (sub === 'po') return <POView />;
+  if (sub === 'stock') return <StockView />;
+  if (sub === 'report') return <SalesReportView />;
+  if (sub === 'orders') return <OrdersView />;
+  if (sub === 'customers') return <CustomersView />;
   return <ProductsView />;
 }
 
 function ProductsView() {
+  const products = DD.products || [];
+  const [q, setQ] = useState('');
+  const [sort, setSort] = useState('rank');   // rank | sold | stock | value | name
+  const [filter, setFilter] = useState('all'); // all | lots | low | out
+  const [cat, setCat] = useState('');           // '' = ทุกหมวด
+  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+
+  const ql = q.trim().toLowerCase();
+  let list = products.filter(p => {
+    if (ql && !`${p.name} ${p.sku || ''} ${p.barcode || ''} ${p.category || ''} ${p.supplier || ''}`.toLowerCase().includes(ql)) return false;
+    if (cat && p.category !== cat) return false;
+    if (filter === 'lots' && !p.hasLots) return false;
+    if (filter === 'low' && p.stock !== 'low') return false;
+    if (filter === 'out' && p.stock !== 'out') return false;
+    return true;
+  });
+  const sorters = {
+    rank: (a, b) => a.rank - b.rank,
+    sold: (a, b) => b.units - a.units,
+    stock: (a, b) => b.onHand - a.onHand,
+    value: (a, b) => (b.stockValue || 0) - (a.stockValue || 0),
+    name: (a, b) => String(a.name).localeCompare(String(b.name), 'th'),
+  };
+  list = [...list].sort(sorters[sort] || sorters.rank);
+
+  const exportProductsCSV = () => {
+    downloadCSV(`tmk-products-${todayISO()}.csv`, [{
+      title: 'สินค้า', cols: ['ชื่อ', 'หมวดหมู่', 'SKU', 'บาร์โค้ด', 'ผู้ผลิต', 'ราคา', 'ขายแล้ว', 'รายได้', 'คงเหลือ', 'มูลค่าสต็อก', 'จุดสั่งซ้ำ'],
+      rows: list.map(p => [p.name, p.category || '', p.sku || '', p.barcode || '', p.supplier || '', Math.round(p.price), p.units, Math.round(p.rev), p.onHand, Math.round(p.stockValue || 0), p.reorder]),
+    }]);
+    logAudit({ action: 'export', entityType: 'data', entityName: 'สินค้า', summary: 'ส่งออกรายการสินค้าเป็น CSV' });
+    if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
+  };
+
+  const filters = [['all', 'ทั้งหมด'], ['lots', 'มีล็อต'], ['low', 'ใกล้หมด'], ['out', 'หมด']];
+  const sorts = [['rank', 'ลำดับ'], ['sold', 'ขายดี'], ['stock', 'คงเหลือมาก'], ['value', 'มูลค่าสูง'], ['name', 'ชื่อ ก-ฮ']];
+
   return (
     <div className="content-inner rise">
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head">
-          <h3><span style={{color:'var(--accent)'}}><Icon name="bag" /></span> สินค้าขายดี</h3>
-          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="bag" /></span> สินค้า {products.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({list.length}/{products.length})</span>}</h3>
+          <div className="row" style={{ gap: 6 }}>
+            {products.length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('label')} title="พิมพ์ป้ายราคา/บาร์โค้ด"><Icon name="bag" /> ป้าย</button>}
+            <button className="btn btn-sm btn-ghost" disabled={!list.length} onClick={exportProductsCSV} title="ส่งออก CSV"><Icon name="external" /> CSV</button>
+            <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
+          </div>
         </div>
+
+        {products.length > 0 && (<>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <input className="input" style={{ flex: '1 1 220px' }} value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา ชื่อ / SKU / บาร์โค้ด / หมวด" />
+            <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={sort} onChange={e => setSort(e.target.value)}>{sorts.map(([id, l]) => <option key={id} value={id}>เรียง: {l}</option>)}</select>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div className="chips-pick">{filters.map(([id, l]) => <button key={id} className={'pick' + (filter === id ? ' on' : '')} onClick={() => setFilter(id)}>{l}</button>)}</div>
+            {categories.length > 0 && <div className="chips-pick">
+              <button className={'pick' + (cat === '' ? ' on' : '')} onClick={() => setCat('')}>ทุกหมวด</button>
+              {categories.map(c => <button key={c} className={'pick' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
+            </div>}
+          </div>
+        </>)}
+
         <div className="table-wrap"><table className="table">
-          <thead><tr><th style={{width:34}}>#</th><th>สินค้า</th><th style={{textAlign:'right'}}>ราคา</th><th style={{textAlign:'right'}}>ขายแล้ว</th><th style={{textAlign:'right'}}>รายได้</th><th style={{textAlign:'right'}}>คงเหลือ</th><th style={{textAlign:'right'}}>สถานะ</th></tr></thead>
+          <thead><tr><th style={{ width: 34 }}>#</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th style={{ textAlign: 'right' }}>ขายแล้ว</th><th style={{ textAlign: 'right' }}>รายได้</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>สถานะ</th></tr></thead>
           <tbody>
-            {DD.products.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">ยังไม่มีสินค้า — กด "เพิ่มสินค้า" เพื่อเริ่ม</td></tr>
+            {list.length === 0 && (
+              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">{products.length === 0 ? 'ยังไม่มีสินค้า — กด "เพิ่มสินค้า" เพื่อเริ่ม' : 'ไม่พบสินค้าที่ตรงกับเงื่อนไข'}</td></tr>
             )}
-            {DD.products.map(p => {
+            {list.map((p, i) => {
               const sm = stockMeta(p.stock);
               return (
-                <tr key={p.rank} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-                  <td className="num faint" style={{ fontWeight: 700 }}>{p.rank}</td>
-                  <td><div style={{ fontWeight: 600 }}>{p.name}</div><div className="cap">{p.strategy}</div></td>
+                <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
+                  <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
+                  <td>
+                    <div className="row" style={{ gap: 10 }}>
+                      <span style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>
+                        {p.image
+                          ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600 }}>{p.name}{p.category && <span className="chip" style={{ marginLeft: 6, fontWeight: 400 }}>{p.category}</span>}</div>
+                        <div className="cap">{p.hasLots ? `${p.lots.length} ล็อต · รวม ${N(p.lotTotal)} ตัว · มูลค่า ${B(p.stockValue)}${p.strategy ? ' · ' + p.strategy : ''}` : (p.sku ? `SKU ${p.sku}${p.strategy ? ' · ' + p.strategy : ''}` : p.strategy)}</div>
+                      </div>
+                    </div>
+                  </td>
                   <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
                   <td className="num" style={{ textAlign: 'right' }}>{N(p.units)}</td>
                   <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(p.rev)}</td>
@@ -534,6 +607,673 @@ function ProductsView() {
             ))}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ====================  STOCK / INVENTORY VIEW  ==================== */
+// ภาพรวมสต็อกแยก ไซส์ × สี ของทุกสินค้า (รวมจากล็อต) + มูลค่าต้นทุนคงคลัง + ไฮไลต์ใกล้หมด/หมด
+function StockView() {
+  const products = DD.products || [];
+  const [openId, setOpenId] = useState(null);
+  // คอลัมน์ไซส์ = เฉพาะไซส์ที่มีของจริงอย่างน้อย 1 ตัว (ทั้งร้าน)
+  const activeSizes = SIZES.filter(s => products.some(p => (p.sizeStock?.[s] || 0) > 0));
+  const shopUnits = products.reduce((a, p) => a + (p.onHand || 0), 0);
+  const shopValue = products.reduce((a, p) => a + (p.stockValue || 0), 0);
+  const shopReserved = products.reduce((a, p) => a + (p.reservedTotal || 0), 0);
+  const lotCount = products.filter(p => p.hasLots).length;
+  // ใกล้หมด/หมด: หมด (out) ก่อน แล้วใกล้หมด (low) — ใช้สถานะที่คิด reorder แล้ว
+  const alerts = products.filter(p => p.stock === 'out' || p.stock === 'low').sort((a, b) => (a.stock === 'out' ? 0 : 1) - (b.stock === 'out' ? 0 : 1));
+  // รายการจองทั้งหมด (flatten ทุกสินค้า)
+  const allReservations = products.flatMap(p => (p.reservations || []).map(r => ({ ...r, product: p })));
+
+  // จำนวนแนะนำสำหรับ PO = ทำให้กลับเหนือจุดสั่งซ้ำ (อย่างน้อย = reorder)
+  const suggestPO = (p) => Math.max(p.reorder || 0, (p.reorder || 0) * 2 - (p.onHand || 0), 1);
+  const orderPO = (p) => window.__openModal('po', { product: p.name, quantity: suggestPO(p) });
+
+  const releaseReservation = async (p, rsvId, alsoSell) => {
+    if (!guardEdit()) return;
+    try {
+      const newRes = (p.reservations || []).filter(r => r.id !== rsvId);
+      const { error } = await supabase.from('tmk_products').update({ reservations: newRes, updated_at: new Date().toISOString() }).eq('id', p.id);
+      if (error) throw error;
+      logAudit({ action: 'release', entityType: 'product', entityName: p.name, summary: `ปล่อยจองสต็อก "${p.name}"` });
+      if (window.__reload) await window.__reload();
+      if (window.__toast) window.__toast(alsoSell ? 'ปล่อยจองแล้ว — บันทึกการขายต่อได้เลย' : 'ปล่อยจองเรียบร้อย', 'success');
+      if (alsoSell) window.__openModal('sell', p);
+    } catch (err) { if (window.__toast) window.__toast('ปล่อยจองไม่สำเร็จ: ' + err.message, 'error'); }
+  };
+
+  return (
+    <div className="content-inner rise">
+      <div className="card">
+        <div className="card-head">
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="grid" /></span> สต็อก / คลังสินค้า</h3>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {lotCount > 0 && <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('sell')}><Icon name="wallet" /> บันทึกการขาย</button>}
+            {lotCount > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('quickfind')}><Icon name="search" /> ขายเร็ว/สแกน</button>}
+            {lotCount > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('reserve')}><Icon name="clock" /> จองสต็อก</button>}
+            {lotCount > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('adjust')}><Icon name="box" /> ปรับสต็อก</button>}
+            <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
+          </div>
+        </div>
+
+        {/* แจ้งเตือน ต้องสั่งผลิต / ใกล้หมด → สั่ง PO ได้เลย */}
+        {alerts.length > 0 && (
+          <div style={{ border: '1px solid var(--warn-soft)', background: 'var(--warn-soft)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 14 }}>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}><span style={{ color: 'var(--warn)' }}><Icon name="bell" /></span><b>ต้องสั่งผลิต / ใกล้หมด ({alerts.length})</b></div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              {alerts.map(p => { const sm = stockMeta(p.stock); return (
+                <span key={p.id} className="chip" style={{ background: 'var(--surface)', border: `1px solid ${sm.c}`, color: 'var(--ink)', gap: 4 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sm.c, display: 'inline-block', marginRight: 3 }}></span>
+                  <span style={{ cursor: 'pointer' }} onClick={() => window.__openModal('product', p)}>{p.name} <span className="cap">เหลือ {p.onHand}</span></span>
+                  <button className="btn btn-sm" style={{ padding: '1px 6px', marginLeft: 4 }} title={`สร้าง PO สั่งผลิต ~${suggestPO(p)} ตัว`} onClick={() => orderPO(p)}><Icon name="box" /> สั่ง</button>
+                </span>
+              ); })}
+            </div>
+          </div>
+        )}
+
+        {/* สรุปทั้งร้าน */}
+        <div className="row" style={{ gap: 28, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div><div className="cap">รวมสต็อกทั้งร้าน</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{N(shopUnits)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></div></div>
+          <div><div className="cap">มูลค่าต้นทุนคงคลัง</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{B(shopValue)}</div></div>
+          {shopReserved > 0 && <div><div className="cap">จองรวม / พร้อมขาย</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{N(shopReserved)} <span className="cap" style={{ fontWeight: 400 }}>/ {N(shopUnits - shopReserved)}</span></div></div>}
+          <div><div className="cap">สินค้าที่มีล็อต</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{lotCount}/{products.length}</div></div>
+        </div>
+
+        {/* รายการจอง */}
+        {allReservations.length > 0 && (
+          <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 16 }}>
+            <div className="row" style={{ gap: 8, marginBottom: 8 }}><span style={{ color: 'var(--accent)' }}><Icon name="clock" /></span><b>รายการจอง ({allReservations.length})</b></div>
+            <div className="table-wrap"><table className="table">
+              <tbody>
+                {allReservations.map(r => (
+                  <tr key={r.id}>
+                    <td><span style={{ fontWeight: 600 }}>{r.product.name}</span>{r.customer && <span className="cap"> · {r.customer}</span>}<div className="cap">{(r.items || []).map(it => `${it.color} ${it.size}×${it.qty}`).join(', ')}{r.note ? ' · ' + r.note : ''}</div></td>
+                    <td className="cap" style={{ whiteSpace: 'nowrap' }}>{thaiDate(r.date) || r.date}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <button className="btn btn-sm btn-ghost" onClick={() => releaseReservation(r.product, r.id, true)} title="ปล่อยจอง + บันทึกขาย"><Icon name="wallet" /> ขาย</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => releaseReservation(r.product, r.id, false)} style={{ color: 'var(--bad)' }} title="ปล่อยจอง (ยกเลิก)"><Icon name="x" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          </div>
+        )}
+
+        {products.length === 0
+          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้า — ไปหน้า "สินค้า" เพื่อเพิ่ม + ใส่ล็อต (ไซส์ × สี)</div>
+          : (
+            <div className="table-wrap" style={{ overflowX: 'auto' }}>
+              <table className="table" style={{ minWidth: 'max-content' }}>
+                <thead><tr>
+                  <th>สินค้า</th>
+                  {activeSizes.map(s => <th key={s} style={{ textAlign: 'center', minWidth: 44 }}>{s}</th>)}
+                  <th style={{ textAlign: 'right' }}>รวม</th>
+                  <th style={{ textAlign: 'right' }}>มูลค่า</th>
+                  <th style={{ textAlign: 'right' }}>สถานะ</th>
+                  <th style={{ textAlign: 'right' }}></th>
+                </tr></thead>
+                <tbody>
+                  {products.map(p => {
+                    const sm = stockMeta(p.stock);
+                    const isOpen = openId === p.id;
+                    return (
+                      <React.Fragment key={p.id}>
+                        <tr onClick={() => setOpenId(isOpen ? null : p.id)} style={{ cursor: 'pointer' }}>
+                          <td>
+                            <div className="row" style={{ gap: 10 }}>
+                              <span style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--ink-4)', flexShrink: 0 }}><Icon name="chevR" /></span>
+                              <span onClick={(e) => { e.stopPropagation(); window.__openModal('product', p); }} title="แก้ไขสินค้า" style={{ width: 32, height: 32, borderRadius: 7, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>
+                                {p.image ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}
+                              </span>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 600 }}>{p.name}</div>
+                                <div className="cap">{p.hasLots ? `${p.lots.length} ล็อต` : 'ไม่มีล็อต'}</div>
+                              </div>
+                            </div>
+                          </td>
+                          {activeSizes.map(s => { const q = p.sizeStock?.[s] || 0; return <td key={s} className="num" style={{ textAlign: 'center', color: q ? 'var(--ink)' : 'var(--ink-4)' }}>{q ? N(q) : '—'}</td>; })}
+                          <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: sm.c }}>{N(p.onHand)}{p.reservedTotal > 0 && <div className="cap" style={{ fontWeight: 400, color: 'var(--accent)' }}>จอง {N(p.reservedTotal)} · ว่าง {N(p.available)}</div>}</td>
+                          <td className="num" style={{ textAlign: 'right' }}>{p.stockValue ? B(p.stockValue) : '—'}</td>
+                          <td style={{ textAlign: 'right' }}><span className={`chip ${sm.cls}`}>{sm.label}</span></td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button className="icon-btn" title="ประวัติเข้า-ออก" onClick={(e) => { e.stopPropagation(); window.__openModal('ledger', p); }}><Icon name="route" /></button>
+                            {p.hasLots && p.onHand > 0 && <button className="btn btn-sm btn-ghost" title="บันทึกการขาย / ตัดสต็อก" onClick={(e) => { e.stopPropagation(); window.__openModal('sell', p); }}><Icon name="wallet" /> ขาย</button>}
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr><td colSpan={activeSizes.length + 5} style={{ background: 'var(--surface-2)', padding: 12 }}>
+                            <ProductVariantMatrix p={p} />
+                          </td></tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        {activeSizes.length === 0 && products.length > 0 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 10 }}>ยังไม่มีข้อมูลไซส์ในล็อต — เปิดสินค้าแล้วเพิ่มล็อต (ไซส์ × สี) เพื่อดูภาพรวมที่นี่</div>}
+      </div>
+    </div>
+  );
+}
+
+// ตารางสี × ไซส์ ของสินค้า 1 ตัว (รวมทุกล็อต) — อ่านอย่างเดียว สำหรับ drill-down หน้าสต็อก
+function ProductVariantMatrix({ p }) {
+  const variants = p.variants || {};
+  const colorNames = Object.keys(variants);
+  const sizes = SIZES.filter(s => (p.sizeStock?.[s] || 0) > 0);
+  if (!colorNames.length || !sizes.length) return <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีข้อมูลล็อต (ไซส์ × สี) — สินค้านี้กรอกสต็อกรวมแบบไม่แยกไซส์/สี</div>;
+  // ดึง hex ของแต่ละสีจากล็อต (variants เก็บแค่ชื่อ+จำนวน)
+  const hexByName = {};
+  (p.lots || []).forEach(l => (l.colors || []).forEach(c => { if (c?.name && !hexByName[c.name]) hexByName[c.name] = c.hex; }));
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="table" style={{ margin: 0, minWidth: 'max-content', background: 'var(--surface)' }}>
+        <thead><tr>
+          <th style={{ textAlign: 'left' }}>สี \ ไซส์</th>
+          {sizes.map(s => <th key={s} style={{ textAlign: 'center', minWidth: 44 }}>{s}</th>)}
+          <th style={{ textAlign: 'center' }}>รวม</th>
+        </tr></thead>
+        <tbody>
+          {colorNames.map(name => {
+            const row = variants[name] || {};
+            const rt = sizes.reduce((a, s) => a + (row[s] || 0), 0);
+            return (
+              <tr key={name}>
+                <td><span className="row" style={{ gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: hexByName[name] || '#ccc', border: '1px solid var(--line)', display: 'inline-block', flexShrink: 0 }}></span>{name}</span></td>
+                {sizes.map(s => { const q = row[s] || 0; const col = q === 0 ? 'var(--ink-4)' : q <= 2 ? 'var(--warn)' : 'var(--good)'; return <td key={s} className="num" style={{ textAlign: 'center', color: col, fontWeight: q > 0 && q <= 2 ? 700 : 400 }}>{q ? N(q) : '—'}</td>; })}
+                <td className="num" style={{ textAlign: 'center', fontWeight: 700 }}>{N(rt)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot><tr style={{ fontWeight: 700 }}>
+          <td>รวมต่อไซส์</td>
+          {sizes.map(s => <td key={s} className="num" style={{ textAlign: 'center' }}>{N(p.sizeStock?.[s] || 0)}</td>)}
+          <td className="num" style={{ textAlign: 'center', fontWeight: 800, color: 'var(--accent-2)' }}>{N(p.onHand)}</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  );
+}
+
+/* ---------- CSV download helper (Blob + UTF-8 BOM, กัน formula-injection) ---------- */
+const _csvEsc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+function downloadCSV(filename, blocks) {
+  let csv = '';
+  blocks.forEach(({ title, cols, rows }) => {
+    if (title) csv += title + '\n';
+    if (cols) csv += cols.map(_csvEsc).join(',') + '\n';
+    (rows || []).forEach(r => { csv += r.map(_csvEsc).join(',') + '\n'; });
+    csv += '\n';
+  });
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ====================  SALES REPORT VIEW  ==================== */
+// รายงานการขาย — สรุปจากประวัติการขาย (tmk_audit_logs action='sale') อ่านอย่างเดียว
+// ⚠️ ไม่แตะ หน้าหลัก / ยอดขาย (Sales) / วางแผน (Planner) — อ่าน audit log มาสรุปเท่านั้น
+function SalesReportView() {
+  const [sales, setSales] = useState(null); // null = กำลังโหลด
+  const [range, setRange] = useState('month'); // month | d90 | all
+  const [snaps, setSnaps] = useState([]); // snapshot มูลค่าคลังตามเวลา
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      const { data, error } = await supabase.from('tmk_inventory_snapshots')
+        .select('date,units,value').order('date', { ascending: true }).limit(120);
+      if (!cancel && !error) setSnaps(data || []);
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      const { data, error } = await supabase.from('tmk_audit_logs')
+        .select('created_at,details').eq('action', 'sale')
+        .order('created_at', { ascending: false }).limit(2000);
+      if (cancel) return;
+      if (error) { setSales([]); return; }
+      const parsed = (data || []).map(r => {
+        let d = {};
+        try { d = typeof r.details === 'string' ? JSON.parse(r.details) : (r.details || {}); } catch { /* ข้าม log ผิดรูป */ }
+        const s = d.data;
+        if (!s || !Array.isArray(s.lines)) return null; // log เก่าที่ไม่มี structured → ข้าม
+        return { ...s, day: s.date || String(r.created_at).slice(0, 10) };
+      }).filter(Boolean);
+      setSales(parsed);
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  const ranges = [['month', 'เดือนนี้'], ['d90', '90 วัน'], ['all', 'ทั้งหมด']];
+  const rangeLabel = (ranges.find(r => r[0] === range) || [])[1] || '';
+  const curYM = todayISO().slice(0, 7);
+  const cutoff90 = (() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); })();
+  const inRange = (day) => range === 'all' ? true : !day ? false : range === 'month' ? day.slice(0, 7) === curYM : day >= cutoff90;
+
+  // map รูปสินค้า + hex ของสี + หมวดหมู่ จากข้อมูลแคตตาล็อก (read-only)
+  const prodById = {}; (DD.products || []).forEach(p => { prodById[p.id] = p; });
+  const hexByColor = {}; (DD.products || []).forEach(p => (p.lots || []).forEach(l => (l.colors || []).forEach(c => { if (c?.name && !(c.name in hexByColor)) hexByColor[c.name] = c.hex; })));
+
+  const rows = (sales || []).filter(s => inRange(s.day));
+  const byProduct = {}, bySize = {}, byColor = {}, byCategory = {}, dailyMap = {};
+  let totalQty = 0, totalAmount = 0, totalCost = 0;
+  rows.forEach(s => {
+    const pid = s.productId || s.productName;
+    const sq = Number(s.totalQty) || s.lines.reduce((a, l) => a + (Number(l.qty) || 0), 0);
+    const sa = Number(s.totalAmount) || sq * (Number(s.price) || 0);
+    const sc = Number(s.totalCost) || 0;
+    const bp = byProduct[pid] || (byProduct[pid] = { id: s.productId, name: s.productName, qty: 0, amount: 0, cost: 0 });
+    bp.qty += sq; bp.amount += sa; bp.cost += sc;
+    totalQty += sq; totalAmount += sa; totalCost += sc;
+    const cat = (s.category || prodById[pid]?.category || 'ไม่ระบุหมวด');
+    const bc = byCategory[cat] || (byCategory[cat] = { name: cat, qty: 0, amount: 0, cost: 0 });
+    bc.qty += sq; bc.amount += sa; bc.cost += sc;
+    const dm = dailyMap[s.day] || (dailyMap[s.day] = { qty: 0, amount: 0 });
+    dm.qty += sq; dm.amount += sa;
+    s.lines.forEach(l => { const q = Number(l.qty) || 0; if (l.size) bySize[l.size] = (bySize[l.size] || 0) + q; if (l.color) byColor[l.color] = (byColor[l.color] || 0) + q; });
+  });
+  const totalProfit = totalAmount - totalCost;
+  const margin = totalAmount > 0 ? (totalProfit / totalAmount) * 100 : 0;
+  const productRank = Object.values(byProduct).sort((a, b) => b.qty - a.qty);
+  const sizeRank = SIZES.filter(s => bySize[s] > 0).map(s => ({ label: s, qty: bySize[s] }));
+  const colorRank = Object.entries(byColor).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
+  const catRank = Object.values(byCategory).sort((a, b) => b.amount - a.amount);
+  const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
+  const maxColor = Math.max(1, ...colorRank.map(x => x.qty));
+
+  // กราฟรายวัน (ในช่วงที่เลือก) — เรียงวันจากเก่า→ใหม่
+  const dailyArr = Object.keys(dailyMap).sort().map(day => ({ day, ...dailyMap[day] }));
+  const dailyLabel = (day) => { const [, m, d] = day.split('-'); return `${Number(d)}/${Number(m)}`; };
+
+  // กราฟรายเดือน (ทุกช่วง — ภาพรวมระยะยาว) 8 เดือนล่าสุด
+  const monthMap = {};
+  (sales || []).forEach(s => { const ym = (s.day || '').slice(0, 7); if (ym) monthMap[ym] = (monthMap[ym] || 0) + (Number(s.totalAmount) || 0); });
+  const monthlyArr = Object.keys(monthMap).sort().slice(-8).map(ym => {
+    const [y, m] = ym.split('-').map(Number);
+    return { m: `${MONTHS_TH_SHORT[m - 1] || m} ${String((y + 543) % 100).padStart(2, '0')}`, rev: monthMap[ym] };
+  });
+
+  // สินค้าค้าง/ขายช้า (sell-through) — เทียบขายในช่วง vs คงเหลือปัจจุบัน
+  const sellThrough = (DD.products || []).filter(p => (p.onHand || 0) > 0).map(p => {
+    const sold = byProduct[p.id]?.qty || 0;
+    const base = sold + (p.onHand || 0);
+    return { p, sold, onHand: p.onHand || 0, pct: base > 0 ? (sold / base) * 100 : 0 };
+  }).sort((a, b) => a.pct - b.pct); // ช้าสุดขึ้นก่อน
+
+  // ABC analysis (80/20) — จัดกลุ่มสินค้าตามสัดส่วนยอดขายสะสม
+  const abcSorted = productRank.filter(p => p.amount > 0).slice().sort((a, b) => b.amount - a.amount);
+  const abcTotal = abcSorted.reduce((a, p) => a + p.amount, 0) || 1;
+  let _cum = 0;
+  const abc = abcSorted.map(p => { _cum += p.amount; const cumPct = (_cum / abcTotal) * 100; return { ...p, cumPct, cls: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' }; });
+  const abcCount = { A: abc.filter(x => x.cls === 'A').length, B: abc.filter(x => x.cls === 'B').length, C: abc.filter(x => x.cls === 'C').length };
+
+  // อายุสต็อก + การหมุนเวียน (turnover ≈ ขายในช่วง / สต็อกเฉลี่ย≈คงเหลือ)
+  const _todayStr = todayISO();
+  const daysSince = (iso) => { if (!iso) return null; const a = new Date(iso + 'T00:00:00'), b = new Date(_todayStr + 'T00:00:00'); return Math.max(0, Math.round((b - a) / 86400000)); };
+  const aging = (DD.products || []).filter(p => (p.onHand || 0) > 0).map(p => {
+    const sold = byProduct[p.id]?.qty || 0;
+    const turnover = (p.onHand || 0) > 0 ? sold / p.onHand : 0;
+    return { p, age: daysSince(p.oldestLotDate), onHand: p.onHand || 0, turnover };
+  }).sort((a, b) => (b.age || 0) - (a.age || 0)); // เก่าสุดก่อน
+
+  // กราฟมูลค่าคลังตามเวลา
+  const snapVals = (snaps || []).map(s => Number(s.value) || 0);
+  const snapLabels = (snaps || []).map(s => { const [, m, d] = String(s.date).split('-'); return `${Number(d)}/${Number(m)}`; });
+  const abcChip = { A: 'chip-good', B: 'chip-accent', C: '' };
+
+  const exportCSV = () => {
+    const blocks = [
+      { title: `รายงานการขาย (${rangeLabel})`, cols: ['สรุป', 'ค่า'], rows: [
+        ['รวมขาย (ตัว)', totalQty], ['ยอดเงิน', Math.round(totalAmount)], ['ต้นทุน', Math.round(totalCost)],
+        ['กำไร', Math.round(totalProfit)], ['มาร์จิ้น %', margin.toFixed(1)], ['จำนวนบิล', rows.length],
+      ] },
+      { title: 'สินค้าขายดี', cols: ['อันดับ', 'สินค้า', 'หมวดหมู่', 'ขายแล้ว', 'ยอดเงิน', 'ต้นทุน', 'กำไร'], rows: productRank.map((p, i) => [i + 1, p.name, prodById[p.id]?.category || '', p.qty, Math.round(p.amount), Math.round(p.cost), Math.round(p.amount - p.cost)]) },
+      { title: 'ไซส์ขายดี', cols: ['ไซส์', 'จำนวน'], rows: sizeRank.map(s => [s.label, s.qty]) },
+      { title: 'สีขายดี', cols: ['สี', 'จำนวน'], rows: colorRank.map(c => [c.name, c.qty]) },
+      { title: 'กำไรตามหมวดหมู่', cols: ['หมวดหมู่', 'ขายแล้ว', 'ยอดเงิน', 'กำไร'], rows: catRank.map(c => [c.name, c.qty, Math.round(c.amount), Math.round(c.amount - c.cost)]) },
+      { title: 'ยอดขายรายวัน', cols: ['วันที่', 'จำนวน', 'ยอดเงิน'], rows: dailyArr.map(d => [d.day, d.qty, Math.round(d.amount)]) },
+      { title: 'ABC analysis', cols: ['กลุ่ม', 'สินค้า', 'ยอดเงิน', 'สะสม%'], rows: abc.map(p => [p.cls, p.name, Math.round(p.amount), p.cumPct.toFixed(1)]) },
+      { title: 'อายุสต็อก/หมุนเวียน', cols: ['สินค้า', 'คงเหลือ', 'อายุ(วัน)', 'turnover'], rows: aging.map(({ p, age, onHand, turnover }) => [p.name, onHand, age == null ? '' : age, turnover.toFixed(2)]) },
+      { title: 'มูลค่าคลังตามเวลา', cols: ['วันที่', 'จำนวน', 'มูลค่า'], rows: (snaps || []).map(s => [s.date, s.units, Math.round(Number(s.value) || 0)]) },
+      { title: 'ประวัติการขาย', cols: ['วันที่', 'สินค้า', 'รายการ', 'จำนวน', 'ยอดเงิน', 'กำไร'], rows: rows.map(s => [s.day, s.productName, s.lines.map(l => `${l.color} ${l.size}x${l.qty}`).join('; '), Number(s.totalQty) || 0, Math.round(Number(s.totalAmount) || 0), Math.round((Number(s.totalAmount) || 0) - (Number(s.totalCost) || 0))]) },
+    ];
+    downloadCSV(`tmk-sales-report-${todayISO()}.csv`, blocks);
+    logAudit({ action: 'export', entityType: 'data', entityName: 'รายงานการขาย', summary: `ส่งออกรายงานการขาย (${rangeLabel}) เป็น CSV` });
+    if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
+  };
+
+  const KPI = ({ label, value, color }) => <div><div className="cap">{label}</div><div className="num" style={{ fontSize: 21, fontWeight: 800, color }}>{value}</div></div>;
+
+  return (
+    <div className="content-inner rise">
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="sales" /></span> รายงานการขาย</h3>
+          <div className="row" style={{ gap: 6 }}>
+            <div className="segbar">{ranges.map(([id, l]) => <button key={id} className={'seg' + (range === id ? ' active' : '')} onClick={() => setRange(id)}>{l}</button>)}</div>
+            <button className="btn btn-sm btn-ghost" disabled={!rows.length} onClick={exportCSV} title="ส่งออกรายงานเป็น CSV"><Icon name="external" /> CSV</button>
+          </div>
+        </div>
+        {sales === null
+          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>กำลังโหลดประวัติการขาย…</div>
+          : rows.length === 0
+            ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีประวัติการขายในช่วงนี้ — บันทึกการขายที่หน้า "สต็อก/คลัง"</div>
+            : (
+              <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
+                <KPI label="รวมขาย" value={<>{N(totalQty)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></>} />
+                <KPI label="ยอดเงิน" value={B(totalAmount)} />
+                <KPI label="ต้นทุน" value={B(totalCost)} color="var(--ink-3)" />
+                <KPI label="กำไร" value={B(totalProfit)} color={totalProfit >= 0 ? 'var(--good)' : 'var(--bad)'} />
+                <KPI label="มาร์จิ้น" value={P(margin)} color={totalProfit >= 0 ? 'var(--good)' : 'var(--bad)'} />
+                <KPI label="จำนวนบิล" value={N(rows.length)} />
+              </div>
+            )}
+      </div>
+
+      {/* กราฟมูลค่าคลังตามเวลา (ไม่ขึ้นกับยอดขาย — โชว์เมื่อมี snapshot) */}
+      {snaps.length > 1 && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row between" style={{ marginBottom: 10 }}>
+            <div className="eyebrow">มูลค่าคลังตามเวลา</div>
+            <div className="cap">ล่าสุด <b style={{ color: 'var(--ink)' }}>{B(snapVals[snapVals.length - 1])}</b></div>
+          </div>
+          <MiniArea data={snapVals} labels={snapLabels} h={120} color="var(--good)" id="rep-invval" fmt={B} />
+        </div>
+      )}
+
+      {sales !== null && rows.length > 0 && (<>
+        {/* กราฟยอดขายรายวัน + รายเดือน */}
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายวัน ({rangeLabel})</div>
+            <MiniArea data={dailyArr.map(d => d.amount)} labels={dailyArr.map(d => dailyLabel(d.day))} h={120} color="var(--accent)" id="rep-daily" fmt={B} />
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน (8 เดือนล่าสุด)</div>
+            {monthlyArr.length ? <Bars data={monthlyArr} h={140} color="var(--accent-2)" labelKey="m" valueKey="rev" fmt={B} /> : <div className="cap" style={{ color: 'var(--ink-4)', padding: '30px 0', textAlign: 'center' }}>ยังไม่มีข้อมูล</div>}
+          </div>
+        </div>
+
+        {/* สินค้าขายดี + กำไร */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>สินค้าขายดี</div>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th style={{ width: 34 }}>#</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ขายแล้ว</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ textAlign: 'right' }}>กำไร</th></tr></thead>
+            <tbody>
+              {productRank.map((p, i) => { const prod = prodById[p.id]; const profit = p.amount - p.cost; return (
+                <tr key={p.id || p.name} onClick={() => prod && window.__openModal('product', prod)} style={{ cursor: prod ? 'pointer' : 'default' }}>
+                  <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
+                  <td><div className="row" style={{ gap: 10 }}>
+                    <span style={{ width: 30, height: 30, borderRadius: 7, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>{prod?.image ? <img src={prod.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}</span>
+                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{p.name}</div>{prod?.category && <div className="cap">{prod.category}</div>}</div>
+                  </div></td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(p.qty)}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{B(p.amount)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: profit >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{p.cost > 0 ? B(profit) : '—'}</td>
+                </tr>
+              ); })}
+            </tbody>
+          </table></div>
+        </div>
+
+        {/* ไซส์ + สี ขายดี */}
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>ไซส์ขายดี</div>
+            {sizeRank.map(s => (
+              <div key={s.label} className="row" style={{ gap: 10, marginBottom: 9 }}>
+                <span className="sm" style={{ width: 42, fontWeight: 700 }}>{s.label}</span>
+                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${(s.qty / maxSize) * 100}%`, background: 'var(--accent)' }}></span></div>
+                <span className="num sm" style={{ width: 46, textAlign: 'right', fontWeight: 700 }}>{N(s.qty)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>สีขายดี</div>
+            {colorRank.map(c => (
+              <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
+                <span style={{ width: 16, height: 16, borderRadius: 4, background: hexByColor[c.name] || '#ccc', border: '1px solid var(--line)', flexShrink: 0 }}></span>
+                <span className="sm" style={{ flex: '0 0 64px' }}>{c.name}</span>
+                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.qty / maxColor) * 100}%`, background: 'var(--accent)' }}></span></div>
+                <span className="num sm" style={{ width: 46, textAlign: 'right', fontWeight: 700 }}>{N(c.qty)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* กำไรตามหมวดหมู่ + สินค้าค้าง/ขายช้า */}
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>กำไรตามหมวดหมู่</div>
+            {catRank.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>—</div> : (
+              <div className="table-wrap"><table className="table">
+                <thead><tr><th>หมวดหมู่</th><th style={{ textAlign: 'right' }}>ขาย</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ textAlign: 'right' }}>กำไร</th></tr></thead>
+                <tbody>{catRank.map(c => { const pf = c.amount - c.cost; return (
+                  <tr key={c.name}><td>{c.name}</td><td className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(c.amount)}</td><td className="num" style={{ textAlign: 'right', color: pf >= 0 ? 'var(--good)' : 'var(--bad)' }}>{c.cost > 0 ? B(pf) : '—'}</td></tr>
+                ); })}</tbody>
+              </table></div>
+            )}
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>สินค้าค้าง / ขายช้า <span className="cap" style={{ fontWeight: 400 }}>(sell-through)</span></div>
+            {sellThrough.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีสินค้าคงเหลือ</div> : (
+              <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
+                <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>ขาย</th><th style={{ textAlign: 'right' }}>เหลือ</th><th style={{ textAlign: 'right' }}>sell-through</th></tr></thead>
+                <tbody>{sellThrough.slice(0, 30).map(({ p, sold, onHand, pct }) => (
+                  <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
+                    <td><span style={{ fontWeight: 600 }}>{p.name}</span>{sold === 0 && <span className="chip chip-bad" style={{ marginLeft: 6 }}>ค้าง</span>}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(sold)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: pct >= 50 ? 'var(--good)' : pct > 0 ? 'var(--warn)' : 'var(--bad)' }}>{P(pct, 0)}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+          </div>
+        </div>
+
+        {/* ABC analysis + อายุสต็อก/หมุนเวียน */}
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="row between" style={{ marginBottom: 14 }}>
+              <div className="eyebrow">ABC analysis <span className="cap" style={{ fontWeight: 400 }}>(80/20)</span></div>
+              <div className="cap">A:{abcCount.A} · B:{abcCount.B} · C:{abcCount.C}</div>
+            </div>
+            {abc.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มียอดขาย</div> : (
+              <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
+                <thead><tr><th>กลุ่ม</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ textAlign: 'right' }}>สะสม%</th></tr></thead>
+                <tbody>{abc.map(p => (
+                  <tr key={p.id || p.name}>
+                    <td><span className={`chip ${abcChip[p.cls]}`} style={{ fontWeight: 700 }}>{p.cls}</span></td>
+                    <td style={{ fontWeight: 600 }}>{p.name}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{B(p.amount)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{P(p.cumPct, 0)}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>อายุสต็อก / การหมุนเวียน</div>
+            {aging.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีสินค้าคงเหลือ</div> : (
+              <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
+                <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>เหลือ</th><th style={{ textAlign: 'right' }}>อายุ (วัน)</th><th style={{ textAlign: 'right' }}>turnover</th></tr></thead>
+                <tbody>{aging.slice(0, 30).map(({ p, age, onHand, turnover }) => (
+                  <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
+                    <td style={{ fontWeight: 600 }}>{p.name}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
+                    <td className="num" style={{ textAlign: 'right', color: age != null && age > 90 ? 'var(--bad)' : age != null && age > 60 ? 'var(--warn)' : 'var(--ink)', fontWeight: age != null && age > 60 ? 700 : 400 }}>{age == null ? '—' : age}</td>
+                    <td className="num" style={{ textAlign: 'right', color: turnover >= 1 ? 'var(--good)' : turnover > 0 ? 'var(--warn)' : 'var(--ink-4)' }}>{turnover ? turnover.toFixed(2) : '—'}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            )}
+          </div>
+        </div>
+
+        {/* ประวัติการขายล่าสุด */}
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 14 }}>ประวัติการขายล่าสุด</div>
+          <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}><table className="table">
+            <thead><tr><th>วันที่</th><th>สินค้า</th><th>รายการ</th><th style={{ textAlign: 'right' }}>จำนวน</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th></tr></thead>
+            <tbody>
+              {rows.slice(0, 50).map((s, i) => (
+                <tr key={i}>
+                  <td className="cap" style={{ whiteSpace: 'nowrap' }}>{thaiDate(s.day) || s.day}</td>
+                  <td style={{ fontWeight: 600 }}>{s.productName}</td>
+                  <td className="cap">{s.lines.map(l => `${l.color} ${l.size}×${l.qty}`).join(', ')}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(Number(s.totalQty) || 0)}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{B(Number(s.totalAmount) || 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+          {rows.length > 50 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>แสดง 50 รายการล่าสุด จากทั้งหมด {N(rows.length)} บิล</div>}
+        </div>
+      </>)}
+    </div>
+  );
+}
+
+/* ====================  ORDERS (Kanban) + CUSTOMERS  ==================== */
+// พิมพ์ใบเสร็จ/ใบส่งของ (iframe print + บาร์โค้ดโค้ดออเดอร์)
+function printReceipt(order) {
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const rows = (order.items || []).map(it => `<tr><td>${esc(it.name)} · ${esc(it.color)} ${esc(it.size)}</td><td style="text-align:center">${it.qty}</td><td style="text-align:right">${B(it.price)}</td><td style="text-align:right">${B((it.qty || 0) * (it.price || 0))}</td></tr>`).join('');
+  const bc = barcodeSVGString(order.code, { height: 38, module: 1.3 });
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(order.code)}</title><style>
+    *{font-family:'Sarabun','Noto Sans Thai',system-ui,sans-serif;box-sizing:border-box}
+    body{margin:0;padding:14px;max-width:340px} h2{margin:0;font-size:18px;text-align:center}
+    .sub{text-align:center;font-size:11px;color:#555;margin-bottom:8px}
+    table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0} td,th{padding:3px 2px;border-bottom:1px solid #eee;text-align:left}
+    .tot{display:flex;justify-content:space-between;font-size:13px;margin-top:3px} .tot.big{font-weight:800;font-size:16px;border-top:1px solid #333;padding-top:4px;margin-top:4px}
+    .cust{font-size:12px;margin:6px 0} .bc{text-align:center;margin-top:10px} .bc svg{max-width:100%}
+    @media print{@page{margin:6mm}}
+  </style></head><body>
+    <h2>TMK — ใบเสร็จ / ใบส่งของ</h2><div class="sub">${esc(order.code)} · ${new Date(order.createdAt || Date.now()).toLocaleDateString('th-TH')}</div>
+    <div class="cust"><b>ลูกค้า:</b> ${esc(order.customerName || '-')}</div>
+    <table><thead><tr><th>รายการ</th><th style="text-align:center">จำนวน</th><th style="text-align:right">ราคา</th><th style="text-align:right">รวม</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="tot"><span>รวม</span><span>${B(order.subtotal)}</span></div>
+    ${order.discount ? `<div class="tot"><span>ส่วนลด</span><span>-${B(order.discount)}</span></div>` : ''}
+    <div class="tot big"><span>ยอดสุทธิ</span><span>${B(order.total)}</span></div>
+    ${order.note ? `<div class="cust" style="margin-top:8px;color:#555">โน้ต: ${esc(order.note)}</div>` : ''}
+    <div class="bc">${bc}<div style="font-family:monospace;font-size:10px">${esc(order.code)}</div></div>
+  </body></html>`;
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  document.body.appendChild(iframe);
+  const doc = iframe.contentWindow.document; doc.open(); doc.write(html); doc.close();
+  setTimeout(() => { try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch { /* ignore */ } setTimeout(() => iframe.remove(), 1500); }, 350);
+}
+
+function OrdersView() {
+  const orders = DD.orders || [];
+  const [dragId, setDragId] = useState(null);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const active = orders.filter(o => o.status !== 'cancelled');
+  const cancelled = orders.filter(o => o.status === 'cancelled');
+  const copyTrack = (o) => { try { navigator.clipboard.writeText(`${location.origin}${location.pathname}?track=${o.code}`); window.__toast?.('คัดลอกลิงก์ติดตามแล้ว — ส่งให้ลูกค้าได้เลย', 'success'); } catch { window.__toast?.('คัดลอกไม่ได้', 'error'); } };
+  // เปลี่ยนสถานะออเดอร์ — เช็คสิทธิ์ + ยืนยันก่อน action ที่กู้ไม่ได้ (ส่งแล้ว=ตัดสต็อก, ยกเลิก=คืนจอง)
+  const changeStatus = (o, status) => {
+    if (!o || o.status === status) return;
+    if (!guardEdit()) return;
+    if (status === 'shipped' && !window.confirm(`ยืนยัน "ส่งแล้ว" ออเดอร์ ${o.code}?\nระบบจะตัดสต็อกจริงตามออเดอร์นี้ (กู้คืนไม่ได้)`)) return;
+    if (status === 'cancelled' && !window.confirm(`ยกเลิกออเดอร์ ${o.code}?\nระบบจะปล่อยสต็อกที่จองคืน`)) return;
+    advanceOrderStatus(o, status);
+  };
+  const onDrop = (status) => { const o = orders.find(x => x.id === dragId); setDragId(null); changeStatus(o, status); };
+
+  return (
+    <div className="content-inner rise">
+      <div className="row between" style={{ marginBottom: 14 }}>
+        <h3 style={{ margin: 0 }}><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> ออเดอร์ {active.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({active.length})</span>}</h3>
+        <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('order')}><Icon name="plus" /> สร้างออเดอร์</button>
+      </div>
+      {orders.length === 0
+        ? <div className="card"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีออเดอร์ — กด "สร้างออเดอร์" เพื่อเริ่ม (จองสต็อกอัตโนมัติ + ลูกค้าติดตามสถานะได้)</div></div>
+        : (
+          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
+            {ORDER_STATUSES.map(col => {
+              const list = active.filter(o => o.status === col.id);
+              return (
+                <div key={col.id} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(col.id)} style={{ flex: '0 0 240px', minWidth: 240, background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: 8 }}>
+                  <div className="row between" style={{ marginBottom: 8, padding: '2px 4px' }}><span style={{ fontWeight: 700, color: col.color }}>{col.label}</span><span className="cap">{list.length}</span></div>
+                  {list.map(o => (
+                    <div key={o.id} draggable onDragStart={() => setDragId(o.id)} onDragEnd={() => setDragId(null)} style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', padding: '8px 10px', marginBottom: 7, cursor: 'grab', borderLeft: `3px solid ${col.color}` }}>
+                      <div className="row between"><span style={{ fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }} onClick={() => window.__openModal('order', o)}>{o.code}</span><span className="num" style={{ fontWeight: 700 }}>{B(o.total)}</span></div>
+                      <div className="cap" style={{ margin: '2px 0' }}>{o.customerName || '-'} · {N(o.qty)} ตัว</div>
+                      <div className="cap" style={{ color: 'var(--ink-4)' }}>{(o.items || []).slice(0, 2).map(it => `${it.color} ${it.size}×${it.qty}`).join(', ')}{(o.items || []).length > 2 ? '…' : ''}{o.trackingNo ? ` · 📦${o.trackingNo}` : ''}</div>
+                      <div className="row" style={{ gap: 4, marginTop: 6 }}>
+                        <select className="input" style={{ flex: 1, padding: '3px 4px', fontSize: 'var(--fs-cap)', height: 'auto' }} value={o.status} onChange={e => changeStatus(o, e.target.value)} title="เปลี่ยนสถานะ">
+                          {ORDER_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                          <option value="cancelled">ยกเลิก</option>
+                        </select>
+                        <button className="btn btn-sm btn-ghost" style={{ padding: '2px 7px' }} onClick={() => copyTrack(o)} title="คัดลอกลิงก์ติดตามให้ลูกค้า"><Icon name="route" /></button>
+                        <button className="btn btn-sm btn-ghost" style={{ padding: '2px 7px' }} onClick={() => printReceipt(o)} title="พิมพ์ใบเสร็จ/ใบส่งของ"><Icon name="external" /></button>
+                      </div>
+                    </div>
+                  ))}
+                  {list.length === 0 && <div className="cap" style={{ textAlign: 'center', color: 'var(--ink-5,var(--ink-4))', padding: '14px 0' }}>ลากการ์ดมาที่นี่</div>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      {cancelled.length > 0 && (
+        <div className="card" style={{ marginTop: 14 }}>
+          <div className="row between" style={{ cursor: 'pointer' }} onClick={() => setShowCancelled(s => !s)}><span className="eyebrow">ยกเลิก ({cancelled.length})</span><Icon name={showCancelled ? 'chevD' : 'chevR'} /></div>
+          {showCancelled && cancelled.map(o => (
+            <div key={o.id} className="row between" style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }}>
+              <span className="cap"><b>{o.code}</b> · {o.customerName} · {N(o.qty)} ตัว</span><span className="cap">{B(o.total)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomersView() {
+  const customers = DD.customers || [];
+  const [q, setQ] = useState('');
+  const ql = q.trim().toLowerCase();
+  const list = customers.filter(c => !ql || `${c.name} ${c.phone || ''} ${c.line || ''}`.toLowerCase().includes(ql)).sort((a, b) => b.totalSpent - a.totalSpent);
+  return (
+    <div className="content-inner rise">
+      <div className="card">
+        <div className="card-head">
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="users" /></span> ลูกค้า {customers.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({customers.length})</span>}</h3>
+          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('customer')}><Icon name="userPlus" /> เพิ่มลูกค้า</button>
+        </div>
+        {customers.length > 0 && <input className="input" style={{ marginBottom: 10 }} value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา ชื่อ / เบอร์ / LINE" />}
+        {customers.length === 0
+          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีลูกค้า — เพิ่มเอง หรือระบบสร้างให้ตอนทำออเดอร์</div>
+          : <div className="table-wrap"><table className="table">
+            <thead><tr><th>ลูกค้า</th><th>ติดต่อ</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดซื้อรวม</th></tr></thead>
+            <tbody>{list.map(c => (
+              <tr key={c.id} onClick={() => window.__openModal('customer', c)} style={{ cursor: 'pointer' }}>
+                <td><div style={{ fontWeight: 600 }}>{c.name}</div>{c.address && <div className="cap">{c.address}</div>}</td>
+                <td className="cap">{[c.phone, c.line && ('LINE ' + c.line)].filter(Boolean).join(' · ') || '—'}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{N(c.orderCount)}</td>
+                <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.totalSpent)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>}
       </div>
     </div>
   );
@@ -683,22 +1423,28 @@ function POView() {
           <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('po')}><Icon name="plus" /> เปิด PO ใหม่</button>
         </div>
         <div className="table-wrap"><table className="table">
-          <thead><tr><th>สินค้า</th><th style={{textAlign:'right'}}>จำนวน</th><th>วันสั่ง</th><th>กำหนดเข้า</th><th style={{textAlign:'right'}}>สถานะ</th></tr></thead>
+          <thead><tr><th>สินค้า</th><th style={{textAlign:'right'}}>จำนวน</th><th>วันสั่ง</th><th>กำหนดเข้า</th><th style={{textAlign:'right'}}>สถานะ</th><th style={{textAlign:'right'}}></th></tr></thead>
           <tbody>
             {DD.poTracker.length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">ยังไม่มี PO — กด "เปิด PO ใหม่" เพื่อเริ่ม</td></tr>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">ยังไม่มี PO — กด "เปิด PO ใหม่" เพื่อเริ่ม</td></tr>
             )}
-            {DD.poTracker.map(po => (
+            {DD.poTracker.map(po => {
+              const matched = (DD.products || []).some(p => p.name === po.product);
+              return (
               <tr key={po.id}>
-                <td style={{ fontWeight: 600 }}>{po.product}</td>
+                <td style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => window.__openModal('po', po)}>{po.product}</td>
                 <td className="num" style={{ textAlign: 'right' }}>{N(po.quantity)} ตัว</td>
                 <td className="num cap">{po.orderDate}</td>
                 <td className="num cap">{po.arrivalDate}</td>
                 <td style={{ textAlign: 'right' }}>
                   <span className={`chip ${po.status==='Completed'?'chip-good':'chip-warn'}`}>{po.status==='Completed'?'ของเข้าแล้ว':'กำลังผลิต'}</span>
                 </td>
+                <td style={{ textAlign: 'right' }}>
+                  {po.status !== 'Completed' && matched && <button className="btn btn-sm btn-ghost" title="รับเข้าสต็อก (สร้างล็อต)" onClick={() => window.__openModal('receive', po)}><Icon name="box" /> รับเข้า</button>}
+                  {po.status !== 'Completed' && !matched && <span className="cap" style={{ color: 'var(--ink-4)' }} title="ชื่อ PO ไม่ตรงกับสินค้าในแคตตาล็อก">— ไม่พบสินค้า —</span>}
+                </td>
               </tr>
-            ))}
+            ); })}
           </tbody>
         </table></div>
       </div>
@@ -761,7 +1507,7 @@ function exportAllCSV() {
   const esc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // กัน CSV formula injection (Excel)
   const sections = [
     ['ช่องทาง (Channels)', ['name', 'target', 'actual', 'orders', 'ad'], TMK.channels || []],
-    ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'reorder'], TMK.products || []],
+    ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'stockValue', 'reorder'], TMK.products || []],
     ['งาน (Tasks)', ['title', 'date', 'status', 'camp', 'channel'], TMK.tasks || []],
     ['แคมเปญ (Campaigns)', ['name', 'status', 'start', 'end'], TMK.campaigns || []],
     ['PO', ['product', 'quantity', 'orderDate', 'arrivalDate', 'status'], TMK.poTracker || []],
@@ -884,7 +1630,7 @@ function GeneralSettings({ dark, setDark }) {
         <div className="card-head"><h3><Icon name="sparkle" /> เกี่ยวกับระบบ</h3></div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>เวอร์ชัน</div><div className="cap">ดูรายละเอียดที่แท็บ "อัปเดต"</div></div>
-          <span className="chip chip-accent">v1.8.0</span>
+          <span className="chip chip-accent">v1.9.0</span>
         </div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>แหล่งข้อมูล</div><div className="cap">ทุกหน้าดึงข้อมูลจริงจาก Supabase แบบเรียลไทม์ ไม่มีข้อมูลจำลอง</div></div>
@@ -902,6 +1648,15 @@ function GeneralSettings({ dark, setDark }) {
 /* ---- Updates / Changelog ---- */
 function UpdatesView() {
   const updates = [
+    { ver: '1.9.0', date: '10 มิ.ย. 2569', type: 'feature', items: [
+      'หน้าใหม่ "บันทึก & ภาพรวมเดือน" — รวมบันทึกรายวัน + ภาพรวมเดือนในที่เดียว: ปฏิทินยอดขายรายวัน (คลิกกรอก/แก้) · รายการที่กรอก · เป้า&งบที่ตั้งไว้ (เป้า/งบต่อช่องทาง) · แคมเปญแอด · กลุ่มลูกค้า&ย้อนหลัง — เน้นข้อมูลดิบ ไม่โชว์ตัวเลขกดดัน',
+      'ระบบออเดอร์ + ลูกค้า + ติดตามสถานะ: สร้างออเดอร์ → จองสต็อกอัตโนมัติ → "ส่งแล้ว" ตัดสต็อกจริง · บอร์ด Kanban เปลี่ยนสถานะ (ยืนยันก่อนตัดสต็อก/ยกเลิก) · ลิงก์ให้ลูกค้าติดตามสถานะเอง',
+      'สต็อกแบบล็อต (ตาราง ไซส์ × สี) + รูปสินค้า + บาร์โค้ด/ป้ายสินค้า — สต็อกคิดจากผลรวมล็อตอัตโนมัติ',
+      'แคมเปญแอดแยกรายเดือน + สถานะ (รอเริ่ม/กำลังรัน/หยุด/เสร็จสิ้น/ยกเลิก) แยกจากแคมเปญในปฏิทินวางแผน',
+      'เงินโชว์ค่าจริง 2 ตำแหน่งสตางค์ทุกที่ (เลิกย่อ k/M, ตัด noise float) — กราฟใช้ป้ายย่อกันล้น ดูค่าเต็มตอนชี้',
+      'กันยอดหาย: เดือนอดีตเลือกโหมด "รายเดือน/รายวัน" ชัดเจน + เตือนก่อนสลับ (ข้อมูลไม่ทับกัน)',
+      'ผ่าน QA เชิงลึก: เช็คสิทธิ์บอร์ดออเดอร์ · กัน crash ล็อต legacy · เตือนสต็อกไม่พอตอนส่ง · กัน viewer เขียน DB · เก็บกวาด dead code',
+    ]},
     { ver: '1.8.0', date: '9 มิ.ย. 2569', type: 'improvement', items: [
       'ความถูกต้องข้อมูล: ไม่ปัดเศษค่าจริง (ปัดเฉพาะตอนแสดงผล) · เดือนปัจจุบันคำนวณสดจากยอดรายวันเสมอ · กราฟ 3 เดือน/YoY ตามเดือนที่เลือก · ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (ไม่ใช่ 5% ตายตัว)',
       'แก้ย้อนหลัง/ล่วงหน้าได้ละเอียด: รายวัน (เลือกวันใดก็ได้/ลบได้/คัดลอกเมื่อวาน) · รายเดือนข้ามปี · เดือนอดีตที่กรอกย้อนหลังแสดงยอดจริง',
@@ -1197,6 +1952,12 @@ const ACTION_META = {
   purge:   { l: 'ลบถาวร',     c: 'var(--bad)',   g: 'delete' },
   restore: { l: 'กู้คืน',      c: 'var(--good)',  g: 'create' },
   move:    { l: 'ย้ายสถานะ',  c: 'var(--accent)',g: 'update' },
+  sale:    { l: 'ขาย/ตัดสต็อก', c: 'var(--accent)', g: 'update' },
+  adjust:  { l: 'ปรับสต็อก',   c: 'var(--info)',  g: 'update' },
+  receive: { l: 'รับเข้าสต็อก', c: 'var(--good)',  g: 'create' },
+  reserve: { l: 'จองสต็อก',    c: 'var(--accent)', g: 'update' },
+  release: { l: 'ปล่อยจอง',    c: 'var(--ink-3)', g: 'update' },
+  order:   { l: 'ออเดอร์',     c: 'var(--accent-2)', g: 'update' },
   export:  { l: 'ส่งออก',     c: 'var(--warn)',  g: 'update' },
   login:   { l: 'เข้าสู่ระบบ',  c: 'var(--good)',  g: 'auth' },
   logout:  { l: 'ออกจากระบบ',  c: 'var(--ink-3)', g: 'auth' },
