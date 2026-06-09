@@ -883,7 +883,7 @@ function GeneralSettings({ dark, setDark }) {
         <div className="card-head"><h3><Icon name="sparkle" /> เกี่ยวกับระบบ</h3></div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>เวอร์ชัน</div><div className="cap">ดูรายละเอียดที่แท็บ "อัปเดต"</div></div>
-          <span className="chip chip-accent">v1.7.0</span>
+          <span className="chip chip-accent">v1.8.0</span>
         </div>
         <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>แหล่งข้อมูล</div><div className="cap">ทุกหน้าดึงข้อมูลจริงจาก Supabase แบบเรียลไทม์ ไม่มีข้อมูลจำลอง</div></div>
@@ -901,6 +901,15 @@ function GeneralSettings({ dark, setDark }) {
 /* ---- Updates / Changelog ---- */
 function UpdatesView() {
   const updates = [
+    { ver: '1.8.0', date: '9 มิ.ย. 2569', type: 'improvement', items: [
+      'ความถูกต้องข้อมูล: ไม่ปัดเศษค่าจริง (ปัดเฉพาะตอนแสดงผล) · เดือนปัจจุบันคำนวณสดจากยอดรายวันเสมอ · กราฟ 3 เดือน/YoY ตามเดือนที่เลือก · ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (ไม่ใช่ 5% ตายตัว)',
+      'แก้ย้อนหลัง/ล่วงหน้าได้ละเอียด: รายวัน (เลือกวันใดก็ได้/ลบได้/คัดลอกเมื่อวาน) · รายเดือนข้ามปี · เดือนอดีตที่กรอกย้อนหลังแสดงยอดจริง',
+      'ความปลอดภัยการกรอก: เตือนเมื่อยอดผิดปกติ (พิมพ์ผิดหลัก) · กันกรอกยอดล่วงหน้า · กันเลขติดลบ · เห็นวันที่ยังไม่กรอกทั้งเดือน · เตือนกรอกยอดวันนี้',
+      'สิทธิ์ผู้ใช้จริง: admin / แก้ไขได้ / ดูอย่างเดียว — viewer แก้ไม่ได้, จัดการผู้ใช้เฉพาะ admin',
+      'เสถียรขึ้น: กันจอขาว (error boundary + กู้ session อัตโนมัติ) · เน็ตหลุด → รีเฟรชอัตโนมัติแทน realtime · modal เต็มจอบนมือถือ · กดบันทึกซ้ำไม่ได้',
+      'ประวัติการใช้งานละเอียด (เก็บค่าที่กรอก + ก่อน→หลัง) · ออกรายงานยอดขายรายเดือน (CSV) · หน้าโหลดข้อมูล',
+      'ผ่าน QA เชิงลึกหลายรอบ (ตรวจคำนวณ/ข้อมูล/อินพุตแปลกๆ/มือถือ) + cross-check กับ Supabase จริง',
+    ]},
     { ver: '1.7.0', date: '8 มิ.ย. 2569', type: 'feature', items: [
       'ระบบเข้าสู่ระบบ: "จำการเข้าสู่ระบบ" (จำอีเมลไม่ต้องกรอกใหม่) + ออกจากระบบอัตโนมัติเมื่อไม่ได้ใช้งานครบ 7 วัน',
       'เพิ่ม "ลบงาน" ในฟอร์มงาน — ย้ายไปถังขยะ กู้คืน/ลบถาวรได้ (เดิมลบงานไม่ได้เลย)',
