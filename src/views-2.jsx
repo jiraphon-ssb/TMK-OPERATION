@@ -12,6 +12,10 @@ import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_S
 
 const DD = TMK;
 
+// guard สิทธิ์ (ฝั่ง client) — กัน viewer แก้ผ่านหน้าตั้งค่า + จัดการผู้ใช้/สิทธิ์เฉพาะ admin
+const guardEdit = () => { if (window.__canEdit === false) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
+const guardAdmin = () => { if (!window.__isAdmin) { window.__toast?.('เฉพาะแอดมินจัดการผู้ใช้และสิทธิ์ได้', 'warn'); return false; } return true; };
+
 /* ====================  PLANNER  ==================== */
 const chHex = { shopee: '#ee4d2d', tiktok: '#00f2ea', lazada: '#0f1689', facebook: '#1877f2', line: '#06c755', crm: '#c08a3e' };
 const stDot = { done: 'var(--good)', review: 'var(--warn)', inprogress: 'var(--info)', todo: 'var(--ink-4)' };
@@ -537,6 +541,7 @@ function CampaignsView() {
 
   // ลบแคมเปญ — ตรวจว่ามี task ผูกอยู่ก่อน
   const deleteCampaign = async (c) => {
+    if (!guardEdit()) return;
     const linkedTasks = (DD.tasks || []).filter(t => t.camp === c.id).length;
     const msg = linkedTasks > 0
       ? `แคมเปญ "${c.name}" มี ${linkedTasks} งานผูกอยู่ — ลบจะปลด link ไปไม่มีแคมเปญ ยืนยัน?`
@@ -561,6 +566,7 @@ function CampaignsView() {
 
   // เลื่อนแคมเปญ — บันทึก sort_order ไป Supabase
   const reorderCampaign = async (fromId, toId) => {
+    if (!guardEdit()) return;
     if (fromId === toId) return;
     const fromIdx = campaigns.findIndex(c => c.id === fromId);
     const toIdx = campaigns.findIndex(c => c.id === toId);
@@ -827,9 +833,13 @@ function GeneralSettings({ dark, setDark }) {
           <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนงานเกินกำหนด</div><div className="cap">เตือนเมื่อมีงานเลยวันที่กำหนด</div></div>
           <NotifToggle storeKey="tmk-notif-overdue" />
         </div>
-        <div className="row between" style={{ padding: '12px 0' }}>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนสต็อกใกล้หมด</div><div className="cap">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div></div>
           <NotifToggle storeKey="tmk-notif-stock" />
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนกรอกยอดขายวันนี้</div><div className="cap">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div></div>
+          <NotifToggle storeKey="tmk-notif-daily" />
         </div>
       </div>
 
@@ -1271,6 +1281,7 @@ function ChannelsView() {
   };
 
   const saveEdit = async () => {
+    if (!guardEdit()) return;
     setBusy(true);
     try {
       const payload = {
@@ -1304,6 +1315,7 @@ function ChannelsView() {
   };
 
   const deleteChannel = async (c) => {
+    if (!guardEdit()) return;
     if (!confirm(`ลบช่องทาง "${c.name}"?\n(ข้อมูลยอดขายที่ link อยู่จะไม่ถูกลบ)`)) return;
     setBusy(true);
     try {
@@ -1319,6 +1331,7 @@ function ChannelsView() {
   };
 
   const addChannel = async () => {
+    if (!guardEdit()) return;
     const name = newName.trim();
     if (!name) return;
     setBusy(true);
@@ -1356,6 +1369,7 @@ function ChannelsView() {
   };
 
   const reorderChannel = async (fromId, toId) => {
+    if (!guardEdit()) return;
     if (fromId === toId) return;
     const fromIdx = channels.findIndex(c => c.id === fromId);
     const toIdx = channels.findIndex(c => c.id === toId);
@@ -1624,6 +1638,7 @@ function DutiesView() {
   };
 
   const saveEdit = async () => {
+    if (!guardEdit()) return;
     setBusy(true);
     try {
       const { error } = await supabase.from('tmk_duties').update({
@@ -1642,6 +1657,7 @@ function DutiesView() {
   };
 
   const deleteDuty = async (duty) => {
+    if (!guardEdit()) return;
     const count = userCount(duty.id);
     if (count > 0) {
       if (window.__toast) window.__toast(`ลบไม่ได้ — ยังมีผู้ใช้ ${count} คนใช้หน้าที่นี้`, 'warn');
@@ -1662,6 +1678,7 @@ function DutiesView() {
   };
 
   const addDuty = async () => {
+    if (!guardEdit()) return;
     const name = newName.trim();
     if (!name) return;
     if (duties.find(d => d.name === name)) {
@@ -1862,6 +1879,7 @@ function RolesView() {
 
   // Save edit ลง Supabase จริง — defensive: ลอง column ใหม่ก่อน → fallback
   const saveEdit = async () => {
+    if (!guardAdmin()) return;
     setBusy(true);
     try {
       const duty = DUTIES.find(d => d.id === editDutyId);
@@ -1920,6 +1938,7 @@ function RolesView() {
 
   // Delete user ลบจาก Supabase
   const deleteUser = async (email) => {
+    if (!guardAdmin()) return;
     if (!confirm(`ลบผู้ใช้ ${email}?`)) return;
     setBusy(true);
     try {
@@ -1940,6 +1959,7 @@ function RolesView() {
 
   // Add user ลง Supabase จริง
   const addUser = async () => {
+    if (!guardAdmin()) return;
     if (!newEmail.trim()) return;
     if (users.find(u => u.email === newEmail)) {
       if (window.__toast) window.__toast('อีเมลนี้มีอยู่แล้ว', 'warn');
@@ -2192,6 +2212,7 @@ function TrashView() {
   useEffect(() => { load(); }, []);
 
   const restore = async (it) => {
+    if (!guardEdit()) return;
     if (busy) return;
     setBusy(true);
     try {
@@ -2211,6 +2232,7 @@ function TrashView() {
   };
 
   const purge = async (it) => {
+    if (!guardEdit()) return;
     if (busy) return;
     if (!confirm(`ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`)) return;
     setBusy(true);

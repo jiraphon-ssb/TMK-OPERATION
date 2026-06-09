@@ -570,8 +570,8 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
               {ch.hasAd && (
                 <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
                   <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
-                  <div><div className="cap">ROAS</div><div className="num sm" style={{ fontWeight: 700, color: roas==null?'var(--ink-3)':roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
-                  <div><div className="cap">ACOS</div><div className="num sm" style={{ fontWeight: 700, color: acos==null?'var(--ink-3)':acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
+                  <div><div className="cap" style={{ cursor: 'help' }} title="ROAS = ยอดขาย ÷ ค่าแอด — คืนกี่เท่าของเงินแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)">ROAS ⓘ</div><div className="num sm" style={{ fontWeight: 700, color: roas==null?'var(--ink-3)':roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+                  <div><div className="cap" style={{ cursor: 'help' }} title="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป">ACOS ⓘ</div><div className="num sm" style={{ fontWeight: 700, color: acos==null?'var(--ink-3)':acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
                 </div>
               )}
             </div>
@@ -613,7 +613,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
             <div className="num h1" style={{ color: totalBudget <= 0 ? 'var(--ink-3)' : remaining > 0 ? 'var(--good)' : 'var(--bad)' }}>{totalBudget > 0 ? Bk(remaining) : '—'}</div>
           </div>
           <div>
-            <div className="cap">Burn rate/{'วัน'}</div>
+            <div className="cap" style={{ cursor: 'help' }} title="Burn rate = ค่าแอดเฉลี่ยที่ใช้ต่อวันในเดือนนี้">Burn rate/{'วัน'} ⓘ</div>
             <div className="num h1">{Bk(burnRate)}</div>
             <span className="cap" style={{ color: projectedSpend > totalBudget ? 'var(--bad)' : 'var(--good)' }}>
               {'คาดใช้'} {Bk(projectedSpend)}

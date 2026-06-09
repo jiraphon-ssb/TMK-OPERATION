@@ -14,7 +14,7 @@ import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast, ConfirmDialog } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { THAI_MONTHS, parseTaskDate, todayISO } from './lib/dateUtils.js';
+import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
 
@@ -337,7 +337,10 @@ function AppInner() {
   const canEdit = (currentUserCtx?.role || 'viewer') !== 'viewer';
   const canEditRef = useRef(canEdit);
   canEditRef.current = canEdit;
-  if (typeof window !== 'undefined') window.__canEdit = canEdit; // ให้ view อื่น (kanban drag, settings) เช็คได้
+  if (typeof window !== 'undefined') {
+    window.__canEdit = canEdit; // ให้ view อื่น (kanban drag, settings) เช็คได้
+    window.__isAdmin = currentUserCtx?.role === 'admin'; // จัดการผู้ใช้/สิทธิ์ = admin เท่านั้น
+  }
 
   useEffect(() => {
     window.__openModal = (type, data) => {
@@ -431,8 +434,9 @@ function AppInner() {
     .map(x => { const diff = diffOf(x); return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
     .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
     .sort((a, b) => a._diff - b._diff);
-  // 2.5) ยังไม่ได้กรอกยอดขายวันนี้
-  const notifsTodaySales = (notifOn && !((TMK.dailyMonth || []).some(d => d.d === todayDay)))
+  // 2.5) ยังไม่ได้กรอกยอดขายวันนี้ (toggle แยกของตัวเอง: tmk-notif-daily)
+  const dailyNotifOn = readFlag('tmk-notif-daily');
+  const notifsTodaySales = (dailyNotifOn && !((TMK.dailyMonth || []).some(d => d.d === todayDay)))
     ? [{ id: 'today-sales', kind: 'todaysales', title: 'ยังไม่ได้กรอกยอดขายวันนี้', txt: 'กรอกเลย' }]
     : [];
   // 3) เดือนที่แล้ว — เตือนถ้ายังไม่ได้สรุปยอดเดือนก่อน (จาก monthly_history จริง)
@@ -538,7 +542,7 @@ function AppInner() {
           </div>
           <div className="topbar-spacer"></div>
           <div className="topbar-actions">
-            {!canEdit && <span className="chip" title="บัญชีนี้แก้ไขข้อมูลไม่ได้ — ติดต่อแอดมินเพื่อขอสิทธิ์" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 600 }}><Icon name="eye" /> ดูอย่างเดียว</span>}
+            {!canEdit && <button className="chip" onClick={() => { const admins = (TMK.roles || []).filter(r => r.role === 'admin').map(r => `${r.name} (${r.email})`); toast(admins.length ? `ขอสิทธิ์แก้ไขได้ที่แอดมิน: ${admins.join(', ')}` : 'ยังไม่มีแอดมินในระบบ', 'warn'); }} title="คลิกดูแอดมินที่ขอสิทธิ์ได้" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 600, border: 'none', cursor: 'pointer' }}><Icon name="eye" /> ดูอย่างเดียว</button>}
             <button className="search desktop-only" onClick={() => setSpotlight(true)} style={{ cursor: 'pointer' }}>
               <Icon name="search" /><span style={{ flex: 1, color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' }}>{t('search')}...</span><kbd>{modKey}K</kbd>
             </button>
@@ -763,14 +767,15 @@ function AppInner() {
               }
             }}
             onSubmit={async (task) => {
-              // 1. Optimistic local update — เห็นทันที
-              setTasks(ts => modal.data?.id ? ts.map(x => x.id === task.id ? task : x) : [task, ...ts]);
+              // แปลงวันที่ฟอร์ม (ISO จาก <input type=date>) → ISO + ไทย (กัน kanban โชว์ ISO ชั่วคราว)
+              const isoDate = parseTaskDate(task.date) || todayISO();
+              const optimistic = { ...task, date: thaiDate(isoDate) || task.date, dateISO: isoDate };
+              // 1. Optimistic local update — เห็นทันที (รูปแบบเดียวกับที่ mapToTMK ให้)
+              setTasks(ts => modal.data?.id ? ts.map(x => x.id === task.id ? optimistic : x) : [optimistic, ...ts]);
               closeModal();
 
               // 2. แปลง task → DB format + บันทึก Supabase
               try {
-                // แปลงวันที่ Thai "18 มิ.ย." → ISO (ใช้ helper ร่วมจาก lib/dateUtils)
-                const isoDate = parseTaskDate(task.date) || todayISO();
                 const responsibleStr = Array.isArray(task.responsible) ? task.responsible.join(', ') : String(task.responsible || '');
                 const channelStr = Array.isArray(task.channel) ? task.channel.join(', ') : String(task.channel || '');
                 const dbTask = {

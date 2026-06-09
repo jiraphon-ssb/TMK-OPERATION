@@ -120,9 +120,10 @@ export function RecordSalesModal({ data, onClose }) {
   // Save handler — upsert ลง tmk_daily_sales (id = "d-YYYY-MM-DD")
   const handleSave = async () => {
     if (saving) return;
-    // กันพิมพ์ผิดหลัก (fat-finger): ถ้ายอดวันนี้สูงกว่าค่าเฉลี่ยรายวันมาก → ถามยืนยัน
+    // กันพิมพ์ผิดหลัก (fat-finger): เทียบกับค่าเฉลี่ยรายวันของ "เดือนที่กรอก" (ตัดวันที่กำลังกรอกออก)
     const _tot = rows.reduce((a, r) => a + (Number(r.rev) || 0), 0);
-    const _days = (MD.dailyMonth || []).map(d => d.rev).filter(v => v > 0);
+    const _selDay = Number(String(date).split('-')[2]);
+    const _days = (sel.dailyMonth || []).filter(d => d.d !== _selDay).map(d => d.rev).filter(v => v > 0);
     const _avg = _days.length ? _days.reduce((a, b) => a + b, 0) / _days.length : 0;
     if (_avg > 0 && _tot > _avg * 3) {
       const x = (_tot / _avg).toFixed(1);
@@ -811,7 +812,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>งบแอดรวม (฿)</label>
-        <input type="number" className="input" placeholder="0" value={adTotal} onChange={e => setAdTotal(e.target.value)} />
+        <input type="number" className="input" placeholder="0" value={adTotal} onChange={e => { setTouched(true); setAdTotal(e.target.value); }} />
       </div>
 
       <div className="field">
@@ -845,9 +846,10 @@ export function MonthlyTargetModal({ data, onClose }) {
 
 /* ---------- Ad Campaign modal ---------- */
 export function AdCampaignModal({ data, onClose }) {
-  const [f, setF] = useState(data || {
-    name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'กำลังดำเนินการ'
-  });
+  const _statusTH = { live: 'กำลังดำเนินการ', paused: 'หยุดชั่วคราว', done: 'จบแล้ว' };
+  const [f, setF] = useState(() => data
+    ? { ...data, status: _statusTH[data.status] || data.status || 'กำลังดำเนินการ' } // map 'live'→ไทย ให้ชิปตรง + ไม่เด้งกลับ live
+    : { name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'กำลังดำเนินการ' });
   const [touched, setTouched] = useState(false);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const platforms = ['Facebook', 'TikTok', 'Shopee', 'Lazada'];
