@@ -328,7 +328,7 @@ export function RecordSalesModal({ data, onClose }) {
 
           {/* Channel cards — each channel is a card */}
           {rows.map((r, i) => {
-            const ch = MD.channels.find(c => c.id === r.id);
+            const ch = MD.channels.find(c => c.id === r.id) || { hex: 'var(--ink-3)', name: r.id, hasAd: false }; // กัน crash ถ้าช่องถูกลบขณะเปิด
             return (
               <div key={r.id} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', borderLeft: `3px solid ${ch.hex}` }}>
                 <div className="row" style={{ gap: 7, fontWeight: 600, marginBottom: 10 }}>
@@ -375,7 +375,7 @@ export function RecordSalesModal({ data, onClose }) {
           <div style={{ marginBottom: 14 }}>
             <div className="eyebrow" style={{ marginBottom: 8 }}>รายละเอียดต่อช่องทาง</div>
             {rows.filter(r => +r.rev > 0).map(r => {
-              const ch = MD.channels.find(c => c.id === r.id);
+              const ch = MD.channels.find(c => c.id === r.id) || { hex: 'var(--ink-3)', name: r.id }; // กัน crash ถ้าช่องถูกลบ
               const rev = +r.rev || 0;
               const pct = s.tRev > 0 ? (rev / s.tRev * 100) : 0;
               return (

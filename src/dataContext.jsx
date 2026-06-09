@@ -31,7 +31,7 @@ function mapRolesAndStaff(userRoles, staff) {
       const s = byEmail[r.email];
       return {
         email: r.email,
-        name: r.name || s?.name || r.email.split('@')[0],
+        name: r.name || s?.name || String(r.email || '').split('@')[0],
         role: r.role || 'viewer',
         dutyId: r.duty_id || '',
         department: r.dutyName || r.department || s?.role || '',
@@ -40,6 +40,7 @@ function mapRolesAndStaff(userRoles, staff) {
       };
     }),
     staff: staff.map(s => ({
+      id: s.id, // ต้องมี — ให้ saveProfile/RolesView reuse id เดิม (กันแก้ผู้ใช้เดิมแล้วเกิดแถว staff ซ้ำ)
       name: s.name,
       role: s.role,
       email: s.email || '',
