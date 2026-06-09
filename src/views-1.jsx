@@ -172,7 +172,7 @@ export function HomeView({ go }) {
           deltaDir={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'up' : 'down'}
           deltaColor={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'var(--bad)' : 'var(--good)'}
           sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
-        <Kpi label={'ลูกค้าใหม่'} value={N(C.NEW_C)} icon="userPlus" delta={`${P((C.NEW_REV/C.MTD)*100,0)} ของรายได้`} sub="" accent="var(--good)" onClick={() => go('sales', 'customers')} />
+        <Kpi label={'ลูกค้าใหม่'} value={N(C.NEW_C)} icon="userPlus" delta={(C.NEW_C + C.OLD_C) > 0 ? `${P((C.NEW_C / (C.NEW_C + C.OLD_C)) * 100, 0)} ของลูกค้า` : ''} sub="รายใหม่เดือนนี้" accent="var(--good)" onClick={() => go('sales', 'customers')} />
       </div>
 
       {/* focus + activity */}
@@ -340,7 +340,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
           <div className="grid g4" style={{ marginTop: 18, gap: 12 }}>
             {(() => {
               const curAbbr = ABBR[dateProps.month];
-              const yEntry = (D.yoy || []).find(e => e.m === curAbbr);
+              const yEntry = (md.yoy || []).find(e => e.m === curAbbr);
               const yoyPct = yEntry && yEntry.y25 > 0 ? ((yEntry.y26 - yEntry.y25) / yEntry.y25) * 100 : null;
               const yoyStr = yoyPct == null ? '—' : (yoyPct >= 0 ? '+' : '') + P(yoyPct, 0);
               const yoyColor = yoyPct == null ? 'var(--ink-3)' : yoyPct >= 0 ? 'var(--good)' : 'var(--bad)';
@@ -456,20 +456,20 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>3 {'เดือนล่าสุด'}</div>
-          <Bars data={D.month3} h={170} valueKey="actual" />
-          <div className="cap" style={{ marginTop: 8 }}>{'มิ.ย.'} {'รวมคาดการณ์'} ({'โปร่ง'})</div>
+          <Bars data={md.month3} h={170} valueKey="actual" />
+          <div className="cap" style={{ marginTop: 8 }}>{ABBR[dateProps.month]} {'รวมคาดการณ์'} ({'โปร่ง'})</div>
         </div>
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>{'เทียบปีก่อน'} (YoY)</div>
-          <YoYChart />
+          <YoYChart data={md.yoy} />
         </div>
       </div>
     </div>
   );
 }
 
-function YoYChart() {
-  const data = D.yoy;
+function YoYChart({ data: dataProp }) {
+  const data = dataProp || D.yoy;
   const w = 320, h = 150;
   // กันบั๊ก: ต้องมีอย่างน้อย 2 จุดถึงจะวาดเส้นได้ (ไม่งั้นหารด้วย 0 → NaN)
   if (!data || data.length < 2) {
@@ -521,7 +521,7 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
           const roas = ch.ad > 0 ? ch.actual/ch.ad : null;
           const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad/ch.actual)*100 : null;
           const tot = ch.newCust + ch.oldCust;
-          const platformFee = ch.actual * 0.05;
+          const platformFee = ch.actual * ((ch.platformFeePct || 0) / 100); // ค่าจริงต่อช่องทาง (0 = ยังไม่ตั้ง → กำไร = รายได้ - แอด)
           const profit = ch.actual - ch.ad - platformFee;
           const margin = ch.actual > 0 ? (profit / ch.actual) * 100 : 0;
           const growth = ch.growthPct;
@@ -554,7 +554,7 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
 
               {/* P&L row */}
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <div className="cap" style={{ marginBottom: 6 }}>P&L</div>
+                <div className="cap" style={{ marginBottom: 6, cursor: 'help' }} title={`กำไร = รายได้ − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ' (ยังไม่ตั้งค่าธรรมเนียม = 0)'}`}>P&L {ch.platformFeePct > 0 ? `· ค่าธรรมเนียม ${ch.platformFeePct}%` : ''}</div>
                 <div className="row between" style={{ gap: 4 }}>
                   <span className="sm">{Bk(ch.actual)} - {Bk(ch.ad)} - {Bk(platformFee)}</span>
                   <span className="num sm" style={{ fontWeight: 700, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>

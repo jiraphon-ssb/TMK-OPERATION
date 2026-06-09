@@ -869,12 +869,18 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
   const segSet = (DD.segments || []).length > 0;
   const monthsFilled = (DD.monthly || []).filter(m => m.year === year && m.actual > 0).length;
   const todayEntered = md.dailyMonth.some(d => d.d === TODAY);
+  // หา "วันแรกที่ยังไม่กรอก" ของเดือน (≤ วันนี้) → deep-link ฟอร์มไปวันนั้นเลย
+  const _entered = new Set(md.dailyMonth.map(d => d.d));
+  const _lastFillable = Math.min(TODAY, md.consts.DAYS || TODAY);
+  let _firstMissing = 0;
+  for (let d = 1; d <= _lastFillable; d++) { if (!_entered.has(d)) { _firstMissing = d; break; } }
+  const isoFor = (d) => `${year - 543}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   const checkItems = [
     { label: `เป้าหมายเดือน ${monthLabel}`, done: targetSet, detail: targetSet ? B(md.consts.TARGET) : 'ยังไม่ได้ตั้ง', modal: 'monthlyTarget' },
     { label: 'งบโฆษณา', done: adBudgetSet, detail: adBudgetSet ? B(md.consts.AD_BUDGET) : 'ยังไม่ได้ตั้ง', modal: 'monthlyTarget' },
     { label: 'กลุ่มลูกค้า', done: segSet, detail: segSet ? `${DD.segments.length} กลุ่ม` : 'ยังไม่อัปเดต', modal: 'customerSegment' },
-    { label: `ยอดขายเดือน ${monthLabel}`, done: ENTERED_DAYS > 0, detail: `กรอกแล้ว ${ENTERED_DAYS}/${md.consts.DAYS} วัน`, modal: 'record' },
-    { label: `ยอดขาย ${TODAY} ${monthLabel} (วันนี้)`, done: todayEntered, detail: todayEntered ? 'กรอกแล้ว' : 'ยังไม่กรอก', modal: 'record' },
+    { label: `ยอดขายเดือน ${monthLabel}`, done: ENTERED_DAYS > 0, detail: `กรอกแล้ว ${ENTERED_DAYS}/${md.consts.DAYS} วัน`, modal: 'record', date: _firstMissing ? isoFor(_firstMissing) : undefined },
+    { label: `ยอดขาย ${TODAY} ${monthLabel} (วันนี้)`, done: todayEntered, detail: todayEntered ? 'กรอกแล้ว' : 'ยังไม่กรอก', modal: 'record', date: isoFor(TODAY) },
     { label: 'ข้อมูลย้อนหลัง', done: monthsFilled > 0, detail: `${monthsFilled}/12 เดือน`, modal: 'historical' },
   ];
 
@@ -923,8 +929,8 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
               <div className="row" style={{ gap: 8, flexShrink: 0 }}>
                 <span className="cap" style={{ color: item.done ? 'var(--good)' : 'var(--warn)', fontWeight: 600 }}>{item.detail}</span>
                 {!item.done && item.modal && (
-                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
-                    {item.modal === 'record' ? 'กรอก' : 'อัปเดต'}
+                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : (item.modal === 'record' && item.date ? { date: item.date } : undefined))}>
+                    {item.modal === 'record' ? (item.date ? `กรอกวันที่ ${Number(item.date.slice(-2))}` : 'กรอก') : 'อัปเดต'}
                   </button>
                 )}
               </div>

@@ -1197,6 +1197,7 @@ function ChannelsView() {
   const [editLogo, setEditLogo] = useState('');
   const [editColor, setEditColor] = useState('');
   const [editTarget, setEditTarget] = useState(0);
+  const [editFee, setEditFee] = useState(0);
   const [busy, setBusy] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -1224,6 +1225,7 @@ function ChannelsView() {
     setEditLogo(c.logoUrl || c.icon || '');
     setEditColor(c.hex || c.color || PALETTE[0]);
     setEditTarget(c.target || 0);
+    setEditFee(c.platformFeePct || 0);
   };
 
   const saveEdit = async () => {
@@ -1234,16 +1236,21 @@ function ChannelsView() {
         color: editColor,
         percentage: Number(editTarget) || 0,
       };
-      // ลองรวม logo_url ก่อน — fallback ถ้า column ไม่มี
+      // ลองรวม logo_url + platform_fee_pct ก่อน — fallback ตัดเฉพาะ column ที่ยังไม่มี
       try {
-        const { error } = await supabase.from('tmk_channels').update({ ...payload, logo_url: editLogo }).eq('id', editing);
-        if (error && /logo_url/.test(error.message)) {
-          // ไม่มี column → save ส่วนอื่นแทน
-          await supabase.from('tmk_channels').update(payload).eq('id', editing);
-          if (window.__toast) window.__toast('รูปไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
+        const full = { ...payload, logo_url: editLogo, platform_fee_pct: Number(editFee) || 0 };
+        const { error } = await supabase.from('tmk_channels').update(full).eq('id', editing);
+        if (error && /(logo_url|platform_fee_pct)/.test(error.message)) {
+          // มี column ไหนยังไม่มี → ตัดออกแล้วลองใหม่
+          const retry = { ...payload };
+          if (!/logo_url/.test(error.message)) retry.logo_url = editLogo;
+          if (!/platform_fee_pct/.test(error.message)) retry.platform_fee_pct = Number(editFee) || 0;
+          const r2 = await supabase.from('tmk_channels').update(retry).eq('id', editing);
+          if (r2.error) throw r2.error;
+          if (window.__toast) window.__toast('บางค่าไม่ได้บันทึก — ต้องรัน SQL migration (platform_fee_pct)', 'warn');
         } else if (error) throw error;
       } catch (err) {
-        if (!/logo_url/.test(err.message)) throw err;
+        if (!/(logo_url|platform_fee_pct)/.test(err.message)) throw err;
       }
       logAudit({ action: 'update', entityType: 'channel', entityName: editName.trim(), summary: `แก้ไขช่องทาง "${editName.trim()}"` });
       if (reload) await reload();
@@ -1472,6 +1479,12 @@ function ChannelsView() {
                           }}></button>
                         ))}
                       </div>
+                    </div>
+                    <div>
+                      <div className="cap" style={{ marginBottom: 4 }}>ค่าธรรมเนียมแพลตฟอร์ม (%) — ใช้คำนวณกำไร/มาร์จิ้นจริง</div>
+                      <input className="input" type="number" min="0" max="100" step="0.01" style={{ maxWidth: 160 }}
+                        value={editFee} onChange={e => setEditFee(e.target.value)} placeholder="0" />
+                      <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>เช่น Shopee ~5–10%, ช่องทางตัวเอง (CRM) = 0</div>
                     </div>
                     <div className="row between">
                       <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}>
@@ -2099,6 +2112,7 @@ const TRASH_TABLES = [
   { table: 'tmk_ad_campaigns',      type: 'แคมเปญแอด',  nameCol: 'name',    key: 'id' },
   { table: 'tmk_customer_segments', type: 'กลุ่มลูกค้า', nameCol: 'name',    key: 'id' },
   { table: 'tmk_user_roles',        type: 'ผู้ใช้',      nameCol: 'name',    key: 'email' },
+  { table: 'tmk_daily_sales',       type: 'ยอดรายวัน',   nameCol: 'date',    key: 'id' },
 ];
 
 function TrashView() {

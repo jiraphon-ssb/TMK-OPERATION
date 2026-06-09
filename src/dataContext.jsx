@@ -113,7 +113,9 @@ function mapToTMK(raw) {
   const _chIdList = (raw.channels || []).map(c => c.id);
   const dailyAgg = {};
   let dailyAdTotal = 0;
-  (raw.daily || []).forEach(d => {
+  // filter deleted_at ฝั่ง client (soft-delete รายวัน) — ปลอดภัยแม้ column ยังไม่มี
+  const _dailyLive = (raw.daily || []).filter(d => !d.deleted_at);
+  _dailyLive.forEach(d => {
     const [yy, mm] = String(d.date).split('-').map(Number);
     if ((yy + 543) !== _curY || mm !== _curM) return; // เฉพาะเดือนปัจจุบัน
     dailyAdTotal += Number(d.ad_spend || 0);
@@ -149,6 +151,7 @@ function mapToTMK(raw) {
     ad: dailyAgg[ch.id]?.ad || 0,
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
+    platformFeePct: Number(ch.platform_fee_pct || 0), // ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (0 = ยังไม่ตั้ง)
   }));
 
   // Campaigns
@@ -192,7 +195,7 @@ function mapToTMK(raw) {
 
   // dailyAll — ทุกแถว daily ทุกเดือน + รายละเอียดต่อช่องทาง (สำหรับ dashboard รายเดือน)
   const _chIds = (raw.channels || []).map(c => c.id);
-  const dailyAll = (raw.daily || []).map(d => {
+  const dailyAll = (raw.daily || []).filter(d => !d.deleted_at).map(d => {
     const [yy, mm, dd] = String(d.date).split('-').map(Number);
     const cj = (d.channels && typeof d.channels === 'object') ? d.channels : {};
     const ch = {};
@@ -237,9 +240,10 @@ function mapToTMK(raw) {
     if (liveMTD > 0) {
       const cur = monthly.find(m => Number(m.year) === currentYear && Number(m.month) === currentMonth);
       if (cur) {
-        if (liveMTD > Number(cur.actual || 0)) cur.actual = liveMTD;
-        if (liveORD > Number(cur.orders || 0)) cur.orders = liveORD;
-        if (dailyAdTotal > Number(cur.ad_spend || 0)) cur.ad_spend = dailyAdTotal;
+        // assign (ไม่ใช่ max) → เดือนปัจจุบัน = ผลรวมรายวันเสมอ; แก้รายวันลดลงค่าก็ลดตาม ไม่ค้างสูงเพี้ยน
+        cur.actual = liveMTD;
+        cur.orders = liveORD;
+        cur.ad_spend = dailyAdTotal;
       } else {
         monthly.push({ year: currentYear, month: currentMonth, month_th: THAI_MONTH[currentMonth - 1], actual: liveMTD, orders: liveORD, ad_spend: dailyAdTotal, projected: 0, messages: 0, meta: {} });
       }
@@ -355,16 +359,16 @@ function mapToTMK(raw) {
   const OLD_REV = channels.reduce((s, c) => s + c.oldRev, 0);
   const NEW_C = channels.reduce((s, c) => s + c.newCust, 0);
   const OLD_C = channels.reduce((s, c) => s + c.oldCust, 0);
-  const PACE_TGT = Math.round((TARGET / DAYS) * DAY);
+  const PACE_TGT = DAYS > 0 ? (TARGET / DAYS) * DAY : 0;          // ไม่ปัดเศษ — ค่าจริง (ปัดเฉพาะตอนแสดงผล)
   const PACE_PCT = PACE_TGT > 0 ? (MTD / PACE_TGT) * 100 : 0;
-  const RUN = DAY > 0 ? Math.round((MTD / DAY) * DAYS) : 0;
+  const RUN = DAY > 0 ? (MTD / DAY) * DAYS : 0;                   // ไม่ปัดเศษ
   const AOV = ORD > 0 ? MTD / ORD : 0;
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
   const CAC = NEW_C > 0 ? AD / NEW_C : 0;
   // CLV เฉลี่ย — weighted avg ของ avg_clv แต่ละ segment ตามจำนวนลูกค้า (0 ถ้ายังไม่มี segment)
   const _segs = raw.segments || [];
   const _segCount = _segs.reduce((s, x) => s + Number(x.count || 0), 0);
-  const CLV = _segCount > 0 ? Math.round(_segs.reduce((s, x) => s + Number(x.avg_clv || 0) * Number(x.count || 0), 0) / _segCount) : 0;
+  const CLV = _segCount > 0 ? (_segs.reduce((s, x) => s + Number(x.avg_clv || 0) * Number(x.count || 0), 0) / _segCount) : 0; // ไม่ปัดเศษ
 
   // raw monthly สำหรับ quarter view (target/actual จริงต่อเดือน/ปี)
   const monthlyRaw = monthly.map(m => ({
@@ -379,9 +383,10 @@ function mapToTMK(raw) {
   if (MTD > 0) {
     const _cur = monthlyRaw.find(m => m.year === currentYear && m.month === currentMonth);
     if (_cur) {
-      if (MTD > _cur.actual) _cur.actual = MTD;
-      if (ORD > _cur.orders) _cur.orders = ORD;
-      if (AD > _cur.adSpend) _cur.adSpend = AD;
+      // assign → เดือนปัจจุบัน = ผลรวมรายวันเสมอ (กันค่าค้างสูงเพี้ยน)
+      _cur.actual = MTD;
+      _cur.orders = ORD;
+      _cur.adSpend = AD;
     } else {
       monthlyRaw.push({ month: currentMonth, year: currentYear, monthTh: THAI_MONTH[currentMonth - 1],
         target: TARGET, actual: MTD, projected: 0, orders: ORD, adSpend: AD, newCust: NEW_C, messages: 0, meta: {} });
@@ -456,9 +461,9 @@ export function computeMonth(monthIdx0, yearBE) {
   const NEW_C = channels.reduce((s, c) => s + c.newCust, 0);
   const OLD_C = channels.reduce((s, c) => s + c.oldCust, 0);
   const AOV = ORD > 0 ? MTD / ORD : 0;
-  const PACE_TGT = (DAYS > 0 && DAY > 0) ? Math.round((TARGET / DAYS) * DAY) : 0;
+  const PACE_TGT = (DAYS > 0 && DAY > 0) ? (TARGET / DAYS) * DAY : 0; // ไม่ปัดเศษ
   const PACE_PCT = PACE_TGT > 0 ? (MTD / PACE_TGT) * 100 : 0;
-  const RUN = DAY > 0 ? Math.round((MTD / DAY) * DAYS) : 0;
+  const RUN = DAY > 0 ? (MTD / DAY) * DAYS : 0;                       // ไม่ปัดเศษ
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
   const CAC = NEW_C > 0 ? AD / NEW_C : 0;
 
@@ -489,9 +494,26 @@ export function computeMonth(monthIdx0, yearBE) {
     })(),
   };
 
+  // กราฟ 3 เดือนล่าสุด + YoY ของ "เดือนที่เลือก" (ตามเดือนที่เลือก ไม่ผูกกับเดือนปัจจุบัน)
+  const _allM = TMK.monthly || [];
+  const month3 = [];
+  for (let off = 2; off >= 0; off--) {
+    let mo = monthNum - off, yr = yearBE;
+    while (mo < 1) { mo += 12; yr -= 1; }
+    const r = _allM.find(m => m.year === yr && m.month === mo);
+    month3.push({ m: _ABBR[mo - 1], actual: Number(r?.actual || 0), proj: Number(r?.projected || 0) });
+  }
+  const _lastYr = yearBE - 1;
+  const yoy = [];
+  for (let mo = 1; mo <= 12; mo++) {
+    const cur = _allM.find(m => m.year === yearBE && m.month === mo);
+    const prev = _allM.find(m => m.year === _lastYr && m.month === mo);
+    if (cur || prev) yoy.push({ m: _ABBR[mo - 1], y25: Number(prev?.actual || 0), y26: Number(cur?.actual || 0) });
+  }
+
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET },
-    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb,
+    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy,
     computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
   };
 }

@@ -70,6 +70,7 @@ export function RecordSalesModal({ data, onClose }) {
   const [chatTime, setChatTime] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
 
   // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
   const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
@@ -80,6 +81,7 @@ export function RecordSalesModal({ data, onClose }) {
     (async () => {
       const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', 'd-' + date).maybeSingle();
       if (cancel) return;
+      setExists(!!row && !row.deleted_at);
       if (row) {
         const cj = (row.channels && typeof row.channels === 'object') ? row.channels : {};
         setRows(MD.channels.map(c => {
@@ -202,8 +204,25 @@ export function RecordSalesModal({ data, onClose }) {
     return { tRev, tOrd, tAd, aov, acos, newMtd, pPct, rr, vsAvg, tips, ok: tRev > 0, tNewC, tOldC };
   }, [rows, sel]);
 
+  const handleDelete = async () => {
+    if (!window.confirm(`ลบข้อมูลยอดขายวันที่ ${date}?\nจะย้ายไปถังขยะ กู้คืนได้ภายหลัง`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('tmk_daily_sales').update({ deleted_at: new Date().toISOString() }).eq('id', 'd-' + date);
+      if (error) {
+        if (/deleted_at/.test(error.message || '')) { toast('ต้องรัน SQL migration (deleted_at) ใน Supabase ก่อนจึงจะลบได้', 'error'); setSaving(false); return; }
+        throw error;
+      }
+      logAudit({ action: 'delete', entityType: 'daily', entityName: date, summary: `ลบยอดขายรายวันวันที่ ${date}` });
+      toast('ย้ายข้อมูลรายวันไปถังขยะแล้ว', 'success');
+      onClose();
+    } catch (err) { toast('ลบไม่สำเร็จ: ' + err.message, 'error'); }
+    finally { setSaving(false); }
+  };
+
   const footer = step === 1 ? (
     <>
+      {exists && <button className="btn btn-sm" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={saving} onClick={handleDelete}><Icon name="trash" /> ลบข้อมูลวันนี้</button>}
       <button className="btn" onClick={onClose}>{t('cancel')}</button>
       <button className="btn btn-primary" disabled={!s.ok} style={{ opacity: s.ok ? 1 : 0.5 }} onClick={() => setStep(2)}>{t('reviewBefore')} <Icon name="arrowR" /></button>
     </>
@@ -668,6 +687,9 @@ export function MonthlyTargetModal({ data, onClose }) {
     setBusy(true);
     try {
       const existing = (MD.monthly || []).find(m => m.month === monthIdx + 1 && m.year === year);
+      // เดือนปัจจุบัน: actual/orders คำนวณจากยอดรายวัน (single source of truth) → ห้าม baked ค่าสด overlay ลง DB
+      const _t = getToday();
+      const isCurMonth = (monthIdx + 1) === _t.month && year === _t.yearBE;
       const meta = {
         adBudget: Number(adTotal) || 0,
         channelTargets: Object.fromEntries(chTargets.map(c => [c.id, Number(c.target) || 0])),
@@ -679,8 +701,8 @@ export function MonthlyTargetModal({ data, onClose }) {
         id: `${year}-${String(monthIdx + 1).padStart(2, '0')}`,
         month: monthIdx + 1, year, month_th: months[monthIdx],
         target: Number(total) || 0,
-        actual: existing?.actual || 0, projected: existing?.projected || 0,
-        orders: existing?.orders || 0, messages: existing?.messages || 0,
+        actual: isCurMonth ? 0 : (existing?.actual || 0), projected: existing?.projected || 0,
+        orders: isCurMonth ? 0 : (existing?.orders || 0), messages: existing?.messages || 0,
         meta,
       };
       const { error } = await supabase.from('tmk_monthly_history').upsert(row);
@@ -966,14 +988,13 @@ export function CustomerSegmentModal({ onClose }) {
 /* ---------- Historical Entry modal ---------- */
 export function HistoricalEntryModal({ onClose }) {
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const year = getToday().yearBE;
   const monthlyRef = MD.monthly || [];
   const _today = getToday();
-  const rnd = (x) => (x ? String(Math.round(x * 100) / 100) : ''); // กัน floating point (.79000001)
-  const initRows = months.map((m, i) => {
+  const rnd = (x) => (x ? String(x) : ''); // ไม่ปัดเศษ — แสดง/บันทึกค่าจริงเท่านั้น
+  const buildRows = (yr) => months.map((m, i) => {
     // เดือนปัจจุบันคำนวณอัตโนมัติจากยอดรายวัน → ไม่ prefill/ไม่ให้กรอกทับ
-    const isCurrent = (i + 1) === _today.month && year === _today.yearBE;
-    const ref = monthlyRef.find(r => r.year === year && r.month === i + 1);
+    const isCurrent = (i + 1) === _today.month && yr === _today.yearBE;
+    const ref = monthlyRef.find(r => r.year === yr && r.month === i + 1);
     return {
       month: m,
       isCurrent,
@@ -984,7 +1005,11 @@ export function HistoricalEntryModal({ onClose }) {
       messages: isCurrent ? '' : (ref?.messages ? String(ref.messages) : ''),
     };
   });
-  const [rows, setRows] = useState(initRows);
+  // ตัวเลือกปี — แก้ย้อนหลังข้ามปีได้ (ปีปัจจุบัน ถึง ย้อนหลัง 5 ปี)
+  const yearOptions = [0, 1, 2, 3, 4, 5].map(d => _today.yearBE - d);
+  const [year, setYear] = useState(_today.yearBE);
+  const [rows, setRows] = useState(() => buildRows(_today.yearBE));
+  useEffect(() => { setRows(buildRows(year)); }, [year]); // เปลี่ยนปี → โหลดค่าเดิมของปีนั้น
   const up = (i, k, v) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
 
   const [busy, setBusy] = useState(false);
@@ -1032,6 +1057,13 @@ export function HistoricalEntryModal({ onClose }) {
   );
   return (
     <Modal icon="clock" title="กรอกข้อมูลย้อนหลัง" sub="ป้อนยอดขายรายเดือนเพื่อเปรียบเทียบแนวโน้ม" onClose={onClose} footer={footer} wide>
+      <div className="row" style={{ gap: 10, marginBottom: 12, alignItems: 'center' }}>
+        <span className="cap" style={{ fontWeight: 600 }}>ปี (พ.ศ.)</span>
+        <select className="input" style={{ maxWidth: 140 }} value={year} onChange={e => setYear(Number(e.target.value))}>
+          {yearOptions.map(y => <option key={y} value={y}>{y}{y === _today.yearBE ? ' (ปีนี้)' : ''}</option>)}
+        </select>
+        <span className="cap" style={{ color: 'var(--ink-4)' }}>เลือกปีเพื่อแก้ไขย้อนหลังข้ามปีได้</span>
+      </div>
       <div className="table-wrap">
         <table className="table" style={{ minWidth: 640 }}>
           <thead><tr>
