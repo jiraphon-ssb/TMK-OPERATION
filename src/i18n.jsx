@@ -88,7 +88,7 @@ const T = {
     addTask: 'เพิ่ม', noTasksDay: 'ไม่มีงานในวันนี้',
     prevMonth: 'เดือนก่อน', nextMonth: 'เดือนถัดไป',
     moreTask: '+{0} งาน', dragHere: 'ลากการ์ดมาที่นี่',
-    overdue: 'เกินกำหนด', noResults: 'ไม่พบงานตามเงื่อนไข',
+    overdue: 'เกินกำหนด',
     responsible: 'ผู้รับผิดชอบ', campProgress: 'ความคืบหน้าแคมเปญ',
     campLive: 'Live', campPrepare: 'เตรียม', campDone: 'จบ',
 
@@ -324,7 +324,7 @@ const T = {
     addTask: 'Add', noTasksDay: 'No tasks for this day',
     prevMonth: 'Previous month', nextMonth: 'Next month',
     moreTask: '+{0} tasks', dragHere: 'Drag cards here',
-    overdue: 'Overdue', noResults: 'No tasks match the filter',
+    overdue: 'Overdue',
     responsible: 'Assigned to', campProgress: 'Campaign Progress',
     campLive: 'Live', campPrepare: 'Preparing', campDone: 'Done',
 

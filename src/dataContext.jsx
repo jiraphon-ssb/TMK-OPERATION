@@ -520,10 +520,15 @@ export function computeMonth(monthIdx0, yearBE) {
     const prev = _allM.find(m => m.year === _lastYr && m.month === mo);
     if (cur || prev) yoy.push({ m: _ABBR[mo - 1], y25: Number(prev?.actual || 0), y26: Number(cur?.actual || 0) });
   }
+  // FB message trend ของ "เดือนที่เลือก" (เดือนต้นปีถึงเดือนที่เลือก) — ตามเดือน ไม่ผูกปัจจุบัน
+  const fbMsgTrend = _allM
+    .filter(m => m.year === yearBE && m.month <= monthNum)
+    .sort((a, b) => a.month - b.month)
+    .map(m => ({ m: _ABBR[m.month - 1], v: Number(m.messages || 0) }));
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET },
-    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy,
+    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend,
     computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
   };
 }
@@ -600,7 +605,8 @@ export function DataProvider({ children }) {
         'tmk_channels','tmk_campaigns','tmk_tasks','tmk_products','tmk_settings',
         'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
         'tmk_customer_segments','tmk_fb_metrics','tmk_monthly_history',
-        'tmk_color_mix','tmk_size_mix','tmk_purchase_orders','tmk_audit_logs',
+        'tmk_color_mix','tmk_size_mix','tmk_purchase_orders',
+        // ไม่ subscribe tmk_audit_logs — การเขียน log ไม่ควร trigger reload เต็ม (ลด reload ซ้ำตอนเซฟ)
       ].forEach(t => {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
           clearTimeout(timer);

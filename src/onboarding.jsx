@@ -77,16 +77,18 @@ export function TourOverlay({ step, total, current, onNext, onPrev, onClose }) {
     const el = document.querySelector(step.target);
     if (el) {
       const r = el.getBoundingClientRect();
+      // target ที่ซ่อน (เช่น rail บนมือถือ) → rect ขนาด 0 → ถือว่าไม่มี (โชว์ tooltip กลางจอแทน ไม่พังมุมจอ)
+      if (r.width === 0 && r.height === 0) { setRect(null); return; }
       setRect(r);
-      // Scroll into view if needed
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+      setRect(null);
     }
   }, [step.target]);
 
-  if (!rect) return null;
-
+  const hasRect = !!rect;
   const pad = 8;
-  const holeStyle = {
+  const holeStyle = hasRect ? {
     position: 'fixed',
     left: rect.left - pad,
     top: rect.top - pad,
@@ -97,7 +99,7 @@ export function TourOverlay({ step, total, current, onNext, onPrev, onClose }) {
     zIndex: 9991,
     pointerEvents: 'none',
     transition: 'all 0.35s cubic-bezier(0.4,0,0.2,1)',
-  };
+  } : null;
 
   // Tooltip position
   let tooltipStyle = {
@@ -107,7 +109,10 @@ export function TourOverlay({ step, total, current, onNext, onPrev, onClose }) {
     boxShadow: 'var(--sh-pop)', border: '1px solid var(--line)',
   };
 
-  if (step.position === 'right') {
+  if (!hasRect) {
+    // ไม่มี target → กลางจอ
+    tooltipStyle.left = '50%'; tooltipStyle.top = '50%'; tooltipStyle.transform = 'translate(-50%, -50%)';
+  } else if (step.position === 'right') {
     tooltipStyle.left = rect.right + pad + 16;
     tooltipStyle.top = rect.top + rect.height / 2 - 50;
   } else if (step.position === 'bottom') {
@@ -126,8 +131,8 @@ export function TourOverlay({ step, total, current, onNext, onPrev, onClose }) {
       {/* Backdrop click to close */}
       <div style={{ position: 'fixed', inset: 0, zIndex: 9990 }} onClick={onClose}></div>
 
-      {/* Spotlight hole */}
-      <div style={holeStyle}></div>
+      {/* Spotlight hole (เฉพาะเมื่อมี target จริง) */}
+      {hasRect ? <div style={holeStyle}></div> : <div style={{ position: 'fixed', inset: 0, background: 'rgba(8,18,32,0.55)', zIndex: 9991, pointerEvents: 'none' }}></div>}
 
       {/* Tooltip */}
       <div ref={tooltipRef} style={tooltipStyle} onClick={e => e.stopPropagation()}>
@@ -377,6 +382,7 @@ function GuideOverlay({ steps, current, onNext, onPrev, onClose, onDone }) {
       const el = document.querySelector(step.target);
       if (el) {
         const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0) { setRect(null); return; } // target ซ่อน → ไม่วาดกล่อง 0px (tooltip ยังโชว์กลางจอ)
         setRect(r);
         el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       } else {
@@ -482,10 +488,12 @@ export function HelpCenter({ onStartGuide }) {
 
   // Filter topics by level — ให้ตรงกับจำนวนที่แสดงบนการ์ดเลือกระดับ
   //  new = ทุกหัวข้อ · used = ไม่รวม expert · expert = เฉพาะ expert
+  const _isAdmin = typeof window !== 'undefined' && window.__isAdmin === true;
   const visibleTopics = (topics) => {
-    if (!level || level === 'new') return topics;
-    if (level === 'expert') return topics.filter(t => t.level === 'expert');
-    return topics.filter(t => t.level !== 'expert'); // used
+    let ts = topics.filter(t => t.id !== 'roles' || _isAdmin); // หัวข้อ "สิทธิ์ผู้ใช้" เฉพาะ admin (non-admin ไม่เห็นแท็บ)
+    if (!level || level === 'new') return ts;
+    if (level === 'expert') return ts.filter(t => t.level === 'expert');
+    return ts.filter(t => t.level !== 'expert'); // used
   };
 
   // Start interactive guide for a topic

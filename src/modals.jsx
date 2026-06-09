@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Modals & Login
    ============================================================ */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
@@ -65,21 +65,23 @@ export function Modal({ icon, title, sub, onClose, footer, wide, children, confi
     if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
     onClose();
   };
+  const boxRef = useRef(null);
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') tryClose(); };
     window.addEventListener('keydown', onKey);
+    boxRef.current?.focus?.(); // โฟกัสเข้า modal เมื่อเปิด (a11y)
     return () => window.removeEventListener('keydown', onKey);
   }, [confirmOnClose]);
   return (
     <div className="modal-scrim" onClick={tryClose}>
-      <div className={'modal' + (wide ? ' modal-lg' : '')} onClick={e => e.stopPropagation()}>
+      <div ref={boxRef} className={'modal' + (wide ? ' modal-lg' : '')} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div className="modal-head">
           {icon && <div className="mh-icon"><Icon name={icon} /></div>}
           <div style={{ minWidth: 0 }}>
             <div className="modal-title">{title}</div>
             {sub && <div className="modal-sub">{sub}</div>}
           </div>
-          <button className="icon-btn modal-x" onClick={tryClose}><Icon name="x" /></button>
+          <button className="icon-btn modal-x" onClick={tryClose} aria-label="ปิด"><Icon name="x" /></button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}

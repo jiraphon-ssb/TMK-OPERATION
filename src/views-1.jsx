@@ -1,12 +1,12 @@
 /* ============================================================
    TMK Operation — Views part 1: Home (cockpit) + Sales
    ============================================================ */
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, thaiDate, todayISO } from './lib/dateUtils.js';
-import { computeMonth, adCampaignInMonth } from './dataContext.jsx';
+import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
@@ -25,9 +25,12 @@ function getSegments() { return TMK.segments || []; }
 /* small KPI tile — clickable with optional onClick */
 export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, accent, onClick, hint }) {
   return (
-    <div className="card card-pad-sm" onClick={onClick} style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: onClick ? 'pointer' : 'default', transition: 'box-shadow 0.15s' }}>
+    <div className="card card-pad-sm" onClick={onClick}
+      role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }) : undefined}
+      style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: onClick ? 'pointer' : 'default', transition: 'box-shadow 0.15s' }}>
       <div className="row between">
-        <span className="metric-label" title={hint || undefined} style={hint ? { cursor: 'help' } : undefined}>{label}{hint ? ' ⓘ' : ''}</span>
+        <span className="metric-label" title={hint || undefined} tabIndex={hint ? 0 : undefined} aria-label={hint ? `${label}: ${hint}` : undefined} style={hint ? { cursor: 'help' } : undefined}>{label}{hint ? ' ⓘ' : ''}</span>
         {icon && <span style={{ color: accent || 'var(--ink-3)' }}><Icon name={icon} /></span>}
       </div>
       <div className="metric-value">{value}</div>
@@ -267,10 +270,10 @@ export function SalesView({ sub }) {
   const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
   const prevMonthName = THAI_MONTHS[month === 0 ? 11 : month - 1];
   const dateProps = { month, year, onPrev: prev, onNext: next };
-  // ข้อมูลของ "เดือนที่เลือก" (อดีต/ปัจจุบัน/อนาคต) — เปลี่ยนเดือนแล้วข้อมูลเปลี่ยนตาม
-  const md = computeMonth(month, year);
-  // ยอดเดือนก่อน (สำหรับ MoM)
-  const prevMd = computeMonth(month === 0 ? 11 : month - 1, month === 0 ? year - 1 : year);
+  const { version } = useData() || {};
+  // ข้อมูลของ "เดือนที่เลือก" — memo (คำนวณใหม่เมื่อเปลี่ยนเดือน/ปี หรือข้อมูลรีโหลด) กันคำนวณซ้ำทุก render
+  const md = useMemo(() => computeMonth(month, year), [month, year, version]);
+  const prevMd = useMemo(() => computeMonth(month === 0 ? 11 : month - 1, month === 0 ? year - 1 : year), [month, year, version]);
 
   if (sub === 'channels') return <SalesChannels dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
   if (sub === 'ads') return <SalesAds dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
@@ -691,7 +694,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
           </div>
           <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
             <div className="cap" style={{ marginBottom: 8 }}>{'ปริมาณข้อความ'} (6 {'ด.'})</div>
-            <MiniArea data={D.fbMsgTrend.map(d=>d.v)} labels={D.fbMsgTrend.map(d=>d.m)} fmt={N} h={70} color="var(--ch-facebook)" id="fbmsg" />
+            <MiniArea data={(md.fbMsgTrend||[]).map(d=>d.v)} labels={(md.fbMsgTrend||[]).map(d=>d.m)} fmt={N} h={70} color="var(--ch-facebook)" id="fbmsg" />
           </div>
         </div>
       </div>

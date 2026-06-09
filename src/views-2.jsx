@@ -12,6 +12,9 @@ import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_S
 
 const DD = TMK;
 
+// a11y: ให้ clickable div กดด้วยคีย์บอร์ดได้ (Enter/Space → trigger onClick)
+const onCardKey = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } };
+
 // guard สิทธิ์ (ฝั่ง client) — กัน viewer แก้ผ่านหน้าตั้งค่า + จัดการผู้ใช้/สิทธิ์เฉพาะ admin
 const guardEdit = () => { if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
 const guardAdmin = () => { if (!window.__isAdmin) { window.__toast?.('เฉพาะแอดมินจัดการผู้ใช้และสิทธิ์ได้', 'warn'); return false; } return true; };
@@ -243,7 +246,7 @@ function CalendarView({ tasks, filtered, fProps }) {
             const stLabel = { done: 'เสร็จ', review: 'รอตรวจ', inprogress: 'กำลังทำ', todo: 'รอ' };
             const stCls = { done: 'chip-good', review: 'chip-warn', inprogress: 'chip-accent', todo: '' };
             return (
-              <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', marginBottom: 8, borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
+              <div key={t.id} role="button" tabIndex={0} onKeyDown={onCardKey} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', marginBottom: 8, borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
                 <div className="row between" style={{ marginBottom: 6 }}>
                   <div>
                     <div className="h3">{t.title}</div>
@@ -314,7 +317,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                 {list.map(t => {
                   const c = DD.campaigns.find(x => x.id === t.camp) || { name: '', color: '#888' };
                   return (
-                    <div key={t.id} draggable
+                    <div key={t.id} draggable role="button" tabIndex={0} onKeyDown={onCardKey}
                       onDragStart={() => { dragId.current = t.id; }}
                       onDragEnd={() => { dragId.current = null; setOver(null); }}
                       onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
@@ -386,7 +389,7 @@ function TimelineView({ filtered, fProps }) {
           const tasks = campTasks[c.id] || [];
           const done = tasks.filter(t => t.status === 'done').length;
           const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
-          const st = stMeta[c.status];
+          const st = stMeta[c.status] || stMeta.done; // กัน status แปลก → จอขาว
           return (
             <div key={c.id} className="card card-pad-sm" style={{ display: 'flex', alignItems: 'center', gap: 14, borderLeft: `3px solid ${c.color}`, cursor: 'pointer' }} onClick={() => fProps.setFilterCamp(fProps.filterCamp === c.id ? null : c.id)}>
               <Ring pct={pct} size={48} stroke={5} color={c.color}><span className="num" style={{ fontSize: 'var(--fs-micro)', fontWeight: 700 }}>{pct}%</span></Ring>
@@ -438,7 +441,7 @@ function TimelineView({ filtered, fProps }) {
                     const isDone = t.status === 'done';
                     const isOverdue = isPast && !isDone;
                     return (
-                      <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
+                      <div key={t.id} role="button" tabIndex={0} onKeyDown={onCardKey} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
                         <div className="row between" style={{ marginBottom: 6 }}>
                           <div>
                             <div className="h3" style={{ textDecoration: isDone ? 'line-through' : 'none', color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>{t.title}</div>
@@ -641,7 +644,7 @@ function CampaignsView() {
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                  <span className={`chip ${stMeta[c.status].cls}`}>{stMeta[c.status].l}</span>
+                  <span className={`chip ${(stMeta[c.status] || stMeta.done).cls}`}>{(stMeta[c.status] || stMeta.done).l}</span>
                   <button className="btn btn-sm btn-ghost" title="แก้ไข" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
                     <Icon name="pencil" />
                   </button>
@@ -1136,7 +1139,7 @@ export function ProfileView({ tasks }) {
             const stMap = { todo: { l: 'รอทำ', c: 'var(--ink-3)' }, inprogress: { l: 'กำลังทำ', c: 'var(--info)' }, review: { l: 'รอตรวจ', c: 'var(--warn)' }, done: { l: 'เสร็จ', c: 'var(--good)' } };
             const st = stMap[t.status] || stMap.todo;
             return (
-              <div key={t.id} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
+              <div key={t.id} role="button" tabIndex={0} onKeyDown={onCardKey} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
                 className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)', cursor: 'pointer', transition: 'background 0.1s' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -1187,7 +1190,7 @@ const ACTION_META = {
   logout:  { l: 'ออกจากระบบ',  c: 'var(--ink-3)', g: 'auth' },
 };
 const actionMeta = (a) => ACTION_META[a.action] || { l: a.action || 'อื่นๆ', c: 'var(--info)', g: a.type || 'update' };
-const ENTITY_TH = { task:'งาน', product:'สินค้า', campaign:'แคมเปญ', channel:'ช่องทาง', duty:'หน้าที่', user:'ผู้ใช้', daily:'ยอดขายรายวัน', monthly:'รายเดือน', segment:'กลุ่มลูกค้า', adCampaign:'แคมเปญแอด', auth:'ระบบ', data:'ข้อมูล', system:'ระบบ' };
+const ENTITY_TH = { task:'งาน', product:'สินค้า', campaign:'แคมเปญ', channel:'ช่องทาง', duty:'หน้าที่', user:'ผู้ใช้', daily:'ยอดขายรายวัน', monthly:'รายเดือน', segment:'กลุ่มลูกค้า', adCampaign:'แคมเปญแอด', ad:'แคมเปญแอด', po:'PO / สต็อก', auth:'ระบบ', data:'ข้อมูล', settings:'ตั้งค่า', system:'ระบบ' };
 
 function AuditView() {
   const [filter, setFilter] = useState('all');
