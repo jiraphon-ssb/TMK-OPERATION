@@ -8,7 +8,7 @@ import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { getToday, parseTaskDate, todayISO, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
+import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
 
 const DD = TMK;
 
@@ -137,7 +137,7 @@ function CalendarView({ tasks, filtered, fProps }) {
   // จับคู่งานด้วยวันที่เต็มของ "เดือนที่เลือก" (ym) — ใช้ได้ทุกเดือน ไม่ใช่แค่เดือนปัจจุบัน
   const byDay = {};
   filtered.forEach(t => {
-    const iso = parseTaskDate(t.date);
+    const iso = t.dateISO || parseTaskDate(t.date);
     if (!iso) return;
     const [yy, mm, dd] = iso.split('-').map(Number);
     if ((yy + 543) === ym.y && (mm - 1) === ym.m) (byDay[dd] = byDay[dd] || []).push(t);
@@ -362,12 +362,12 @@ function TimelineView({ filtered, fProps }) {
   // เทียบด้วยวันที่จริง (รองรับงานข้ามเดือน) — ไม่ใช่แค่เลขวัน
   const todayIso = todayISO();
   const dayDiff = (s) => { const iso = parseTaskDate(s); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(todayIso + 'T00:00:00')) / 86400000); };
-  const todayTasks = filtered.filter(t => dayDiff(t.date) === 0).length;
-  const overdue = filtered.filter(t => { const d = dayDiff(t.date); return d != null && d < 0 && t.status !== 'done'; }).length;
+  const todayTasks = filtered.filter(t => dayDiff(t.dateISO || t.date) === 0).length;
+  const overdue = filtered.filter(t => { const d = dayDiff(t.dateISO || t.date); return d != null && d < 0 && t.status !== 'done'; }).length;
 
-  // Group filtered tasks by FULL date string (กันงานคนละเดือนวันเดียวกันมารวมกัน)
+  // Group filtered tasks by FULL ISO date (กันงานคนละเดือน/คนละปีวันเดียวกันมารวมกัน)
   const byDate = {};
-  filtered.forEach(t => { const k = t.date || '—'; (byDate[k] = byDate[k] || []).push(t); });
+  filtered.forEach(t => { const k = t.dateISO || parseTaskDate(t.date) || t.date || '—'; (byDate[k] = byDate[k] || []).push(t); });
   const dateKeys = Object.keys(byDate).sort((a, b) => { const ia = parseTaskDate(a) || a, ib = parseTaskDate(b) || b; return ia < ib ? -1 : ia > ib ? 1 : 0; });
 
   return (
@@ -420,7 +420,7 @@ function TimelineView({ filtered, fProps }) {
                     <div style={{ width: isToday ? 14 : 10, height: isToday ? 14 : 10, borderRadius: '50%', background: isToday ? 'var(--accent)' : isPast ? 'var(--good)' : 'var(--ink-4)', border: isToday ? '2px solid var(--accent-ring)' : 'none' }}></div>
                   </div>
                   <div>
-                    <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 700, color: isToday ? 'var(--accent-2)' : 'var(--ink)' }}>{dateKey}</span>
+                    <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 700, color: isToday ? 'var(--accent-2)' : 'var(--ink)' }}>{thaiDate(dateKey) || dateKey}</span>
                     {isToday && <span className="chip chip-accent" style={{ marginLeft: 8 }}>วันนี้</span>}
                     {beYear && <span className="cap" style={{ marginLeft: 8 }}>{beYear}</span>}
                   </div>

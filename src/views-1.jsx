@@ -75,12 +75,12 @@ export function HomeView({ go }) {
   const pace = useCountUp(C.PACE_PCT);
   const st = paceStatus(C.PACE_PCT);
   const gap = TMK.consts.TARGET - C.RUN;
-  const perDayNeeded = Math.ceil((TMK.consts.TARGET - C.MTD) / (TMK.consts.DAYS - TMK.consts.DAY));
+  const _daysLeft = TMK.consts.DAYS - TMK.consts.DAY;
+  const perDayNeeded = _daysLeft > 0 ? Math.ceil((TMK.consts.TARGET - C.MTD) / _daysLeft) : 0; // กัน /0 = Infinity วันสุดท้าย
 
-  const todayThai = thaiDate(todayISO());
-  const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.date === todayThai);
+  const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
   const alerts = [];
-  if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${TMK.consts.DAYS-TMK.consts.DAY} วัน` });
+  if (C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: _daysLeft > 0 ? `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${_daysLeft} วัน` : 'วันสุดท้ายของเดือนแล้ว' });
   if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
   const outOfStock = D.products.filter(p => p.stock === 'out' || p.stock === 'low');
   if (outOfStock.length) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'box', t: `สินค้าใกล้/หมดสต็อก ${outOfStock.length} รายการ`, d: outOfStock.map(p => p.name).slice(0,2).join(', ') });

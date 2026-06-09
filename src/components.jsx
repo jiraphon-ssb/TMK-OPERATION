@@ -33,7 +33,7 @@ export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
 // formatters — คืน "—" เมื่อค่าไม่ใช่ตัวเลขจริง (กัน NaN/Infinity จากการหารด้วย 0)
 const _fin = n => typeof n === 'number' && isFinite(n);
 export const B  = n => _fin(n) ? '฿' + Math.round(n).toLocaleString('en-US') : '—';
-export const Bk = n => !_fin(n) ? '—' : n >= 1e6 ? '฿' + (n/1e6).toFixed(2) + 'M' : n >= 1000 ? '฿' + Math.round(n/1000) + 'k' : '฿' + Math.round(n);
+export const Bk = n => { if (!_fin(n)) return '—'; const a = Math.abs(n), s = n < 0 ? '-' : ''; return a >= 1e6 ? '฿' + s + (a/1e6).toFixed(2) + 'M' : a >= 1000 ? '฿' + s + Math.round(a/1000) + 'k' : '฿' + Math.round(n); };
 export const P  = (n, d=1) => _fin(n) ? n.toFixed(d) + '%' : '—';
 export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—';
 

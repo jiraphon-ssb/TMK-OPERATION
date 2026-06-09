@@ -411,7 +411,7 @@ function AppInner() {
   const isMine = (tk) => seeAll || (tk.responsible || []).some(r => r === myDuty || r === myDept);
   // ผลต่างวันแบบวันที่จริง (รองรับข้ามเดือน/ปี) — ไม่ใช่แค่เลขวัน
   const _todayIso = todayISO();
-  const diffOf = (x) => { const iso = parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
+  const diffOf = (x) => { const iso = x.dateISO || parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
   const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
 
   // 1) วันนี้
@@ -776,7 +776,7 @@ function AppInner() {
                 const _campName = (id) => (TMK.campaigns.find(c => c.id === id)?.name) || (id ? '-' : 'ไม่มี');
                 const _norm = (t) => ({
                   'หัวข้อ': t?.title || '',
-                  'วันที่': parseTaskDate(t?.date) || t?.date || '',
+                  'วันที่': t?.dateISO || parseTaskDate(t?.date) || t?.date || '',
                   'สถานะ': _stTH[t?.status] || t?.status || '',
                   'แคมเปญ': _campName(t?.camp),
                   'ช่องทาง': (Array.isArray(t?.channel) ? t.channel : String(t?.channel || '').split(',').map(s => s.trim()).filter(Boolean)).join(', ') || 'ไม่มี',

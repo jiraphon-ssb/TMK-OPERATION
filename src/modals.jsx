@@ -35,14 +35,19 @@ async function saveRow(table, row, label = 'บันทึก', audit = null) {
 const MD = TMK;
 
 /* ---------- Modal shell ---------- */
-export function Modal({ icon, title, sub, onClose, footer, wide, children }) {
+export function Modal({ icon, title, sub, onClose, footer, wide, children, confirmOnClose }) {
+  // กันข้อมูลหายเงียบ: ถ้ามีการแก้ไขค้าง (confirmOnClose) → ถามก่อนปิดด้วย ESC/พื้นหลัง/ปุ่ม X
+  const tryClose = () => {
+    if (confirmOnClose && !window.confirm('ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป')) return;
+    onClose();
+  };
   useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    const onKey = e => { if (e.key === 'Escape') tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [confirmOnClose]);
   return (
-    <div className="modal-scrim" onClick={onClose}>
+    <div className="modal-scrim" onClick={tryClose}>
       <div className={'modal' + (wide ? ' modal-lg' : '')} onClick={e => e.stopPropagation()}>
         <div className="modal-head">
           {icon && <div className="mh-icon"><Icon name={icon} /></div>}
@@ -50,7 +55,7 @@ export function Modal({ icon, title, sub, onClose, footer, wide, children }) {
             <div className="modal-title">{title}</div>
             {sub && <div className="modal-sub">{sub}</div>}
           </div>
-          <button className="icon-btn modal-x" onClick={onClose}><Icon name="x" /></button>
+          <button className="icon-btn modal-x" onClick={tryClose}><Icon name="x" /></button>
         </div>
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
@@ -71,10 +76,11 @@ export function RecordSalesModal({ data, onClose }) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
+  const [touched, setTouched] = useState(false); // มีการแก้ไขค้าง → เตือนก่อนปิด
 
   // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
   const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
-  const numStr = (v) => (v != null && Number(v)) ? String(v) : '';
+  const numStr = (v) => (v != null && v !== '' && !isNaN(Number(v))) ? String(v) : ''; // โชว์ค่าจริงรวม 0 (กัน 0→ช่องว่าง)
   useEffect(() => {
     let cancel = false;
     setLoading(true);
@@ -82,6 +88,7 @@ export function RecordSalesModal({ data, onClose }) {
       const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', 'd-' + date).maybeSingle();
       if (cancel) return;
       setExists(!!row && !row.deleted_at);
+      setTouched(false); // โหลดวันใหม่ = ยังไม่นับว่าแก้
       if (row) {
         const cj = (row.channels && typeof row.channels === 'object') ? row.channels : {};
         setRows(MD.channels.map(c => {
@@ -106,6 +113,7 @@ export function RecordSalesModal({ data, onClose }) {
   const up = (i, k, v) => {
     // Validation: no negative numbers
     if (+v < 0) return;
+    setTouched(true);
     setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
   };
 
@@ -115,7 +123,7 @@ export function RecordSalesModal({ data, onClose }) {
     setSaving(true);
     try {
       const dayNames = ['อา','จ','อ','พ','พฤ','ศ','ส'];
-      const d = new Date(date);
+      const d = new Date(date + 'T00:00:00'); // parse local (กันเพี้ยน timezone ติดลบ)
       const day_name = dayNames[d.getDay()] || '';
       const byId = Object.fromEntries(rows.map(r => [r.id, r]));
       // per-channel jsonb เก็บครบทุก field (rev/ord/ad/inq/newC/oldC) — กันข้อมูลหาย
@@ -236,7 +244,7 @@ export function RecordSalesModal({ data, onClose }) {
   );
 
   return (
-    <Modal icon="pencil" title={step === 1 ? 'บันทึกยอดขายประจำวัน' : 'ตรวจสอบก่อนบันทึก'} sub={step === 1 ? 'กรอกยอดแต่ละช่องทาง' : `ยอดขายวันที่ ${date}`} onClose={onClose} footer={footer} wide>
+    <Modal icon="pencil" title={step === 1 ? 'บันทึกยอดขายประจำวัน' : 'ตรวจสอบก่อนบันทึก'} sub={step === 1 ? 'กรอกยอดแต่ละช่องทาง' : `ยอดขายวันที่ ${date}`} onClose={onClose} footer={footer} wide confirmOnClose={touched}>
 
       {/* Step indicator */}
       <div className="row" style={{ gap: 8, marginBottom: 4 }}>
@@ -276,8 +284,8 @@ export function RecordSalesModal({ data, onClose }) {
           })}
 
           <div className="field-row">
-            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" className="input" placeholder="0" value={chatTime} onChange={e => setChatTime(e.target.value)} /></div>
-            <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => setNote(e.target.value)} /></div>
+            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" className="input" placeholder="0" value={chatTime} onChange={e => { setTouched(true); setChatTime(e.target.value); }} /></div>
+            <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} /></div>
           </div>
         </>
       )}
@@ -378,7 +386,8 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
     .filter(Boolean);
   const [f, setF] = useState(() => {
     // วันที่เก็บเป็น ISO (YYYY-MM-DD) เพื่อใช้กับปฏิทิน <input type="date">
-    const isoDate = data?.date ? (parseTaskDate(data.date) || data.date) : todayISO();
+    // ใช้ dateISO เต็ม (กันปีหายตอนแก้งานข้ามปี); fallback parse จากไทย/ค่าที่ส่งมา
+    const isoDate = data?.dateISO || (data?.date ? (parseTaskDate(data.date) || data.date) : todayISO());
     if (!data?.id) return { title: '', detail: '', date: isoDate, responsible: [], channel: [], camp: '', status: 'todo' };
     const validNames = new Set((MD.channels || []).map(c => c.name));
     const chanPieces = splitToArr(data.channel);
@@ -386,11 +395,12 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
     const channel = chanPieces.filter(c => validNames.has(c));
     return { ...data, date: isoDate, responsible: splitToArr(data.responsible), channel };
   });
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const toggle = (k, v) => setF(p => {
+  const [touched, setTouched] = useState(false);
+  const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
+  const toggle = (k, v) => { setTouched(true); setF(p => {
     const arr = Array.isArray(p[k]) ? p[k] : splitToArr(p[k]);
     return { ...p, [k]: arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v] };
-  });
+  }); };
   const valid = f.title.trim();
   const footer = (
     <>
@@ -407,7 +417,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
     </>
   );
   return (
-    <Modal icon="listChecks" title={edit ? 'แก้ไขงาน' : 'เพิ่มงานใหม่'} sub="มอบหมายงานให้ทีมพร้อมกำหนดวัน" onClose={onClose} footer={footer}>
+    <Modal icon="listChecks" title={edit ? 'แก้ไขงาน' : 'เพิ่มงานใหม่'} sub="มอบหมายงานให้ทีมพร้อมกำหนดวัน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field-row">
         <div className="field"><label>วันที่</label><input type="date" className="input" value={f.date} onChange={e => set('date', e.target.value)} /></div>
         <div className="field"><label>แคมเปญ</label>
@@ -463,7 +473,8 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
 export function ProductModal({ data, onClose }) {
   const [f, setF] = useState(data || { name: '', price: '', units: '', onHand: '', reorder: '', strategy: '' });
   const [busy, setBusy] = useState(false);
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [touched, setTouched] = useState(false);
+  const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const handleSave = async () => {
     if (busy || !f.name.trim()) return;
     setBusy(true);
@@ -492,7 +503,7 @@ export function ProductModal({ data, onClose }) {
   };
   const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
   return (
-    <Modal icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้าและสต็อกคงเหลือ" onClose={onClose} footer={footer}>
+    <Modal icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้าและสต็อกคงเหลือ" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อโปโล Signature" /></div>
       <div className="field-row">
         <div className="field"><label>ราคาขาย (฿)</label><input type="number" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
@@ -510,9 +521,12 @@ export function ProductModal({ data, onClose }) {
 /* ---------- Campaign modal ---------- */
 export function CampaignModal({ data, onClose }) {
   const palette = ['#0a5aa0', '#ee6a3a', '#6b5ce0', '#2f9e6e', '#c08a3e', '#4a8be0'];
-  const [f, setF] = useState(data || { name: '', color: palette[0], start: '', end: '', channels: [], status: 'upcoming' });
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const toggleCh = id => setF(p => ({ ...p, channels: p.channels.includes(id) ? p.channels.filter(x => x !== id) : [...p.channels, id] }));
+  const [f, setF] = useState(() => data
+    ? { ...data, start: data.startISO || parseTaskDate(data.start) || '', end: data.endISO || parseTaskDate(data.end) || '' } // ISO สำหรับ <input type=date>
+    : { name: '', color: palette[0], start: '', end: '', channels: [], status: 'upcoming' });
+  const [touched, setTouched] = useState(false);
+  const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
+  const toggleCh = id => { setTouched(true); setF(p => ({ ...p, channels: p.channels.includes(id) ? p.channels.filter(x => x !== id) : [...p.channels, id] })); };
   const statuses = [['upcoming', 'กำลังจะมา'], ['live', 'กำลังดำเนินการ'], ['done', 'จบแล้ว']];
   const [busy, setBusy] = useState(false);
   const handleSave = async () => {
@@ -524,8 +538,8 @@ export function CampaignModal({ data, onClose }) {
       color: f.color,
       bg: f.color + '22',
       border: f.color + '55',
-      start_date: parseTaskDate(f.start) || null,
-      end_date: parseTaskDate(f.end) || null,
+      start_date: f.start || null,   // ISO จาก <input type=date>
+      end_date: f.end || null,
       status: f.status,
       channels: f.channels || [],
     };
@@ -535,7 +549,7 @@ export function CampaignModal({ data, onClose }) {
       summary: `${data ? 'แก้ไข' : 'สร้าง'}แคมเปญ "${row.name}"`,
       fields: [
         { label: 'สถานะ', value: _cstTH[f.status] || f.status },
-        { label: 'ช่วงเวลา', value: (f.start || f.end) ? `${f.start || '?'} - ${f.end || '?'}` : '—' },
+        { label: 'ช่วงเวลา', value: (f.start || f.end) ? `${thaiDate(f.start) || '?'} - ${thaiDate(f.end) || '?'}` : '—' },
         { label: 'ช่องทาง', value: (f.channels || []).join(', ') || '—' },
       ],
     });
@@ -544,11 +558,11 @@ export function CampaignModal({ data, onClose }) {
   };
   const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกแคมเปญ'}</button></>);
   return (
-    <Modal icon="megaphone" title={data ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'} sub="ตั้งชื่อ ช่วงเวลา และช่องทาง" onClose={onClose} footer={footer}>
+    <Modal icon="megaphone" title={data ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'} sub="ตั้งชื่อ ช่วงเวลา และช่องทาง" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>ชื่อแคมเปญ</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Payday Push" /></div>
       <div className="field-row">
-        <div className="field"><label>เริ่ม</label><input className="input" value={f.start} onChange={e => set('start', e.target.value)} placeholder="25 มิ.ย." /></div>
-        <div className="field"><label>สิ้นสุด</label><input className="input" value={f.end} onChange={e => set('end', e.target.value)} placeholder="30 มิ.ย." /></div>
+        <div className="field"><label>เริ่ม</label><input type="date" className="input" value={f.start} onChange={e => set('start', e.target.value)} /></div>
+        <div className="field"><label>สิ้นสุด</label><input type="date" className="input" value={f.end} onChange={e => set('end', e.target.value)} /></div>
       </div>
       <div className="field"><label>สีประจำแคมเปญ</label>
         <div className="chips-pick">
@@ -582,9 +596,12 @@ export function CampaignModal({ data, onClose }) {
 
 /* ---------- PO modal ---------- */
 export function POModal({ data, onClose }) {
-  const [f, setF] = useState(data || { product: '', quantity: '', orderDate: '', arrivalDate: '', status: 'Pending' });
+  const [f, setF] = useState(() => data
+    ? { ...data, orderDate: data.orderISO || parseTaskDate(data.orderDate) || '', arrivalDate: data.arrivalISO || parseTaskDate(data.arrivalDate) || '' }
+    : { product: '', quantity: '', orderDate: '', arrivalDate: '', status: 'Pending' });
   const [busy, setBusy] = useState(false);
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [touched, setTouched] = useState(false);
+  const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const handleSave = async () => {
     if (busy || !f.product) return;
     setBusy(true);
@@ -592,8 +609,8 @@ export function POModal({ data, onClose }) {
       id: data?.id || uid('po'),
       product: f.product,
       quantity: Number(f.quantity) || 0,
-      order_date: parseTaskDate(f.orderDate) || new Date().toISOString().slice(0, 10),
-      arrival_date: parseTaskDate(f.arrivalDate) || new Date().toISOString().slice(0, 10),
+      order_date: f.orderDate || todayISO(),       // ISO จาก <input type=date>
+      arrival_date: f.arrivalDate || todayISO(),
       status: f.status,
     };
     const ok = await saveRow('tmk_purchase_orders', row, 'บันทึก PO', {
@@ -601,8 +618,8 @@ export function POModal({ data, onClose }) {
       summary: `${data ? 'แก้ไข' : 'เปิด'} PO "${row.product}" (${row.quantity} ชิ้น)`,
       fields: [
         { label: 'จำนวน', value: N(row.quantity) + ' ชิ้น' },
-        { label: 'วันสั่ง', value: f.orderDate || '—' },
-        { label: 'กำหนดเข้า', value: f.arrivalDate || '—' },
+        { label: 'วันสั่ง', value: thaiDate(f.orderDate) || '—' },
+        { label: 'กำหนดเข้า', value: thaiDate(f.arrivalDate) || '—' },
         { label: 'สถานะ', value: f.status },
       ],
     });
@@ -611,7 +628,7 @@ export function POModal({ data, onClose }) {
   };
   const footer = (<><button className="btn" onClick={onClose}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
   return (
-    <Modal icon="box" title={data ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer}>
+    <Modal icon="box" title={data ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>รายการสินค้า</label>
         <select className="input" value={f.product} onChange={e => set('product', e.target.value)}>
           <option value="">{MD.products.length ? '— ยังไม่ได้เลือก —' : '— ยังไม่มีสินค้า (เพิ่มสินค้าก่อน) —'}</option>
@@ -628,8 +645,8 @@ export function POModal({ data, onClose }) {
         </div>
       </div>
       <div className="field-row">
-        <div className="field"><label>วันที่สั่ง</label><input className="input" value={f.orderDate} onChange={e => set('orderDate', e.target.value)} placeholder="15 มิ.ย." /></div>
-        <div className="field"><label>กำหนดของเข้า</label><input className="input" value={f.arrivalDate} onChange={e => set('arrivalDate', e.target.value)} placeholder="02 ก.ค." /></div>
+        <div className="field"><label>วันที่สั่ง</label><input type="date" className="input" value={f.orderDate} onChange={e => set('orderDate', e.target.value)} /></div>
+        <div className="field"><label>กำหนดของเข้า</label><input type="date" className="input" value={f.arrivalDate} onChange={e => set('arrivalDate', e.target.value)} /></div>
       </div>
     </Modal>
   );
@@ -662,6 +679,7 @@ export function MonthlyTargetModal({ data, onClose }) {
   const [adChannels, setAdChannels] = useState(_init.adChannels);
   const [newCustTarget, setNewCustTarget] = useState(_init.newCustTarget);
   const [acosCeil, setAcosCeil] = useState(_init.acosCeil);
+  const [touched, setTouched] = useState(false);
 
   // เปลี่ยนเดือน → โหลดค่าของเดือนนั้น (แต่ละเดือนแยกกัน)
   const changeMonth = (idx, yr) => {
@@ -669,14 +687,15 @@ export function MonthlyTargetModal({ data, onClose }) {
     const v = loadFor(idx, yr);
     setTotal(v.total); setChTargets(v.chTargets); setAdTotal(v.adTotal);
     setAdChannels(v.adChannels); setNewCustTarget(v.newCustTarget); setAcosCeil(v.acosCeil);
+    setTouched(false); // สลับเดือน = โหลดค่าเดิม ไม่นับว่าแก้
   };
 
   const chSum = chTargets.reduce((a, c) => a + (+c.target || 0), 0);
   const adSum = adChannels.reduce((a, c) => a + (+c.budget || 0), 0);
   const match = chSum === (+total || 0);
 
-  const upCh = (i, v) => setChTargets(ts => ts.map((t, j) => j === i ? { ...t, target: v } : t));
-  const upAd = (i, v) => setAdChannels(ts => ts.map((t, j) => j === i ? { ...t, budget: v } : t));
+  const upCh = (i, v) => { setTouched(true); setChTargets(ts => ts.map((t, j) => j === i ? { ...t, target: v } : t)); };
+  const upAd = (i, v) => { setTouched(true); setAdChannels(ts => ts.map((t, j) => j === i ? { ...t, budget: v } : t)); };
 
   const monthOptions = [];
   [year - 1, year, year + 1].forEach(y => months.forEach((m, i) => monthOptions.push({ idx: i, year: y, label: `${m} ${y}` })));
@@ -727,7 +746,7 @@ export function MonthlyTargetModal({ data, onClose }) {
     </>
   );
   return (
-    <Modal icon="target" title="ตั้งเป้าหมายรายเดือน" sub="กำหนดเป้ายอดขายและงบโฆษณา" onClose={onClose} footer={footer} wide>
+    <Modal icon="target" title="ตั้งเป้าหมายรายเดือน" sub="กำหนดเป้ายอดขายและงบโฆษณา" onClose={onClose} footer={footer} wide confirmOnClose={touched}>
       <div className="field" style={{ maxWidth: 220 }}>
         <label>เดือน/ปี</label>
         <select className="input" value={`${monthIdx}-${year}`} onChange={e => { const [i, y] = e.target.value.split('-').map(Number); changeMonth(i, y); }}>
@@ -737,7 +756,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>เป้ายอดรวม (฿)</label>
-        <input type="number" className="input" placeholder="0" value={total} onChange={e => setTotal(e.target.value)} />
+        <input type="number" className="input" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
       </div>
 
       <div className="field">
@@ -783,11 +802,11 @@ export function MonthlyTargetModal({ data, onClose }) {
       <div className="field-row">
         <div className="field">
           <label>เป้าลูกค้าใหม่</label>
-          <input type="number" className="input" placeholder="0" value={newCustTarget} onChange={e => setNewCustTarget(e.target.value)} />
+          <input type="number" className="input" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
         </div>
         <div className="field">
           <label>เพดาน ACOS %</label>
-          <input type="number" className="input" value={acosCeil} onChange={e => setAcosCeil(e.target.value)} />
+          <input type="number" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
         </div>
       </div>
     </Modal>
@@ -799,7 +818,8 @@ export function AdCampaignModal({ data, onClose }) {
   const [f, setF] = useState(data || {
     name: '', platform: 'Facebook', budget: '', startDate: '', endDate: '', goal: 'Conversion', status: 'กำลังดำเนินการ'
   });
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const [touched, setTouched] = useState(false);
+  const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const platforms = ['Facebook', 'TikTok', 'Shopee', 'Lazada'];
   const goals = ['Awareness', 'Conversion', 'Retargeting'];
   const statuses = ['กำลังดำเนินการ', 'หยุดชั่วคราว', 'จบแล้ว'];
@@ -843,7 +863,7 @@ export function AdCampaignModal({ data, onClose }) {
     </>
   );
   return (
-    <Modal icon="zap" title={data ? 'แก้ไขแคมเปญแอด' : 'สร้างแคมเปญแอด'} sub="ตั้งค่าแคมเปญโฆษณา" onClose={onClose} footer={footer}>
+    <Modal icon="zap" title={data ? 'แก้ไขแคมเปญแอด' : 'สร้างแคมเปญแอด'} sub="ตั้งค่าแคมเปญโฆษณา" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field">
         <label>ชื่อแคมเปญ</label>
         <input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Polo Signature — Awareness" />
@@ -910,8 +930,9 @@ export function CustomerSegmentModal({ onClose }) {
   });
   const [segments, setSegments] = useState(segInit);
   const [clv, setClv] = useState(MD.computed.CLV || '');
+  const [touched, setTouched] = useState(false);
 
-  const upSeg = (i, k, v) => setSegments(ss => ss.map((s, j) => j === i ? { ...s, [k]: v } : s));
+  const upSeg = (i, k, v) => { setTouched(true); setSegments(ss => ss.map((s, j) => j === i ? { ...s, [k]: v } : s)); };
   const totalCount = segments.reduce((a, s) => a + (+s.count || 0), 0);
   const totalRevPct = segments.reduce((a, s) => a + (+s.revPct || 0), 0);
 
@@ -946,7 +967,7 @@ export function CustomerSegmentModal({ onClose }) {
     </>
   );
   return (
-    <Modal icon="users" title="อัปเดตกลุ่มลูกค้า" sub="จัดกลุ่มลูกค้าตามพฤติกรรมการซื้อ" onClose={onClose} footer={footer}>
+    <Modal icon="users" title="อัปเดตกลุ่มลูกค้า" sub="จัดกลุ่มลูกค้าตามพฤติกรรมการซื้อ" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {segments.map((seg, i) => (
           <div key={seg.name} style={{ padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)', borderLeft: `3px solid ${seg.color}` }}>
@@ -970,7 +991,7 @@ export function CustomerSegmentModal({ onClose }) {
 
       <div className="field" style={{ marginTop: 14 }}>
         <label>CLV เฉลี่ย (฿)</label>
-        <input type="number" className="input" placeholder="0" value={clv} onChange={e => setClv(e.target.value)} />
+        <input type="number" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
       </div>
 
       <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
@@ -1009,8 +1030,9 @@ export function HistoricalEntryModal({ onClose }) {
   const yearOptions = [0, 1, 2, 3, 4, 5].map(d => _today.yearBE - d);
   const [year, setYear] = useState(_today.yearBE);
   const [rows, setRows] = useState(() => buildRows(_today.yearBE));
-  useEffect(() => { setRows(buildRows(year)); }, [year]); // เปลี่ยนปี → โหลดค่าเดิมของปีนั้น
-  const up = (i, k, v) => setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
+  const [touched, setTouched] = useState(false);
+  useEffect(() => { setRows(buildRows(year)); setTouched(false); }, [year]); // เปลี่ยนปี → โหลดค่าเดิมของปีนั้น
+  const up = (i, k, v) => { setTouched(true); setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r)); };
 
   const [busy, setBusy] = useState(false);
   const handleSave = async () => {
@@ -1056,7 +1078,7 @@ export function HistoricalEntryModal({ onClose }) {
     </>
   );
   return (
-    <Modal icon="clock" title="กรอกข้อมูลย้อนหลัง" sub="ป้อนยอดขายรายเดือนเพื่อเปรียบเทียบแนวโน้ม" onClose={onClose} footer={footer} wide>
+    <Modal icon="clock" title="กรอกข้อมูลย้อนหลัง" sub="ป้อนยอดขายรายเดือนเพื่อเปรียบเทียบแนวโน้ม" onClose={onClose} footer={footer} wide confirmOnClose={touched}>
       <div className="row" style={{ gap: 10, marginBottom: 12, alignItems: 'center' }}>
         <span className="cap" style={{ fontWeight: 600 }}>ปี (พ.ศ.)</span>
         <select className="input" style={{ maxWidth: 140 }} value={year} onChange={e => setYear(Number(e.target.value))}>

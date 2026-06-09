@@ -78,17 +78,20 @@ async function loadAllTables() {
   const keys = Object.keys(tables);
   const results = await Promise.all(Object.values(tables));
 
-  // ตรวจ errors — log ตารางไหนล้ม (อาจจะยังไม่ได้ run migration)
+  // ตรวจ errors — log ตารางไหนล้ม (อาจจะยังไม่ได้ run migration / สิทธิ์ RLS)
   const result = {};
+  const failed = [];
   results.forEach((r, i) => {
     const key = keys[i];
     if (r.error) {
       console.warn(`⚠️ tmk_${key}: ${r.error.message}`);
+      failed.push(key);
       result[key] = Array.isArray(r.data) ? [] : null;
     } else {
       result[key] = r.data;
     }
   });
+  if (failed.length) result.__errors = failed; // ส่งต่อให้ load() แจ้งผู้ใช้ (กันตารางพังดูเหมือน "ไม่มีข้อมูล")
   return result;
 }
 
@@ -161,6 +164,7 @@ function mapToTMK(raw) {
     color: c.color,
     start: c.start_date ? thaiDate(c.start_date) : '',
     end: c.end_date ? thaiDate(c.end_date) : '',
+    startISO: c.start_date || '', endISO: c.end_date || '',   // ISO เต็ม (กันปีหาย)
     status: c.status || 'upcoming',
     channels: c.channels || [],
     tasks: (raw.tasks || []).filter(t => t.camp === c.id).length,
@@ -171,7 +175,8 @@ function mapToTMK(raw) {
     id: t.id,
     title: t.title,
     detail: t.detail || '',
-    date: thaiDate(t.date),
+    date: thaiDate(t.date),       // ไทยย่อ (แสดงผล)
+    dateISO: t.date || '',        // ISO เต็ม (ใช้คำนวณ/แก้ไข — กันปีหายข้ามปี)
     responsible: String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean),
     camp: t.camp || '',
     status: t.status || 'todo',
@@ -339,6 +344,7 @@ function mapToTMK(raw) {
     quantity: Number(p.quantity || 0),
     orderDate: thaiDate(p.order_date),
     arrivalDate: thaiDate(p.arrival_date),
+    orderISO: p.order_date || '', arrivalISO: p.arrival_date || '',  // ISO เต็ม (กันปีหาย)
     status: p.status || 'Pending',
   }));
 
@@ -472,6 +478,7 @@ export function computeMonth(monthIdx0, yearBE) {
     date: `${r.day} ${_ABBR[monthNum - 1]}`, day: r.dayName,
     shopee: r.ch.shopee?.rev || 0, tiktok: r.ch.tiktok?.rev || 0, lazada: r.ch.lazada?.rev || 0,
     facebook: r.ch.facebook?.rev || 0, line: r.ch.line?.rev || 0, crm: r.ch.crm?.rev || 0,
+    ord: Object.values(r.ch).reduce((s, c) => s + (c.ord || 0), 0), // รวมออร์เดอร์ทุกช่อง
     ad: r.adSpend, note: r.note,
   }));
 
@@ -554,6 +561,7 @@ export function DataProvider({ children }) {
       mutateTMK(mapped);
       setError(null);
       setVersion(v => v + 1);
+      if (raw.__errors?.length) window.__toast?.(`บางตารางโหลดไม่สำเร็จ: ${raw.__errors.join(', ')} — อาจต้องรัน migration หรือสิทธิ์ไม่พอ`, 'warn');
       console.log('✅ Loaded from Supabase:', {
         channels: TMK.channels.length,
         campaigns: TMK.campaigns.length,

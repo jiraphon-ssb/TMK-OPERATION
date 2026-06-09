@@ -10,15 +10,12 @@ import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
 const DD = TMK;
 
 
-// "วันนี้" จากวันที่จริงของเครื่อง (getToday เป็น pure date — ปลอดภัยที่ module-level)
-const _T = getToday();
-const NOW_MONTH = _T.month - 1; // 0-indexed
-const NOW_YEAR  = _T.yearBE;
-const TODAY = _T.day;
-const DAYS_IN_MONTH = _T.daysInMonth;
+// "วันนี้" จากวันที่จริงของเครื่อง — คำนวณสดทุกครั้ง (กันค่าค้างเมื่อเปิดแอปข้ามเที่ยงคืน/ข้ามเดือน)
+const _now = () => { const t = getToday(); return { NOW_MONTH: t.month - 1, NOW_YEAR: t.yearBE, TODAY: t.day, DAYS_IN_MONTH: t.daysInMonth }; };
 
 // สร้างข้อมูลรายไตรมาสจาก monthly จริง (TMK.monthly) — qIndex 0-3
 function quarterData(year, qIndex) {
+  const { NOW_MONTH, NOW_YEAR } = _now();
   const months = [qIndex * 3 + 1, qIndex * 3 + 2, qIndex * 3 + 3]; // 1-indexed
   return months.map(mo => {
     const rec = (DD.monthly || []).find(r => r.year === year && r.month === mo);
@@ -33,6 +30,7 @@ function quarterData(year, qIndex) {
 }
 
 function getMode(month, year) {
+  const { NOW_MONTH, NOW_YEAR } = _now();
   const isCurrent = month === NOW_MONTH && year === NOW_YEAR;
   const isPast = year < NOW_YEAR || (year === NOW_YEAR && month < NOW_MONTH);
   const isFuture = year > NOW_YEAR || (year === NOW_YEAR && month > NOW_MONTH);
@@ -41,6 +39,7 @@ function getMode(month, year) {
 
 /* ====================  MONTH NAVIGATOR  ==================== */
 function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView }) {
+  const { NOW_MONTH, NOW_YEAR } = _now();
   const [showPicker, setShowPicker] = useState(false);
   const [pickerYear, setPickerYear] = useState(year);
   const { isCurrent, isPast, isFuture } = getMode(month, year);
@@ -239,6 +238,7 @@ function QuarterView({ month, year }) {
 
 /* ====================  ENTRY VIEW ROUTER  ==================== */
 export function EntryView({ sub }) {
+  const { NOW_MONTH, NOW_YEAR } = _now();
   const [month, setMonth] = useState(NOW_MONTH);
   const [year, setYear]   = useState(NOW_YEAR);
   const [quarterView, setQuarterView] = useState(false);
@@ -265,6 +265,7 @@ export function EntryView({ sub }) {
 
 /* ====================  DAILY ENTRY  ==================== */
 function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
+  const { TODAY, DAYS_IN_MONTH } = _now();
   const { isCurrent, isPast, isFuture } = mode;
   const [editing, setEditing] = useState(false);
   // ข้อมูลของ "เดือนที่เลือก" — เปลี่ยนเดือนแล้วปฏิทิน/ตารางเปลี่ยนตาม
@@ -382,7 +383,7 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
                     <tr key={i}>
                       <td><span className="sm" style={{ fontWeight: 600 }}>{log.date}</span></td>
                       <td style={{ textAlign: 'right' }}><span className="num">{B(total)}</span></td>
-                      <td style={{ textAlign: 'right' }}><span className="sm">—</span></td>
+                      <td style={{ textAlign: 'right' }}><span className="num">{log.ord ? N(log.ord) : '—'}</span></td>
                       <td style={{ textAlign: 'center' }}><span className="chip chip-good">กรอกแล้ว</span></td>
                     </tr>
                   );
@@ -506,7 +507,7 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
                       <span className="num">{B(total)}</span>
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      <span className="sm">—</span>
+                      <span className="num">{log.ord ? N(log.ord) : '—'}</span>
                     </td>
                     <td style={{ textAlign: 'center' }}>
                       {entered ? (
@@ -769,6 +770,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
 
 /* ====================  STATUS OVERVIEW  ==================== */
 function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
+  const { TODAY } = _now();
   const { isCurrent, isPast, isFuture } = mode;
   const md = computeMonth(month, year);
   const ENTERED_DAYS = md.enteredDays;
