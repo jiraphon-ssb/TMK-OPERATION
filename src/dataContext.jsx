@@ -224,7 +224,7 @@ function mapToTMK(raw) {
   // Daily sales (เดือนปัจจุบัน) — derive จาก channels jsonb (ตรงกับ computeMonth, ไม่ใช้ legacy)
   const _cyM = today.yearBE, _cmM = today.month;
   const _curDaily = dailyAll.filter(d => d.year === _cyM && d.month === _cmM);
-  const dailyMonth = _curDaily.map(d => ({ d: d.day, rev: Object.values(d.ch).reduce((s, c) => s + c.rev, 0) }));
+  const dailyMonth = _curDaily.map(d => ({ d: d.day, rev: round2(Object.values(d.ch).reduce((s, c) => s + (c.rev || 0), 0)) }));
   const dailyLog = [..._curDaily].sort((a, b) => b.day - a.day).slice(0, 7).map(d => ({
     date: thaiDate(d.date),
     day: d.dayName,
@@ -234,6 +234,7 @@ function mapToTMK(raw) {
     facebook: d.ch.facebook?.rev || 0,
     line: d.ch.line?.rev || 0,
     crm: d.ch.crm?.rev || 0,
+    total: round2(Object.values(d.ch).reduce((s, c) => s + (c.rev || 0), 0)), // รวม "ทุกช่องทาง" (รวมช่องที่เพิ่มเอง) — ตรงกับปฏิทิน
     ad: d.adSpend,
     note: d.note || '',
   }));
@@ -245,17 +246,18 @@ function mapToTMK(raw) {
   const currentMonth = today.month;
   // overlay เดือนปัจจุบันด้วยยอดสดจาก daily (ให้ month3/YoY/quarter ตรงกับ dashboard ไม่ใช่ ฿0)
   {
-    const liveMTD = Object.values(dailyAgg).reduce((s, c) => s + (c.rev || 0), 0);
+    const liveMTD = round2(Object.values(dailyAgg).reduce((s, c) => s + (c.rev || 0), 0));
     const liveORD = Object.values(dailyAgg).reduce((s, c) => s + (c.ord || 0), 0);
+    const liveAD = round2(dailyAdTotal);
     if (liveMTD > 0) {
       const cur = monthly.find(m => Number(m.year) === currentYear && Number(m.month) === currentMonth);
       if (cur) {
         // assign (ไม่ใช่ max) → เดือนปัจจุบัน = ผลรวมรายวันเสมอ; แก้รายวันลดลงค่าก็ลดตาม ไม่ค้างสูงเพี้ยน
         cur.actual = liveMTD;
         cur.orders = liveORD;
-        cur.ad_spend = dailyAdTotal;
+        cur.ad_spend = liveAD;
       } else {
-        monthly.push({ year: currentYear, month: currentMonth, month_th: THAI_MONTH[currentMonth - 1], actual: liveMTD, orders: liveORD, ad_spend: dailyAdTotal, projected: 0, messages: 0, meta: {} });
+        monthly.push({ year: currentYear, month: currentMonth, month_th: THAI_MONTH[currentMonth - 1], actual: liveMTD, orders: liveORD, ad_spend: liveAD, projected: 0, messages: 0, meta: {} });
       }
     }
   }
@@ -484,6 +486,7 @@ export function computeMonth(monthIdx0, yearBE) {
     iso: `${yearBE - 543}-${String(monthNum).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`,
     shopee: r.ch.shopee?.rev || 0, tiktok: r.ch.tiktok?.rev || 0, lazada: r.ch.lazada?.rev || 0,
     facebook: r.ch.facebook?.rev || 0, line: r.ch.line?.rev || 0, crm: r.ch.crm?.rev || 0,
+    total: round2(Object.values(r.ch).reduce((s, c) => s + (c.rev || 0), 0)), // รวม "ทุกช่องทาง" (รวมช่องที่เพิ่มเอง) — ตรงกับปฏิทิน
     ord: Object.values(r.ch).reduce((s, c) => s + (c.ord || 0), 0), // รวมออร์เดอร์ทุกช่อง
     ad: r.adSpend, note: r.note,
   }));

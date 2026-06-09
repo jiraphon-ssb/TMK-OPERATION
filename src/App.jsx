@@ -313,7 +313,6 @@ function AppInner() {
     try { return localStorage.getItem('tmk-dark') === 'true'; } catch { return false; }
   });
   // Session persist: load from localStorage (หมดอายุ 7 วัน → loadValidSession คืน null)
-  const [currentUser, setCurrentUser] = useState(() => loadValidSession());
   const [authed, setAuthed] = useState(() => Boolean(loadValidSession()));
   const [modal, setModal] = useState(null);
   const [spotlight, setSpotlight] = useState(false);
@@ -416,7 +415,7 @@ function AppInner() {
   const closeModal = () => { setModal(null); };
   const logout = () => {
     try { const u = JSON.parse(localStorage.getItem('tmk-user') || 'null'); if (u?.email) logAudit({ action: 'logout', entityType: 'auth', entityName: u.email, summary: `ออกจากระบบ (${u.email})` }); } catch {}
-    setMenu(false); setDrawer(false); setAuthed(false); setCurrentUser(null);
+    setMenu(false); setDrawer(false); setAuthed(false);
     setSection('home'); setSubMap(DEFAULT_SUB);
     try {
       localStorage.removeItem('tmk-user');
@@ -436,7 +435,6 @@ function AppInner() {
       if (remember) { localStorage.setItem('tmk-remember', 'true'); localStorage.setItem('tmk-remember-email', userEmail); }
       else { localStorage.removeItem('tmk-remember'); localStorage.removeItem('tmk-remember-email'); }
     } catch {}
-    setCurrentUser(user);
     setAuthed(true);
     window.dispatchEvent(new Event('tmk-user-change'));
     logAudit({ action: 'login', entityType: 'auth', entityName: userEmail, summary: `เข้าสู่ระบบ (${userEmail})` });

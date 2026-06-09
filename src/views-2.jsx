@@ -516,7 +516,7 @@ function ProductsView() {
             <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
               <span style={{ width: 18, height: 18, borderRadius: 5, background: c.hex, border: '1px solid var(--line)', flexShrink: 0 }}></span>
               <span className="sm" style={{ flex: 1 }}>{c.name}</span>
-              <div className="bar" style={{ width: 110 }}><span style={{ width: `${c.pct*3}%`, background: c.hex }}></span></div>
+              <div className="bar" style={{ width: 110 }}><span style={{ width: `${Math.min(100, (c.pct / Math.max(1, ...DD.colorMix.map(x => x.pct || 0))) * 100)}%`, background: c.hex }}></span></div>
               <span className="num sm" style={{ width: 34, textAlign: 'right', fontWeight: 700 }}>{c.pct}%</span>
             </div>
           ))}
@@ -528,7 +528,7 @@ function ProductsView() {
             {DD.sizeMix.map(s => (
               <div key={s.s} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end' }}>
                 <span className="num cap" style={{ fontWeight: 700 }}>{s.pct}%</span>
-                <div style={{ width: '100%', maxWidth: 38, height: `${(s.pct/31)*130}px`, background: 'var(--accent)', borderRadius: '6px 6px 0 0' }}></div>
+                <div style={{ width: '100%', maxWidth: 38, height: `${(s.pct / Math.max(1, ...DD.sizeMix.map(x => x.pct || 0))) * 140}px`, background: 'var(--accent)', borderRadius: '6px 6px 0 0' }}></div>
                 <span className="cap" style={{ fontWeight: 600 }}>{s.s}</span>
               </div>
             ))}
@@ -805,9 +805,10 @@ function exportMonthlyReportCSV() {
   // ยอดรายวันของเดือน (จาก dailyAll จริง)
   csv += 'ยอดรายวัน\nวันที่,รายได้รวม,ค่าแอด\n';
   const rows = (TMK.dailyAll || []).filter(r => r.year === t.yearBE && r.month === t.month).sort((a, b) => a.day - b.day);
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100; // ปัด 2 ตำแหน่งสตางค์ — ตัด noise float ใน CSV ให้ตรงกับยอดบนจอ
   rows.forEach(r => {
-    const rev = Object.values(r.ch || {}).reduce((s, c) => s + (c.rev || 0), 0);
-    csv += [`${r.year - 543}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`, rev, r.adSpend || 0].join(',') + '\n';
+    const rev = r2(Object.values(r.ch || {}).reduce((s, c) => s + (c.rev || 0), 0));
+    csv += [`${r.year - 543}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`, rev, r2(r.adSpend || 0)].join(',') + '\n';
   });
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
@@ -1270,8 +1271,8 @@ function ChannelsView() {
   const [editName, setEditName] = useState('');
   const [editLogo, setEditLogo] = useState('');
   const [editColor, setEditColor] = useState('');
-  const [editTarget, setEditTarget] = useState(0);
   const [editFee, setEditFee] = useState(0);
+  const [editHasAd, setEditHasAd] = useState(false);
   const [busy, setBusy] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -1281,7 +1282,7 @@ function ChannelsView() {
   const [newName, setNewName] = useState('');
   const [newLogo, setNewLogo] = useState('');
   const [newColor, setNewColor] = useState(PALETTE[0]);
-  const [newTarget, setNewTarget] = useState(0);
+  const [newHasAd, setNewHasAd] = useState(false);
 
   // Helper: read file → base64
   const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
@@ -1298,8 +1299,8 @@ function ChannelsView() {
     setEditName(c.name);
     setEditLogo(c.logoUrl || c.icon || '');
     setEditColor(c.hex || c.color || PALETTE[0]);
-    setEditTarget(c.target || 0);
     setEditFee(c.platformFeePct || 0);
+    setEditHasAd(!!c.hasAd);
   };
 
   const saveEdit = async () => {
@@ -1309,7 +1310,7 @@ function ChannelsView() {
       const payload = {
         name: editName.trim(),
         color: editColor,
-        percentage: Number(editTarget) || 0,
+        has_ad: !!editHasAd, // เปิด/ปิดช่องค่าโฆษณาของช่องทางนี้
       };
       // ลองรวม logo_url + platform_fee_pct ก่อน — fallback ตัดเฉพาะ column ที่ยังไม่มี
       try {
@@ -1373,20 +1374,22 @@ function ChannelsView() {
         id,
         name,
         color: newColor,
-        percentage: Number(newTarget) || 0,
         actual: 0,
         sort_order: maxOrder + 1,
       };
-      let { error } = await supabase.from('tmk_channels').insert({ ...basePayload, logo_url: newLogo });
-      if (error && /logo_url/.test(error.message)) {
-        // fallback ถ้า column ไม่มี
-        const res = await supabase.from('tmk_channels').insert(basePayload);
+      let { error } = await supabase.from('tmk_channels').insert({ ...basePayload, logo_url: newLogo, has_ad: !!newHasAd });
+      if (error && /(logo_url|has_ad)/.test(error.message)) {
+        // fallback ถ้า column ไหนยังไม่มี → ตัดเฉพาะตัวที่ขาดแล้วลองใหม่
+        const retry = { ...basePayload };
+        if (!/logo_url/.test(error.message)) retry.logo_url = newLogo;
+        if (!/has_ad/.test(error.message)) retry.has_ad = !!newHasAd;
+        const res = await supabase.from('tmk_channels').insert(retry);
         if (res.error) throw res.error;
-        if (window.__toast) window.__toast('รูปไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
+        if (window.__toast) window.__toast('บางค่าไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
       } else if (error) throw error;
       logAudit({ action: 'create', entityType: 'channel', entityName: name, summary: `เพิ่มช่องทาง "${name}"` });
       if (reload) await reload();
-      setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewTarget(0); setShowAdd(false);
+      setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewHasAd(false); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มช่องทางเรียบร้อย', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('เพิ่มไม่สำเร็จ: ' + err.message, 'error');
@@ -1490,6 +1493,10 @@ function ChannelsView() {
                   ))}
                 </div>
               </div>
+              <label className="row" style={{ gap: 8, cursor: 'pointer', alignItems: 'center' }}>
+                <input type="checkbox" checked={newHasAd} onChange={e => setNewHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด & แสดงในตารางโฆษณา</span>
+              </label>
               <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
                 <button className="btn btn-sm" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</button>
                 <button className="btn btn-sm btn-primary" onClick={addChannel} disabled={!newName.trim() || busy}>
@@ -1567,6 +1574,10 @@ function ChannelsView() {
                         value={editFee} onChange={e => setEditFee(e.target.value)} placeholder="0" />
                       <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>เช่น Shopee ~5–10%, ช่องทางตัวเอง (CRM) = 0</div>
                     </div>
+                    <label className="row" style={{ gap: 8, cursor: 'pointer', alignItems: 'center' }}>
+                      <input type="checkbox" checked={editHasAd} onChange={e => setEditHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                      <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด & แสดงในตารางโฆษณา</span>
+                    </label>
                     <div className="row between">
                       <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}>
                         <Icon name="trash" /> ลบ

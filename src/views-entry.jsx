@@ -276,7 +276,7 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
   const ENTERED_DAYS = md.enteredDays;
   const SEL_DAYS = md.consts.DAYS;
   const todayEntered = isCurrent && md.dailyMonth.some(d => d.d === TODAY);
-  const totalToday = todayLog ? todayLog.shopee + todayLog.tiktok + todayLog.lazada + todayLog.facebook + todayLog.line + todayLog.crm : 0;
+  const totalToday = todayLog ? (todayLog.total != null ? todayLog.total : todayLog.shopee + todayLog.tiktok + todayLog.lazada + todayLog.facebook + todayLog.line + todayLog.crm) : 0;
 
   /* ---- FUTURE ---- */
   if (isFuture) {
@@ -378,7 +378,7 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
                 {dailyLog.length === 0 ? (
                   <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีข้อมูลเดือนนี้</td></tr>
                 ) : dailyLog.map((log, i) => {
-                  const total = log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
+                  const total = log.total != null ? log.total : log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
                   return (
                     <tr key={i}>
                       <td><span className="sm" style={{ fontWeight: 600 }}>{log.date}</span></td>
@@ -512,7 +512,7 @@ function DailyEntry({ mode, monthLabel, monthFull, month, year }) {
               {dailyLog.length === 0 ? (
                 <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-4)' }} className="cap">ยังไม่มีข้อมูล — กรอกยอดวันแรกได้เลย</td></tr>
               ) : dailyLog.map((log, i) => {
-                const total = log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
+                const total = log.total != null ? log.total : log.shopee + log.tiktok + log.lazada + log.facebook + log.line + log.crm;
                 const dayNum = parseInt(log.date);
                 const entered = dayNum < TODAY;
                 const isToday = dayNum === TODAY;
