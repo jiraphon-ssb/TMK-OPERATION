@@ -692,7 +692,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
                   <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้ตั้งค่า</div>
                 </div>
               </div>
-              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
+              <button className="btn btn-outline btn-sm" style={{ width: '100%' }} onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : item.modal === 'historical' ? { year } : undefined)}>
                 <Icon name="plus" />ตั้งเป้าล่วงหน้า
               </button>
             </div>
@@ -726,7 +726,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
                     <div className="cap" style={{ color: 'var(--ink-3)' }}>{item.desc}</div>
                   </div>
                 </div>
-                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
+                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : item.modal === 'historical' ? { year } : undefined)}>
                   <Icon name="pencil" /> แก้ไข
                 </button>
               </div>
@@ -779,7 +779,7 @@ function MonthlySetup({ mode, monthLabel, monthFull, month, year }) {
 
             {item.extra}
 
-            <button className="btn btn-outline" style={{ marginTop: 12, width: '100%' }} onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
+            <button className="btn btn-outline" style={{ marginTop: 12, width: '100%' }} onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : item.modal === 'historical' ? { year } : undefined)}>
               <Icon name={item.done ? 'pencil' : 'plus'} />
               {item.done ? 'แก้ไข' : 'ตั้งค่า'}
             </button>
@@ -827,7 +827,7 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
                   </span>
                   <div className="sm" style={{ fontWeight: 600 }}>{item.label}</div>
                 </div>
-                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : undefined)}>
+                <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : item.modal === 'historical' ? { year } : undefined)}>
                   ตั้งค่า
                 </button>
               </div>
@@ -880,7 +880,7 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
         ) : (
           <div className="card" style={{ textAlign: 'center', padding: '40px 20px' }}>
             <div className="cap">ยังไม่มีข้อมูลเดือนนี้ — กรอกผ่าน "กรอกข้อมูลย้อนหลัง" ได้</div>
-            <button className="btn btn-sm btn-accent" style={{ marginTop: 12 }} onClick={() => window.__openModal('historical')}>กรอกข้อมูลย้อนหลัง</button>
+            <button className="btn btn-sm btn-accent" style={{ marginTop: 12 }} onClick={() => window.__openModal('historical', { year })}>กรอกข้อมูลย้อนหลัง</button>
           </div>
         )}
       </div>
@@ -953,7 +953,7 @@ function StatusOverview({ mode, monthLabel, monthFull, month, year }) {
               <div className="row" style={{ gap: 8, flexShrink: 0 }}>
                 <span className="cap" style={{ color: item.done ? 'var(--good)' : 'var(--warn)', fontWeight: 600 }}>{item.detail}</span>
                 {!item.done && item.modal && (
-                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : (item.modal === 'record' && item.date ? { date: item.date } : undefined))}>
+                  <button className="btn btn-sm btn-accent" onClick={() => window.__openModal(item.modal, item.modal === 'monthlyTarget' ? { month, year } : item.modal === 'historical' ? { year } : (item.modal === 'record' && item.date ? { date: item.date } : undefined))}>
                     {item.modal === 'record' ? (item.date ? `กรอกวันที่ ${Number(item.date.slice(-2))}` : 'กรอก') : 'อัปเดต'}
                   </button>
                 )}

@@ -286,6 +286,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
       if (error) throw error;
       const stLabel = (DD.kanbanMeta.find(k => k.id === status) || {}).label || status;
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}` });
+      window.__reload?.(); // sync TMK.tasks (notif/profile/export) ไม่ต้องรอ realtime
     } catch (err) {
       setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t));
       if (window.__toast) window.__toast('ย้ายไม่สำเร็จ: ' + err.message, 'error');
@@ -742,7 +743,7 @@ export function SettingsView({ sub, dark, setDark }) {
 // Toggle pill ที่ persist ลง localStorage
 function NotifToggle({ storeKey }) {
   const [on, setOn] = useState(() => { try { return localStorage.getItem(storeKey) !== 'false'; } catch { return true; } });
-  const flip = () => setOn(v => { const nv = !v; try { localStorage.setItem(storeKey, nv ? 'true' : 'false'); } catch {} return nv; });
+  const flip = () => setOn(v => { const nv = !v; try { localStorage.setItem(storeKey, nv ? 'true' : 'false'); } catch {} try { window.dispatchEvent(new Event('tmk-prefs')); } catch {} return nv; }); // แจ้ง App ให้รีเฟรชกระดิ่งทันที
   return (
     <button className={'chip ' + (on ? 'chip-good' : '')} onClick={flip} style={{ cursor: 'pointer', minWidth: 56, opacity: on ? 1 : 0.6 }}>
       {on ? 'เปิด' : 'ปิด'}
@@ -752,7 +753,7 @@ function NotifToggle({ storeKey }) {
 
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
 function exportAllCSV() {
-  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const esc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // กัน CSV formula injection (Excel)
   const sections = [
     ['ช่องทาง (Channels)', ['name', 'target', 'actual', 'orders', 'ad'], TMK.channels || []],
     ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'reorder'], TMK.products || []],
@@ -780,7 +781,7 @@ function exportAllCSV() {
 
 // รายงานรายเดือน (CSV) — สรุปต่อช่องทาง (เป้า/ยอด/ค่าแอด/ROAS) + ยอดรายวันของเดือนนั้น (สำหรับส่งผู้บริหาร)
 function exportMonthlyReportCSV() {
-  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const esc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // กัน CSV formula injection (Excel)
   const t = getToday();
   const md = computeMonth(t.month - 1, t.yearBE);
   const monthTH = MONTHS_TH_SHORT[t.month - 1];
@@ -1004,6 +1005,12 @@ function UpdatesView() {
 export function ProfileView({ tasks }) {
   const { user } = useUser() || {};
   const { reload } = useData() || {};
+  // hooks ต้องเรียกก่อน early return เสมอ (Rules of Hooks)
+  const [name, setName] = useState(user?.name || '');
+  const [tab, setTab] = useState('tasks');
+  React.useEffect(() => {
+    if (user?.name && user.name !== name) setName(user.name);
+  }, [user?.name]);
 
   // Fallback if user context not ready
   if (!user) {
@@ -1015,14 +1022,6 @@ export function ProfileView({ tasks }) {
       </div>
     );
   }
-
-  const [name, setName] = useState(user.name);
-  const [tab, setTab] = useState('tasks');
-
-  // Sync ชื่อเมื่อเปลี่ยนใน Supabase
-  React.useEffect(() => {
-    if (user.name && user.name !== name) setName(user.name);
-  }, [user.name]);
 
   // Filter tasks — match user by:
   // 1. user.name (e.g. "มัง")
@@ -1325,7 +1324,10 @@ function ChannelsView() {
 
   const deleteChannel = async (c) => {
     if (!guardEdit()) return;
-    if (!confirm(`ลบช่องทาง "${c.name}"?\n(ข้อมูลยอดขายที่ link อยู่จะไม่ถูกลบ)`)) return;
+    // กันยอดหาย: ถ้าช่องทางมีประวัติยอดขาย การลบจะทำให้ยอดเก่าหายจากรายงาน → บล็อก
+    const hasHistory = (TMK.dailyAll || []).some(r => { const cc = r.ch?.[c.id]; return cc && ((cc.rev || 0) > 0 || (cc.ord || 0) > 0); });
+    if (hasHistory) { if (window.__toast) window.__toast(`ลบ "${c.name}" ไม่ได้ — มีประวัติยอดขายอยู่ (ยอดเก่าจะหายจากรายงาน) ถ้าไม่ใช้แล้วให้เปลี่ยนชื่อ/ลดลำดับแทน`, 'error'); return; }
+    if (!confirm(`ลบช่องทาง "${c.name}"?`)) return;
     setBusy(true);
     try {
       const { error } = await supabase.from('tmk_channels').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
@@ -1969,41 +1971,45 @@ function RolesView() {
   // Add user ลง Supabase จริง
   const addUser = async () => {
     if (!guardAdmin()) return;
-    if (!newEmail.trim()) return;
-    if (users.find(u => u.email === newEmail)) {
+    const email = newEmail.trim().toLowerCase();
+    if (!email) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { if (window.__toast) window.__toast('รูปแบบอีเมลไม่ถูกต้อง', 'error'); return; }
+    if (users.find(u => u.email === email)) {
       if (window.__toast) window.__toast('อีเมลนี้มีอยู่แล้ว', 'warn');
       return;
     }
     setBusy(true);
     try {
-      const name = newName.trim() || newEmail.split('@')[0];
+      const name = newName.trim() || email.split('@')[0];
       const duty = DUTIES.find(d => d.id === newDutyId);
       const dutyColor = duty?.color || '#3b82f6';
 
-      // 1. Insert tmk_user_roles
-      const { error: e1 } = await supabase.from('tmk_user_roles').insert({
-        email: newEmail,
+      // 1. Upsert tmk_user_roles (+ deleted_at:null → กู้คืนถ้าเคยลบ แทน error PK)
+      const { error: e1 } = await supabase.from('tmk_user_roles').upsert({
+        email,
         role: newRole,
         name,
         department: duty?.name || '',
         duty_id: newDutyId || null,
         color: dutyColor,
         created_by: 'system',
+        deleted_at: null,
       });
       if (e1) throw e1;
 
-      // 2. Insert tmk_staff
-      const staffId = 's-' + newEmail.split('@')[0].replace(/[^a-z0-9]/gi, '');
+      // 2. Upsert tmk_staff (+ deleted_at:null)
+      const staffId = 's-' + email.split('@')[0].replace(/[^a-z0-9]/gi, '');
       const { error: e2 } = await supabase.from('tmk_staff').upsert({
         id: staffId,
         name,
         role: duty?.name || 'Staff',
-        email: newEmail,
+        email,
         color: dutyColor,
+        deleted_at: null,
       });
       if (e2) throw e2;
 
-      logAudit({ action: 'create', entityType: 'user', entityName: newEmail, summary: `เพิ่มผู้ใช้ ${name} (${newEmail})` });
+      logAudit({ action: 'create', entityType: 'user', entityName: email, summary: `เพิ่มผู้ใช้ ${name} (${email})` });
       setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || '');
       if (reload) await reload();
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
@@ -2192,6 +2198,7 @@ function TrashView() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  const aliveRef = React.useRef(true);
   const load = async () => {
     setLoading(true);
     try {
@@ -2200,6 +2207,7 @@ function TrashView() {
           supabase.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
         )
       );
+      if (!aliveRef.current) return; // กัน setState หลัง unmount
       const all = [];
       results.forEach((r, i) => {
         if (r.error || !r.data) return;
@@ -2215,10 +2223,10 @@ function TrashView() {
       setItems(all);
     } catch (e) {
       console.error('Trash load failed:', e);
-    } finally { setLoading(false); }
+    } finally { if (aliveRef.current) setLoading(false); }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { aliveRef.current = true; load(); return () => { aliveRef.current = false; }; }, []);
 
   const restore = async (it) => {
     if (!guardEdit()) return;

@@ -332,6 +332,14 @@ function AppInner() {
     try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch {}
   }, [dark]);
 
+  // รีเฟรชเมื่อสลับ toggle แจ้งเตือน (NotifToggle dispatch 'tmk-prefs') → กระดิ่งอัปเดตทันที
+  const [, setPrefsBump] = useState(0);
+  useEffect(() => {
+    const h = () => setPrefsBump(n => n + 1);
+    window.addEventListener('tmk-prefs', h);
+    return () => window.removeEventListener('tmk-prefs', h);
+  }, []);
+
   // สิทธิ์แก้ไข: 'viewer' = ดูอย่างเดียว (เจ้าของ/แอดมิน/ผู้แก้ไข = แก้ได้) — default viewer ถ้าไม่อยู่ในระบบ
   const canEdit = (currentUserCtx?.role || 'viewer') !== 'viewer';
   const canEditRef = useRef(canEdit);
@@ -822,7 +830,7 @@ function AppInner() {
         : modal.type === 'monthlyTarget' ? <MonthlyTargetModal data={modal.data} onClose={closeModal} />
         : modal.type === 'adCampaign' ? <AdCampaignModal data={modal.data} onClose={closeModal} />
         : modal.type === 'customerSegment' ? <CustomerSegmentModal onClose={closeModal} />
-        : modal.type === 'historical' ? <HistoricalEntryModal onClose={closeModal} />
+        : modal.type === 'historical' ? <HistoricalEntryModal onClose={closeModal} data={modal.data} />
         : null
       )}
     </>

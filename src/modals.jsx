@@ -14,6 +14,9 @@ import { computeMonth } from './dataContext.jsx';
 // Toast helper
 const toast = (m, k = 'success') => window.__toast?.(m, k);
 
+// แปลงเลข + กันค่าติดลบ (เป้า/ราคา/สต็อก/งบ/จำนวน ไม่ควรติดลบ)
+const nn = (v) => Math.max(0, Number(v) || 0);
+
 // เตือนทิ้งข้อมูลก่อนปิด (ใช้ร่วมกับ Modal + ปุ่มยกเลิก ให้สม่ำเสมอ)
 const DISCARD_MSG = 'ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
 const guardClose = (touched, onClose) => { if (touched && !window.confirm(DISCARD_MSG)) return; onClose(); };
@@ -35,6 +38,22 @@ async function saveRow(table, row, label = 'บันทึก', audit = null) {
     toast(label + 'ไม่สำเร็จ: ' + err.message, 'error');
     return false;
   }
+}
+
+// Generic soft-delete (ย้ายไปถังขยะ — กู้คืนได้) สำหรับโมดัลที่แก้ไขอยู่
+async function deleteRow(table, id, label, audit = null) {
+  if (!window.confirm(`ลบ${label}?\nจะย้ายไปถังขยะ (กู้คืนได้ภายหลัง)`)) return false;
+  try {
+    const { error } = await supabase.from(table).update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (error) {
+      if (/deleted_at/.test(error.message || '')) { toast('ต้องรัน SQL migration (deleted_at) ก่อนจึงจะลบได้', 'error'); return false; }
+      throw error;
+    }
+    if (audit) logAudit(audit);
+    window.__reload?.();
+    toast(`ย้าย${label}ไปถังขยะแล้ว`, 'success');
+    return true;
+  } catch (err) { toast('ลบไม่สำเร็จ: ' + err.message, 'error'); return false; }
 }
 
 const MD = TMK;
@@ -125,6 +144,8 @@ export function RecordSalesModal({ data, onClose }) {
   // Save handler — upsert ลง tmk_daily_sales (id = "d-YYYY-MM-DD")
   const handleSave = async () => {
     if (saving) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { toast('เลือกวันที่ให้ถูกต้องก่อนบันทึก', 'error'); return; } // กัน id ขยะ 'd-'
+    if (date > todayISO()) { toast('กรอกยอดล่วงหน้าไม่ได้ — เลือกวันที่ไม่เกินวันนี้', 'error'); return; } // กันยอดอนาคตดัน MTD เพี้ยน
     // กันพิมพ์ผิดหลัก (fat-finger): เทียบกับค่าเฉลี่ยรายวันของ "เดือนที่กรอก" (ตัดวันที่กำลังกรอกออก)
     const _tot = rows.reduce((a, r) => a + (Number(r.rev) || 0), 0);
     const _selDay = Number(String(date).split('-')[2]);
@@ -163,11 +184,12 @@ export function RecordSalesModal({ data, onClose }) {
         ad_spend: rows.reduce((a, r) => a + (Number(r.ad) || 0), 0),
         avg_reply_minutes: Number(chatTime) || 0,
         note: note || '',
+        deleted_at: null, // กรอกวันเดิมที่เคยลบ → กู้กลับ (กันข้อมูลล่องหน)
       };
       let { error } = await supabase.from('tmk_daily_sales').upsert(row);
-      // ถ้ายังไม่ได้รัน migration (ไม่มีคอลัมน์ channels/avg_reply_minutes) → บันทึกแบบ core columns (รายได้ยังเก็บได้)
-      if (error && /channels|avg_reply_minutes/i.test(error.message || '')) {
-        const { channels: _c, avg_reply_minutes: _a, ...legacy } = row;
+      // ถ้ายังไม่ได้รัน migration (ไม่มีคอลัมน์เสริม) → บันทึกแบบ core columns (รายได้ยังเก็บได้)
+      if (error && /channels|avg_reply_minutes|deleted_at/i.test(error.message || '')) {
+        const { channels: _c, avg_reply_minutes: _a, deleted_at: _d, ...legacy } = row;
         console.warn('tmk_daily_sales: ยังไม่มีคอลัมน์เสริม — บันทึกเฉพาะคอลัมน์หลัก รัน migration 20260608-daily-channel-detail.sql และ 20260608-daily-reply-time.sql');
         ({ error } = await supabase.from('tmk_daily_sales').upsert(legacy));
       }
@@ -292,7 +314,7 @@ export function RecordSalesModal({ data, onClose }) {
           <div className="row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="field" style={{ maxWidth: 220, margin: 0 }}>
               <label>วันที่</label>
-              <input type="date" className="input" value={date} onChange={e => setDate(e.target.value)} />
+              <input type="date" className="input" max={todayISO()} value={date} onChange={e => setDate(e.target.value)} />
             </div>
             <button type="button" className="btn btn-sm" onClick={copyYesterday} title="ดึงยอดของเมื่อวานมาเป็นจุดเริ่ม">
               <Icon name="refresh" /> คัดลอกเมื่อวาน
@@ -308,21 +330,21 @@ export function RecordSalesModal({ data, onClose }) {
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }}></span>{ch.name}
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: ch.hasAd ? '1fr 1fr 1fr' : '1fr 1fr', gap: 10 }}>
-                  <div className="field"><label>ยอดขาย (฿)</label><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
-                  <div className="field"><label>ออร์เดอร์</label><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
-                  {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
+                  <div className="field"><label>ยอดขาย (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
+                  <div className="field"><label>ออร์เดอร์</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
+                  {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 8 }}>
-                  <div className="field"><label>แชท/สอบถาม</label><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.inq} onChange={e => up(i, 'inq', e.target.value)} /></div>
-                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
-                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
+                  <div className="field"><label>แชท/สอบถาม</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.inq} onChange={e => up(i, 'inq', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
                 </div>
               </div>
             );
           })}
 
           <div className="field-row">
-            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" className="input" placeholder="0" value={chatTime} onChange={e => { setTouched(true); setChatTime(e.target.value); }} /></div>
+            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" className="input" placeholder="0" value={chatTime} onChange={e => { setTouched(true); setChatTime(e.target.value); }} /></div>
             <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} /></div>
           </div>
         </>
@@ -519,11 +541,11 @@ export function ProductModal({ data, onClose }) {
     const row = {
       id: data?.id || uid('p'),
       name: f.name.trim(),
-      price: Number(f.price) || 0,
+      price: nn(f.price),
       target_units: Number(f.units) || 0,
-      actual_units: Number(f.units) || 0, // = จำนวนที่ขาย (แสดงผล + คิดรายได้)
-      stock_on_hand: Number(f.onHand) || 0,
-      reorder_point: Number(f.reorder) || 0,
+      actual_units: nn(f.units), // = จำนวนที่ขาย (แสดงผล + คิดรายได้)
+      stock_on_hand: nn(f.onHand),
+      reorder_point: nn(f.reorder),
       strategy: f.strategy || '',
     };
     const ok = await saveRow('tmk_products', row, 'บันทึกสินค้า', {
@@ -539,17 +561,17 @@ export function ProductModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
+  const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_products', data.id, 'สินค้า', { action: 'delete', entityType: 'product', entityName: data.name, summary: `ลบสินค้า "${data.name}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
   return (
     <Modal icon="bag" title={data ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="ข้อมูลสินค้าและสต็อกคงเหลือ" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อโปโล Signature" /></div>
       <div className="field-row">
-        <div className="field"><label>ราคาขาย (฿)</label><input type="number" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>ราคาขาย (฿)</label><input type="number" min="0" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" min="0" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
       </div>
       <div className="field-row">
-        <div className="field"><label>สต็อกคงเหลือ</label><input type="number" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>สต็อกคงเหลือ</label><input type="number" min="0" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" min="0" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
       </div>
       <div className="field"><label>กลยุทธ์ / โน้ต</label><textarea className="input" value={f.strategy} onChange={e => set('strategy', e.target.value)} placeholder="เช่น สินค้าเรือธง ดันต่อเนื่อง" /></div>
     </Modal>
@@ -648,7 +670,7 @@ export function POModal({ data, onClose }) {
     const row = {
       id: data?.id || uid('po'),
       product: f.product,
-      quantity: Number(f.quantity) || 0,
+      quantity: nn(f.quantity),
       order_date: f.orderDate || todayISO(),       // ISO จาก <input type=date>
       arrival_date: f.arrivalDate || todayISO(),
       status: f.status,
@@ -666,7 +688,7 @@ export function POModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
+  const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_purchase_orders', data.id, 'PO', { action: 'delete', entityType: 'po', entityName: data.product, summary: `ลบ PO "${data.product}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
   return (
     <Modal icon="box" title={data ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>รายการสินค้า</label>
@@ -676,7 +698,7 @@ export function POModal({ data, onClose }) {
         </select>
       </div>
       <div className="field-row">
-        <div className="field"><label>จำนวน (ตัว)</label><input type="number" className="input num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวน (ตัว)</label><input type="number" min="0" className="input num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
         <div className="field"><label>สถานะ</label>
           <div className="segbar">
             <button className={'seg' + (f.status === 'Pending' ? ' active' : '')} onClick={() => set('status', 'Pending')}>กำลังผลิต</button>
@@ -751,15 +773,15 @@ export function MonthlyTargetModal({ data, onClose }) {
       const isCurMonth = (monthIdx + 1) === _t.month && year === _t.yearBE;
       const meta = {
         adBudget: Number(adTotal) || 0,
-        channelTargets: Object.fromEntries(chTargets.map(c => [c.id, Number(c.target) || 0])),
-        adChannels: Object.fromEntries(adChannels.map(c => [c.id, Number(c.budget) || 0])),
-        newCustTarget: Number(newCustTarget) || 0,
+        channelTargets: Object.fromEntries(chTargets.map(c => [c.id, nn(c.target)])),
+        adChannels: Object.fromEntries(adChannels.map(c => [c.id, nn(c.budget)])),
+        newCustTarget: nn(newCustTarget),
         acosCeil: Number(acosCeil) || 25,
       };
       const row = {
         id: `${year}-${String(monthIdx + 1).padStart(2, '0')}`,
         month: monthIdx + 1, year, month_th: months[monthIdx],
-        target: Number(total) || 0,
+        target: nn(total),
         actual: isCurMonth ? 0 : (existing?.actual || 0), projected: existing?.projected || 0,
         orders: isCurMonth ? 0 : (existing?.orders || 0), messages: existing?.messages || 0,
         meta,
@@ -797,7 +819,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>เป้ายอดรวม (฿)</label>
-        <input type="number" className="input" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
+        <input type="number" min="0" className="input" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
       </div>
 
       <div className="field">
@@ -808,7 +830,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value === '' ? '' : +e.target.value)} />
+              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value === '' ? '' : +e.target.value)} />
             </div>
           ))}
         </div>
@@ -822,7 +844,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>งบแอดรวม (฿)</label>
-        <input type="number" className="input" placeholder="0" value={adTotal} onChange={e => { setTouched(true); setAdTotal(e.target.value); }} />
+        <input type="number" min="0" className="input" placeholder="0" value={adTotal} onChange={e => { setTouched(true); setAdTotal(e.target.value); }} />
       </div>
 
       <div className="field">
@@ -833,7 +855,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value === '' ? '' : +e.target.value)} />
+              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value === '' ? '' : +e.target.value)} />
             </div>
           ))}
         </div>
@@ -843,11 +865,11 @@ export function MonthlyTargetModal({ data, onClose }) {
       <div className="field-row">
         <div className="field">
           <label>เป้าลูกค้าใหม่</label>
-          <input type="number" className="input" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
+          <input type="number" min="0" className="input" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
         </div>
         <div className="field">
           <label>เพดาน ACOS %</label>
-          <input type="number" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
+          <input type="number" min="0" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
         </div>
       </div>
     </Modal>
@@ -875,7 +897,7 @@ export function AdCampaignModal({ data, onClose }) {
       id: data?.id || uid('ac'),
       name: f.name.trim(),
       platform: f.platform,
-      budget: Number(f.budget) || 0,
+      budget: nn(f.budget),
       spent: Number(data?.spent) || 0,
       revenue: Number(data?.revenue) || 0,
       roas: Number(data?.roas) || 0,
@@ -923,7 +945,7 @@ export function AdCampaignModal({ data, onClose }) {
 
       <div className="field">
         <label>งบประมาณ (฿)</label>
-        <input type="number" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
+        <input type="number" min="0" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
       </div>
 
       <div className="field-row">
@@ -987,11 +1009,11 @@ export function CustomerSegmentModal({ onClose }) {
       const rows = segments.map((s, i) => ({
         id: 'seg' + (i + 1),
         name: s.name,
-        count: Number(s.count) || 0,
-        rev_pct: Number(s.revPct) || 0,
+        count: nn(s.count),
+        rev_pct: nn(s.revPct),
         color: typeof s.color === 'string' ? s.color : '#3b82f6',
         criteria: s.criteria,
-        avg_clv: Number(clv) || 0,
+        avg_clv: nn(clv),
         sort_order: i + 1,
       }));
       const { error } = await supabase.from('tmk_customer_segments').upsert(rows);
@@ -1022,11 +1044,11 @@ export function CustomerSegmentModal({ onClose }) {
             <div className="field-row">
               <div className="field">
                 <label>จำนวน (คน)</label>
-                <input type="number" className="input" placeholder="0" value={seg.count} onChange={e => upSeg(i, 'count', e.target.value === '' ? '' : +e.target.value)} />
+                <input type="number" min="0" className="input" placeholder="0" value={seg.count} onChange={e => upSeg(i, 'count', e.target.value === '' ? '' : +e.target.value)} />
               </div>
               <div className="field">
                 <label>% รายได้</label>
-                <input type="number" className="input" placeholder="0" value={seg.revPct} onChange={e => upSeg(i, 'revPct', e.target.value === '' ? '' : +e.target.value)} />
+                <input type="number" min="0" className="input" placeholder="0" value={seg.revPct} onChange={e => upSeg(i, 'revPct', e.target.value === '' ? '' : +e.target.value)} />
               </div>
             </div>
           </div>
@@ -1035,7 +1057,7 @@ export function CustomerSegmentModal({ onClose }) {
 
       <div className="field" style={{ marginTop: 14 }}>
         <label>CLV เฉลี่ย (฿)</label>
-        <input type="number" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
+        <input type="number" min="0" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
       </div>
 
       <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
@@ -1051,7 +1073,7 @@ export function CustomerSegmentModal({ onClose }) {
 }
 
 /* ---------- Historical Entry modal ---------- */
-export function HistoricalEntryModal({ onClose }) {
+export function HistoricalEntryModal({ onClose, data }) {
   const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   const monthlyRef = MD.monthly || [];
   const _today = getToday();
@@ -1072,7 +1094,7 @@ export function HistoricalEntryModal({ onClose }) {
   });
   // ตัวเลือกปี — แก้ย้อนหลังข้ามปีได้ (ปีปัจจุบัน ถึง ย้อนหลัง 5 ปี)
   const yearOptions = [0, 1, 2, 3, 4, 5].map(d => _today.yearBE - d);
-  const [year, setYear] = useState(_today.yearBE);
+  const [year, setYear] = useState(data?.year || _today.yearBE); // จำปีที่เลือกจากหน้าเดือน (กันเปิดมาปีปัจจุบันเสมอ)
   const [rows, setRows] = useState(() => buildRows(_today.yearBE));
   const [touched, setTouched] = useState(false);
   useEffect(() => { setRows(buildRows(year)); setTouched(false); }, [year]); // เปลี่ยนปี → โหลดค่าเดิมของปีนั้น
@@ -1096,12 +1118,12 @@ export function HistoricalEntryModal({ onClose }) {
             year,
             month_th: r.month,
             target: ex?.target || 0,
-            actual: Number(r.rev) || 0,
+            actual: nn(r.rev),
             projected: ex?.projected || 0,
-            orders: Number(r.orders) || 0,
-            ad_spend: Number(r.ad) || 0,
-            new_cust: Number(r.newCust) || 0,
-            messages: Number(r.messages) || 0,
+            orders: nn(r.orders),
+            ad_spend: nn(r.ad),
+            new_cust: nn(r.newCust),
+            messages: nn(r.messages),
             meta: ex?.meta || {},
           };
         });
@@ -1148,11 +1170,11 @@ export function HistoricalEntryModal({ onClose }) {
                 {r.isCurrent ? (
                   <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึกรายวัน"</td>
                 ) : (<>
-                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
                 </>)}
               </tr>
             ))}
