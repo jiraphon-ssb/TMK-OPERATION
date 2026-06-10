@@ -1741,11 +1741,12 @@ async function releaseOrderReservations(orderId) {
   const affected = (MD.products || []).filter(p => (p.reservations || []).some(r => r.orderId === orderId));
   await Promise.all(affected.map(p => supabase.from('tmk_products').update({ reservations: (p.reservations || []).filter(r => r.orderId !== orderId), updated_at: new Date().toISOString() }).eq('id', p.id)));
 }
-// ส่งแล้ว → ตัดสต็อกจริง (FIFO) + ปล่อยจองของออเดอร์ + บวกขายแล้ว + บันทึก sale (เข้ารายงาน)
-async function fulfillOrderStock(order) {
+// คำนวณการตัดสต็อก (FIFO) — ไม่เขียน DB → คืน batch updates + audit + จำนวนที่ตัดได้
+// (เขียนจริงแบบ atomic ใน advanceOrderStatus ผ่าน RPC tmk_fulfill_order)
+function computeFulfillment(order) {
   const byProd = {};
   (order.items || []).forEach(it => (byProd[it.productId] = byProd[it.productId] || []).push(it));
-  const updates = [];
+  const updates = [], audits = [];
   let totReq = 0, totDeducted = 0; // กันตัดสต็อกขาดเงียบๆ — เตือนถ้าสต็อกไม่พอ
   for (const pid in byProd) {
     const p = (MD.products || []).find(x => x.id === pid); if (!p) continue;
@@ -1756,21 +1757,39 @@ async function fulfillOrderStock(order) {
       totReq += nn(it.qty); totDeducted += r.deducted;
       if (r.deducted > 0) lines.push({ color: it.color, size: it.size, qty: r.deducted, cost: r.deducted ? r.costTotal / r.deducted : 0 });
     });
-    updates.push({ pid, p, lots, soldQty, amount, costTotal, lines, newRes: (p.reservations || []).filter(rr => rr.orderId !== order.id) });
+    updates.push({ id: pid, lots, stock_on_hand: lots.reduce((a, l) => a + calcLotTotal(l), 0), reservations: (p.reservations || []).filter(rr => rr.orderId !== order.id), actual_units: Number(p.units || 0) + soldQty });
+    audits.push({ pid, p, soldQty, amount, costTotal, lines });
   }
-  await Promise.all(updates.map(u => supabase.from('tmk_products').update({ lots: u.lots, stock_on_hand: u.lots.reduce((a, l) => a + calcLotTotal(l), 0), reservations: u.newRes, actual_units: Number(u.p.units || 0) + u.soldQty, updated_at: new Date().toISOString() }).eq('id', u.pid)));
-  updates.forEach(u => { if (u.soldQty > 0) logAudit({ action: 'sale', entityType: 'product', entityName: u.p.name, summary: `ขาย (ออเดอร์ ${order.code}) "${u.p.name}" ${u.soldQty} ตัว`, fields: [{ label: 'ออเดอร์', value: order.code }, { label: 'รวมขาย', value: N(u.soldQty) + ' ตัว' }, { label: 'มูลค่า', value: B(u.amount) }], data: { productId: u.pid, productName: u.p.name, category: u.p.category || '', price: u.soldQty ? u.amount / u.soldQty : 0, date: todayISO(), totalQty: u.soldQty, totalAmount: u.amount, totalCost: u.costTotal, lines: u.lines } }); });
-  if (totDeducted < totReq) toast(`⚠️ สต็อกไม่พอ — ส่งได้ ${N(totDeducted)}/${N(totReq)} ตัว (ตัดสต็อกเท่าที่มี) ตรวจสอบสต็อกด้วย`, 'warn');
+  return { updates, audits, totReq, totDeducted };
+}
+// fallback (ยังไม่ได้รัน SQL function) — เขียนแบบเดิม non-atomic
+async function fulfillLegacyWrite(order, updates, log) {
+  await Promise.all(updates.map(u => supabase.from('tmk_products').update({ lots: u.lots, stock_on_hand: u.stock_on_hand, reservations: u.reservations, actual_units: u.actual_units, updated_at: new Date().toISOString() }).eq('id', u.id)));
+  const { error } = await supabase.from('tmk_orders').update({ status: 'shipped', status_log: log, updated_at: new Date().toISOString() }).eq('id', order.id);
+  if (error) throw error;
 }
 // เปลี่ยนสถานะออเดอร์ + จัดการสต็อกตามสถานะ (เรียกจากบอร์ด Kanban)
 export async function advanceOrderStatus(order, newStatus, by = '') {
   try {
     if (order.status === newStatus) return true;
-    if (newStatus === 'shipped' && order.status !== 'shipped') await fulfillOrderStock(order);
-    if (newStatus === 'cancelled' && order.status !== 'shipped' && order.status !== 'cancelled') await releaseOrderReservations(order.id);
     const log = [...(order.statusLog || []), { status: newStatus, at: new Date().toISOString(), by }];
-    const { error } = await supabase.from('tmk_orders').update({ status: newStatus, status_log: log, updated_at: new Date().toISOString() }).eq('id', order.id);
-    if (error) throw error;
+    if (newStatus === 'shipped' && order.status !== 'shipped') {
+      // ส่งแล้ว → ตัดสต็อก (FIFO) + ปล่อยจอง + บวกขาย + เปลี่ยนสถานะ — ทั้งหมดใน transaction เดียว (atomic)
+      const { updates, audits, totReq, totDeducted } = computeFulfillment(order);
+      const { error: rpcErr } = await supabase.rpc('tmk_fulfill_order', { p_order_id: order.id, p_status: 'shipped', p_status_log: log, p_updates: updates });
+      if (rpcErr) {
+        if (/PGRST202|could not find|function|does not exist|schema cache/i.test(rpcErr.message || '')) {
+          await fulfillLegacyWrite(order, updates, log); // ยังไม่รัน SQL → ตัดแบบไม่ atomic ชั่วคราว
+          toast('⚠️ ยังไม่ได้รัน SQL (tmk_fulfill_order) — ตัดสต็อกแบบไม่ atomic ชั่วคราว แนะนำรัน migration', 'warn');
+        } else throw rpcErr;
+      }
+      audits.forEach(a => { if (a.soldQty > 0) logAudit({ action: 'sale', entityType: 'product', entityName: a.p.name, summary: `ขาย (ออเดอร์ ${order.code}) "${a.p.name}" ${a.soldQty} ตัว`, fields: [{ label: 'ออเดอร์', value: order.code }, { label: 'รวมขาย', value: N(a.soldQty) + ' ตัว' }, { label: 'มูลค่า', value: B(a.amount) }], data: { productId: a.pid, productName: a.p.name, category: a.p.category || '', price: a.soldQty ? a.amount / a.soldQty : 0, date: todayISO(), totalQty: a.soldQty, totalAmount: a.amount, totalCost: a.costTotal, lines: a.lines } }); });
+      if (totDeducted < totReq) toast(`⚠️ สต็อกไม่พอ — ส่งได้ ${N(totDeducted)}/${N(totReq)} ตัว (ตัดสต็อกเท่าที่มี) ตรวจสอบสต็อกด้วย`, 'warn');
+    } else {
+      if (newStatus === 'cancelled' && order.status !== 'shipped' && order.status !== 'cancelled') await releaseOrderReservations(order.id);
+      const { error } = await supabase.from('tmk_orders').update({ status: newStatus, status_log: log, updated_at: new Date().toISOString() }).eq('id', order.id);
+      if (error) throw error;
+    }
     logAudit({ action: 'order', entityType: 'order', entityName: order.code, summary: `ออเดอร์ ${order.code} → ${orderStatusMeta(newStatus).label}` });
     window.__reload?.();
     toast(`อัปเดตเป็น "${orderStatusMeta(newStatus).label}"`, 'success');
@@ -1807,6 +1826,8 @@ export function OrderModal({ data, onClose }) {
 
   const handleSave = async () => {
     if (busy) return;
+    // ล็อกแก้ออเดอร์ที่ส่งแล้ว — สต็อกถูกตัดไปแล้ว แก้ items จะทำให้สต็อกเพี้ยน
+    if (data?.status === 'shipped') { toast('ออเดอร์ที่ "ส่งแล้ว" แก้ไขไม่ได้ (สต็อกถูกตัดแล้ว)', 'error'); return; }
     const cleanItems = items.filter(it => it.productId && it.color && it.size && Number(it.qty) > 0).map(it => {
       const p = prodById(it.productId);
       return { productId: it.productId, name: p?.name || '', color: it.color, size: it.size, qty: nn(it.qty), price: nn(it.price), cost: 0 };
@@ -1816,13 +1837,19 @@ export function OrderModal({ data, onClose }) {
     if (!custName) { toast('ระบุชื่อลูกค้า', 'error'); return; }
     setBusy(true);
     try {
-      // ลูกค้าใหม่ → สร้างเรคคอร์ด
+      // ลูกค้าใหม่ → เช็กเบอร์ซ้ำก่อน (มีเบอร์นี้แล้ว → ใช้ซ้ำ ไม่สร้างซ้ำ) แล้วค่อยสร้างเรคคอร์ด
       let customerId = custId;
       if (custNew && custNew.name.trim()) {
-        customerId = uid('cust');
-        const cRow = { id: customerId, code: 'C' + customerId.slice(-5).toUpperCase(), name: custNew.name.trim(), phone: custNew.phone.trim(), line: custNew.line.trim(), address: custNew.address.trim(), note: '' };
-        const { error: cErr } = await supabase.from('tmk_customers').insert(cRow);
-        if (cErr) throw cErr;
+        const ph = (custNew.phone || '').trim();
+        const dup = ph && customers.find(c => (c.phone || '').trim() === ph);
+        if (dup) {
+          customerId = dup.id;
+        } else {
+          customerId = uid('cust');
+          const cRow = { id: customerId, code: 'C' + customerId.slice(-5).toUpperCase(), name: custNew.name.trim(), phone: ph, line: custNew.line.trim(), address: custNew.address.trim(), note: '' };
+          const { error: cErr } = await supabase.from('tmk_customers').insert(cRow);
+          if (cErr) throw cErr;
+        }
       }
       const oid = data?.id || uid('o');
       const code = data?.code || genOrderCode();
@@ -1844,7 +1871,8 @@ export function OrderModal({ data, onClose }) {
     } finally { setBusy(false); }
   };
 
-  const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (window.confirm('ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)')) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ปิด</button><button className="btn btn-primary" disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</button></>);
+  const isShipped = data?.status === 'shipped';
+  const footer = (<>{data?.id && !isShipped && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (window.confirm('ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)')) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ปิด</button>{!isShipped && <button className="btn btn-primary" disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</button>}</>);
 
   return (
     <Modal wide icon="listChecks" title={data ? `ออเดอร์ ${data.code}` : 'สร้างออเดอร์'} sub={data ? orderStatusMeta(data.status).label : 'เลือกลูกค้า + สินค้า → จองสต็อกอัตโนมัติ'} onClose={onClose} footer={footer} confirmOnClose={touched}>
