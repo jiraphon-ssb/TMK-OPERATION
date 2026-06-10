@@ -1777,13 +1777,14 @@ async function fulfillLegacyWrite(order, updates, log) {
 export async function advanceOrderStatus(order, newStatus, by = '') {
   try {
     if (order.status === newStatus) return true;
+    if (order.status === 'shipped' && newStatus !== 'shipped') { toast('ออเดอร์ที่ส่งแล้วเปลี่ยนสถานะไม่ได้ (สต็อกถูกตัดแล้ว)', 'error'); return false; } // กันสต็อกหาย (defense)
     const log = [...(order.statusLog || []), { status: newStatus, at: new Date().toISOString(), by }];
     if (newStatus === 'shipped' && order.status !== 'shipped') {
       // ส่งแล้ว → ตัดสต็อก (FIFO) + ปล่อยจอง + บวกขาย + เปลี่ยนสถานะ — ทั้งหมดใน transaction เดียว (atomic)
       const { updates, audits, totReq, totDeducted } = computeFulfillment(order);
       const { error: rpcErr } = await supabase.rpc('tmk_fulfill_order', { p_order_id: order.id, p_status: 'shipped', p_status_log: log, p_updates: updates });
       if (rpcErr) {
-        if (/PGRST202|could not find|function|does not exist|schema cache/i.test(rpcErr.message || '')) {
+        if (/PGRST202|could not find the function|schema cache/i.test(rpcErr.message || '')) {
           await fulfillLegacyWrite(order, updates, log); // ยังไม่รัน SQL → ตัดแบบไม่ atomic ชั่วคราว
           toast('⚠️ ยังไม่ได้รัน SQL (tmk_fulfill_order) — ตัดสต็อกแบบไม่ atomic ชั่วคราว แนะนำรัน migration', 'warn');
         } else throw rpcErr;
@@ -1865,6 +1866,7 @@ export function OrderModal({ data, onClose }) {
       const { error } = await supabase.from('tmk_orders').upsert(order);
       if (error) throw error;
       // จองสต็อก (ยังไม่ส่ง) — ออเดอร์ที่ยัง active
+      if (data?.id) await releaseOrderReservations(data.id); // แก้ออเดอร์: ปล่อยจองเดิมก่อน (กันจองค้างของสินค้าที่ถูกเอาออกจากออเดอร์)
       if (status !== 'shipped' && status !== 'cancelled') await applyOrderReservations({ ...order, customerName: custName });
       logAudit({ action: 'order', entityType: 'order', entityName: code, summary: `${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์ ${code} (${custName}) ${totalQty} ตัว`, fields: [{ label: 'ลูกค้า', value: custName }, { label: 'ยอดรวม', value: B(tot) }, { label: 'สถานะ', value: orderStatusMeta(status).label }] });
       window.__reload?.();
@@ -2096,8 +2098,8 @@ export function MonthlyTargetModal({ data, onClose }) {
   const adSum = adChannels.reduce((a, c) => a + (+c.budget || 0), 0);
   const match = chSum === (+total || 0);
 
-  const upCh = (i, v) => { setTouched(true); setChTargets(ts => ts.map((t, j) => j === i ? { ...t, target: v } : t)); };
-  const upAd = (i, v) => { setTouched(true); setAdChannels(ts => ts.map((t, j) => j === i ? { ...t, budget: v } : t)); };
+  const upCh = (i, v) => { if (+v < 0) return; setTouched(true); setChTargets(ts => ts.map((t, j) => j === i ? { ...t, target: v } : t)); };
+  const upAd = (i, v) => { if (+v < 0) return; setTouched(true); setAdChannels(ts => ts.map((t, j) => j === i ? { ...t, budget: v } : t)); };
 
   const monthOptions = [];
   [year - 1, year, year + 1].forEach(y => months.forEach((m, i) => monthOptions.push({ idx: i, year: y, label: `${m} ${y}` })));
@@ -2118,7 +2120,7 @@ export function MonthlyTargetModal({ data, onClose }) {
         adChannels: Object.fromEntries(adChannels.map(c => [c.id, nn(c.budget)])),
         newCustTarget: nn(newCustTarget),
         acosCeil: Number(acosCeil) || 25,
-        cogsPct: Number(cogsPct) || 0,
+        cogsPct: Math.min(100, Math.max(0, Number(cogsPct) || 0)),
         otherExpense: nn(otherExpense),
       };
       const row = {
@@ -2175,7 +2177,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value === '' ? '' : +e.target.value)} />
+              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value)} />
             </div>
           ))}
         </div>
@@ -2195,7 +2197,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value === '' ? '' : Math.max(0, +e.target.value))} />
+              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value)} />
             </div>
           ))}
         </div>
