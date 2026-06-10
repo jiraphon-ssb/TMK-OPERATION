@@ -815,6 +815,15 @@ function SalesReportView() {
   useEffect(() => {
     let cancel = false;
     (async () => {
+      // อ่านจากตารางการขายจริงก่อน (tmk_sales)
+      const { data: sd, error: se } = await supabase.from('tmk_sales')
+        .select('*').order('sale_date', { ascending: false }).limit(5000);
+      if (cancel) return;
+      if (!se && Array.isArray(sd) && sd.length) {
+        setSales(sd.map(r => ({ productId: r.product_id, productName: r.product_name, category: r.category, price: Number(r.qty) ? Number(r.amount) / Number(r.qty) : 0, date: r.sale_date, day: r.sale_date, totalQty: Number(r.qty) || 0, totalAmount: Number(r.amount) || 0, totalCost: Number(r.cost) || 0, lines: Array.isArray(r.lines) ? r.lines : [] })));
+        return;
+      }
+      // fallback: ข้อมูลเก่าที่เก็บใน audit log (action='sale') / ตาราง tmk_sales ยังไม่มี
       const { data, error } = await supabase.from('tmk_audit_logs')
         .select('created_at,details').eq('action', 'sale')
         .order('created_at', { ascending: false }).limit(2000);

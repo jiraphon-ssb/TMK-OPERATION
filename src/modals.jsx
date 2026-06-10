@@ -937,6 +937,8 @@ export function SellModal({ data, onClose }) {
         .update({ lots: newLots, stock_on_hand: newStock, actual_units: newUnits, updated_at: new Date().toISOString() })
         .eq('id', product.id);
       if (error) throw error;
+      // บันทึกการขายลงตารางจริง (tmk_sales) — รายงานอ่านจากตารางนี้ (ไม่พึ่ง audit log อย่างเดียว)
+      try { await supabase.from('tmk_sales').insert({ id: 'sale-sell-' + product.id + '-' + Date.now().toString(36), sale_date: date || todayISO(), product_id: product.id, product_name: product.name, category: product.category || '', channel: '', qty: soldTotal, amount: soldTotal * (Number(product.price) || 0), cost: soldCost, source: 'sell', lines: saleLines }); } catch (e) { console.warn('tmk_sales:', e?.message); }
       logAudit({
         action: 'sale', entityType: 'product', entityName: product.name,
         summary: `ขาย "${product.name}" ${soldTotal} ตัว (ตัดสต็อก)${note ? ' — ' + note : ''}`,
@@ -1751,7 +1753,7 @@ async function releaseOrderReservations(orderId) {
 function computeFulfillment(order) {
   const byProd = {};
   (order.items || []).forEach(it => (byProd[it.productId] = byProd[it.productId] || []).push(it));
-  const updates = [], audits = [];
+  const updates = [], audits = [], sales = [];
   let totReq = 0, totDeducted = 0; // กันตัดสต็อกขาดเงียบๆ — เตือนถ้าสต็อกไม่พอ
   for (const pid in byProd) {
     const p = (MD.products || []).find(x => x.id === pid); if (!p) continue;
@@ -1764,12 +1766,14 @@ function computeFulfillment(order) {
     });
     updates.push({ id: pid, lots, stock_on_hand: lots.reduce((a, l) => a + calcLotTotal(l), 0), reservations: (p.reservations || []).filter(rr => rr.orderId !== order.id), actual_units: Number(p.units || 0) + soldQty });
     audits.push({ pid, p, soldQty, amount, costTotal, lines });
+    if (soldQty > 0) sales.push({ id: 'sale-' + order.id + '-' + pid, sale_date: todayISO(), product_id: pid, product_name: p.name, category: p.category || '', channel: order.channel || '', qty: soldQty, amount, cost: costTotal, source: 'order', order_code: order.code, lines });
   }
-  return { updates, audits, totReq, totDeducted };
+  return { updates, audits, sales, totReq, totDeducted };
 }
 // fallback (ยังไม่ได้รัน SQL function) — เขียนแบบเดิม non-atomic
-async function fulfillLegacyWrite(order, updates, log) {
+async function fulfillLegacyWrite(order, updates, sales, log) {
   await Promise.all(updates.map(u => supabase.from('tmk_products').update({ lots: u.lots, stock_on_hand: u.stock_on_hand, reservations: u.reservations, actual_units: u.actual_units, updated_at: new Date().toISOString() }).eq('id', u.id)));
+  if (sales && sales.length) await supabase.from('tmk_sales').upsert(sales); // บันทึกการขายลงตารางจริง (ถ้าตารางมี)
   const { error } = await supabase.from('tmk_orders').update({ status: 'shipped', status_log: log, updated_at: new Date().toISOString() }).eq('id', order.id);
   if (error) throw error;
 }
@@ -1781,11 +1785,11 @@ export async function advanceOrderStatus(order, newStatus, by = '') {
     const log = [...(order.statusLog || []), { status: newStatus, at: new Date().toISOString(), by }];
     if (newStatus === 'shipped' && order.status !== 'shipped') {
       // ส่งแล้ว → ตัดสต็อก (FIFO) + ปล่อยจอง + บวกขาย + เปลี่ยนสถานะ — ทั้งหมดใน transaction เดียว (atomic)
-      const { updates, audits, totReq, totDeducted } = computeFulfillment(order);
-      const { error: rpcErr } = await supabase.rpc('tmk_fulfill_order', { p_order_id: order.id, p_status: 'shipped', p_status_log: log, p_updates: updates });
+      const { updates, audits, sales, totReq, totDeducted } = computeFulfillment(order);
+      const { error: rpcErr } = await supabase.rpc('tmk_fulfill_order', { p_order_id: order.id, p_status: 'shipped', p_status_log: log, p_updates: updates, p_sales: sales });
       if (rpcErr) {
         if (/PGRST202|could not find the function|schema cache/i.test(rpcErr.message || '')) {
-          await fulfillLegacyWrite(order, updates, log); // ยังไม่รัน SQL → ตัดแบบไม่ atomic ชั่วคราว
+          await fulfillLegacyWrite(order, updates, sales, log); // ยังไม่รัน SQL → ตัดแบบไม่ atomic ชั่วคราว
           toast('⚠️ ยังไม่ได้รัน SQL (tmk_fulfill_order) — ตัดสต็อกแบบไม่ atomic ชั่วคราว แนะนำรัน migration', 'warn');
         } else throw rpcErr;
       }
