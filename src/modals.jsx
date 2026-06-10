@@ -107,17 +107,22 @@ export function RecordSalesModal({ data, onClose }) {
   const [loading, setLoading] = useState(false);
   const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
   const [touched, setTouched] = useState(false); // มีการแก้ไขค้าง → เตือนก่อนปิด
+  const loadDirty = useRef(false); // ผู้ใช้พิมพ์ระหว่างที่ข้อมูลกำลังโหลด → กันโหลดมาทับ (race fix)
 
   // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
   const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
   const numStr = (v) => (v != null && v !== '' && !isNaN(Number(v))) ? String(v) : ''; // โชว์ค่าจริงรวม 0 (กัน 0→ช่องว่าง)
   useEffect(() => {
     let cancel = false;
+    loadDirty.current = false; // เริ่มโหลดวันใหม่ = ยังไม่พิมพ์
     setLoading(true);
     (async () => {
       const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', 'd-' + date).maybeSingle();
       if (cancel) return;
       setExists(!!row && !row.deleted_at);
+      setLoading(false);
+      // ผู้ใช้พิมพ์ระหว่างโหลด → ไม่เอาข้อมูล DB มาทับ (กันที่พิมพ์ไป 1-2 ตัวหาย)
+      if (loadDirty.current) return;
       setTouched(false); // โหลดวันใหม่ = ยังไม่นับว่าแก้
       if (row) {
         const cj = (row.channels && typeof row.channels === 'object') ? row.channels : {};
@@ -135,7 +140,6 @@ export function RecordSalesModal({ data, onClose }) {
         setNote('');
         setChatTime('');
       }
-      setLoading(false);
     })();
     return () => { cancel = true; };
   }, [date]);
@@ -143,6 +147,7 @@ export function RecordSalesModal({ data, onClose }) {
   const up = (i, k, v) => {
     // Validation: no negative numbers
     if (+v < 0) return;
+    loadDirty.current = true; // พิมพ์แล้ว → กันข้อมูลที่กำลังโหลดมาทับค่าที่พิมพ์
     setTouched(true);
     setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r));
   };
@@ -353,8 +358,8 @@ export function RecordSalesModal({ data, onClose }) {
           })}
 
           <div className="field-row">
-            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" className="input" placeholder="0" value={chatTime} onChange={e => { setTouched(true); setChatTime(e.target.value); }} /></div>
-            <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} /></div>
+            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" className="input" placeholder="0" value={chatTime} onChange={e => { loadDirty.current = true; setTouched(true); setChatTime(e.target.value); }} /></div>
+            <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { loadDirty.current = true; setTouched(true); setNote(e.target.value); }} /></div>
           </div>
         </>
       )}
