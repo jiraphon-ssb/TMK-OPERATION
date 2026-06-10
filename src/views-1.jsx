@@ -51,197 +51,142 @@ export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, acce
 /* ============================================================
    HOME — Executive cockpit
    ============================================================ */
+// ความหมาย/สีต่อ action (สำหรับ log หน้าหลัก)
+const LOG_META = {
+  create: { l: 'สร้าง', c: 'var(--good)' }, update: { l: 'แก้ไข', c: 'var(--info)' },
+  delete: { l: 'ลบ', c: 'var(--bad)' }, purge: { l: 'ลบถาวร', c: 'var(--bad)' },
+  restore: { l: 'กู้คืน', c: 'var(--good)' }, move: { l: 'ย้ายสถานะ', c: 'var(--accent)' },
+  sale: { l: 'ขาย/ตัดสต็อก', c: 'var(--accent)' }, adjust: { l: 'ปรับสต็อก', c: 'var(--info)' },
+  receive: { l: 'รับเข้าสต็อก', c: 'var(--good)' }, reserve: { l: 'จองสต็อก', c: 'var(--accent)' },
+  release: { l: 'ปล่อยจอง', c: 'var(--ink-3)' }, order: { l: 'ออเดอร์', c: 'var(--accent-2)' },
+  export: { l: 'ส่งออก', c: 'var(--warn)' }, login: { l: 'เข้าระบบ', c: 'var(--good)' }, logout: { l: 'ออกระบบ', c: 'var(--ink-3)' },
+};
+const logMeta = (action) => LOG_META[action] || { l: action || 'อื่นๆ', c: 'var(--info)' };
+const LOG_FILTERS = [
+  { id: 'all', label: 'ทั้งหมด' },
+  { id: 'sales', label: 'ยอดขาย', match: a => a.entity === 'daily' || a.entity === 'monthly' || a.action === 'sale' },
+  { id: 'order', label: 'ออเดอร์', match: a => a.entity === 'order' || a.action === 'order' },
+  { id: 'stock', label: 'สต็อก/สินค้า', match: a => a.entity === 'product' || a.entity === 'po' || ['adjust', 'receive', 'reserve', 'release'].includes(a.action) },
+  { id: 'task', label: 'งาน', match: a => a.entity === 'task' },
+  { id: 'user', label: 'ผู้ใช้/ระบบ', match: a => a.entity === 'user' || a.action === 'login' || a.action === 'logout' },
+];
+
 export function HomeView({ go }) {
   const { user } = useUser() || {};
   const userName = user?.name || 'มัง';
-  const mtd = useCountUp(C.MTD);
-  const pace = useCountUp(C.PACE_PCT);
-  const st = paceStatus(C.PACE_PCT);
-  const gap = TMK.consts.TARGET - C.RUN;
-  const _daysLeft = TMK.consts.DAYS - TMK.consts.DAY;
-  const perDayNeeded = _daysLeft > 0 ? Math.max(0, Math.ceil((TMK.consts.TARGET - C.MTD) / _daysLeft)) : 0; // กัน /0 + กันติดลบเมื่อถึงเป้าแล้ว
+  const [filter, setFilter] = useState('all');
 
-  const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
-  const alerts = [];
-  if (TMK.consts.TARGET > 0 && C.PACE_PCT < 95) alerts.push({ c: 'var(--warn)', cls: 'chip-warn', icon: 'target', t: `ยอด MTD ${st.label} (${P(C.PACE_PCT)})`, d: _daysLeft > 0 ? `ต้องทำเฉลี่ย ${B(perDayNeeded)}/วัน อีก ${_daysLeft} วัน` : 'วันสุดท้ายของเดือนแล้ว' });
-  if (!(TMK.consts.TARGET > 0)) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'target', t: 'ยังไม่ได้ตั้งเป้าเดือนนี้', d: 'ตั้งเป้าที่หน้า "ภาพรวมรายเดือน" เพื่อดู Pace และเปอร์เซ็นต์เป้า' });
-  if (C.ACOS_TOT > TMK.consts.ACOS_CEIL) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'flame', t: `ACOS รวม ${P(C.ACOS_TOT)} เกินเพดาน`, d: `Facebook ACOS ${P(D.fb.acos)} สูงสุด — ทบทวนงบ` });
-  // เตือนงบแอดใกล้เกิน — คาดการณ์จาก burn rate จริง
-  const _adBudget = TMK.consts.AD_BUDGET;
-  const _projAd = TMK.consts.DAY > 0 ? (C.AD / TMK.consts.DAY) * TMK.consts.DAYS : 0;
-  if (_adBudget > 0 && _projAd > _adBudget) alerts.push({ c: 'var(--bad)', cls: 'chip-bad', icon: 'zap', t: `งบแอดจะเกิน — คาดใช้ ${Bk(_projAd)} / งบ ${Bk(_adBudget)}`, d: 'ทบทวนงบโฆษณาเดือนนี้ ก่อนใช้เกิน' });
-  const outOfStock = D.products.filter(p => p.stock === 'out' || p.stock === 'low');
-  if (outOfStock.length) alerts.push({ c: 'var(--info)', cls: 'chip-accent', icon: 'box', t: `สินค้าใกล้/หมดสต็อก ${outOfStock.length} รายการ`, d: outOfStock.map(p => p.name).slice(0,2).join(', ') });
+  // โฟกัสวันนี้ — สิ่งที่ต้องจัดการ (หลังบ้าน ไม่มียอด/เป้า) + งานวันนี้
+  const todayD = getToday().day;
+  const enteredToday = (D.dailyMonth || []).some(d => d.d === todayD);
+  const dueTasks = (D.tasks || []).filter(t => t.status !== 'done' && t.dateISO && t.dateISO <= todayISO());
+  const todayTasks = (D.tasks || []).filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
+  const lowStock = (D.products || []).filter(p => p.stock === 'out' || p.stock === 'low');
+  const pendingOrders = (D.orders || []).filter(o => o.status !== 'shipped' && o.status !== 'cancelled');
+  const todos = [];
+  if (!enteredToday) todos.push({ c: 'var(--bad)', t: 'ยังไม่บันทึกยอดขายวันนี้', d: 'กดเพื่อกรอกยอดรายวัน', act: () => go('sales', 'monthly') });
+  if (dueTasks.length) todos.push({ c: 'var(--warn)', t: `งานครบกำหนด/ค้าง ${dueTasks.length} งาน`, d: dueTasks.slice(0, 2).map(t => t.title).join(', '), act: () => go('planner', 'kanban') });
+  if (lowStock.length) todos.push({ c: 'var(--info)', t: `สินค้าใกล้/หมดสต็อก ${lowStock.length} รายการ`, d: lowStock.slice(0, 2).map(p => p.name).join(', '), act: () => go('catalog', 'stock') });
+  if (pendingOrders.length) todos.push({ c: 'var(--accent-2)', t: `ออเดอร์รอจัดการ ${pendingOrders.length} รายการ`, d: 'จัดการบนบอร์ดออเดอร์', act: () => go('catalog', 'orders') });
 
-  const dailyVals = D.dailyMonth.map(d => d.rev);
+  // อัพเดท/log — กรอง + จัดกลุ่มตามวัน
+  const f = LOG_FILTERS.find(x => x.id === filter);
+  const logs = (D.audit || []).filter(a => filter === 'all' || (f && f.match && f.match(a)));
+  const todayCount = (D.audit || []).filter(a => String(a.ts || '').slice(0, 10) === todayISO()).length;
+  const _yest = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  const groups = [];
+  logs.forEach(a => {
+    const day = String(a.ts || '').slice(0, 10);
+    const key = day === todayISO() ? 'วันนี้' : day === _yest ? 'เมื่อวาน' : (a.ts ? new Date(a.ts).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : 'ก่อนหน้า');
+    let g = groups.find(x => x.key === key); if (!g) { g = { key, items: [] }; groups.push(g); }
+    g.items.push(a);
+  });
 
   return (
     <div className="content-inner rise">
       {/* greeting */}
       <div className="row between wrap" style={{ marginBottom: 20, gap: 12 }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>{(() => { const td = getToday(); return `ภาพรวมวันนี้ · ${THAI_WEEKDAYS[new Date().getDay()]} ${td.day} ${THAI_MONTHS_FULL[td.month - 1]} ${td.yearBE}`; })()}</div>
+          <div className="eyebrow" style={{ marginBottom: 6 }}>{(() => { const td = getToday(); return `${THAI_WEEKDAYS[new Date().getDay()]} ${td.day} ${THAI_MONTHS_FULL[td.month - 1]} ${td.yearBE}`; })()}</div>
           <h1 className="display">{(() => { const h = new Date().getHours(); return h < 12 ? 'สวัสดีตอนเช้า' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนดึก'; })()}, {userName} {'👋'}</h1>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <span className={`chip ${navigator.onLine ? 'chip-good' : 'chip-warn'}`}><span className="dot-c" style={{ background: navigator.onLine ? 'var(--good)' : 'var(--warn)' }}></span> {navigator.onLine ? 'ออนไลน์' : 'ออฟไลน์'}</span>
-        </div>
+        <span className={`chip ${navigator.onLine ? 'chip-good' : 'chip-warn'}`}><span className="dot-c" style={{ background: navigator.onLine ? 'var(--good)' : 'var(--warn)' }}></span> {navigator.onLine ? 'ออนไลน์' : 'ออฟไลน์'}</span>
       </div>
 
-      {/* hero + alerts */}
-      <div className="grid" style={{ gridTemplateColumns: '1.7fr 1fr', marginBottom: 16 }}>
-        <div className="card" style={{ display: 'flex', gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดสะสมเดือนนี้'} (MTD) <InfoTip text="ยอดสะสมเดือนนี้ (MTD = Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน" label="ยอดสะสมเดือนนี้" /></div>
-            <div className="num" style={{ fontSize: 'clamp(26px,5vw,40px)', fontWeight: 700, letterSpacing: '-1px', lineHeight: 1.05, wordBreak: 'break-word' }}>{B(mtd)}</div>
-            <div className="row" style={{ gap: 14, marginTop: 14 }}>
-              <div>
-                <div className="cap">{'เป้าเดือน'}</div>
-                <div className="num h3">{Bk(TMK.consts.TARGET)}</div>
-              </div>
-              <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
-              <div>
-                <div className="cap">{'คาดยอดทั้งเดือน'} (Run rate) <InfoTip text="คาดยอดทั้งเดือน (Run rate) = (ยอดสะสม ÷ วันที่ผ่านมา) × จำนวนวันทั้งเดือน — ถ้าทำได้เท่านี้ต่อไปจะจบเดือนที่เท่าไร" label="คาดยอดทั้งเดือน (Run rate)" /></div>
-                <div className="num h3" style={{ color: gap > 0 ? 'var(--warn)' : 'var(--good)' }}>{B(C.RUN)}</div>
-              </div>
-              <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
-              <div>
-                <div className="cap">{'ขาดอีก'}</div>
-                <div className="num h3">{TMK.consts.TARGET > 0 && C.MTD >= TMK.consts.TARGET ? '✓ ถึงเป้าแล้ว' : B(Math.max(0, TMK.consts.TARGET - C.MTD))}</div>
-              </div>
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1.5fr', gap: 16, alignItems: 'start' }}>
+        {/* โฟกัสวันนี้ */}
+        <div className="card">
+          <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> {'โฟกัสวันนี้'}</h3>
+            <button className="btn btn-sm btn-ghost" onClick={() => go('planner', 'kanban')}>{'งานทั้งหมด'} <Icon name="arrowR" /></button></div>
+          {todos.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: todayTasks.length ? 16 : 0 }}>
+              {todos.map((td, i) => (
+                <div key={i} className="row" onClick={td.act} style={{ gap: 10, padding: '10px 11px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', borderLeft: `3px solid ${td.c}`, cursor: 'pointer' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="sm" style={{ fontWeight: 600 }}>{td.t}</div>
+                    {td.d && <div className="cap" style={{ marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{td.d}</div>}
+                  </div>
+                  <span style={{ flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
+                </div>
+              ))}
             </div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <Ring pct={pace} size={128} stroke={11} color={st.c}>
-              <div>
-                <div className="num" style={{ fontSize: 28, fontWeight: 700, color: st.c, lineHeight: 1 }}>{P(pace, 0)}</div>
-                <div className="cap" style={{ marginTop: 3, lineHeight: 1.1 }}>จังหวะทำยอด</div>
-              </div>
-            </Ring>
-            <div style={{ marginTop: 8 }}><span className={`chip ${TMK.consts.TARGET > 0 ? st.cls : 'chip-accent'}`}>{TMK.consts.TARGET > 0 ? st.label : 'ยังไม่ตั้งเป้า'}</span></div>
-          </div>
-        </div>
-
-        <div className="card card-pad-sm" style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer' }} onClick={() => go('sales', 'channels')}>
-          <div className="row between" style={{ marginBottom: 12 }}>
-            <span className="eyebrow">{'ยอดขายแยกช่องทาง'} (MTD)</span>
-            <span className="chip">{B(C.MTD)}</span>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 11, flex: 1 }}>
-            {(() => {
-              const chs = D.channels || []; // ลำดับคงที่ (ใช้ทุกที่)
-              if (!chs.length || C.MTD <= 0) return <div className="cap" style={{ color: 'var(--ink-4)', padding: '12px 0' }}>ยังไม่มียอดขายเดือนนี้</div>;
-              const topId = chs.reduce((m, c) => ((c.actual || 0) > (m?.actual || 0) ? c : m), null)?.id; // ช่องขายดีสุด (badge อันดับ 1)
-              return chs.map((c, i) => {
-                const pct = C.MTD > 0 ? (c.actual / C.MTD) * 100 : 0;
+          ) : (
+            <div className="cap" style={{ textAlign: 'center', padding: '18px 0', color: 'var(--good)', fontWeight: 600 }}>✅ ไม่มีอะไรค้าง — เคลียร์หมดแล้ว</div>
+          )}
+          {todayTasks.length > 0 && (<>
+            <div className="cap" style={{ marginBottom: 8, fontWeight: 700, color: 'var(--ink-3)' }}>{'งานวันนี้'} ({todayTasks.length})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {todayTasks.slice(0, 6).map(t => {
+                const stMap = { todo: { l: 'รอทำ', c: 'var(--ink-3)' }, inprogress: { l: 'กำลังทำ', c: 'var(--info)' }, review: { l: 'รอตรวจ', c: 'var(--warn)' }, done: { l: 'เสร็จ', c: 'var(--good)' } }[t.status] || { l: '—', c: 'var(--ink-3)' };
                 return (
-                  <div key={c.id}>
-                    <div className="row between" style={{ marginBottom: 4, gap: 8 }}>
-                      <span className="sm" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                        <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex, flexShrink: 0 }}></span>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
-                        {c.id === topId && c.actual > 0 && <span className="chip chip-good" style={{ fontSize: 9, padding: '1px 6px' }}>อันดับ 1</span>}
-                      </span>
-                      <span className="num sm" style={{ fontWeight: 700, flexShrink: 0 }}>{B(c.actual)} <span className="cap" style={{ fontWeight: 500 }}>{P(pct, 0)}</span></span>
-                    </div>
-                    <div className="bar" style={{ height: 6 }}><span style={{ width: `${Math.min(pct, 100)}%`, background: c.hex }}></span></div>
+                  <div key={t.id} className="row" onClick={() => window.__openModal && window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ gap: 10, padding: '8px 4px', cursor: 'pointer' }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: stMap.c, flexShrink: 0 }}></span>
+                    <span className="sm" style={{ flex: 1, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</span>
+                    <span className="cap" style={{ color: stMap.c, fontWeight: 600, flexShrink: 0 }}>{stMap.l}</span>
                   </div>
                 );
-              });
-            })()}
-          </div>
-        </div>
-      </div>
-
-      {/* KPI row — click navigates to relevant page */}
-      <div className="grid g4" style={{ marginBottom: 24 }}>
-        <Kpi label={'ออร์เดอร์รวม'} value={N(C.ORD)} icon="bag" sub="เดือนนี้" onClick={() => go('sales', 'overview')} />
-        <Kpi label={'มูลค่าต่อบิล (AOV)'} value={B(C.AOV)} icon="wallet" sub={'เฉลี่ยต่อบิล'} hint="AOV (Average Order Value) = ยอดขายรวม ÷ จำนวนออร์เดอร์ — มูลค่าเฉลี่ยต่อบิล" onClick={() => go('sales', 'channels')} />
-        <Kpi label={'ค่าแอด / ACOS'} value={Bk(C.AD)} icon="zap" delta={P(C.ACOS_TOT,0)} hint="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป"
-          deltaDir={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'up' : 'down'}
-          deltaColor={C.ACOS_TOT > TMK.consts.ACOS_CEIL ? 'var(--bad)' : 'var(--good)'}
-          sub={`เพดาน ${TMK.consts.ACOS_CEIL}%`} accent="var(--warn)" onClick={() => go('sales', 'ads')} />
-        <Kpi label={'ลูกค้าใหม่'} value={N(C.NEW_C)} icon="userPlus" delta={(C.NEW_C + C.OLD_C) > 0 ? `${P((C.NEW_C / (C.NEW_C + C.OLD_C)) * 100, 0)} ของลูกค้า` : ''} sub="รายใหม่เดือนนี้" accent="var(--good)" onClick={() => go('sales', 'customers')} />
-      </div>
-
-      {/* focus + activity */}
-      <div className="grid" style={{ gridTemplateColumns: '1.3fr 1fr', marginBottom: 24 }}>
-        <div className="card">
-          <div className="card-head">
-            <h3><span style={{color:'var(--accent)'}}><Icon name="listChecks" /></span> {'โฟกัสวันนี้'}</h3>
-            <button className="btn btn-sm btn-ghost" onClick={() => go('planner', 'kanban')}>{'ดูทั้งหมด'} <Icon name="arrowR" /></button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {todayTasks.slice(0, 5).map(t => {
-              const camp = D.campaigns.find(c => c.id === t.camp);
-              const stMap = { todo: { l: 'รอทำ', c: 'var(--ink-3)' }, inprogress: { l: 'กำลังทำ', c: 'var(--info)' }, review: { l: 'รอตรวจ', c: 'var(--warn)' }, done: { l: 'เสร็จ', c: 'var(--good)' } }[t.status] || { l: '—', c: 'var(--ink-3)' };
-              return (
-                <div key={t.id} className="row" onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ gap: 12, padding: '11px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', cursor: 'pointer', transition: 'background 0.1s' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: stMap.c, flexShrink: 0 }}></span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
-                    <div className="cap" style={{ marginTop: 1 }}>{camp?.name} {'·'} {t.channel}</div>
-                  </div>
-                  <div className="row" style={{ gap: 4 }}>
-                    {(t.responsible || []).slice(0,2).map(r => {
-                      const s = D.staff.find(x => x.name === r) || { color: 'var(--ink-3)' };
-                      return <Avatar key={r} name={r} color={s.color} size={24} />;
-                    })}
-                  </div>
-                  <span className="cap" style={{ color: stMap.c, fontWeight: 600, width: 52, textAlign: 'right' }}>{stMap.l}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-head">
-            <h3><span style={{color:'var(--accent)'}}><Icon name="clock" /></span> {'ความเคลื่อนไหวล่าสุด'}</h3>
-            <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'audit')}>{'ทั้งหมด'} <Icon name="arrowR" /></button>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {D.audit.slice(0, 5).map((a, i) => {
-              const s = D.staff.find(x => x.name === a.user) || { color: 'var(--ink-3)' };
-              return (
-                <div key={i} className="row" style={{ gap: 11, padding: '9px 4px' }}>
-                  <Avatar name={a.user} color={s.color} size={26} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="sm" style={{ lineHeight: 1.35 }}><strong>{a.user}</strong> <span className="muted">{a.action}</span></div>
-                    <div className="cap" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.summary}</div>
-                  </div>
-                  <span className="cap" style={{ flexShrink: 0 }}>{a.time}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
-      {/* channel strip */}
-      <Section eyebrow={'ช่องทางการขาย'} title={'ยอดขายรายวันเดือนนี้'} action={<button className="btn btn-sm" onClick={() => go('sales', 'overview')}>{'เปิด'} Sales Dashboard <Icon name="arrowR" /></button>}>
-        <div className="card">
-          <div className="row between" style={{ marginBottom: 4 }}>
-            <div>
-              <div className="num h1">{Bk(C.MTD)}</div>
-              <div className="cap">{'รวม'} {D.dailyMonth.length} {'วัน'} {'·'} {'เฉลี่ย'} {D.dailyMonth.length ? B(C.MTD / D.dailyMonth.length) : '—'}/{'วัน'}</div>
+              })}
             </div>
+          </>)}
+        </div>
+
+        {/* อัพเดท / ความเคลื่อนไหว — พระเอก */}
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="clock" /></span> {'อัพเดทล่าสุด'} {todayCount > 0 && <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>· วันนี้ {todayCount} รายการ</span>}</h3>
+            <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'audit')}>{'ดูประวัติทั้งหมด'} <Icon name="arrowR" /></button></div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {LOG_FILTERS.map(x => <button key={x.id} className={`chip ${filter === x.id ? 'chip-accent' : ''}`} style={{ cursor: 'pointer', border: filter === x.id ? undefined : '1px solid var(--line)' }} onClick={() => setFilter(x.id)}>{x.label}</button>)}
           </div>
-          <MiniArea data={dailyVals} labels={dailyVals.map((_, i) => 'วันที่ ' + (i + 1))} h={110} id="home" metricLabel="ยอดขาย" />
-          <div className="grid g3" style={{ marginTop: 16, gap: 10 }}>
-            {D.channels.map(ch => (
-              <div key={ch.id} className="row" style={{ gap: 9 }}>
-                <span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>
-                <span className="sm" style={{ flex: 1, fontWeight: 500 }}>{ch.name}</span>
-                <span className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.actual)}</span>
+          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 560, display: 'flex', flexDirection: 'column' }}>
+            {logs.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 28, color: 'var(--ink-4)' }}>ยังไม่มีความเคลื่อนไหวในหมวดนี้</div>}
+            {groups.map(g => (
+              <div key={g.key}>
+                <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-3)', padding: '8px 0 4px', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>{g.key}</div>
+                {g.items.map((a, i) => {
+                  const m = logMeta(a.action);
+                  const s = (D.staff || []).find(x => x.name === a.user) || { color: 'var(--ink-3)' };
+                  const tm = a.ts ? new Date(a.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : a.time;
+                  return (
+                    <div key={i} className="row" style={{ gap: 11, padding: '8px 2px', alignItems: 'flex-start' }}>
+                      <Avatar name={a.user} color={s.color} size={26} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className="sm" style={{ lineHeight: 1.4 }}><strong>{a.user}</strong> <span style={{ color: m.c, fontWeight: 600 }}>{m.l}</span>{a.name ? <span className="muted"> {a.name}</span> : null}</div>
+                        <div className="cap" style={{ marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.summary}</div>
+                        {a.fields && a.fields.length > 0 && <div className="cap" style={{ marginTop: 2, color: 'var(--ink-4)' }}>{a.fields.slice(0, 3).map(fd => `${fd.label}: ${fd.value}`).join(' · ')}</div>}
+                      </div>
+                      <span className="cap" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{tm}</span>
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>
         </div>
-      </Section>
+      </div>
     </div>
   );
 }
+
 
 /* ============================================================
    SALES — sub: overview / channels / ads / customers
