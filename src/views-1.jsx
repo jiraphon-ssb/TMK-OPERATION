@@ -114,8 +114,8 @@ export function HomeView({ go }) {
           <div style={{ textAlign: 'center' }}>
             <Ring pct={pace} size={128} stroke={11} color={st.c}>
               <div>
-                <div className="num" style={{ fontSize: 26, fontWeight: 700, color: st.c }}>{P(pace, 0)}</div>
-                <div className="cap" style={{ marginTop: 2 }}>จังหวะทำยอด (Pace) <InfoTip text="จังหวะทำยอด (Pace) = ยอดสะสม เทียบกับ 'เป้าที่ควรได้ ณ วันนี้' (เป้าเดือน ÷ จำนวนวัน × วันที่ผ่านไป) · 100% = ตรงจังหวะ, เกิน = นำเป้า, ต่ำกว่า = ช้ากว่าเป้า" label="จังหวะทำยอด (Pace)" align="right" /></div>
+                <div className="num" style={{ fontSize: 28, fontWeight: 700, color: st.c, lineHeight: 1 }}>{P(pace, 0)}</div>
+                <div className="cap" style={{ marginTop: 3, lineHeight: 1.1 }}>จังหวะทำยอด</div>
               </div>
             </Ring>
             <div style={{ marginTop: 8 }}><span className={`chip ${TMK.consts.TARGET > 0 ? st.cls : 'chip-accent'}`}>{TMK.consts.TARGET > 0 ? st.label : 'ยังไม่ตั้งเป้า'}</span></div>
@@ -129,8 +129,9 @@ export function HomeView({ go }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 11, flex: 1 }}>
             {(() => {
-              const chs = [...(D.channels || [])].sort((a, b) => (b.actual || 0) - (a.actual || 0));
+              const chs = D.channels || []; // ลำดับคงที่ (ใช้ทุกที่)
               if (!chs.length || C.MTD <= 0) return <div className="cap" style={{ color: 'var(--ink-4)', padding: '12px 0' }}>ยังไม่มียอดขายเดือนนี้</div>;
+              const topId = chs.reduce((m, c) => ((c.actual || 0) > (m?.actual || 0) ? c : m), null)?.id; // ช่องขายดีสุด (badge อันดับ 1)
               return chs.map((c, i) => {
                 const pct = C.MTD > 0 ? (c.actual / C.MTD) * 100 : 0;
                 return (
@@ -139,7 +140,7 @@ export function HomeView({ go }) {
                       <span className="sm" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
                         <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex, flexShrink: 0 }}></span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
-                        {i === 0 && c.actual > 0 && <span className="chip chip-good" style={{ fontSize: 9, padding: '1px 6px' }}>อันดับ 1</span>}
+                        {c.id === topId && c.actual > 0 && <span className="chip chip-good" style={{ fontSize: 9, padding: '1px 6px' }}>อันดับ 1</span>}
                       </span>
                       <span className="num sm" style={{ fontWeight: 700, flexShrink: 0 }}>{B(c.actual)} <span className="cap" style={{ fontWeight: 500 }}>{P(pct, 0)}</span></span>
                     </div>
@@ -350,9 +351,33 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
   const st = paceStatus(C.PACE_PCT);
   const pace = useCountUp(C.PACE_PCT);
   const ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  // สรุปเด่น: ช่องขายดีสุด · กำไรสุทธิ · สถานะงบแอด
+  const topCh = [...channels].sort((a, b) => (b.actual || 0) - (a.actual || 0))[0];
+  const adBudget = consts.AD_BUDGET || 0;
+  const adStatus = adBudget <= 0 ? { txt: 'ยังไม่ตั้งงบ', c: 'var(--ink-3)' }
+    : C.AD > adBudget ? { txt: `🔴 เกินงบ ${Bk(C.AD - adBudget)}`, c: 'var(--bad)' }
+    : { txt: `ใช้ไป ${P((C.AD / adBudget) * 100, 0)} ของ ${Bk(adBudget)}`, c: (C.AD / adBudget) > 0.8 ? 'var(--warn)' : 'var(--good)' };
   return (
     <div className="content-inner rise">
       <SalesDateBar {...dateProps} />
+
+      {/* สรุปเด่น — อ่านปรื๊ดเดียวรู้สถานการณ์ */}
+      <div className="grid g3" style={{ marginBottom: 16 }}>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>💪 ช่องขายดีสุด</div>
+          {topCh && topCh.actual > 0
+            ? <div className="row" style={{ gap: 8, alignItems: 'baseline' }}><span style={{ width: 10, height: 10, borderRadius: 3, background: topCh.hex, flexShrink: 0 }}></span><span className="num h3">{topCh.name}</span><span className="cap">{B(topCh.actual)} ({P(C.MTD > 0 ? (topCh.actual / C.MTD) * 100 : 0, 0)})</span></div>
+            : <div className="num h3" style={{ color: 'var(--ink-3)' }}>—</div>}
+        </div>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>💰 กำไรสุทธิเดือนนี้{pnl.cogsPct === 0 ? ' (ยังไม่หักทุน)' : ''}</div>
+          <div className="num h3" style={{ color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-4)' }}>({P(pnl.netMargin, 0)})</span></div>
+        </div>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>📣 งบโฆษณา</div>
+          <div className="num h3" style={{ color: adStatus.c }}>{adStatus.txt}</div>
+        </div>
+      </div>
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginBottom: 16 }}>
         <div className="card">
@@ -385,7 +410,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
         <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <Ring pct={pace} size={120} stroke={11} color={st.c}>
-            <div><div className="num h1" style={{ color: st.c }}>{P(pace,0)}</div><div className="cap">จังหวะทำยอด (Pace)</div></div>
+            <div><div className="num h1" style={{ color: st.c }}>{P(pace,0)}</div><div className="cap" style={{ lineHeight: 1.1 }}>จังหวะทำยอด</div></div>
           </Ring>
           <div>
             <span className={`chip ${st.cls}`} style={{ marginBottom: 10 }}>{st.label}</span>
