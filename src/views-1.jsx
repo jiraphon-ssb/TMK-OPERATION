@@ -421,43 +421,11 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
       </div>
 
-      {/* ยอดขายรายวัน (เจาะลึกตามช่องทาง) | P&L — 2 คอลัมน์ */}
-      <div className="grid g2" style={{ marginBottom: 16, alignItems: 'start' }}>
-      {/* ซ้าย: ยอดขายรายวัน เจาะลึก — แต่ละวันมาจากช่องทางไหน กี่บาท กี่% */}
-      <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* ยอดขายรายวัน (เจาะลึกตามช่องทาง) — เต็มแถว เห็นทั้งเดือน */}
+      <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column' }}>
         <div className="card-head"><h3>{'ยอดขายรายวัน'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(เจาะลึกตามช่องทาง)</span></h3>
           <span className="cap">{md.dailyBreakdown.length} {'วัน'}</span></div>
-        <DailyStackedChart days={md.dailyBreakdown} />
-      </div>
-      {/* ขวา: P&L — กำไร-ขาดทุน เดือนนี้ */}
-      <div className="card" style={{ marginBottom: 0 }}>
-        <div className="card-head"><h3>{'กำไร-ขาดทุน (P&L) — เดือนนี้'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></h3>
-          <span className={`chip ${pnl.netProfit >= 0 ? 'chip-good' : 'chip-bad'}`}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</span></div>
-        {pnl.cogsPct === 0 && (
-          <div className="cap" style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '8px 10px', marginBottom: 12, color: 'var(--ink-3)' }}>
-            💡 ยังไม่ได้ตั้ง <b>"ต้นทุนสินค้า %"</b> — กำไรสุทธิยังไม่หักต้นทุนสินค้า ตั้งที่หน้า <b>"ตั้งเป้ารายเดือน"</b> เพื่อให้กำไรแม่นยำ
-          </div>
-        )}
-        <div style={{ display: 'grid', gap: 5 }}>
-          {[
-            ['ยอดขาย', pnl.revenue, false],
-            [`− ต้นทุนสินค้า${pnl.cogsPct ? ` (${pnl.cogsPct}%)` : ''}`, -pnl.cogs, false],
-            ['= กำไรขั้นต้น', pnl.grossProfit, true],
-            ['− ค่าแอด', -pnl.ad, false],
-            ['− ค่าธรรมเนียมแพลตฟอร์ม', -pnl.platformFees, false],
-            ['− ค่าใช้จ่ายอื่น', -pnl.otherExpense, false],
-          ].map(([label, val, sub], i) => (
-            <div key={i} className="row between" style={{ padding: sub ? '6px 0' : '3px 0', borderTop: sub ? '1px solid var(--line)' : 'none' }}>
-              <span className={sub ? '' : 'cap'} style={{ fontWeight: sub ? 700 : 400, color: sub ? 'var(--ink)' : 'var(--ink-3)' }}>{label}</span>
-              <span className="num sm" style={{ fontWeight: sub ? 700 : 600, color: val < 0 ? 'var(--bad)' : 'var(--ink-2)' }}>{val < 0 ? '−' : ''}{B(Math.abs(val))}</span>
-            </div>
-          ))}
-          <div className="row between" style={{ padding: '9px 0 0', borderTop: '2px solid var(--line)', marginTop: 3 }}>
-            <span style={{ fontWeight: 800 }}>กำไรสุทธิ</span>
-            <span className="num h3" style={{ fontWeight: 800, color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>({P(pnl.netMargin, 1)})</span></span>
-          </div>
-        </div>
-      </div>
+        <DailyStackedChart days={md.dailyBreakdown} h={300} />
       </div>
 
       {/* per-platform: เป้า · ผลงาน · คุมแอด */}
@@ -526,6 +494,36 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>{'เทียบปีก่อน'} (YoY)</div>
           <YoYChart data={md.yoy} year={dateProps.year} />
+        </div>
+      </div>
+
+      {/* P&L — กำไร-ขาดทุน เดือนนี้ (ล่างสุด) */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3>{'กำไร-ขาดทุน (P&L) — เดือนนี้'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></h3>
+          <span className={`chip ${pnl.netProfit >= 0 ? 'chip-good' : 'chip-bad'}`}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</span></div>
+        {pnl.cogsPct === 0 && (
+          <div className="cap" style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '8px 10px', marginBottom: 12, color: 'var(--ink-3)' }}>
+            💡 ยังไม่ได้ตั้ง <b>"ต้นทุนสินค้า %"</b> — กำไรสุทธิยังไม่หักต้นทุนสินค้า ตั้งที่หน้า <b>"ตั้งเป้ารายเดือน"</b> เพื่อให้กำไรแม่นยำ
+          </div>
+        )}
+        <div style={{ display: 'grid', gap: 5 }}>
+          {[
+            ['ยอดขาย', pnl.revenue, false],
+            [`− ต้นทุนสินค้า${pnl.cogsPct ? ` (${pnl.cogsPct}%)` : ''}`, -pnl.cogs, false],
+            ['= กำไรขั้นต้น', pnl.grossProfit, true],
+            ['− ค่าแอด', -pnl.ad, false],
+            ['− ค่าธรรมเนียมแพลตฟอร์ม', -pnl.platformFees, false],
+            ['− ค่าใช้จ่ายอื่น', -pnl.otherExpense, false],
+          ].map(([label, val, sub], i) => (
+            <div key={i} className="row between" style={{ padding: sub ? '6px 0' : '3px 0', borderTop: sub ? '1px solid var(--line)' : 'none' }}>
+              <span className={sub ? '' : 'cap'} style={{ fontWeight: sub ? 700 : 400, color: sub ? 'var(--ink)' : 'var(--ink-3)' }}>{label}</span>
+              <span className="num sm" style={{ fontWeight: sub ? 700 : 600, color: val < 0 ? 'var(--bad)' : 'var(--ink-2)' }}>{val < 0 ? '−' : ''}{B(Math.abs(val))}</span>
+            </div>
+          ))}
+          <div className="row between" style={{ padding: '9px 0 0', borderTop: '2px solid var(--line)', marginTop: 3 }}>
+            <span style={{ fontWeight: 800 }}>กำไรสุทธิ</span>
+            <span className="num h3" style={{ fontWeight: 800, color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>({P(pnl.netMargin, 1)})</span></span>
+          </div>
         </div>
       </div>
     </div>
