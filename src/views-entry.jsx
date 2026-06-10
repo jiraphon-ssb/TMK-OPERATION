@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useRef, useLayoutEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, N, Icon, Ring } from './components.jsx';
+import { B, Bk, Bc, N, Icon, Ring } from './components.jsx';
 import { getToday, THAI_MONTHS as MONTH_SHORT, THAI_MONTHS_FULL as MONTH_FULL } from './lib/dateUtils.js';
 import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -462,7 +462,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
                 title={ent ? `วันที่ ${d} — ${B(rev)}` : future ? `วันที่ ${d} — ยังไม่ถึง` : `วันที่ ${d} — ยังไม่กรอก`}
                 style={{ aspectRatio: '1', minHeight: 38, borderRadius: 6, border: today ? '2px solid var(--accent)' : '1px solid var(--line)', background: ent ? 'var(--good-soft)' : 'var(--surface)', cursor: disabled ? 'default' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: '2px 1px', opacity: future ? 0.4 : 1, overflow: 'hidden' }}>
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: ent ? 'var(--good)' : 'var(--ink-3)' }}>{d}</span>
-                {ent && rev > 0 && <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--good)', lineHeight: 1, whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{N(rev)}</span>}
+                {ent && rev > 0 && <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--good)', lineHeight: 1, whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{Bc(rev)}</span>}
               </button>
             );
           })}

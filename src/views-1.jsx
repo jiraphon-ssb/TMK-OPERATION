@@ -59,7 +59,7 @@ export function HomeView({ go }) {
   const st = paceStatus(C.PACE_PCT);
   const gap = TMK.consts.TARGET - C.RUN;
   const _daysLeft = TMK.consts.DAYS - TMK.consts.DAY;
-  const perDayNeeded = _daysLeft > 0 ? Math.ceil((TMK.consts.TARGET - C.MTD) / _daysLeft) : 0; // กัน /0 = Infinity วันสุดท้าย
+  const perDayNeeded = _daysLeft > 0 ? Math.max(0, Math.ceil((TMK.consts.TARGET - C.MTD) / _daysLeft)) : 0; // กัน /0 + กันติดลบเมื่อถึงเป้าแล้ว
 
   const todayTasks = D.tasks.filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
   const alerts = [];
@@ -107,7 +107,7 @@ export function HomeView({ go }) {
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
               <div>
                 <div className="cap">{'ขาดอีก'}</div>
-                <div className="num h3">{B(TMK.consts.TARGET - C.MTD)}</div>
+                <div className="num h3">{TMK.consts.TARGET > 0 && C.MTD >= TMK.consts.TARGET ? '✓ ถึงเป้าแล้ว' : B(Math.max(0, TMK.consts.TARGET - C.MTD))}</div>
               </div>
             </div>
           </div>
@@ -228,7 +228,7 @@ export function HomeView({ go }) {
           </div>
           <MiniArea data={dailyVals} labels={dailyVals.map((_, i) => 'วันที่ ' + (i + 1))} h={110} id="home" metricLabel="ยอดขาย" />
           <div className="grid g3" style={{ marginTop: 16, gap: 10 }}>
-            {D.channels.slice(0, 6).map(ch => (
+            {D.channels.map(ch => (
               <div key={ch.id} className="row" style={{ gap: 9 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>
                 <span className="sm" style={{ flex: 1, fontWeight: 500 }}>{ch.name}</span>
@@ -276,7 +276,7 @@ export function SalesView({ sub }) {
   const md = useMemo(() => computeMonth(month, year), [month, year, version]);
   const prevMd = useMemo(() => computeMonth(month === 0 ? 11 : month - 1, month === 0 ? year - 1 : year), [month, year, version]);
 
-  if (sub === 'channels') return <SalesChannels dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
+  if (sub === 'channels') return <SalesChannels dateProps={dateProps} prevMonthName={prevMonthName} md={md} prevMd={prevMd} />;
   if (sub === 'ads') return <SalesAds dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
   if (sub === 'customers') return <SalesCustomers dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
   return <SalesOverview dateProps={dateProps} prevMonthName={prevMonthName} md={md} prevMd={prevMd} />;
@@ -351,7 +351,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             <div className="cap" style={{ marginTop: 10 }}>MTD / {'เป้า'} pace</div>
             <div className="num sm" style={{ fontWeight: 600 }}>{B(C.MTD)} / {C.PACE_TGT ? B(C.PACE_TGT) : '—'}</div>
             <div className="cap" style={{ marginTop: 8 }}>{'ต้องเฉลี่ย/วัน'}</div>
-            <div className="num sm" style={{ fontWeight: 600 }}>{(consts.TARGET > 0 && consts.DAYS - consts.DAY > 0) ? B(Math.ceil((consts.TARGET-C.MTD)/(consts.DAYS-consts.DAY))) : '—'}</div>
+            <div className="num sm" style={{ fontWeight: 600 }}>{(consts.TARGET > 0 && consts.DAYS - consts.DAY > 0) ? B(Math.max(0, Math.ceil((consts.TARGET-C.MTD)/(consts.DAYS-consts.DAY)))) : '—'}</div>
           </div>
         </div>
       </div>
@@ -543,7 +543,7 @@ function YoYChart({ data: dataProp, year }) {
   );
 }
 
-function SalesChannels({ dateProps, prevMonthName, md }) {
+function SalesChannels({ dateProps, prevMonthName, md, prevMd }) {
   const consts = md.consts, channels = md.channels;
   return (
     <div className="content-inner rise">
@@ -551,7 +551,7 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
       <div className="grid g3">
         {channels.map(ch => {
           const pPct = (ch.target > 0 && consts.DAYS > 0 && consts.DAY > 0) ? (ch.actual / ((ch.target/consts.DAYS)*consts.DAY)) * 100 : 0;
-          const st = paceStatus(pPct);
+          const st = md.isFuture ? { cls: 'chip-accent', label: 'ยังไม่เริ่ม' } : paceStatus(pPct);
           const roas = ch.ad > 0 ? ch.actual/ch.ad : null;
           const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad/ch.actual)*100 : null;
           const tot = ch.newCust + ch.oldCust;
@@ -560,7 +560,8 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
           const platformFee = ch.actual * ((ch.platformFeePct || 0) / 100);  // ค่าธรรมเนียมแพลตฟอร์ม (0 = ยังไม่ตั้ง)
           const profit = ch.actual - cogs - ch.ad - platformFee;
           const margin = ch.actual > 0 ? (profit / ch.actual) * 100 : 0;
-          const growth = ch.growthPct;
+          const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id); // เทียบเดือนก่อนจริง (ไม่ใช่ค่า static)
+          const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null;
           const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : 0;
           return (
             <div key={ch.id} className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>

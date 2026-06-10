@@ -113,7 +113,7 @@ function mapToTMK(raw) {
   const DAY = today.day;                 // วันจริง (แทน settings.current_day)
   const DAYS = today.daysInMonth;        // จำนวนวันจริงในเดือนนี้
   const ACOS_CEIL = Number(_curMeta.acosCeil || 25);       // เพดาน ACOS รายเดือน — default 25%
-  const AD_BUDGET = Number(_curMeta.adBudget || 0);        // งบโฆษณาของเดือนนี้ (ยังไม่ตั้ง = 0)
+  const AD_BUDGET = Number(_curMeta.adBudget || 0) || Object.values(_curMeta.adChannels || {}).reduce((s, v) => s + (Number(v) || 0), 0); // งบโฆษณาเดือนนี้ (fallback บวกจากงบต่อช่อง ให้ตรงกับหน้า Ads)
 
   // รายได้ต่อช่องทาง derive จาก tmk_daily_sales จริง (single source of truth)
   // กรอกยอดรายวัน → MTD/ช่องทางอัปเดตเอง; ถ้ายังไม่มี daily → 0
@@ -292,7 +292,7 @@ function mapToTMK(raw) {
     const liveMTD = round2(Object.values(dailyAgg).reduce((s, c) => s + (c.rev || 0), 0));
     const liveORD = Object.values(dailyAgg).reduce((s, c) => s + (c.ord || 0), 0);
     const liveAD = round2(dailyAdTotal);
-    if (liveMTD > 0) {
+    if (liveMTD > 0 || liveAD > 0) { // รวมเดือนที่ยิงแอดแต่ยังไม่มียอดขาย (กันค่าแอดหายจาก quarter/YoY)
       const cur = monthly.find(m => Number(m.year) === currentYear && Number(m.month) === currentMonth);
       if (cur) {
         // assign (ไม่ใช่ max) → เดือนปัจจุบัน = ผลรวมรายวันเสมอ; แก้รายวันลดลงค่าก็ลดตาม ไม่ค้างสูงเพี้ยน
@@ -433,7 +433,7 @@ function mapToTMK(raw) {
   }));
   // ซิงค์เดือนปัจจุบันด้วยยอดรายวัน (live) — monthly_history.actual มักยังไม่อัปเดตจาก daily
   // → หน้าไตรมาส / กราฟ 3 เดือน / YoY แสดงเดือนนี้ตรงกับ dashboard
-  if (MTD > 0) {
+  if (MTD > 0 || AD > 0) { // รวมเดือนที่ยิงแอดแต่ยังไม่มียอดขาย
     const _cur = monthlyRaw.find(m => m.year === currentYear && m.month === currentMonth);
     if (_cur) {
       // assign → เดือนปัจจุบัน = ผลรวมรายวันเสมอ (กันค่าค้างสูงเพี้ยน)
@@ -721,6 +721,7 @@ export function DataProvider({ children }) {
         'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
         'tmk_customer_segments','tmk_fb_metrics','tmk_monthly_history',
         'tmk_color_mix','tmk_size_mix','tmk_purchase_orders',
+        'tmk_orders','tmk_customers', // บอร์ดออเดอร์/ลูกค้าอัปเดตสดข้ามอุปกรณ์
         // ไม่ subscribe tmk_audit_logs — การเขียน log ไม่ควร trigger reload เต็ม (ลด reload ซ้ำตอนเซฟ)
       ].forEach(t => {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {

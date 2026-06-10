@@ -240,7 +240,7 @@ function CalendarView({ tasks, filtered, fProps }) {
           {selTasks.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}>
               <span style={{ display: 'inline-block', width: 36, height: 36 }}><Icon name="calendarDays" /></span>
-              <div className="cap" style={{ marginTop: 8 }}>ไม่มีงานในวันนี้</div>
+              <div className="cap" style={{ marginTop: 8 }}>ไม่มีงานในวันที่เลือก</div>
             </div>
           ) : selTasks.map(t => {
             const c = DD.campaigns.find(x => x.id === t.camp);
@@ -362,7 +362,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
 function TimelineView({ filtered, fProps }) {
   const parse = s => { const m = String(s || '').match(/^(\d+)/); return m ? +m[1] : 0; };
   const TODAY = getToday().day;
-  const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, done: { l: 'จบแล้ว', cls: '' } };
+  const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, cancelled: { l: 'ยกเลิก', cls: '' }, done: { l: 'จบแล้ว', cls: '' } };
 
   // Campaign progress
   const campTasks = {};
@@ -1256,7 +1256,7 @@ function CustomersView() {
 
 function CampaignsView() {
   const { reload } = useData() || {};
-  const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, done: { l: 'จบแล้ว', cls: '' } };
+  const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, cancelled: { l: 'ยกเลิก', cls: '' }, done: { l: 'จบแล้ว', cls: '' } };
   const [busy, setBusy] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [dragOver, setDragOver] = useState(null);

@@ -1710,7 +1710,7 @@ export function LabelModal({ data, onClose }) {
 function genOrderCode() {
   const d = new Date();
   const yy = String(d.getFullYear()).slice(-2), mm = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
-  return `ORD-${yy}${mm}${dd}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  return `ORD-${yy}${mm}${dd}-${(Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6)).slice(0, 8).toUpperCase()}`;
 }
 // ตัดสต็อกแบบ FIFO (ล็อตเก่าก่อน) สำหรับ 1 variant → คืน lots ใหม่ + จำนวนที่ตัดได้ + ต้นทุนรวม
 function deductVariantFIFO(lots, color, size, qty) {
@@ -2482,7 +2482,8 @@ export function HistoricalEntryModal({ onClose, data }) {
             ad_spend: nn(r.ad),
             new_cust: nn(r.newCust),
             messages: nn(r.messages),
-            meta: ex?.meta || {},
+            // กรอกยอดรวมรายเดือน (rev>0) → ตั้งโหมด 'monthly' ชัดเจน (กันยอดรายวันบางส่วนมาทับให้สับสน)
+            meta: { ...(ex?.meta || {}), ...(nn(r.rev) > 0 ? { entryMode: 'monthly' } : {}) },
           };
         });
       if (dbRows.length === 0) { toast('ไม่มีข้อมูลให้บันทึก', 'error'); setBusy(false); return; }
