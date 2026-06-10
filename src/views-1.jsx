@@ -380,8 +380,37 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
       </div>
 
-      {/* P&L — กำไร-ขาดทุน เดือนนี้ */}
-      <div className="card" style={{ marginBottom: 16 }}>
+      {/* ยอดขายรายวัน (เจาะลึกตามช่องทาง) | P&L — 2 คอลัมน์ */}
+      <div className="grid g2" style={{ marginBottom: 16, alignItems: 'start' }}>
+      {/* ซ้าย: ยอดขายรายวัน เจาะลึก — แต่ละวันมาจากช่องทางไหน กี่บาท กี่% */}
+      <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="card-head"><h3>{'ยอดขายรายวัน'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(เจาะลึกตามช่องทาง)</span></h3>
+          <span className="cap">{md.dailyBreakdown.length} {'วัน'}</span></div>
+        <div style={{ flex: 1, overflowY: 'auto', maxHeight: 380, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {md.dailyBreakdown.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีข้อมูลรายวัน</div>}
+          {md.dailyBreakdown.map(day => (
+            <div key={day.d} style={{ paddingBottom: 10, borderBottom: '1px solid var(--line)' }}>
+              <div className="row between" style={{ marginBottom: 6 }}>
+                <span style={{ fontWeight: 700 }}>{day.label} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>{day.dayName}</span></span>
+                <span className="num" style={{ fontWeight: 700 }}>{B(day.total)}</span>
+              </div>
+              <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 7, background: 'var(--surface-2)' }}>
+                {day.channels.map(c => <div key={c.id} title={`${c.name} ${B(c.rev)} (${P(c.pct, 0)})`} style={{ width: `${c.pct}%`, background: c.hex }} />)}
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                {day.channels.map(c => (
+                  <span key={c.id} className="cap" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: c.hex, flexShrink: 0 }} />
+                    {c.name} <b className="num" style={{ color: 'var(--ink-2)' }}>{B(c.rev)}</b> <span className="num" style={{ color: 'var(--ink-4)' }}>({P(c.pct, 0)})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* ขวา: P&L — กำไร-ขาดทุน เดือนนี้ */}
+      <div className="card" style={{ marginBottom: 0 }}>
         <div className="card-head"><h3>{'กำไร-ขาดทุน (P&L) — เดือนนี้'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></h3>
           <span className={`chip ${pnl.netProfit >= 0 ? 'chip-good' : 'chip-bad'}`}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</span></div>
         {pnl.cogsPct === 0 && (
@@ -408,6 +437,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             <span className="num h3" style={{ fontWeight: 800, color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>({P(pnl.netMargin, 1)})</span></span>
           </div>
         </div>
+      </div>
       </div>
 
       {/* per-platform: เป้า · ผลงาน · คุมแอด */}
@@ -467,11 +497,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       </div>
 
       {/* charts */}
-      <div className="grid g3">
-        <div className="card">
-          <div className="eyebrow" style={{ marginBottom: 12 }}>{'ยอดขายรายวัน'}</div>
-          <MiniArea data={md.dailyMonth.map(d=>d.rev)} labels={md.dailyMonth.map(d=>'วันที่ '+d.d)} h={150} id="so" metricLabel="ยอดขาย" />
-        </div>
+      <div className="grid g2">
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 12 }}>3 {'เดือนล่าสุด'}</div>
           <Bars data={md.month3} h={170} valueKey="actual" />

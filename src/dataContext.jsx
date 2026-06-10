@@ -568,6 +568,12 @@ export function computeMonth(monthIdx0, yearBE) {
     ord: Object.values(r.ch).reduce((s, c) => s + (c.ord || 0), 0), // รวมออร์เดอร์ทุกช่อง
     ad: r.adSpend, note: r.note,
   }));
+  // เจาะลึกรายวัน: แต่ละวันยอดมาจากช่องทางไหน กี่บาท กี่% (ทุกช่อง, ทุกวันที่กรอก, ล่าสุดก่อน)
+  const dailyBreakdown = [...rows].sort((a, b) => b.day - a.day).map(r => {
+    const perCh = (TMK.channels || []).map(base => ({ id: base.id, name: base.name, hex: base.hex, rev: round2(r.ch[base.id]?.rev || 0) })).filter(c => c.rev > 0).sort((a, b) => b.rev - a.rev);
+    const tot = round2(perCh.reduce((s, c) => s + c.rev, 0));
+    return { d: r.day, label: `${r.day} ${_ABBR[monthNum - 1]}`, dayName: r.dayName, total: tot, channels: perCh.map(c => ({ ...c, pct: tot > 0 ? (c.rev / tot) * 100 : 0 })) };
+  });
 
   // FB deep-dive ของเดือนที่เลือก — มาจากช่องทาง facebook รายวันของเดือนนั้น
   const fbCh = channels.find(c => c.id === 'facebook') || { actual: 0, orders: 0, ad: 0, newCust: 0, oldCust: 0, inq: 0 };
@@ -616,7 +622,7 @@ export function computeMonth(monthIdx0, yearBE) {
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, cogsPct: COGS_PCT, otherExpense: OTHER_EXP },
-    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, pnl,
+    channels, dailyMonth, dailyLog, dailyBreakdown, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, pnl,
     computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
   };
 }
