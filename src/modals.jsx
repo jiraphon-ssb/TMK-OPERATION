@@ -2064,6 +2064,8 @@ export function MonthlyTargetModal({ data, onClose }) {
       adChannels: MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: meta.adChannels?.[c.id] ?? '' })),
       newCustTarget: meta.newCustTarget ?? '',
       acosCeil: meta.acosCeil ?? 25,
+      cogsPct: meta.cogsPct ?? '',
+      otherExpense: meta.otherExpense ?? '',
     };
   };
   const _init = loadFor(monthIdx, year);
@@ -2073,6 +2075,8 @@ export function MonthlyTargetModal({ data, onClose }) {
   const [adChannels, setAdChannels] = useState(_init.adChannels);
   const [newCustTarget, setNewCustTarget] = useState(_init.newCustTarget);
   const [acosCeil, setAcosCeil] = useState(_init.acosCeil);
+  const [cogsPct, setCogsPct] = useState(_init.cogsPct);
+  const [otherExpense, setOtherExpense] = useState(_init.otherExpense);
   const [touched, setTouched] = useState(false);
 
   // เปลี่ยนเดือน → โหลดค่าของเดือนนั้น (แต่ละเดือนแยกกัน)
@@ -2081,6 +2085,7 @@ export function MonthlyTargetModal({ data, onClose }) {
     const v = loadFor(idx, yr);
     setTotal(v.total); setChTargets(v.chTargets); setAdTotal(v.adTotal);
     setAdChannels(v.adChannels); setNewCustTarget(v.newCustTarget); setAcosCeil(v.acosCeil);
+    setCogsPct(v.cogsPct); setOtherExpense(v.otherExpense);
     setTouched(false); // สลับเดือน = โหลดค่าเดิม ไม่นับว่าแก้
   };
 
@@ -2110,6 +2115,8 @@ export function MonthlyTargetModal({ data, onClose }) {
         adChannels: Object.fromEntries(adChannels.map(c => [c.id, nn(c.budget)])),
         newCustTarget: nn(newCustTarget),
         acosCeil: Number(acosCeil) || 25,
+        cogsPct: Number(cogsPct) || 0,
+        otherExpense: nn(otherExpense),
       };
       const row = {
         id: `${year}-${String(monthIdx + 1).padStart(2, '0')}`,
@@ -2127,6 +2134,8 @@ export function MonthlyTargetModal({ data, onClose }) {
       adChannels.forEach(c => { if (Number(c.budget) > 0) tgtFields.push({ label: `งบแอด ${c.name}`, value: B(Number(c.budget)) }); });
       if (Number(newCustTarget) > 0) tgtFields.push({ label: 'เป้าลูกค้าใหม่', value: N(Number(newCustTarget)) });
       tgtFields.push({ label: 'เพดาน ACOS', value: `${Number(acosCeil) || 25}%` });
+      if (Number(cogsPct) > 0) tgtFields.push({ label: 'ต้นทุนสินค้า', value: `${Number(cogsPct)}%` });
+      if (Number(otherExpense) > 0) tgtFields.push({ label: 'ค่าใช้จ่ายอื่น', value: B(Number(otherExpense)) });
       logAudit({ action: 'update', entityType: 'monthly', entityName: `${months[monthIdx]} ${year}`, summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})`, fields: tgtFields });
       window.__reload?.();
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
@@ -2203,6 +2212,19 @@ export function MonthlyTargetModal({ data, onClose }) {
         <div className="field">
           <label>เพดาน ACOS %</label>
           <input type="number" min="0" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
+        </div>
+      </div>
+
+      <div className="field-row">
+        <div className="field">
+          <label>ต้นทุนสินค้า % (ของยอดขาย)</label>
+          <input type="number" min="0" max="100" className="input" placeholder="เช่น 40" value={cogsPct} onChange={e => { setTouched(true); setCogsPct(e.target.value); }} />
+          <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ใช้คำนวณกำไรสุทธิ — ต้นทุนสินค้าคิดเป็น % ของยอดขาย</div>
+        </div>
+        <div className="field">
+          <label>ค่าใช้จ่ายอื่น/เดือน (บาท)</label>
+          <input type="number" min="0" className="input" placeholder="0" value={otherExpense} onChange={e => { setTouched(true); setOtherExpense(e.target.value); }} />
+          <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ค่าส่ง/แพ็ค/เงินเดือน/ค่าเช่า ฯลฯ</div>
         </div>
       </div>
     </Modal>

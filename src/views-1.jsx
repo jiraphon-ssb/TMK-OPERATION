@@ -304,7 +304,7 @@ function MomDelta({ current, previous, label }) {
 }
 
 function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
-  const C = md.computed, consts = md.consts, channels = md.channels;
+  const C = md.computed, consts = md.consts, channels = md.channels, pnl = md.pnl;
   const prevC = prevMd.computed;
   const st = paceStatus(C.PACE_PCT);
   const pace = useCountUp(C.PACE_PCT);
@@ -377,6 +377,36 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
           <div className="cap" style={{ marginBottom: 4 }}>{'ค่าแอด'}</div>
           <div className="num h1">{Bk(C.AD)}</div>
           <MomDelta current={C.AD} previous={prevC.AD} label={prevMonthName} />
+        </div>
+      </div>
+
+      {/* P&L — กำไร-ขาดทุน เดือนนี้ */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3>{'กำไร-ขาดทุน (P&L) — เดือนนี้'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></h3>
+          <span className={`chip ${pnl.netProfit >= 0 ? 'chip-good' : 'chip-bad'}`}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</span></div>
+        {pnl.cogsPct === 0 && (
+          <div className="cap" style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '8px 10px', marginBottom: 12, color: 'var(--ink-3)' }}>
+            💡 ยังไม่ได้ตั้ง <b>"ต้นทุนสินค้า %"</b> — กำไรสุทธิยังไม่หักต้นทุนสินค้า ตั้งที่หน้า <b>"ตั้งเป้ารายเดือน"</b> เพื่อให้กำไรแม่นยำ
+          </div>
+        )}
+        <div style={{ display: 'grid', gap: 5 }}>
+          {[
+            ['ยอดขาย', pnl.revenue, false],
+            [`− ต้นทุนสินค้า${pnl.cogsPct ? ` (${pnl.cogsPct}%)` : ''}`, -pnl.cogs, false],
+            ['= กำไรขั้นต้น', pnl.grossProfit, true],
+            ['− ค่าแอด', -pnl.ad, false],
+            ['− ค่าธรรมเนียมแพลตฟอร์ม', -pnl.platformFees, false],
+            ['− ค่าใช้จ่ายอื่น', -pnl.otherExpense, false],
+          ].map(([label, val, sub], i) => (
+            <div key={i} className="row between" style={{ padding: sub ? '6px 0' : '3px 0', borderTop: sub ? '1px solid var(--line)' : 'none' }}>
+              <span className={sub ? '' : 'cap'} style={{ fontWeight: sub ? 700 : 400, color: sub ? 'var(--ink)' : 'var(--ink-3)' }}>{label}</span>
+              <span className="num sm" style={{ fontWeight: sub ? 700 : 600, color: val < 0 ? 'var(--bad)' : 'var(--ink-2)' }}>{val < 0 ? '−' : ''}{B(Math.abs(val))}</span>
+            </div>
+          ))}
+          <div className="row between" style={{ padding: '9px 0 0', borderTop: '2px solid var(--line)', marginTop: 3 }}>
+            <span style={{ fontWeight: 800 }}>กำไรสุทธิ</span>
+            <span className="num h3" style={{ fontWeight: 800, color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>({P(pnl.netMargin, 1)})</span></span>
+          </div>
         </div>
       </div>
 
@@ -525,8 +555,10 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
           const roas = ch.ad > 0 ? ch.actual/ch.ad : null;
           const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad/ch.actual)*100 : null;
           const tot = ch.newCust + ch.oldCust;
-          const platformFee = ch.actual * ((ch.platformFeePct || 0) / 100); // ค่าจริงต่อช่องทาง (0 = ยังไม่ตั้ง → กำไร = รายได้ - แอด)
-          const profit = ch.actual - ch.ad - platformFee;
+          const cogsPct = consts.cogsPct || 0;
+          const cogs = ch.actual * (cogsPct / 100);                          // ต้นทุนสินค้า (% ของยอดขาย ตั้งรายเดือน)
+          const platformFee = ch.actual * ((ch.platformFeePct || 0) / 100);  // ค่าธรรมเนียมแพลตฟอร์ม (0 = ยังไม่ตั้ง)
+          const profit = ch.actual - cogs - ch.ad - platformFee;
           const margin = ch.actual > 0 ? (profit / ch.actual) * 100 : 0;
           const growth = ch.growthPct;
           const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : 0;
@@ -558,9 +590,9 @@ function SalesChannels({ dateProps, prevMonthName, md }) {
 
               {/* P&L row */}
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <div className="cap" style={{ marginBottom: 6, cursor: 'help' }} title={`กำไร = รายได้ − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ' (ยังไม่ตั้งค่าธรรมเนียม = 0)'}`}>P&L {ch.platformFeePct > 0 ? `· ค่าธรรมเนียม ${ch.platformFeePct}%` : ''}</div>
+                <div className="cap" style={{ marginBottom: 6, cursor: 'help' }} title={`กำไร = รายได้ − ต้นทุนสินค้า${cogsPct > 0 ? ` (${cogsPct}%)` : ' (ยังไม่ตั้ง = 0)'} − ค่าแอด − ค่าธรรมเนียม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ' (ยังไม่ตั้ง = 0)'}`}>P&L{cogsPct > 0 ? ` · ทุน ${cogsPct}%` : ''}{ch.platformFeePct > 0 ? ` · ธรรมเนียม ${ch.platformFeePct}%` : ''}</div>
                 <div className="row between" style={{ gap: 4 }}>
-                  <span className="sm">{B(ch.actual)} - {B(ch.ad)} - {B(platformFee)}</span>
+                  <span className="sm">{B(ch.actual)}{cogsPct > 0 ? ` − ${B(cogs)}` : ''} − {B(ch.ad)} − {B(platformFee)}</span>
                   <span className="num sm" style={{ fontWeight: 700, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>
                     = {B(profit)} ({P(margin, 0)})
                   </span>

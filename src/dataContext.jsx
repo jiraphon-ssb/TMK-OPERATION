@@ -546,6 +546,16 @@ export function computeMonth(monthIdx0, yearBE) {
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
   const CAC = NEW_C > 0 ? AD / NEW_C : 0;
 
+  // P&L (กำไร-ขาดทุน) ระดับเดือน — ยอดขาย → −ทุนขาย → กำไรขั้นต้น → −แอด → −ค่าธรรมเนียม → −อื่นๆ → กำไรสุทธิ
+  const COGS_PCT = Number(meta.cogsPct || 0);                 // ต้นทุนสินค้า % ของยอดขาย (ตั้งรายเดือน)
+  const OTHER_EXP = round2(Number(meta.otherExpense || 0));   // ค่าใช้จ่ายอื่น/เดือน (ค่าส่ง/แพ็ค/เงินเดือน ฯลฯ)
+  const COGS = round2(MTD * COGS_PCT / 100);
+  const GROSS_PROFIT = round2(MTD - COGS);
+  const PLATFORM_FEES = round2(channels.reduce((s, c) => s + (c.actual || 0) * ((c.platformFeePct || 0) / 100), 0));
+  const NET_PROFIT = round2(GROSS_PROFIT - AD - PLATFORM_FEES - OTHER_EXP);
+  const NET_MARGIN = MTD > 0 ? (NET_PROFIT / MTD) * 100 : 0;
+  const pnl = { revenue: MTD, cogs: COGS, cogsPct: COGS_PCT, grossProfit: GROSS_PROFIT, platformFees: PLATFORM_FEES, ad: AD, otherExpense: OTHER_EXP, netProfit: NET_PROFIT, netMargin: NET_MARGIN };
+
   const dailyMonth = rows.map(r => ({ d: r.day, rev: round2(Object.values(r.ch).reduce((s, c) => s + c.rev, 0)) }));
   const dailyLog = [...rows].sort((a, b) => b.day - a.day).slice(0, 7).map(r => ({
     date: `${r.day} ${_ABBR[monthNum - 1]}`, day: r.dayName,
@@ -603,8 +613,8 @@ export function computeMonth(monthIdx0, yearBE) {
     .map(m => ({ m: _ABBR[m.month - 1], v: Number(m.messages || 0) }));
 
   return {
-    consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET },
-    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend,
+    consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, cogsPct: COGS_PCT, otherExpense: OTHER_EXP },
+    channels, dailyMonth, dailyLog, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, pnl,
     computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
   };
 }
