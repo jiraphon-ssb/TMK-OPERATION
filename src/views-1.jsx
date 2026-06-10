@@ -263,6 +263,47 @@ function SalesDateBar({ month, year, onPrev, onNext }) {
   );
 }
 
+// กราฟแท่งซ้อน (stacked) แบ่งตามวัน — แต่ละแท่ง = 1 วัน, แบ่งสีตามช่องทาง (ยอด/% ต่อช่อง)
+function DailyStackedChart({ days, h = 240 }) {
+  const [hi, setHi] = useState(null);
+  if (!days || days.length === 0) return <div className="cap" style={{ textAlign: 'center', padding: 40, color: 'var(--ink-4)' }}>ยังไม่มีข้อมูลรายวัน</div>;
+  const chrono = [...days].sort((a, b) => a.d - b.d); // เก่า → ใหม่ (ซ้าย → ขวา)
+  const max = Math.max(...chrono.map(d => d.total), 1);
+  const chMap = {}; chrono.forEach(d => d.channels.forEach(c => { chMap[c.id] = { name: c.name, hex: c.hex }; }));
+  const legend = Object.entries(chMap).map(([id, v]) => ({ id, ...v }));
+  const yTicks = [max, max / 2, 0];
+  const n = chrono.length;
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', fontSize: 9, color: 'var(--ink-4)', height: h, paddingBottom: 16, lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {yTicks.map((v, i) => <span key={i}>{Bc(v)}</span>)}
+        </div>
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: Math.max(2, Math.min(6, Math.round(120 / n))), height: h, paddingBottom: 16 }}>
+          {yTicks.map((v, i) => <div key={'g' + i} style={{ position: 'absolute', left: 0, right: 0, bottom: `calc(16px + ${(v / max) * (h - 16)}px)`, borderTop: '1px dashed var(--line)', opacity: 0.4 }} />)}
+          {chrono.map((day, di) => (
+            <div key={day.d} onMouseEnter={() => setHi(di)} onMouseLeave={() => setHi(null)} style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative', cursor: 'default' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', height: `${(day.total / max) * 100}%`, width: '100%', maxWidth: 30, margin: '0 auto', borderRadius: '4px 4px 0 0', overflow: 'hidden', opacity: hi == null || hi === di ? 1 : 0.45, transition: 'opacity .12s' }}>
+                {day.channels.map(c => <div key={c.id} style={{ height: `${day.total > 0 ? (c.rev / day.total) * 100 : 0}%`, background: c.hex }} />)}
+              </div>
+              <div className="cap" style={{ position: 'absolute', bottom: -15, left: 0, right: 0, textAlign: 'center', fontSize: 9, color: 'var(--ink-4)' }}>{day.d}</div>
+              {hi === di && (
+                <div style={{ position: 'absolute', bottom: '100%', left: '50%', transform: `translateX(${di > n / 2 ? '-90%' : '-10%'})`, marginBottom: 4, background: 'var(--ink)', color: 'var(--paper)', padding: '7px 10px', borderRadius: 8, fontSize: 11, whiteSpace: 'nowrap', zIndex: 10, textAlign: 'left', boxShadow: '0 6px 20px rgba(0,0,0,.25)', pointerEvents: 'none', lineHeight: 1.5 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>{day.label} · {B(day.total)}</div>
+                  {day.channels.map(c => <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: 2, background: c.hex, flexShrink: 0 }} />{c.name} {B(c.rev)} <span style={{ opacity: 0.7 }}>({P(c.pct, 0)})</span></div>)}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 12 }}>
+        {legend.map(c => <span key={c.id} className="cap" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: c.hex }} />{c.name}</span>)}
+      </div>
+    </div>
+  );
+}
+
 export function SalesView({ sub }) {
   const _today = getToday();
   const [month, setMonth] = useState(_today.month - 1); // 0-indexed, เดือนจริง
@@ -386,28 +427,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
         <div className="card-head"><h3>{'ยอดขายรายวัน'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(เจาะลึกตามช่องทาง)</span></h3>
           <span className="cap">{md.dailyBreakdown.length} {'วัน'}</span></div>
-        <div style={{ flex: 1, overflowY: 'auto', maxHeight: 380, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {md.dailyBreakdown.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีข้อมูลรายวัน</div>}
-          {md.dailyBreakdown.map(day => (
-            <div key={day.d} style={{ paddingBottom: 10, borderBottom: '1px solid var(--line)' }}>
-              <div className="row between" style={{ marginBottom: 6 }}>
-                <span style={{ fontWeight: 700 }}>{day.label} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>{day.dayName}</span></span>
-                <span className="num" style={{ fontWeight: 700 }}>{B(day.total)}</span>
-              </div>
-              <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 7, background: 'var(--surface-2)' }}>
-                {day.channels.map(c => <div key={c.id} title={`${c.name} ${B(c.rev)} (${P(c.pct, 0)})`} style={{ width: `${c.pct}%`, background: c.hex }} />)}
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
-                {day.channels.map(c => (
-                  <span key={c.id} className="cap" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: c.hex, flexShrink: 0 }} />
-                    {c.name} <b className="num" style={{ color: 'var(--ink-2)' }}>{B(c.rev)}</b> <span className="num" style={{ color: 'var(--ink-4)' }}>({P(c.pct, 0)})</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <DailyStackedChart days={md.dailyBreakdown} />
       </div>
       {/* ขวา: P&L — กำไร-ขาดทุน เดือนนี้ */}
       <div className="card" style={{ marginBottom: 0 }}>
