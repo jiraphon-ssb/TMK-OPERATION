@@ -522,7 +522,8 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
       </div>
 
-      {/* P&L — กำไร-ขาดทุน เดือนนี้ (ล่างสุด) */}
+      {/* P&L — กำไร-ขาดทุน เดือนนี้ — ซ่อนไว้ก่อน (เปลี่ยน false → true เพื่อเปิดใช้) */}
+      {false && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>{'กำไร-ขาดทุน (P&L) — เดือนนี้'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></h3>
           <span className={`chip ${pnl.netProfit >= 0 ? 'chip-good' : 'chip-bad'}`}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</span></div>
@@ -551,6 +552,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
