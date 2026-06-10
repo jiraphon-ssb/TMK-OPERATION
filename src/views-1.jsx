@@ -589,72 +589,124 @@ function YoYChart({ data: dataProp, year }) {
 
 function SalesChannels({ dateProps, prevMonthName, md, prevMd }) {
   const consts = md.consts, channels = md.channels;
+  const bigIds = ['facebook', 'line'];
+  const big = channels.filter(c => bigIds.includes(c.id));
+  const rest = channels.filter(c => !bigIds.includes(c.id));
   return (
     <div className="content-inner rise">
       <SalesDateBar {...dateProps} />
+      {big.length > 0 && (
+        <div className="grid g2" style={{ marginBottom: 16, alignItems: 'start' }}>
+          {big.map(ch => <SocialChannelCard key={ch.id} ch={ch} md={md} consts={consts} prevMd={prevMd} />)}
+        </div>
+      )}
       <div className="grid g3">
-        {channels.map(ch => {
-          const pPct = (ch.target > 0 && consts.DAYS > 0 && consts.DAY > 0) ? (ch.actual / ((ch.target/consts.DAYS)*consts.DAY)) * 100 : 0;
-          const st = md.isFuture ? { cls: 'chip-accent', label: 'ยังไม่เริ่ม' } : paceStatus(pPct);
-          const roas = ch.ad > 0 ? ch.actual/ch.ad : null;
-          const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad/ch.actual)*100 : null;
-          const tot = ch.newCust + ch.oldCust;
-          const cogsPct = consts.cogsPct || 0;
-          const cogs = ch.actual * (cogsPct / 100);                          // ต้นทุนสินค้า (% ของยอดขาย ตั้งรายเดือน)
-          const platformFee = ch.actual * ((ch.platformFeePct || 0) / 100);  // ค่าธรรมเนียมแพลตฟอร์ม (0 = ยังไม่ตั้ง)
-          const profit = ch.actual - cogs - ch.ad - platformFee;
-          const margin = ch.actual > 0 ? (profit / ch.actual) * 100 : 0;
-          const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id); // เทียบเดือนก่อนจริง (ไม่ใช่ค่า static)
-          const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null;
-          const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : 0;
-          return (
-            <div key={ch.id} className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
-              <div className="row between" style={{ marginBottom: 10 }}>
-                <span className="row" style={{ gap: 8, fontWeight: 700 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }}></span>{ch.name}</span>
-                <Ring pct={tgtPct} size={40} stroke={4} color={ch.hex}>
-                  <span className="num" style={{ fontSize: 9, fontWeight: 700 }}>{P(tgtPct, 0)}</span>
-                </Ring>
-              </div>
-              <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
-                <div className="num h1">{B(ch.actual)}</div>
-                {growth ? <span className="cap" style={{ color: growth >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{growth >= 0 ? '▲ +' : '▼ '}{growth}% vs {'เดือนก่อน'}</span> : null}
-              </div>
-              <div className="row" style={{ gap: 8, marginTop: 8 }}>
-                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${tgtPct}%`, background: ch.hex }}></span></div>
-                <span className="num cap" style={{ fontWeight: 700, color: ch.hex }}>{ch.target > 0 ? P((ch.actual/ch.target)*100,0) : '—'}</span>
-              </div>
-              <div className="row between" style={{ marginTop: 6 }}>
-                <span className="cap">{'เป้า'} <span className="num" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{ch.target > 0 ? B(ch.target) : '— ยังไม่ตั้ง'}</span></span>
-                {ch.target > 0 && <span className="cap">{ch.actual >= ch.target ? '✓ ถึงเป้าแล้ว' : <>{'ขาดอีก'} <span className="num" style={{ fontWeight: 700 }}>{B(ch.target - ch.actual)}</span></>}</span>}
-              </div>
-              <div className="grid g3" style={{ marginTop: 14, gap: 8 }}>
-                <div><div className="cap">{'ออร์เดอร์'}</div><div className="num h3">{ch.orders}</div></div>
-                <div><div className="cap">AOV</div><div className="num h3">{ch.orders > 0 ? B(ch.actual/ch.orders) : '—'}</div></div>
-                <div><div className="cap">{'ใหม่'}</div><div className="num h3" style={{ color: 'var(--good)' }}>{tot > 0 ? P((ch.newCust/tot)*100,0) : '—'}</div></div>
-              </div>
-
-              {/* P&L row */}
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-                <div className="cap" style={{ marginBottom: 6, cursor: 'help' }} title={`กำไร = รายได้ − ต้นทุนสินค้า${cogsPct > 0 ? ` (${cogsPct}%)` : ' (ยังไม่ตั้ง = 0)'} − ค่าแอด − ค่าธรรมเนียม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ' (ยังไม่ตั้ง = 0)'}`}>P&L{cogsPct > 0 ? ` · ทุน ${cogsPct}%` : ''}{ch.platformFeePct > 0 ? ` · ธรรมเนียม ${ch.platformFeePct}%` : ''}</div>
-                <div className="row between" style={{ gap: 4 }}>
-                  <span className="sm">{B(ch.actual)}{cogsPct > 0 ? ` − ${B(cogs)}` : ''} − {B(ch.ad)} − {B(platformFee)}</span>
-                  <span className="num sm" style={{ fontWeight: 700, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>
-                    = {B(profit)} ({P(margin, 0)})
-                  </span>
-                </div>
-              </div>
-
-              {ch.hasAd && (
-                <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
-                  <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
-                  <div><div className="cap">ROAS <InfoTip text="ROAS = ยอดขาย ÷ ค่าแอด — คืนกี่เท่าของเงินแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)" label="ROAS" align="right" /></div><div className="num sm" style={{ fontWeight: 700, color: roas==null?'var(--ink-3)':roas>=3?'var(--good)':roas>=2?'var(--warn)':'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
-                  <div><div className="cap">ACOS <InfoTip text="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป" label="ACOS" align="right" /></div><div className="num sm" style={{ fontWeight: 700, color: acos==null?'var(--ink-3)':acos<=consts.ACOS_CEIL?'var(--good)':acos<=40?'var(--warn)':'var(--bad)' }}>{acos != null ? P(acos,0) : '—'}</div></div>
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {rest.map(ch => <ChannelCard key={ch.id} ch={ch} md={md} consts={consts} prevMd={prevMd} />)}
       </div>
+    </div>
+  );
+}
+
+// การ์ดใหญ่ FB/LINE — เน้น "แชท → ปิดการขาย" (คนทัก → ปิดออเดอร์ → %ปิด) + ต้นทุน/มูลค่าต่อทัก
+function SocialChannelCard({ ch, md, consts }) {
+  const inq = ch.inq || 0, orders = ch.orders || 0;
+  const conv = inq > 0 ? (orders / inq) * 100 : null;        // % ปิด = ปิดออเดอร์ ÷ คนทัก
+  const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
+  const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad / ch.actual) * 100 : null;
+  const costPerInq = (ch.ad > 0 && inq > 0) ? ch.ad / inq : null;      // ต้นทุน/คนทัก
+  const costPerOrd = (ch.ad > 0 && orders > 0) ? ch.ad / orders : null; // ต้นทุน/ออเดอร์
+  const valPerInq = inq > 0 ? ch.actual / inq : null;                 // มูลค่า/คนทัก (ทัก 1 คน = ยอดเท่าไร)
+  const reply = md.fb.avgReplyMinutes || 0;                           // เวลาตอบเฉลี่ย (รวมทั้งร้าน/วัน)
+  const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : null;
+  return (
+    <div className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
+      <div className="card-head"><h3><span style={{ width: 11, height: 11, borderRadius: 3, background: ch.hex, display: 'inline-block', marginRight: 7, verticalAlign: 'middle' }} />{ch.name} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(แชท → ปิดการขาย)</span></h3>
+        <span className="num h3" style={{ fontWeight: 800 }}>{B(ch.actual)}</span></div>
+      {/* funnel: คนทัก → ปิดออเดอร์ → %ปิด */}
+      <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ flex: 1, textAlign: 'center' }}><div className="num h1">{N(inq)}</div><div className="cap">คนทัก</div></div>
+        <span style={{ width: 16, height: 16, display: 'inline-block', color: 'var(--ink-3)', flexShrink: 0 }}><Icon name="arrowR" /></span>
+        <div style={{ flex: 1, textAlign: 'center' }}><div className="num h1" style={{ color: 'var(--good)' }}>{N(orders)}</div><div className="cap">ปิดออเดอร์</div></div>
+        <div style={{ flex: 1, textAlign: 'center', borderLeft: '1px solid var(--line)' }}><div className="num h1" style={{ color: conv == null ? 'var(--ink-3)' : conv >= 20 ? 'var(--good)' : 'var(--warn)' }}>{conv == null ? '—' : P(conv, 0)}</div><div className="cap">% ปิด <InfoTip text="อัตราปิดการขาย = ปิดออเดอร์ ÷ คนทัก × 100" label="% ปิด" align="right" /></div></div>
+      </div>
+      <div className="bar" style={{ marginBottom: 12 }}><span style={{ width: `${conv == null ? 0 : Math.min(conv, 100)}%`, background: 'var(--good)' }}></span></div>
+      <div className="grid g3" style={{ gap: 10, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <div><div className="cap">เวลาตอบเฉลี่ย</div><div className="num sm" style={{ fontWeight: 700, color: 'var(--info)' }}>{reply > 0 ? <>{reply} <span className="cap">นาที</span></> : '—'}</div></div>
+        <div><div className="cap">ต้นทุน/คนทัก</div><div className="num sm" style={{ fontWeight: 700 }}>{costPerInq != null ? B(costPerInq) : '—'}</div></div>
+        <div><div className="cap">ต้นทุน/ออเดอร์</div><div className="num sm" style={{ fontWeight: 700 }}>{costPerOrd != null ? B(costPerOrd) : '—'}</div></div>
+        <div><div className="cap">มูลค่า/คนทัก <InfoTip text="ทัก 1 คน สร้างยอดขายเฉลี่ยเท่าไร = ยอดขาย ÷ คนทัก" label="มูลค่า/คนทัก" /></div><div className="num sm" style={{ fontWeight: 700, color: 'var(--good)' }}>{valPerInq != null ? B(valPerInq) : '—'}</div></div>
+        <div><div className="cap">ลูกค้าใหม่/เก่า</div><div className="num sm" style={{ fontWeight: 700 }}>{N(ch.newCust)}<span style={{ color: 'var(--ink-4)' }}> / {N(ch.oldCust)}</span></div></div>
+        <div><div className="cap">ค่าแอด</div><div className="num sm" style={{ fontWeight: 700 }}>{ch.ad > 0 ? B(ch.ad) : '—'}</div></div>
+      </div>
+      {ch.hasAd && (
+        <div className="grid g3" style={{ gap: 10, marginTop: 10, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+          <div><div className="cap">ยอดขาย</div><div className="num sm" style={{ fontWeight: 700 }}>{B(ch.actual)}</div></div>
+          <div><div className="cap">โฆษณาคืนกี่เท่า <InfoTip text="ROAS = ยอดขาย ÷ ค่าแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)" label="ROAS" align="right" /> (ROAS)</div><div className="num sm" style={{ fontWeight: 700, color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+          <div><div className="cap">ค่าแอด%ยอด <InfoTip text="ACOS = ค่าแอด ÷ ยอดขาย × 100 (ยิ่งต่ำยิ่งคุ้ม)" label="ACOS" align="right" /> (ACOS)</div><div className="num sm" style={{ fontWeight: 700, color: acos == null ? 'var(--ink-3)' : acos <= consts.ACOS_CEIL ? 'var(--good)' : acos <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{acos != null ? P(acos, 0) : '—'}</div></div>
+        </div>
+      )}
+      {ch.target > 0 && (
+        <div className="row between" style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+          <span className="cap">เป้า <span className="num" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{B(ch.target)}</span></span>
+          <span className="cap">{ch.actual >= ch.target ? '✓ ถึงเป้าแล้ว' : <>ขาดอีก <span className="num" style={{ fontWeight: 700 }}>{B(ch.target - ch.actual)}</span> ({P(tgtPct, 0)})</>}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// การ์ดช่องทางทั่วไป (เดิม)
+function ChannelCard({ ch, md, consts, prevMd }) {
+  const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
+  const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad / ch.actual) * 100 : null;
+  const tot = ch.newCust + ch.oldCust;
+  const cogsPct = consts.cogsPct || 0;
+  const cogs = ch.actual * (cogsPct / 100);
+  const platformFee = ch.actual * ((ch.platformFeePct || 0) / 100);
+  const profit = ch.actual - cogs - ch.ad - platformFee;
+  const margin = ch.actual > 0 ? (profit / ch.actual) * 100 : 0;
+  const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id);
+  const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null;
+  const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : 0;
+  return (
+    <div className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
+      <div className="row between" style={{ marginBottom: 10 }}>
+        <span className="row" style={{ gap: 8, fontWeight: 700 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }}></span>{ch.name}</span>
+        <Ring pct={tgtPct} size={40} stroke={4} color={ch.hex}>
+          <span className="num" style={{ fontSize: 9, fontWeight: 700 }}>{P(tgtPct, 0)}</span>
+        </Ring>
+      </div>
+      <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+        <div className="num h1">{B(ch.actual)}</div>
+        {growth ? <span className="cap" style={{ color: growth >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{growth >= 0 ? '▲ +' : '▼ '}{growth}% vs {'เดือนก่อน'}</span> : null}
+      </div>
+      <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <div className="bar" style={{ flex: 1 }}><span style={{ width: `${tgtPct}%`, background: ch.hex }}></span></div>
+        <span className="num cap" style={{ fontWeight: 700, color: ch.hex }}>{ch.target > 0 ? P((ch.actual / ch.target) * 100, 0) : '—'}</span>
+      </div>
+      <div className="row between" style={{ marginTop: 6 }}>
+        <span className="cap">{'เป้า'} <span className="num" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{ch.target > 0 ? B(ch.target) : '— ยังไม่ตั้ง'}</span></span>
+        {ch.target > 0 && <span className="cap">{ch.actual >= ch.target ? '✓ ถึงเป้าแล้ว' : <>{'ขาดอีก'} <span className="num" style={{ fontWeight: 700 }}>{B(ch.target - ch.actual)}</span></>}</span>}
+      </div>
+      <div className="grid g3" style={{ marginTop: 14, gap: 8 }}>
+        <div><div className="cap">{'ออร์เดอร์'}</div><div className="num h3">{ch.orders}</div></div>
+        <div><div className="cap">เฉลี่ย/ออเดอร์ <span className="cap">(AOV)</span></div><div className="num h3">{ch.orders > 0 ? B(ch.actual / ch.orders) : '—'}</div></div>
+        <div><div className="cap">{'ใหม่'}</div><div className="num h3" style={{ color: 'var(--good)' }}>{tot > 0 ? P((ch.newCust / tot) * 100, 0) : '—'}</div></div>
+      </div>
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <div className="cap" style={{ marginBottom: 6, cursor: 'help' }} title={`กำไร = รายได้ − ต้นทุนสินค้า${cogsPct > 0 ? ` (${cogsPct}%)` : ' (ยังไม่ตั้ง = 0)'} − ค่าแอด − ค่าธรรมเนียม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ' (ยังไม่ตั้ง = 0)'}`}>กำไร-ขาดทุน (P&L){cogsPct > 0 ? ` · ทุน ${cogsPct}%` : ''}{ch.platformFeePct > 0 ? ` · ธรรมเนียม ${ch.platformFeePct}%` : ''}</div>
+        <div className="row between" style={{ gap: 4 }}>
+          <span className="sm">{B(ch.actual)}{cogsPct > 0 ? ` − ${B(cogs)}` : ''} − {B(ch.ad)} − {B(platformFee)}</span>
+          <span className="num sm" style={{ fontWeight: 700, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>= {B(profit)} ({P(margin, 0)})</span>
+        </div>
+      </div>
+      {ch.hasAd && (
+        <div className="grid g3" style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', gap: 8 }}>
+          <div><div className="cap">{'ค่าแอด'}</div><div className="num sm" style={{ fontWeight: 600 }}>{Bk(ch.ad)}</div></div>
+          <div><div className="cap">คืนกี่เท่า <InfoTip text="ROAS = ยอดขาย ÷ ค่าแอด — คืนกี่เท่าของเงินแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)" label="ROAS" align="right" /> (ROAS)</div><div className="num sm" style={{ fontWeight: 700, color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+          <div><div className="cap">ค่าแอด%ยอด <InfoTip text="ACOS = ค่าแอด ÷ ยอดขาย ×100 — ยิ่งต่ำยิ่งคุ้ม; เกินเพดานคือแอดแพงเกินไป" label="ACOS" align="right" /> (ACOS)</div><div className="num sm" style={{ fontWeight: 700, color: acos == null ? 'var(--ink-3)' : acos <= consts.ACOS_CEIL ? 'var(--good)' : acos <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{acos != null ? P(acos, 0) : '—'}</div></div>
+        </div>
+      )}
     </div>
   );
 }

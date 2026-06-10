@@ -141,6 +141,7 @@ function mapToTMK(raw) {
   });
 
   // Channels
+  const _CH_ORDER = ['facebook', 'tiktok', 'shopee', 'crm', 'lazada', 'line']; // ลำดับช่องทางคงที่ — ใช้ทุกหน้า
   const channels = (raw.channels || []).map(ch => ({
     id: ch.id,
     name: ch.name,
@@ -162,7 +163,7 @@ function mapToTMK(raw) {
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
     platformFeePct: Number(ch.platform_fee_pct || 0), // ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (0 = ยังไม่ตั้ง)
-  }));
+  })).sort((a, b) => { const ia = _CH_ORDER.indexOf(a.id), ib = _CH_ORDER.indexOf(b.id); return ((ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)) || (a.sortOrder - b.sortOrder); });
 
   // Campaigns
   const campaigns = (raw.campaigns || []).map(c => ({
