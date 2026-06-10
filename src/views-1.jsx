@@ -92,7 +92,7 @@ export function HomeView({ go }) {
       <div className="grid" style={{ gridTemplateColumns: '1.7fr 1fr', marginBottom: 16 }}>
         <div className="card" style={{ display: 'flex', gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขายรวมเดือนนี้'} (MTD) <InfoTip text="MTD (Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน" label="ยอดขายรวมเดือนนี้" /></div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดสะสมเดือนนี้'} (MTD) <InfoTip text="ยอดสะสมเดือนนี้ (MTD = Month-To-Date) = ยอดขายสะสมตั้งแต่วันที่ 1 ถึงวันนี้ของเดือน" label="ยอดสะสมเดือนนี้" /></div>
             <div className="num" style={{ fontSize: 'clamp(26px,5vw,40px)', fontWeight: 700, letterSpacing: '-1px', lineHeight: 1.05, wordBreak: 'break-word' }}>{B(mtd)}</div>
             <div className="row" style={{ gap: 14, marginTop: 14 }}>
               <div>
@@ -101,7 +101,7 @@ export function HomeView({ go }) {
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
               <div>
-                <div className="cap">{'คาดสิ้นเดือน'} (Run rate) <InfoTip text="Run rate = คาดการณ์ยอดสิ้นเดือน = (ยอด MTD ÷ วันที่ผ่านมา) × จำนวนวันทั้งเดือน" label="คาดสิ้นเดือน (Run rate)" /></div>
+                <div className="cap">{'คาดยอดทั้งเดือน'} (Run rate) <InfoTip text="คาดยอดทั้งเดือน (Run rate) = (ยอดสะสม ÷ วันที่ผ่านมา) × จำนวนวันทั้งเดือน — ถ้าทำได้เท่านี้ต่อไปจะจบเดือนที่เท่าไร" label="คาดยอดทั้งเดือน (Run rate)" /></div>
                 <div className="num h3" style={{ color: gap > 0 ? 'var(--warn)' : 'var(--good)' }}>{B(C.RUN)}</div>
               </div>
               <div className="divider" style={{ width: 1, height: 32, background: 'var(--line)' }}></div>
@@ -115,7 +115,7 @@ export function HomeView({ go }) {
             <Ring pct={pace} size={128} stroke={11} color={st.c}>
               <div>
                 <div className="num" style={{ fontSize: 26, fontWeight: 700, color: st.c }}>{P(pace, 0)}</div>
-                <div className="cap" style={{ marginTop: 2 }}>Pace <InfoTip text="Pace = ยอด MTD เทียบกับ 'เป้าที่ควรได้ ณ วันนี้' (เป้าเดือน ÷ จำนวนวัน × วันที่ผ่านไป) · 100% = ตรงจังหวะเป้า, เกิน 100% = นำเป้า, ต่ำกว่า = ช้ากว่าเป้า" label="Pace" align="right" /></div>
+                <div className="cap" style={{ marginTop: 2 }}>จังหวะทำยอด (Pace) <InfoTip text="จังหวะทำยอด (Pace) = ยอดสะสม เทียบกับ 'เป้าที่ควรได้ ณ วันนี้' (เป้าเดือน ÷ จำนวนวัน × วันที่ผ่านไป) · 100% = ตรงจังหวะ, เกิน = นำเป้า, ต่ำกว่า = ช้ากว่าเป้า" label="จังหวะทำยอด (Pace)" align="right" /></div>
               </div>
             </Ring>
             <div style={{ marginTop: 8 }}><span className={`chip ${TMK.consts.TARGET > 0 ? st.cls : 'chip-accent'}`}>{TMK.consts.TARGET > 0 ? st.label : 'ยังไม่ตั้งเป้า'}</span></div>
@@ -385,7 +385,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         </div>
         <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <Ring pct={pace} size={120} stroke={11} color={st.c}>
-            <div><div className="num h1" style={{ color: st.c }}>{P(pace,0)}</div><div className="cap">Pace</div></div>
+            <div><div className="num h1" style={{ color: st.c }}>{P(pace,0)}</div><div className="cap">จังหวะทำยอด (Pace)</div></div>
           </Ring>
           <div>
             <span className={`chip ${st.cls}`} style={{ marginBottom: 10 }}>{st.label}</span>
@@ -410,7 +410,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
           <MomDelta current={C.ORD} previous={prevC.ORD} label={prevMonthName} />
         </div>
         <div className="card card-pad-sm">
-          <div className="cap" style={{ marginBottom: 4 }}>AOV</div>
+          <div className="cap" style={{ marginBottom: 4 }}>เฉลี่ย/ออเดอร์ (AOV)</div>
           <div className="num h1">{C.ORD ? B(C.AOV) : '—'}</div>
           <MomDelta current={C.AOV} previous={prevC.AOV} label={prevMonthName} />
         </div>
@@ -430,7 +430,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
 
       {/* per-platform: เป้า · ผลงาน · คุมแอด */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3>{'เป้า · ผลงาน · คุมแอด — รายแพลตฟอร์ม (MTD)'}</h3>
+        <div className="card-head"><h3>{'เป้า · ผลงาน · คุมงบโฆษณา — รายแพลตฟอร์ม (เดือนนี้)'}</h3>
           <span className="cap">{'เพดาน ACOS'} {consts.ACOS_CEIL}%</span></div>
         <div className="table-wrap"><table className="table">
           <thead><tr>
@@ -754,7 +754,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
             {totalBudget > 0 && perDayLeft > 0 && <span className="cap">{'ใช้ได้อีก'} {Bk(perDayLeft)}/{'วัน'} ({daysLeft} {'วัน'})</span>}
           </div>
           <div>
-            <div className="cap">Burn rate/{'วัน'} <InfoTip text="Burn rate = ค่าแอดเฉลี่ยที่ใช้ต่อวันในเดือนนี้ (ค่าแอดรวม ÷ วันที่ผ่านไป)" label="Burn rate/วัน" /></div>
+            <div className="cap">ใช้แอดเฉลี่ย/{'วัน'} (Burn rate) <InfoTip text="ใช้แอดเฉลี่ย/วัน (Burn rate) = ค่าแอดเฉลี่ยที่ใช้ต่อวันในเดือนนี้ (ค่าแอดรวม ÷ วันที่ผ่านไป)" label="ใช้แอดเฉลี่ย/วัน" /></div>
             <div className="num h1">{Bk(burnRate)}</div>
             <span className="cap" style={{ color: projOver ? 'var(--bad)' : 'var(--good)' }}>
               {'คาดใช้ทั้งเดือน'} {Bk(projectedSpend)}
@@ -849,18 +849,18 @@ function SalesAds({ dateProps, prevMonthName, md }) {
         </div>
         <div className="grid g3" style={{ gap: 12 }}>
           <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
-            <div className="cap" style={{ marginBottom: 6 }}>{'แชท'} {'→'} {'สั่งซื้อ'}</div>
+            <div className="cap" style={{ marginBottom: 6 }}>{'คนทัก'} {'→'} {'ปิดการขาย'}</div>
             <div className="row" style={{ gap: 6, alignItems: 'baseline' }}>
-              <span className="num h1">{fb.inquiries}</span><span className="cap">{'แชท'}</span>
+              <span className="num h1">{fb.inquiries}</span><span className="cap">{'คนทัก'}</span>
               <span style={{ width: 16, height: 16, display: 'inline-block', color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
               <span className="num h1" style={{ color: 'var(--good)' }}>{fb.orders}</span><span className="cap">{'ออร์เดอร์'}</span>
             </div>
             <div className="bar" style={{ marginTop: 8 }}><span style={{ width: `${fb.inquiries > 0 ? Math.min(fb.conv, 100) : 0}%`, background: 'var(--good)' }}></span></div>
-            <div className="sm" style={{ color: fb.inquiries > 0 ? 'var(--good)' : 'var(--ink-3)', fontWeight: 700, marginTop: 4 }}>Conversion {fb.inquiries > 0 ? P(fb.conv) : '— (ยังไม่กรอกจำนวนแชท)'}</div>
+            <div className="sm" style={{ color: fb.inquiries > 0 ? 'var(--good)' : 'var(--ink-3)', fontWeight: 700, marginTop: 4 }}>อัตราปิดการขาย (Conversion) {fb.inquiries > 0 ? P(fb.conv) : '— (ยังไม่กรอกคนทัก)'}</div>
           </div>
           <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
             <div className="cap" style={{ marginBottom: 8 }}>{'ต้นทุน'}</div>
-            {[['ต่อแชท', fb.cpInq>0 ? B(fb.cpInq) : '—'],['ต่อออร์เดอร์', fb.cpOrd>0 ? B(fb.cpOrd) : '—'],['CAC ลูกค้าใหม่', fb.cac>0 ? B(fb.cac) : '—', fb.cac>0 ? 'var(--warn)' : 'var(--ink-3)']].map((x,i)=>(
+            {[['ต่อคนทัก', fb.cpInq>0 ? B(fb.cpInq) : '—'],['ต่อออร์เดอร์', fb.cpOrd>0 ? B(fb.cpOrd) : '—'],['ต้นทุนหาลูกค้าใหม่ (CAC)', fb.cac>0 ? B(fb.cac) : '—', fb.cac>0 ? 'var(--warn)' : 'var(--ink-3)']].map((x,i)=>(
               <div key={i} className="row between" style={{ marginBottom: 6 }}><span className="cap">{x[0]}</span><span className="num sm" style={{ fontWeight: 700, color: x[2]||'var(--ink)' }}>{x[1]}</span></div>
             ))}
           </div>
@@ -929,7 +929,7 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
         <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* CLV */}
           <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>Customer Lifetime Value (CLV)</div>
+            <div className="eyebrow" style={{ marginBottom: 8 }}>มูลค่าลูกค้าตลอดอายุ (CLV)</div>
             <div className="num display" style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</div>
             <div className="cap" style={{ marginTop: 4 }}>{'เฉลี่ยต่อลูกค้า'} {'·'} {'รวมทุกเดือน'}</div>
           </div>
