@@ -324,6 +324,10 @@ alter table public.tmk_daily_sales       add column if not exists deleted_at tim
 create index if not exists tmk_daily_sales_deleted_idx on public.tmk_daily_sales(deleted_at);
 -- ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (%) — ใช้คำนวณกำไรสุทธิแทน 5% ตายตัว
 alter table public.tmk_channels          add column if not exists platform_fee_pct numeric not null default 0;
+-- กันเดือนซ้ำ (month,year) — upsert ใช้ id 'YYYY-MM' อยู่แล้ว แต่ unique กันแถวซ้ำจาก insert มือ
+create unique index if not exists tmk_monthly_history_month_year_idx on public.tmk_monthly_history(month, year);
+-- index หมวดหมู่สินค้า (ค้น/กรองเร็วขึ้น)
+create index if not exists tmk_products_category_idx on public.tmk_products(category);
 
 -- รูปสินค้า + ล็อต (batch) ต่อสินค้า — มีล็อต → สต็อก = ผลรวม qty ของทุกล็อต
 alter table public.tmk_products          add column if not exists image_url text;

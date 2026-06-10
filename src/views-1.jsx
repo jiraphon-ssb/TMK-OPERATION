@@ -84,7 +84,7 @@ export function HomeView({ go }) {
           <h1 className="display">{(() => { const h = new Date().getHours(); return h < 12 ? 'สวัสดีตอนเช้า' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนดึก'; })()}, {userName} {'👋'}</h1>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <span className="chip chip-good"><span className="dot-c" style={{ background: 'var(--good)' }}></span> {'ซิงค์แล้ว'}</span>
+          <span className={`chip ${navigator.onLine ? 'chip-good' : 'chip-warn'}`}><span className="dot-c" style={{ background: navigator.onLine ? 'var(--good)' : 'var(--warn)' }}></span> {navigator.onLine ? 'ออนไลน์' : 'ออฟไลน์'}</span>
         </div>
       </div>
 
@@ -789,7 +789,7 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
 
       {/* Segment cards */}
       <div className="row between" style={{ marginBottom: 12 }}>
-        <span className="eyebrow">กลุ่มลูกค้า</span>
+        <span className="eyebrow">กลุ่มลูกค้า <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(รวมทุกเดือน)</span></span>
       </div>
       {getSegments().length === 0 && (
         <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)', marginBottom: 16 }}>
@@ -835,7 +835,7 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
           <div>
             <div className="eyebrow" style={{ marginBottom: 8 }}>Customer Lifetime Value (CLV)</div>
             <div className="num display" style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</div>
-            <div className="cap" style={{ marginTop: 4 }}>{'เฉลี่ยต่อลูกค้า'} {'·'} {'จากกลุ่มลูกค้า'}</div>
+            <div className="cap" style={{ marginTop: 4 }}>{'เฉลี่ยต่อลูกค้า'} {'·'} {'รวมทุกเดือน'}</div>
           </div>
           {/* Returning trend */}
           <div>
