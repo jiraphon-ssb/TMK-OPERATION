@@ -2060,7 +2060,6 @@ export function MonthlyTargetModal({ data, onClose }) {
     return {
       total: row?.target || '',
       chTargets: MD.channels.map(c => ({ id: c.id, name: c.name, hex: c.hex, target: meta.channelTargets?.[c.id] ?? '' })),
-      adTotal: meta.adBudget ?? '',
       adChannels: MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: meta.adChannels?.[c.id] ?? '' })),
       newCustTarget: meta.newCustTarget ?? '',
       acosCeil: meta.acosCeil ?? 25,
@@ -2071,7 +2070,6 @@ export function MonthlyTargetModal({ data, onClose }) {
   const _init = loadFor(monthIdx, year);
   const [total, setTotal] = useState(_init.total);
   const [chTargets, setChTargets] = useState(_init.chTargets);
-  const [adTotal, setAdTotal] = useState(_init.adTotal);
   const [adChannels, setAdChannels] = useState(_init.adChannels);
   const [newCustTarget, setNewCustTarget] = useState(_init.newCustTarget);
   const [acosCeil, setAcosCeil] = useState(_init.acosCeil);
@@ -2083,7 +2081,7 @@ export function MonthlyTargetModal({ data, onClose }) {
   const changeMonth = (idx, yr) => {
     setMonthIdx(idx); setYear(yr);
     const v = loadFor(idx, yr);
-    setTotal(v.total); setChTargets(v.chTargets); setAdTotal(v.adTotal);
+    setTotal(v.total); setChTargets(v.chTargets);
     setAdChannels(v.adChannels); setNewCustTarget(v.newCustTarget); setAcosCeil(v.acosCeil);
     setCogsPct(v.cogsPct); setOtherExpense(v.otherExpense);
     setTouched(false); // สลับเดือน = โหลดค่าเดิม ไม่นับว่าแก้
@@ -2110,7 +2108,7 @@ export function MonthlyTargetModal({ data, onClose }) {
       const isCurMonth = (monthIdx + 1) === _t.month && year === _t.yearBE;
       const meta = {
         ...((existing && existing.meta) || {}), // preserve คีย์อื่น เช่น entryMode (กันโหมดรายวัน/รายเดือนถูกรีเซ็ตตอนเซฟเป้า)
-        adBudget: Number(adTotal) || 0,
+        adBudget: adSum, // งบแอดรวม = ผลรวมงบต่อช่อง (อัตโนมัติ)
         channelTargets: Object.fromEntries(chTargets.map(c => [c.id, nn(c.target)])),
         adChannels: Object.fromEntries(adChannels.map(c => [c.id, nn(c.budget)])),
         newCustTarget: nn(newCustTarget),
@@ -2130,7 +2128,7 @@ export function MonthlyTargetModal({ data, onClose }) {
       if (error) throw error;
       const tgtFields = [{ label: 'เป้ารวม', value: B(Number(total) || 0) }];
       chTargets.forEach(c => { if (Number(c.target) > 0) tgtFields.push({ label: `เป้า ${c.name}`, value: B(Number(c.target)) }); });
-      if (Number(adTotal) > 0) tgtFields.push({ label: 'งบแอดรวม', value: B(Number(adTotal)) });
+      if (adSum > 0) tgtFields.push({ label: 'งบแอดรวม', value: B(adSum) });
       adChannels.forEach(c => { if (Number(c.budget) > 0) tgtFields.push({ label: `งบแอด ${c.name}`, value: B(Number(c.budget)) }); });
       if (Number(newCustTarget) > 0) tgtFields.push({ label: 'เป้าลูกค้าใหม่', value: N(Number(newCustTarget)) });
       tgtFields.push({ label: 'เพดาน ACOS', value: `${Number(acosCeil) || 25}%` });
@@ -2185,11 +2183,6 @@ export function MonthlyTargetModal({ data, onClose }) {
       </div>
 
       <div className="field">
-        <label>งบแอดรวม (฿)</label>
-        <input type="number" min="0" className="input" placeholder="0" value={adTotal} onChange={e => { setTouched(true); setAdTotal(e.target.value); }} />
-      </div>
-
-      <div className="field">
         <label>งบแอดต่อช่อง</label>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {adChannels.map((c, i) => (
@@ -2197,11 +2190,14 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value === '' ? '' : +e.target.value)} />
+              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value === '' ? '' : Math.max(0, +e.target.value))} />
             </div>
           ))}
         </div>
-        <div className="cap" style={{ marginTop: 6 }}>รวมงบแอด: {B(adSum)}</div>
+        <div className="row between" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+          <span style={{ fontWeight: 700 }}>งบแอดรวม <span className="cap" style={{ fontWeight: 500, color: 'var(--ink-4)' }}>(รวมอัตโนมัติ)</span></span>
+          <span className="num" style={{ fontWeight: 800, color: 'var(--accent)' }}>{B(adSum)}</span>
+        </div>
       </div>
 
       <div className="field-row">

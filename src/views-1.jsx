@@ -623,6 +623,14 @@ function SalesAds({ dateProps, prevMonthName, md }) {
   const burnRate = consts.DAY > 0 ? totalSpent / consts.DAY : 0;
   const daysLeft = consts.DAYS - consts.DAY;
   const projectedSpend = totalSpent + (burnRate * daysLeft);
+  const spentPct = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
+  const timePct = consts.DAYS > 0 ? (consts.DAY / consts.DAYS) * 100 : 0;
+  const perDayLeft = (totalBudget > 0 && daysLeft > 0 && remaining > 0) ? remaining / daysLeft : 0;
+  const overBudget = totalBudget > 0 && totalSpent > totalBudget;
+  const projOver = totalBudget > 0 && !overBudget && projectedSpend > totalBudget;
+  const fastPace = totalBudget > 0 && !overBudget && !projOver && spentPct > timePct + 5; // ใช้งบเร็วกว่าเวลา
+  const barColor = spentPct > 100 ? 'var(--bad)' : spentPct > 80 ? 'var(--warn)' : 'var(--good)';
+  const alertColor = (overBudget || projOver) ? 'var(--bad)' : fastPace ? 'var(--warn)' : 'var(--good)';
 
   return (
     <div className="content-inner rise">
@@ -630,52 +638,68 @@ function SalesAds({ dateProps, prevMonthName, md }) {
 
       {/* Budget planner */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="wallet" /></span> {'งบโฆษณา'}</h3></div>
+        <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="wallet" /></span> {'งบโฆษณา'}</h3>
+          {totalBudget > 0 && <span className="cap" style={{ color: barColor, fontWeight: 700 }}>ใช้ไป {P(spentPct, 0)} ของงบ</span>}</div>
         <div className="grid g4" style={{ marginBottom: 12 }}>
           <div>
             <div className="cap">{'งบทั้งหมด'}</div>
             <div className="num h1">{totalBudget > 0 ? Bk(totalBudget) : '— ยังไม่ตั้งงบ'}</div>
+            {totalBudget <= 0 && <span className="cap" style={{ color: 'var(--ink-4)' }}>ตั้งงบต่อช่องที่หน้า "ตั้งเป้ารายเดือน"</span>}
           </div>
           <div>
             <div className="cap">{'ใช้ไปแล้ว'}</div>
             <div className="num h1" style={{ color: 'var(--warn)' }}>{Bk(totalSpent)}</div>
+            {totalBudget > 0 && <span className="cap" style={{ color: barColor, fontWeight: 600 }}>{P(spentPct, 0)} ของงบ</span>}
           </div>
           <div>
             <div className="cap">{'คงเหลือ'}</div>
             <div className="num h1" style={{ color: totalBudget <= 0 ? 'var(--ink-3)' : remaining > 0 ? 'var(--good)' : 'var(--bad)' }}>{totalBudget > 0 ? Bk(remaining) : '—'}</div>
+            {totalBudget > 0 && perDayLeft > 0 && <span className="cap">{'ใช้ได้อีก'} {Bk(perDayLeft)}/{'วัน'} ({daysLeft} {'วัน'})</span>}
           </div>
           <div>
             <div className="cap">Burn rate/{'วัน'} <InfoTip text="Burn rate = ค่าแอดเฉลี่ยที่ใช้ต่อวันในเดือนนี้ (ค่าแอดรวม ÷ วันที่ผ่านไป)" label="Burn rate/วัน" /></div>
             <div className="num h1">{Bk(burnRate)}</div>
-            <span className="cap" style={{ color: projectedSpend > totalBudget ? 'var(--bad)' : 'var(--good)' }}>
-              {'คาดใช้'} {Bk(projectedSpend)}
+            <span className="cap" style={{ color: projOver ? 'var(--bad)' : 'var(--good)' }}>
+              {'คาดใช้ทั้งเดือน'} {Bk(projectedSpend)}
             </span>
           </div>
         </div>
-        <div className="bar"><span style={{ width: `${totalBudget > 0 ? Math.min((totalSpent / totalBudget) * 100, 100) : 0}%`, background: totalBudget > 0 && totalSpent / totalBudget > 0.8 ? 'var(--warn)' : 'var(--accent)' }}></span></div>
+        <div className="bar"><span style={{ width: `${totalBudget > 0 ? Math.min(spentPct, 100) : 0}%`, background: barColor }}></span></div>
         <div className="row between" style={{ marginTop: 6 }}>
-          <span className="cap">{totalBudget > 0 ? P((totalSpent / totalBudget) * 100, 0) : '—'} {'ของงบ'}</span>
-          <span className="cap">{consts.DAYS > 0 ? P((consts.DAY / consts.DAYS) * 100, 0) : '—'} {'ของเวลา'}</span>
+          <span className="cap">{totalBudget > 0 ? P(spentPct, 0) : '—'} {'ของงบ'}</span>
+          <span className="cap">{consts.DAYS > 0 ? P(timePct, 0) : '—'} {'ของเวลา'}</span>
         </div>
+        {totalBudget > 0 && (
+          <div className="cap" style={{ marginTop: 10, padding: '8px 11px', borderRadius: 'var(--r-sm)', fontWeight: 600, background: 'var(--surface-2)', borderLeft: `3px solid ${alertColor}`, color: alertColor }}>
+            {overBudget ? `🔴 ใช้เกินงบแล้ว ${Bk(totalSpent - totalBudget)} (เกินมา ${P(spentPct - 100, 0)})`
+              : projOver ? `🟠 คาดว่าจะเกินงบ ${Bk(projectedSpend - totalBudget)} ภายในสิ้นเดือน — ควรชะลอการใช้`
+              : fastPace ? `🟠 ใช้งบเร็วกว่าแผน — ใช้ไป ${P(spentPct, 0)} แต่เวลาผ่านแค่ ${P(timePct, 0)}`
+              : `🟢 คุมงบดี — ใช้ไป ${P(spentPct, 0)} ตามจังหวะเวลา ${P(timePct, 0)}`}
+          </div>
+        )}
       </div>
 
       {/* Ad performance table */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3><span style={{color:'var(--accent)'}}><Icon name="zap" /></span> {'ประสิทธิภาพโฆษณา'}</h3></div>
         <div className="table-wrap"><table className="table">
-          <thead><tr><th>{'ช่องทาง'}</th><th style={{textAlign:'right'}}>{'รายได้'}</th><th style={{textAlign:'right'}}>{'ค่าแอด'}</th><th style={{textAlign:'right'}}>ROAS</th><th style={{textAlign:'right'}}>ACOS</th></tr></thead>
+          <thead><tr><th>{'ช่องทาง'}</th><th style={{textAlign:'right'}}>{'รายได้'}</th><th style={{textAlign:'right'}}>{'ค่าแอด'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้/งบ'}</th><th style={{textAlign:'right'}}>ROAS</th><th style={{textAlign:'right'}}>ACOS</th></tr></thead>
           <tbody>
             {channels.filter(c=>c.hasAd).length === 0 && (
-              <tr><td colSpan={5} style={{ textAlign:'center', padding:18, color:'var(--ink-4)' }} className="cap">ยังไม่มีช่องทางที่เปิดโฆษณา</td></tr>
+              <tr><td colSpan={7} style={{ textAlign:'center', padding:18, color:'var(--ink-4)' }} className="cap">ยังไม่มีช่องทางที่เปิดโฆษณา</td></tr>
             )}
             {channels.filter(c=>c.hasAd).map(c => {
               const r = c.ad > 0 ? c.actual/c.ad : null;
               const a = c.actual > 0 ? (c.ad/c.actual)*100 : null;
+              const bud = c.adBudget || 0;
+              const usePct = bud > 0 ? (c.ad/bud)*100 : null;
               return (
                 <tr key={c.id}>
                   <td><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></td>
                   <td className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</td>
                   <td className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</td>
+                  <td className="num" style={{textAlign:'right', color:'var(--ink-3)'}}>{bud > 0 ? Bk(bud) : '—'}</td>
+                  <td className="num" style={{textAlign:'right', fontWeight:700, color: usePct==null?'var(--ink-3)':usePct>100?'var(--bad)':usePct>80?'var(--warn)':'var(--good)'}}>{usePct!=null ? P(usePct,0) : '—'}</td>
                   <td className="num" style={{textAlign:'right', fontWeight:700, color: r==null?'var(--ink-3)':r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r!=null ? r.toFixed(1)+'x' : '—'}</td>
                   <td className="num" style={{textAlign:'right', fontWeight:700, color: a==null?'var(--ink-3)':a<=consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{a!=null ? P(a,0) : '—'}</td>
                 </tr>
@@ -718,7 +742,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
       <div className="card" style={{ borderTop: '3px solid var(--ch-facebook)' }}>
         <div className="card-head"><h3><span style={{ width: 20, height: 20, display: 'inline-block', verticalAlign: 'middle', color: 'var(--ch-facebook)' }}><Icon name="message" /></span> {'เจาะลึก'} Facebook & {'แชท'}</h3></div>
         <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr auto', marginBottom: 16, gap: 12 }}>
-          {[['รายได้', B(fb.revenue)],['ค่าแอด', B(fb.spend)],['ROAS', Number(fb.roas || 0).toFixed(2)+'x', fb.roas>=2?'var(--good)':'var(--bad)'],['ACOS', P(fb.acos), fb.acos<=consts.ACOS_CEIL?'var(--good)':'var(--bad)']].map((x,i)=>(
+          {[['รายได้', B(fb.revenue)],['ค่าแอด', B(fb.spend)],['ROAS', fb.spend>0 ? fb.roas.toFixed(2)+'x' : '—', fb.spend>0 ? (fb.roas>=2?'var(--good)':'var(--bad)') : 'var(--ink-3)'],['ACOS', fb.spend>0 ? P(fb.acos) : '—', fb.spend>0 ? (fb.acos<=consts.ACOS_CEIL?'var(--good)':'var(--bad)') : 'var(--ink-3)']].map((x,i)=>(
             <div key={i}><div className="cap">{x[0]}</div><div className="num h1" style={{ color: x[2]||'var(--ink)' }}>{x[1]}</div></div>
           ))}
           <div>
@@ -734,12 +758,12 @@ function SalesAds({ dateProps, prevMonthName, md }) {
               <span style={{ width: 16, height: 16, display: 'inline-block', color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
               <span className="num h1" style={{ color: 'var(--good)' }}>{fb.orders}</span><span className="cap">{'ออร์เดอร์'}</span>
             </div>
-            <div className="bar" style={{ marginTop: 8 }}><span style={{ width: `${fb.conv}%`, background: 'var(--good)' }}></span></div>
-            <div className="sm" style={{ color: 'var(--good)', fontWeight: 700, marginTop: 4 }}>Conversion {P(fb.conv)}</div>
+            <div className="bar" style={{ marginTop: 8 }}><span style={{ width: `${fb.inquiries > 0 ? Math.min(fb.conv, 100) : 0}%`, background: 'var(--good)' }}></span></div>
+            <div className="sm" style={{ color: fb.inquiries > 0 ? 'var(--good)' : 'var(--ink-3)', fontWeight: 700, marginTop: 4 }}>Conversion {fb.inquiries > 0 ? P(fb.conv) : '— (ยังไม่กรอกจำนวนแชท)'}</div>
           </div>
           <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
             <div className="cap" style={{ marginBottom: 8 }}>{'ต้นทุน'}</div>
-            {[['ต่อแชท', B(fb.cpInq)],['ต่อออร์เดอร์', B(fb.cpOrd)],['CAC ลูกค้าใหม่', B(fb.cac), 'var(--warn)']].map((x,i)=>(
+            {[['ต่อแชท', fb.cpInq>0 ? B(fb.cpInq) : '—'],['ต่อออร์เดอร์', fb.cpOrd>0 ? B(fb.cpOrd) : '—'],['CAC ลูกค้าใหม่', fb.cac>0 ? B(fb.cac) : '—', fb.cac>0 ? 'var(--warn)' : 'var(--ink-3)']].map((x,i)=>(
               <div key={i} className="row between" style={{ marginBottom: 6 }}><span className="cap">{x[0]}</span><span className="num sm" style={{ fontWeight: 700, color: x[2]||'var(--ink)' }}>{x[1]}</span></div>
             ))}
           </div>

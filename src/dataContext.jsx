@@ -519,14 +519,16 @@ export function computeMonth(monthIdx0, yearBE) {
   const mRow = (TMK.monthly || []).find(m => m.year === yearBE && m.month === monthNum);
   const meta = (mRow && mRow.meta) || {};
   const TARGET = Number(mRow?.target || 0);
-  const AD_BUDGET = Number(meta.adBudget || 0);
+  // งบแอดรวม = meta.adBudget (รวมอัตโนมัติตอนเซฟ) — fallback บวกจากงบต่อช่อง เผื่อข้อมูลเก่ายังไม่ได้เซฟใหม่
+  const AD_BUDGET = Number(meta.adBudget || 0) || Object.values(meta.adChannels || {}).reduce((s, v) => s + (Number(v) || 0), 0);
   const ACOS_CEIL = Number(meta.acosCeil || 25);
 
   const channels = (TMK.channels || []).map(base => {
     let rev = 0, ord = 0, ad = 0, newC = 0, oldC = 0, inq = 0;
     rows.forEach(r => { const c = r.ch[base.id]; if (c) { rev += c.rev; ord += c.ord; ad += c.ad; newC += c.newC; oldC += c.oldC; inq += (c.inq || 0); } });
     return { ...base, actual: round2(rev), orders: ord, ad: round2(ad), newCust: newC, oldCust: oldC, inq, newRev: 0, oldRev: 0,
-      target: Number((meta.channelTargets && meta.channelTargets[base.id]) || 0) };
+      target: Number((meta.channelTargets && meta.channelTargets[base.id]) || 0),
+      adBudget: Number((meta.adChannels && meta.adChannels[base.id]) || 0) };
   });
 
   // fallback: เดือนอดีตที่กรอกผ่าน "ข้อมูลย้อนหลัง" (มี monthly.actual แต่ไม่มี daily) → ใช้ยอดรายเดือน (กัน SalesView โชว์ ฿0 ทั้งที่กราฟมียอด)
