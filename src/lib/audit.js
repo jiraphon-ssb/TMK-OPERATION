@@ -6,7 +6,6 @@
    - details เป็น text not null → JSON.stringify เสมอ
    ============================================================ */
 import { supabase } from './supabaseClient.js';
-import { getCurrentUser } from '../userContext.jsx';
 
 /**
  * @param {object} p
@@ -20,7 +19,8 @@ import { getCurrentUser } from '../userContext.jsx';
  */
 export async function logAudit({ action, entityType, entityName = '', summary = '', fields = null, changes = null, data = null }) {
   try {
-    const email = getCurrentUser()?.email || 'system';
+    const { data: sess } = await supabase.auth.getSession();
+    const email = sess?.session?.user?.email || 'system';
     const payload = { entityType, entityName, summary };
     if (fields && fields.length) payload.fields = fields;
     if (changes && changes.length) payload.changes = changes;

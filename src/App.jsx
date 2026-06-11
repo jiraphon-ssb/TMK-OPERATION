@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, Avatar, UserIcon, ORDER_STATUSES, orderStatusMeta, orderStatusIndex } from './components.jsx';
+import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 import { PlannerView, CatalogView, SettingsView } from './views-2.jsx';
@@ -82,13 +82,13 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigat
 const modKey = isMac ? '⌘' : 'Ctrl+';
 
 function Spotlight({ onClose, onGo }) {
-  const { t } = useLang();
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const inputRef = useRef(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
-  useEffect(() => { setIdx(0); }, [q]);
+  // เปลี่ยนคำค้น → reset ตัวเลือกเป็นรายการแรก (ทำตอนพิมพ์ ไม่ใช่ใน effect → กัน re-render ซ้ำ)
+  const onQuery = (v) => { setQ(v); setIdx(0); };
 
   const ql = q.toLowerCase().trim();
   const results = [];
@@ -143,7 +143,7 @@ function Spotlight({ onClose, onGo }) {
         {/* Input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ width: 20, height: 20, flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="search" /></span>
-          <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
+          <input ref={inputRef} value={q} onChange={e => onQuery(e.target.value)} onKeyDown={onKey}
             placeholder="ค้นหางาน สินค้า แคมเปญ ทีม..."
             style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--ink)', fontFamily: 'var(--font)' }} />
           <kbd style={{ fontFamily: 'var(--mono)', fontSize: 'var(--fs-micro)', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 6px', background: 'var(--surface-2)' }}>ESC</kbd>
@@ -228,7 +228,6 @@ const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'products
 const ACCENTS = { '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
 
 const accent = '#0a5aa0';
-const mobilePreview = false;
 
 // กันจอขาว: ถ้า render throw → แสดงหน้า error + ปุ่มล้างข้อมูลเข้าใหม่ (แทนจอว่างถาวร)
 class ErrorBoundary extends React.Component {
@@ -245,7 +244,7 @@ class ErrorBoundary extends React.Component {
             <div style={{ fontSize: 13, color: '#5a6b82', marginBottom: 18, lineHeight: 1.7 }}>ระบบสะดุดชั่วคราว — ลองรีเฟรช หรือล้างข้อมูลเข้าสู่ระบบแล้วเริ่มใหม่</div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button onClick={() => location.reload()} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #dce4f0', background: '#fff', cursor: 'pointer' }}>รีเฟรช</button>
-              <button onClick={() => { try { localStorage.removeItem('tmk-user'); } catch {} location.reload(); }} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#0a5aa0', color: '#fff', cursor: 'pointer' }}>ล้างข้อมูล &amp; เข้าใหม่</button>
+              <button onClick={() => { try { localStorage.removeItem('tmk-user'); } catch { /* ignore */ } location.reload(); }} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#0a5aa0', color: '#fff', cursor: 'pointer' }}>ล้างข้อมูล &amp; เข้าใหม่</button>
             </div>
           </div>
         </div>
@@ -258,23 +257,37 @@ class ErrorBoundary extends React.Component {
 /* ---- หน้าติดตามสถานะออเดอร์ (สาธารณะ — ลูกค้าเปิดเองไม่ต้องล็อกอิน) ---- */
 function PublicTrackPage({ code }) {
   const [input, setInput] = useState(code || '');
-  const [search, setSearch] = useState(code || '');
   const [order, setOrder] = useState(code ? undefined : null); // undefined=loading, null=ว่าง/ไม่พบ
+  const [searched, setSearched] = useState(Boolean(code));     // เคยกดค้นหรือยัง (คุมข้อความ)
+
+  // ดึงออเดอร์ตามรหัส — เรียกจาก event (ปุ่ม/Enter) หรือโหลดครั้งแรกจากลิงก์ ?track=
+  const fetchOrder = useCallback(async (codeStr) => {
+    const c = String(codeStr || '').trim().toUpperCase();
+    setSearched(Boolean(c));
+    if (!c) { setOrder(null); return; }
+    setOrder(undefined);
+    const { data } = await supabase.from('tmk_orders')
+      .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
+      .eq('code', c).maybeSingle();
+    setOrder(data || null);
+  }, []);
+
+  // โหลดครั้งแรกถ้าเปิดด้วยลิงก์ ?track=<code> — state เริ่มต้นเป็น loading อยู่แล้ว จึง fetch แบบ async ล้วน (ไม่ setState ก่อน await)
   useEffect(() => {
-    if (!search) { setOrder(null); return; }
-    let cancel = false; setOrder(undefined);
+    if (!code) return;
+    let cancel = false;
     (async () => {
       const { data } = await supabase.from('tmk_orders')
         .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
-        .eq('code', String(search).trim().toUpperCase()).maybeSingle();
+        .eq('code', String(code).trim().toUpperCase()).maybeSingle();
       if (!cancel) setOrder(data || null);
     })();
     return () => { cancel = true; };
-  }, [search]);
+  }, [code]);
 
   const isCancelled = order && order.status === 'cancelled';
   const curIdx = order ? orderStatusIndex(order.status) : 0;
-  const doSearch = () => setSearch(input);
+  const doSearch = () => fetchOrder(input);
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--paper,#f4f6fb)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 16px', fontFamily: 'var(--font)' }}>
@@ -289,8 +302,8 @@ function PublicTrackPage({ code }) {
         </div>
 
         {order === undefined && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กำลังค้นหา…</div>}
-        {order === null && search && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>ไม่พบออเดอร์รหัสนี้ — ตรวจสอบรหัสอีกครั้ง</div>}
-        {order === null && !search && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กรอกรหัสออเดอร์เพื่อดูสถานะ</div>}
+        {order === null && searched && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>ไม่พบออเดอร์รหัสนี้ — ตรวจสอบรหัสอีกครั้ง</div>}
+        {order === null && !searched && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กรอกรหัสออเดอร์เพื่อดูสถานะ</div>}
 
         {order && (
           <div className="card">
@@ -359,29 +372,6 @@ export default function App() {
   );
 }
 
-// Session หมดอายุหลังไม่ได้ใช้งานครบ 7 วัน → ต้อง login ใหม่
-const SESSION_MAX_DAYS = 7;
-function loadValidSession() {
-  try {
-    const saved = localStorage.getItem('tmk-user');
-    if (!saved) return null;
-    const u = JSON.parse(saved);
-    // กัน session เสีย (ไม่มี email/ไม่ใช่ string) → จอขาว; ล้างแล้วบังคับ login ใหม่
-    if (!u || typeof u.email !== 'string' || !u.email.trim()) { localStorage.removeItem('tmk-user'); return null; }
-    if (u?.loginAt) {
-      const ageMs = Date.now() - new Date(u.loginAt).getTime();
-      if (ageMs > SESSION_MAX_DAYS * 86400000) {
-        localStorage.removeItem('tmk-user'); // ไม่ได้เปิดใช้ครบ 7 วัน → ล้าง session (คงอีเมลที่จำไว้)
-        return null;
-      }
-    }
-    // sliding window: ต่ออายุทุกครั้งที่เปิดใช้ → หมดอายุเฉพาะเมื่อไม่ได้เปิดเลยครบ 7 วัน
-    const refreshed = { ...u, loginAt: new Date().toISOString() };
-    try { localStorage.setItem('tmk-user', JSON.stringify(refreshed)); } catch {}
-    return refreshed;
-  } catch { return null; }
-}
-
 function AppShellWithUser() {
   const { version } = useData();
   return (
@@ -392,7 +382,7 @@ function AppShellWithUser() {
 }
 
 function AppInner() {
-  const { t, lang, setLang } = useLang();
+  const { t } = useLang();
   const { toast } = useToast();
   const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload } = useData();
   const { user: currentUserCtx } = useUser() || {};
@@ -402,8 +392,16 @@ function AppInner() {
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem('tmk-dark') === 'true'; } catch { return false; }
   });
-  // Session persist: load from localStorage (หมดอายุ 7 วัน → loadValidSession คืน null)
-  const [authed, setAuthed] = useState(() => Boolean(loadValidSession()));
+  // Auth จริง: session มาจาก Supabase Auth (persist/refresh ให้เองใน localStorage)
+  const [session, setSession] = useState(null);
+  const [authReady, setAuthReady] = useState(false); // เช็ค session แรกเสร็จหรือยัง (กันจอ login กระพริบตอน restore)
+  const authed = !!session;
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => { if (alive) { setSession(data.session); setAuthReady(true); } });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { if (alive) setSession(s); });
+    return () => { alive = false; sub.subscription.unsubscribe(); };
+  }, []);
   const [modal, setModal] = useState(null);
   const [spotlight, setSpotlight] = useState(false);
   // Persist section + subMap → กด refresh แล้วอยู่หน้าเดิม
@@ -422,20 +420,24 @@ function AppInner() {
   });
   const [tasks, setTasks] = useState(TMK.tasks);
   // Sync local tasks state เมื่อ Supabase data update (version bump)
-  useEffect(() => {
+  // ปรับ state ตอน render เมื่อ version เปลี่ยน (pattern ที่ React แนะนำ) แทน setState ใน effect → ไม่ render ซ้ำ
+  const [tasksVer, setTasksVer] = useState(dataVersion);
+  if (tasksVer !== dataVersion) {
+    setTasksVer(dataVersion);
     setTasks([...(TMK.tasks || [])]);
-  }, [dataVersion]);
+  }
 
   // Persist section + subMap ทุกครั้งที่เปลี่ยน → refresh แล้วอยู่หน้าเดิม
   useEffect(() => {
-    try { localStorage.setItem('tmk-section', section); } catch {}
+    try { localStorage.setItem('tmk-section', section); } catch { /* ignore */ }
   }, [section]);
   useEffect(() => {
-    try { localStorage.setItem('tmk-submap', JSON.stringify(subMap)); } catch {}
+    try { localStorage.setItem('tmk-submap', JSON.stringify(subMap)); } catch { /* ignore */ }
   }, [subMap]);
   const [drawer, setDrawer] = useState(false);
   const [notif, setNotif] = useState(false);
   const [menu, setMenu] = useState(false);
+  // โชว์ทัวร์เฉพาะตอน login สด (trigger ใน handleLogin) — refresh ที่มี session ค้างไม่ต้องโชว์ซ้ำ
   const [showOnboarding, setShowOnboarding] = useState(false);
   const contentRef = useRef(null);
 
@@ -449,7 +451,7 @@ function AppInner() {
     root.classList.toggle('dark', !!dark);
     root.style.setProperty('--accent', accent);
     root.style.setProperty('--accent-2', dark ? `color-mix(in srgb, ${accent} 48%, white)` : (ACCENTS[accent] || accent));
-    try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch {}
+    try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch { /* ignore */ }
   }, [dark]);
 
   // รีเฟรชเมื่อสลับ toggle แจ้งเตือน (NotifToggle dispatch 'tmk-prefs') → กระดิ่งอัปเดตทันที
@@ -479,19 +481,9 @@ function AppInner() {
     window.__goSection = (sec, s) => go(sec, s);
   }, [toast]);
 
-  // Show onboarding on first login
-  useEffect(() => {
-    if (authed) {
-      try {
-        const seen = localStorage.getItem('tmk-onboarded');
-        if (!seen) setShowOnboarding(true);
-      } catch {}
-    }
-  }, [authed]);
-
   const completeOnboarding = useCallback(() => {
     setShowOnboarding(false);
-    try { localStorage.setItem('tmk-onboarded', 'true'); } catch {}
+    try { localStorage.setItem('tmk-onboarded', 'true'); } catch { /* ignore */ }
   }, []);
   useEffect(() => {
     const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSpotlight(s => !s); } };
@@ -499,30 +491,23 @@ function AppInner() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   const closeModal = () => { setModal(null); };
-  const logout = () => {
-    try { const u = JSON.parse(localStorage.getItem('tmk-user') || 'null'); if (u?.email) logAudit({ action: 'logout', entityType: 'auth', entityName: u.email, summary: `ออกจากระบบ (${u.email})` }); } catch {}
-    setMenu(false); setDrawer(false); setAuthed(false);
+  const logout = async () => {
+    const email = session?.user?.email;
+    if (email) logAudit({ action: 'logout', entityType: 'auth', entityName: email, summary: `ออกจากระบบ (${email})` });
+    setMenu(false); setDrawer(false);
     setSection('home'); setSubMap(DEFAULT_SUB);
     try {
-      localStorage.removeItem('tmk-user');
       localStorage.removeItem('tmk-section');
       localStorage.removeItem('tmk-submap');
-    } catch {}
-    window.dispatchEvent(new Event('tmk-user-change'));
+    } catch { /* ignore */ }
+    await supabase.auth.signOut(); // → onAuthStateChange เคลียร์ session → authed=false
   };
 
-  // Called by LoginScreen — persists user + flips authed
-  const handleLogin = (email, remember) => {
-    const userEmail = email || 'jiraphon.e@tmk.co';
-    const user = { email: userEmail, loginAt: new Date().toISOString() };
-    try {
-      localStorage.setItem('tmk-user', JSON.stringify(user));
-      // จำการเข้าสู่ระบบ → เก็บอีเมลไว้เติมให้อัตโนมัติครั้งถัดไป
-      if (remember) { localStorage.setItem('tmk-remember', 'true'); localStorage.setItem('tmk-remember-email', userEmail); }
-      else { localStorage.removeItem('tmk-remember'); localStorage.removeItem('tmk-remember-email'); }
-    } catch {}
-    setAuthed(true);
-    window.dispatchEvent(new Event('tmk-user-change'));
+  // Called by LoginScreen หลัง signIn/signUp สำเร็จ — auth จริงทำใน LoginScreen, session เปลี่ยนเองผ่าน onAuthStateChange
+  const handleLogin = (email) => {
+    const userEmail = email || '';
+    // login สด + ยังไม่เคยดูทัวร์ → โชว์ onboarding
+    try { if (!localStorage.getItem('tmk-onboarded')) setShowOnboarding(true); } catch { /* ignore */ }
     logAudit({ action: 'login', entityType: 'auth', entityName: userEmail, summary: `เข้าสู่ระบบ (${userEmail})` });
   };
 
@@ -780,7 +765,8 @@ function AppInner() {
 
   return (
     <>
-      {!authed && <LoginScreen onLogin={handleLogin} />}
+      {!authReady && <LoadingScreen />}
+      {authReady && !authed && <LoginScreen onLogin={handleLogin} />}
       {firstLoading && <LoadingScreen />}
       {firstError && <DataErrorScreen error={dataError} onRetry={dataReload} />}
       {showShell && Shell({ forced: false })}
@@ -804,6 +790,7 @@ function AppInner() {
               } catch (err) {
                 console.error('Task delete failed:', err);
                 toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+                if (dataReload) await dataReload(); // คืนงานที่ลบ optimistic กลับจาก DB (กันบอร์ดเพี้ยน)
               }
             }}
             onSubmit={async (task) => {
@@ -884,7 +871,6 @@ function AppInner() {
 }
 
 function RailAvatar({ onClick }) {
-  const { user } = useUser() || {};
   return (
     <button className="rail-avatar" onClick={onClick}
       style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
@@ -893,7 +879,7 @@ function RailAvatar({ onClick }) {
   );
 }
 
-function ProfileMenu({ go, dark, setDark, close, onLogout }) {
+function ProfileMenu({ go, close, onLogout }) {
   const { user } = useUser() || {};
   return (
     <>

@@ -1,67 +1,53 @@
 /* ============================================================
    TMK Operation — Current User Context
    ============================================================
-   Provides logged-in user info to all components.
-   Reads from localStorage on mount → persists across refresh.
+   ตัวตนผู้ใช้ปัจจุบันจาก Supabase Auth session (email)
+   แล้ว enrich profile/role จาก tmk_user_roles + tmk_staff ตามอีเมล
    ============================================================ */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { TMK } from './data.js';
+import { supabase } from './lib/supabaseClient.js';
 
 const UserContext = createContext();
 
 export function UserProvider({ children, version }) {
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tmk-user');
-      return saved ? JSON.parse(saved) : null;
-    } catch { return null; }
-  });
-
-  // Refresh when localStorage changes (login/logout in same tab uses storage event for cross-tab; here we listen for window event 'tmk-user-change')
+  // อีเมลที่ล็อกอินจริง — มาจาก Supabase Auth session (persist/refresh ให้เอง)
+  const [authEmail, setAuthEmail] = useState(null);
   useEffect(() => {
-    const onChange = () => {
-      try {
-        const saved = localStorage.getItem('tmk-user');
-        setUser(saved ? JSON.parse(saved) : null);
-      } catch { setUser(null); }
-    };
-    window.addEventListener('tmk-user-change', onChange);
-    window.addEventListener('storage', onChange);
-    return () => {
-      window.removeEventListener('tmk-user-change', onChange);
-      window.removeEventListener('storage', onChange);
-    };
+    let alive = true;
+    supabase.auth.getSession().then(({ data }) => { if (alive) setAuthEmail(data.session?.user?.email || null); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { if (alive) setAuthEmail(s?.user?.email || null); });
+    return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
 
-  // Enrich user with profile from Supabase (tmk_staff + tmk_user_roles)
+  // Enrich อีเมล → profile จาก Supabase (tmk_staff + tmk_user_roles)
   const enriched = React.useMemo(() => {
-    if (!user || typeof user.email !== 'string' || !user.email) return null; // กัน session เสีย → ไม่ throw
-    // 1. Look in tmk_staff by email
-    const staffByEmail = (TMK.staff || []).find(s => s.email === user.email);
-    // 2. Look in tmk_user_roles by email
-    const role = (TMK.roles || []).find(r => r.email === user.email);
-    // 3. If role exists, also try staff by name
+    if (!authEmail || typeof authEmail !== 'string') return null;
+    // 1. หาใน tmk_staff ตามอีเมล
+    const staffByEmail = (TMK.staff || []).find(s => s.email === authEmail);
+    // 2. หาใน tmk_user_roles ตามอีเมล
+    const role = (TMK.roles || []).find(r => r.email === authEmail);
+    // 3. ถ้ามี role → ลองหา staff ตามชื่อด้วย
     const staffByName = role ? (TMK.staff || []).find(s => s.name === role.name) : null;
     const staff = staffByEmail || staffByName;
 
-    // Special case: jiraphon.e@tmk.co is the owner — default name "มัง" if not in DB
-    const isOwner = user.email === 'jiraphon.e@tmk.co' || user.email === 'jiraphon.e@saisabuygroup.co';
-    const fallbackName = isOwner ? 'มัง' : user.email.split('@')[0];
+    // เคสพิเศษ: jiraphon.e@tmk.co = เจ้าของ — default ชื่อ "มัง" ถ้าไม่มีใน DB
+    const isOwner = authEmail === 'jiraphon.e@tmk.co' || authEmail === 'jiraphon.e@saisabuygroup.co';
+    const fallbackName = isOwner ? 'มัง' : authEmail.split('@')[0];
     const fallbackRole = isOwner ? 'admin' : 'viewer';
 
     return {
-      email: user.email,
-      name: user.displayName || staff?.name || role?.name || fallbackName,
+      email: authEmail,
+      name: staff?.name || role?.name || fallbackName,
       role: role?.role || (staff?.role === 'Owner' ? 'admin' : null) || fallbackRole,
       department: role?.department || role?.dutyName || staff?.role || '',
       color: staff?.color || (isOwner ? '#b07d33' : '#3b82f6'),
-      avatarUrl: user.avatarUrl || staff?.avatarUrl || '',
-      loginAt: user.loginAt,
+      avatarUrl: staff?.avatarUrl || '',
     };
-  }, [user, version]);
+  }, [authEmail, version]);
 
   return (
-    <UserContext.Provider value={{ user: enriched, rawUser: user, setUser }}>
+    <UserContext.Provider value={{ user: enriched }}>
       {children}
     </UserContext.Provider>
   );
@@ -69,12 +55,4 @@ export function UserProvider({ children, version }) {
 
 export function useUser() {
   return useContext(UserContext);
-}
-
-// Helper for components that don't use the hook (legacy code)
-export function getCurrentUser() {
-  try {
-    const saved = localStorage.getItem('tmk-user');
-    return saved ? JSON.parse(saved) : null;
-  } catch { return null; }
 }
