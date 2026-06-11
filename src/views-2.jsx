@@ -1476,14 +1476,18 @@ export function SettingsView({ sub, dark, setDark }) {
 }
 
 // Toggle pill ที่ persist ลง localStorage
+// Toggle switch มาตรฐาน (เลื่อน/กด เปิด-ปิด)
+function Switch({ on, onClick, label, color }) {
+  return (
+    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick}
+      className={'switch' + (on ? ' on' : '')} style={color ? { '--sw-on': color } : undefined} />
+  );
+}
+
 function NotifToggle({ storeKey }) {
   const [on, setOn] = useState(() => { try { return localStorage.getItem(storeKey) !== 'false'; } catch { return true; } });
   const flip = () => setOn(v => { const nv = !v; try { localStorage.setItem(storeKey, nv ? 'true' : 'false'); } catch {} try { window.dispatchEvent(new Event('tmk-prefs')); } catch {} return nv; }); // แจ้ง App ให้รีเฟรชกระดิ่งทันที
-  return (
-    <button className={'chip ' + (on ? 'chip-good' : '')} onClick={flip} style={{ cursor: 'pointer', minWidth: 56, opacity: on ? 1 : 0.6 }}>
-      {on ? 'เปิด' : 'ปิด'}
-    </button>
-  );
+  return <Switch on={on} onClick={flip} label="เปิด/ปิดการแจ้งเตือน" />;
 }
 
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
@@ -1561,13 +1565,7 @@ function GeneralSettings({ dark, setDark }) {
             <div className="sm" style={{ fontWeight: 600 }}>โหมดมืด</div>
             <div className="cap">เปลี่ยนธีมสีของระบบ</div>
           </div>
-          <button className="btn btn-sm" onClick={() => setDark(d => !d)} style={{
-            background: dark ? 'var(--accent)' : 'var(--surface-3)',
-            color: dark ? '#fff' : 'var(--ink)',
-            minWidth: 80,
-          }}>
-            <Icon name={dark ? 'moon' : 'sun'} />{dark ? 'เปิดอยู่' : 'ปิดอยู่'}
-          </button>
+          <Switch on={dark} onClick={() => setDark(d => !d)} label="โหมดมืด" color="var(--accent)" />
         </div>
       </div>
 
