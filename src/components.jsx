@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Shared components, icons, formatters, charts
    ============================================================ */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 /* ---------- Image upload helper ---------- */
 // อ่านรูป + ย่อขนาด (canvas) → data URL เล็ก ป้องกันรูปใหญ่ทำให้บันทึกพัง/ช้า/เกิน quota
@@ -21,7 +21,7 @@ export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
           canvas.width = width; canvas.height = height;
           canvas.getContext('2d').drawImage(img, 0, 0, width, height);
           resolve(canvas.toDataURL('image/jpeg', quality));
-        } catch (err) { reject(new Error('ย่อรูปไม่สำเร็จ')); } // ไม่ fallback เป็นไฟล์เต็ม (กันเก็บ data-URL ยักษ์)
+        } catch { reject(new Error('ย่อรูปไม่สำเร็จ')); } // ไม่ fallback เป็นไฟล์เต็ม (กันเก็บ data-URL ยักษ์)
       };
       img.onerror = () => reject(new Error('รูปเสียหรือเปิดไม่ได้')); // เช่น HEIC/ไฟล์เสีย — ไม่เก็บไฟล์ดิบ
       img.src = e.target.result;

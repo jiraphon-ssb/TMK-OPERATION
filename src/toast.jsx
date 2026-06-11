@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Toast notification system
    ============================================================ */
-import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { Icon } from './components.jsx';
 
 const ToastContext = createContext();

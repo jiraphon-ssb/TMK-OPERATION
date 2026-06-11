@@ -17,5 +17,9 @@ export default defineConfig([
       globals: globals.browser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+    rules: {
+      // ตัวแปร/อาร์กิวเมนต์ที่ขึ้นต้นด้วย _ = ตั้งใจทิ้ง (เช่น destructure เพื่อตัดคีย์ออก) — ไม่ต้องเตือน
+      'no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
+    },
   },
 ])

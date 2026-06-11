@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Views: Data Entry Hub (บันทึก)
    ============================================================ */
-import React, { useState, useRef, useLayoutEffect } from 'react';
+import { useState, useRef, useLayoutEffect } from 'react';
 import { TMK } from './data.js';
 import { B, Bk, Bc, N, Icon, Ring } from './components.jsx';
 import { getToday, THAI_MONTHS as MONTH_SHORT, THAI_MONTHS_FULL as MONTH_FULL } from './lib/dateUtils.js';
@@ -44,7 +44,7 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
   const { NOW_MONTH, NOW_YEAR } = _now();
   const [showPicker, setShowPicker] = useState(false);
   const [pickerYear, setPickerYear] = useState(year);
-  const { isCurrent, isPast, isFuture } = getMode(month, year);
+  const { isCurrent, isPast } = getMode(month, year);
 
   const label = MONTH_SHORT[month] + ' ' + year;
 
@@ -160,7 +160,7 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
 }
 
 /* ====================  QUARTER VIEW  ==================== */
-function QuarterView({ month, year }) {
+function QuarterView({ year }) {
   const statusIcon = (s) => {
     if (s === 'ปิดแล้ว') return { icon: 'check', color: 'var(--good)', bg: 'var(--good-soft)' };
     if (s === 'กำลังดำเนินการ') return { icon: 'refresh', color: 'var(--accent)', bg: 'var(--accent-soft)' };
@@ -239,7 +239,7 @@ function QuarterView({ month, year }) {
 }
 
 /* ====================  ENTRY VIEW ROUTER  ==================== */
-export function EntryView({ sub }) {
+export function EntryView() {
   const { NOW_MONTH, NOW_YEAR } = _now();
   const [month, setMonth] = useState(NOW_MONTH);
   const [year, setYear]   = useState(NOW_YEAR);
