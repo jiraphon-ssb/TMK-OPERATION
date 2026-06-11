@@ -379,6 +379,10 @@ input, select, textarea { font-family: inherit; }
 /* FB เจาะลึก 5 สถิติ: เรียงแถวเดียวบนจอใหญ่ → 2 คอลัมน์บนมือถือ (ไม่ยาว) */
 .fbstat { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 12px; }
 @media (max-width: 700px) { .fbstat { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* แถว chip เลือกช่องทาง — เลื่อนแนวนอน ไม่ตัดบรรทัด (มือถือปัดได้) */
+.chiprow { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.chiprow::-webkit-scrollbar { display: none; }
+.chiprow > button { flex-shrink: 0; white-space: nowrap; }
 .row { display: flex; align-items: center; gap: 12px; }
 .col { display: flex; flex-direction: column; }
 .between { justify-content: space-between; }
@@ -512,9 +516,11 @@ input, select, textarea { font-family: inherit; }
   .topbar { padding: 0 16px; height: 56px; }
   .content { padding: 16px 16px 84px; }
   .search { display: none; }
-  .g4 { grid-template-columns: repeat(2, 1fr); }
-  .g3 { grid-template-columns: 1fr; }
-  .g2 { grid-template-columns: 1fr; }
+  .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: minmax(0, 1fr); }
+  .g2 { grid-template-columns: minmax(0, 1fr); }
+  /* เลขยาวในการ์ด KPI เล็ก — ย่อพอดีบนมือถือ (กันล้นการ์ด · ห้ามย่อ k/M) */
+  .card-pad-sm .num.h1 { font-size: clamp(15px, 4.6vw, 26px); white-space: nowrap; }
   /* inline-column grids (เช่น 1.6fr 1fr) ไม่ยุบเองเพราะ inline style ชนะ — บังคับเป็น 1 คอลัมน์บนมือถือ
      จำกัดเฉพาะ .grid (กราฟภายในใช้ display:grid เปล่าๆ ไม่โดน) */
   .content .grid[style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }

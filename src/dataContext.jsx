@@ -623,9 +623,21 @@ export function computeMonth(monthIdx0, yearBE) {
     .sort((a, b) => a.month - b.month)
     .map(m => ({ m: _ABBR[m.month - 1], v: Number(m.messages || 0) }));
 
+  // อัตราลูกค้าเก่า (ซื้อซ้ำ) รายสัปดาห์ — จากจำนวน newC/oldC รายวันจริง (ไม่ใช่รายได้ ระบบไม่เก็บรายได้แยกใหม่/เก่า)
+  const _wk = {};
+  rows.forEach(r => {
+    const k = Math.ceil(r.day / 7); // สัปดาห์ที่ 1-5 ของเดือน
+    const w = _wk[k] || (_wk[k] = { newC: 0, oldC: 0 });
+    Object.values(r.ch).forEach(c => { w.newC += Number(c.newC || 0); w.oldC += Number(c.oldC || 0); });
+  });
+  const custWeekly = Object.keys(_wk).map(Number).sort((a, b) => a - b).map(k => {
+    const w = _wk[k], tot = w.newC + w.oldC;
+    return { week: k, newC: w.newC, oldC: w.oldC, returningPct: tot > 0 ? (w.oldC / tot) * 100 : 0 };
+  });
+
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, cogsPct: COGS_PCT, otherExpense: OTHER_EXP },
-    channels, dailyMonth, dailyLog, dailyBreakdown, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, pnl,
+    channels, dailyMonth, dailyLog, dailyBreakdown, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, custWeekly, pnl,
     computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
   };
 }

@@ -758,8 +758,17 @@ function ChannelCard({ ch, md, consts, prevMd }) {
 }
 
 function SalesAds({ dateProps, prevMonthName, md }) {
-  const fb = md.fb;
   const consts = md.consts, channels = md.channels;
+  // KPI สรุป — เลือกช่องทางได้ (ค่าเริ่ม Facebook + LINE) — คุมเฉพาะ 4 การ์ดบนสุด
+  const _defSel = ['facebook', 'line'].filter(id => channels.some(c => c.id === id));
+  const [selCh, setSelCh] = useState(_defSel.length ? _defSel : channels.slice(0, 1).map(c => c.id));
+  const toggleCh = (id) => setSelCh(p => p.includes(id) ? (p.length > 1 ? p.filter(x => x !== id) : p) : [...p, id]); // คงไว้อย่างน้อย 1
+  const selChans = channels.filter(c => selCh.includes(c.id));
+  const kRev = selChans.reduce((s, c) => s + (c.actual || 0), 0);
+  const kAd = selChans.reduce((s, c) => s + (c.ad || 0), 0);
+  const kRoas = kAd > 0 ? kRev / kAd : null;
+  const kAcos = kRev > 0 ? (kAd / kRev) * 100 : null;
+  const _chatSel = selCh.some(id => id === 'facebook' || id === 'line'); // ช่องแชท → ROAS ต้องดูคู่ funnel แชท
   const totalBudget = consts.AD_BUDGET || 0;
   const totalSpent = channels.filter(c => c.hasAd).reduce((s, c) => s + c.ad, 0);
   const remaining = totalBudget - totalSpent;
@@ -822,6 +831,56 @@ function SalesAds({ dateProps, prevMonthName, md }) {
         )}
       </div>
 
+      {/* แผงเปรียบเทียบตามช่องทาง — เลือกได้ มีผลเฉพาะแผงนี้ */}
+      <div className="card" style={{ marginBottom: 16, background: 'var(--surface-2)', border: '1px dashed var(--line-2)' }}>
+        <div className="row between" style={{ marginBottom: 12, gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ color: 'var(--accent)' }}><Icon name="filter" /></span> {'เปรียบเทียบตามช่องทาง'}</h3>
+            <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 3 }}>{'เลือกช่องทางที่อยากดู — ตัวเลข 4 ช่องด้านล่างจะคิดเฉพาะช่องที่เลือก (ไม่กระทบส่วนอื่น)'}</div>
+          </div>
+          <button className="btn btn-sm btn-ghost" onClick={() => setSelCh(_defSel.length ? _defSel : channels.slice(0, 1).map(c => c.id))} title="กลับไป Facebook + LINE OA">{'คืนค่าเริ่มต้น'}</button>
+        </div>
+        {/* chips ติดสีช่องทาง — เลือก = สีเข้ม+ขอบสี / ไม่เลือก = จาง · เลื่อนแนวนอนบนมือถือ */}
+        <div className="chiprow" style={{ marginBottom: 14, paddingBottom: 2 }}>
+          {channels.map(c => {
+            const on = selCh.includes(c.id);
+            return (
+              <button key={c.id} onClick={() => toggleCh(c.id)}
+                style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 999, fontSize: 'var(--fs-sm)',
+                  background: on ? c.hex + '22' : 'var(--surface)', color: on ? 'var(--ink)' : 'var(--ink-3)',
+                  border: on ? `1.5px solid ${c.hex}` : '1px solid var(--line)', fontWeight: on ? 700 : 500, transition: 'all .12s' }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.hex, opacity: on ? 1 : 0.3 }}></span>{c.name}
+              </button>
+            );
+          })}
+        </div>
+        {/* 4 KPI (การ์ดขาวบนพื้นเทา — เห็นชัดว่าเป็นผลของช่องที่เลือก) */}
+        <div className="grid g4" style={{ gap: 12 }}>
+          <div className="card card-pad-sm">
+            <div className="cap" style={{ marginBottom: 6 }}>{'รายได้'} (MTD)</div>
+            <div className="num h1" style={{ color: 'var(--accent-2)' }}>{B(kRev)}</div>
+            <div className="cap" style={{ marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selChans.map(c => c.name).join(' + ') || '—'}</div>
+          </div>
+          <div className="card card-pad-sm">
+            <div className="cap" style={{ marginBottom: 6 }}>Ads Spent</div>
+            <div className="num h1">{B(kAd)}</div>
+            <div className="cap" style={{ marginTop: 4 }}>{'ค่าแอดของช่องที่เลือก'}</div>
+          </div>
+          <div className="card card-pad-sm">
+            <div className="cap" style={{ marginBottom: 6 }}>ROAS <InfoTip text="โฆษณาคืนกี่เท่า = รายได้ ÷ ค่าแอด (ของช่องที่เลือก)" label="ROAS" /></div>
+            <div className="num h1" style={{ color: kRoas == null ? 'var(--ink-4)' : kRoas >= 3 ? 'var(--good)' : kRoas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{kRoas != null ? kRoas.toFixed(2) : '—'}</div>
+            {_chatSel && kRoas != null && kRoas < 2
+              ? <div className="cap" style={{ marginTop: 4, color: 'var(--warn)', fontWeight: 600 }}>⚠️ {'ดูคู่แชท (คนทัก→ปิด)'}</div>
+              : <div className="cap" style={{ marginTop: 4 }}>{'≥ 3 ดีมาก · ≥ 2 พอใช้'}</div>}
+          </div>
+          <div className="card card-pad-sm">
+            <div className="cap" style={{ marginBottom: 6 }}>% {'ค่าแอด'} (ACoS) <InfoTip text="ค่าแอด ÷ รายได้ × 100 (ของช่องที่เลือก) — ยิ่งต่ำยิ่งคุ้ม" label="ACoS" /></div>
+            <div className="num h1" style={{ color: kAcos == null ? 'var(--ink-4)' : kAcos <= consts.ACOS_CEIL ? 'var(--good)' : kAcos <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{kAcos != null ? P(kAcos, 1) : '—'}</div>
+            <div className="cap" style={{ marginTop: 4 }}>{'เกณฑ์ ≤'} {consts.ACOS_CEIL}%</div>
+          </div>
+        </div>
+      </div>
+
       {/* Ad performance table */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3><span style={{color:'var(--accent)'}}><Icon name="zap" /></span> {'ประสิทธิภาพโฆษณา'}</h3></div>
@@ -850,42 +909,6 @@ function SalesAds({ dateProps, prevMonthName, md }) {
             })}
           </tbody>
         </table></div>
-      </div>
-
-      {/* Facebook deep dive */}
-      <div className="card" style={{ marginBottom: 16, borderTop: '3px solid var(--ch-facebook)' }}>
-        <div className="card-head"><h3><span style={{ width: 20, height: 20, display: 'inline-block', verticalAlign: 'middle', color: 'var(--ch-facebook)' }}><Icon name="message" /></span> {'เจาะลึก'} Facebook & {'แชท'}</h3></div>
-        <div className="fbstat" style={{ marginBottom: 16 }}>
-          {[['รายได้', B(fb.revenue)],['ค่าแอด', B(fb.spend)],['ROAS', fb.spend>0 ? fb.roas.toFixed(2)+'x' : '—', fb.spend>0 ? (fb.roas>=2?'var(--good)':'var(--bad)') : 'var(--ink-3)'],['ACOS', fb.spend>0 ? P(fb.acos) : '—', fb.spend>0 ? (fb.acos<=consts.ACOS_CEIL?'var(--good)':'var(--bad)') : 'var(--ink-3)']].map((x,i)=>(
-            <div key={i}><div className="cap">{x[0]}</div><div className="num h1" style={{ color: x[2]||'var(--ink)' }}>{x[1]}</div></div>
-          ))}
-          <div>
-            <div className="cap">{'เวลาตอบแชทเฉลี่ย'}</div>
-            <div className="num h1" style={{ color: 'var(--info)' }}>{fb.avgReplyMinutes ? <>{fb.avgReplyMinutes} <span className="cap">{'นาที'}</span></> : '—'}</div>
-          </div>
-        </div>
-        <div className="grid g3" style={{ gap: 12 }}>
-          <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
-            <div className="cap" style={{ marginBottom: 6 }}>{'คนทัก'} {'→'} {'ปิดการขาย'}</div>
-            <div className="row" style={{ gap: 6, alignItems: 'baseline' }}>
-              <span className="num h1">{fb.inquiries}</span><span className="cap">{'คนทัก'}</span>
-              <span style={{ width: 16, height: 16, display: 'inline-block', color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
-              <span className="num h1" style={{ color: 'var(--good)' }}>{fb.orders}</span><span className="cap">{'ออร์เดอร์'}</span>
-            </div>
-            <div className="bar" style={{ marginTop: 8 }}><span style={{ width: `${fb.inquiries > 0 ? Math.min(fb.conv, 100) : 0}%`, background: 'var(--good)' }}></span></div>
-            <div className="sm" style={{ color: fb.inquiries > 0 ? 'var(--good)' : 'var(--ink-3)', fontWeight: 700, marginTop: 4 }}>อัตราปิดการขาย (Conversion) {fb.inquiries > 0 ? P(fb.conv) : '— (ยังไม่กรอกคนทัก)'}</div>
-          </div>
-          <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
-            <div className="cap" style={{ marginBottom: 8 }}>{'ต้นทุน'}</div>
-            {[['ต่อคนทัก', fb.cpInq>0 ? B(fb.cpInq) : '—'],['ต่อออร์เดอร์', fb.cpOrd>0 ? B(fb.cpOrd) : '—'],['ต้นทุนหาลูกค้าใหม่ (CAC)', fb.cac>0 ? B(fb.cac) : '—', fb.cac>0 ? 'var(--warn)' : 'var(--ink-3)']].map((x,i)=>(
-              <div key={i} className="row between" style={{ marginBottom: 6 }}><span className="cap">{x[0]}</span><span className="num sm" style={{ fontWeight: 700, color: x[2]||'var(--ink)' }}>{x[1]}</span></div>
-            ))}
-          </div>
-          <div className="card card-pad-sm" style={{ background: 'var(--surface-2)', border: 'none' }}>
-            <div className="cap" style={{ marginBottom: 8 }}>{'ปริมาณข้อความ'} (6 {'ด.'})</div>
-            <MiniArea data={(md.fbMsgTrend||[]).map(d=>d.v)} labels={(md.fbMsgTrend||[]).map(d=>d.m)} fmt={N} axisFmt={N} h={86} color="var(--ch-facebook)" id="fbmsg" metricLabel="ข้อความ" />
-          </div>
-        </div>
       </div>
 
       {/* Ad campaigns table — ไว้ล่างสุด (ส่วนใหญ่ยังว่าง ไม่ควรคั่นข้อมูลหลัก) */}
@@ -930,41 +953,49 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
     <div className="content-inner rise">
       <SalesDateBar {...dateProps} />
 
-      {/* CLV + New vs Old overview */}
-      <div className="grid g2" style={{ marginBottom: 16 }}>
-        <div className="card" style={{ display: 'flex', gap: 22, alignItems: 'center' }}>
-          <Ring pct={newPct} size={130} stroke={16} color="var(--good)" track="var(--info)">
-            <div><div className="num h2">{N(C.NEW_C + C.OLD_C)}</div><div className="cap">{'ลูกค้า'}</div></div>
-          </Ring>
-          <div style={{ flex: 1 }}>
-            <div style={{ marginBottom: 14 }}>
-              <div className="row" style={{ gap: 7 }}><span style={{width:9,height:9,borderRadius:'50%',background:'var(--good)'}}></span><span className="cap">{'ลูกค้าใหม่'}</span></div>
-              <div className="num h1" style={{ color: 'var(--good)' }}>{N(C.NEW_C)} <span className="cap">{'คน'}</span></div>
-              <div className="cap">{custTot > 0 ? P(newPct) : '—'} {'ของลูกค้าทั้งหมด'}</div>
-            </div>
-            <div>
-              <div className="row" style={{ gap: 7 }}><span style={{width:9,height:9,borderRadius:'50%',background:'var(--info)'}}></span><span className="cap">{'ลูกค้าเก่า'}</span></div>
-              <div className="num h1" style={{ color: 'var(--info)' }}>{N(C.OLD_C)} <span className="cap">{'คน'}</span></div>
-              <div className="cap">{custTot > 0 ? P(100 - newPct) : '—'} {'ของลูกค้าทั้งหมด'}</div>
-            </div>
-          </div>
+      {/* KPI ลูกค้า — ข้อมูลจริง (ระบบไม่เก็บรายได้แยกใหม่/เก่า → ใช้จำนวน + อัตราซื้อซ้ำ + CAC) */}
+      <div className="grid g4" style={{ marginBottom: 16 }}>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าใหม่'} (MTD)</div>
+          <div className="num h1" style={{ color: 'var(--good)' }}>{N(C.NEW_C)}</div>
+          <div className="cap" style={{ marginTop: 4 }}>{custTot > 0 ? P(newPct, 0) : '—'} {'ของลูกค้าทั้งหมด'}</div>
         </div>
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* CLV */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>มูลค่าลูกค้าตลอดอายุ (CLV)</div>
-            <div className="num display" style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</div>
-            <div className="cap" style={{ marginTop: 4 }}>{'เฉลี่ยต่อลูกค้า'} {'·'} {'รวมทุกเดือน'}</div>
-          </div>
-          {/* Returning trend */}
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 8 }}>{'สัดส่วนลูกค้าเก่า'} (Returning)</div>
-            {(C.NEW_C + C.OLD_C) > 0
-              ? <div className="num h1" style={{ color: 'var(--info)' }}>{P((C.OLD_C / (C.NEW_C + C.OLD_C)) * 100, 0)}</div>
-              : <div className="num h2" style={{ color: 'var(--ink-4)' }}>—</div>}
-            <div className="cap" style={{ marginTop: 4 }}>{'เป้าหมาย: เพิ่ม'} Returning {'≥'} 35%</div>
-          </div>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าเก่า'} (MTD)</div>
+          <div className="num h1" style={{ color: 'var(--info)' }}>{N(C.OLD_C)}</div>
+          <div className="cap" style={{ marginTop: 4 }}>{custTot > 0 ? P(100 - newPct, 0) : '—'} {'ของลูกค้าทั้งหมด'}</div>
         </div>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>{'อัตราซื้อซ้ำ'} (Returning) <InfoTip text="สัดส่วนลูกค้าเก่าต่อลูกค้าทั้งหมด (จำนวนคน) · เป้า ≥ 35%" label="Returning" /></div>
+          <div className="num h1" style={{ color: custTot <= 0 ? 'var(--ink-4)' : (100 - newPct) >= 35 ? 'var(--good)' : 'var(--warn)' }}>{custTot > 0 ? P(100 - newPct, 0) : '—'}</div>
+          <div className="cap" style={{ marginTop: 4 }}>{'เป้าหมาย ≥ 35%'}</div>
+        </div>
+        <div className="card card-pad-sm">
+          <div className="cap" style={{ marginBottom: 6 }}>CAC <span style={{ color: 'var(--ink-4)' }}>(ต้นทุนลูกค้าใหม่)</span> <InfoTip text="ต้นทุนหาลูกค้าใหม่ = ค่าแอดรวม ÷ จำนวนลูกค้าใหม่" label="CAC" /></div>
+          <div className="num h1" style={{ color: 'var(--accent)' }}>{C.CAC > 0 ? B(C.CAC) : '—'}</div>
+          <div className="cap" style={{ marginTop: 4 }}>{'ค่าแอด ÷ ลูกค้าใหม่'}</div>
+        </div>
+      </div>
+
+      {/* แนวโน้ม % ลูกค้าเก่า (ซื้อซ้ำ) รายสัปดาห์ + CLV */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h3>{'% ลูกค้าเก่า (ซื้อซ้ำ) — แนวโน้มรายสัปดาห์'} <InfoTip text="ลูกค้าเก่า ÷ ลูกค้าทั้งหมด ในแต่ละสัปดาห์ (จากจำนวนคนจริง — ระบบไม่เก็บรายได้แยกใหม่/เก่า)" label="แนวโน้ม" /></h3>
+          <span className="cap">CLV {'เฉลี่ย'} <b style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</b></span>
+        </div>
+        {(() => {
+          // เฉพาะสัปดาห์ที่ "กรอกลูกค้าจริง" — กันสัปดาห์ที่มีแต่ยอดขาย (ลูกค้า 0) โชว์เป็น 0% หลอกตา
+          const wk = (md.custWeekly || []).filter(w => (w.newC + w.oldC) > 0);
+          if (!wk.length) return <div className="cap" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>{'ยังไม่มีข้อมูลลูกค้ารายสัปดาห์ — กรอกลูกค้าใหม่/เก่าที่ "บันทึก & ภาพรวมเดือน"'}</div>;
+          const vals = wk.map(w => w.returningPct);
+          const up = vals[vals.length - 1] >= vals[0];
+          return (<>
+            <MiniArea data={vals} labels={wk.map(w => `สัปดาห์ ${w.week}`)} fmt={(v) => P(v, 0)} axisFmt={(v) => P(v, 0)} h={160} color="var(--info)" id="cust-returning" metricLabel="ลูกค้าเก่า" />
+            <div className="cap" style={{ marginTop: 8, color: up ? 'var(--good)' : 'var(--ink-3)', fontWeight: 600 }}>
+              {vals.length >= 2 ? (up ? '↗ ฐานลูกค้าซื้อซ้ำกำลังแข็งขึ้น' : '↘ สัดส่วนลูกค้าเก่าลดลง — ลองกระตุ้นลูกค้าเดิม') : 'มีข้อมูลสัปดาห์เดียว — รอข้อมูลเพิ่มเพื่อดูแนวโน้ม'}
+            </div>
+          </>);
+        })()}
       </div>
 
       {/* Cohort table — ซ่อนจนกว่าจะมี tmk_cohort จริง (กันการ์ดว่างถาวร) */}

@@ -227,8 +227,6 @@ function useNav() {
 const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'products', settings: 'general' };
 const ACCENTS = { '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
 
-// Hardcoded defaults (no tweaks panel)
-const navStyle = 'panel';
 const accent = '#0a5aa0';
 const mobilePreview = false;
 
@@ -632,7 +630,6 @@ function AppInner() {
   // Special sections not in NAV (settings)
   const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
-  const topnav = navStyle === 'topnav';
 
   const Shell = ({ forced }) => (
     <div className={'app' + (forced ? ' force-mobile' : '')}>
