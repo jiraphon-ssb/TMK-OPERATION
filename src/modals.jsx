@@ -108,6 +108,7 @@ export function RecordSalesModal({ data, onClose }) {
   const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
   const [touched, setTouched] = useState(false); // มีการแก้ไขค้าง → เตือนก่อนปิด
   const loadDirty = useRef(false); // ผู้ใช้พิมพ์ระหว่างที่ข้อมูลกำลังโหลด → กันโหลดมาทับ (race fix)
+  const beforeRef = useRef(null); // ค่าเดิมจาก DB ตอนเปิด (snapshot) → ทำ log ก่อน→หลัง + เก็บค่าที่ถูกลบ
 
   // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
   const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
@@ -121,6 +122,11 @@ export function RecordSalesModal({ data, onClose }) {
       if (cancel) return;
       setExists(!!row && !row.deleted_at);
       setLoading(false);
+      // snapshot ค่าเดิมจาก DB (ทุก field/ช่องทาง) — ใช้ทำ log ก่อน→หลัง + merge กันช่องเดิมหายตอนเซฟ
+      beforeRef.current = row ? {
+        channels: (row.channels && typeof row.channels === 'object') ? { ...row.channels } : {},
+        note: row.note || '', chatTime: Number(row.avg_reply_minutes) || 0, deleted: !!row.deleted_at,
+      } : null;
       // ผู้ใช้พิมพ์ระหว่างโหลด → ไม่เอาข้อมูล DB มาทับ (กันที่พิมพ์ไป 1-2 ตัวหาย)
       if (loadDirty.current) return;
       setTouched(false); // โหลดวันใหม่ = ยังไม่นับว่าแก้
@@ -173,13 +179,15 @@ export function RecordSalesModal({ data, onClose }) {
       const day_name = dayNames[d.getDay()] || '';
       const byId = Object.fromEntries(rows.map(r => [r.id, r]));
       // per-channel jsonb เก็บครบทุก field (rev/ord/ad/inq/newC/oldC) — กันข้อมูลหาย
-      const channels = {};
+      const curChannels = {};
       for (const r of rows) {
-        channels[r.id] = {
+        curChannels[r.id] = {
           rev: money(r.rev), ord: Number(r.ord) || 0, ad: money(r.ad),
           inq: Number(r.inq) || 0, newC: Number(r.newC) || 0, oldC: Number(r.oldC) || 0,
         };
       }
+      // merge ค่าเดิมจาก DB ก่อน — ช่องทางที่ถูกลบ/ซ่อนออกจากรายการจะไม่สูญข้อมูลอดีต (data-loss fix)
+      const channels = { ...(beforeRef.current?.channels || {}), ...curChannels };
       const row = {
         id: 'd-' + date,
         date,
@@ -205,17 +213,64 @@ export function RecordSalesModal({ data, onClose }) {
         ({ error } = await supabase.from('tmk_daily_sales').upsert(legacy));
       }
       if (error) throw error;
-      // รายละเอียด: ยอดต่อช่องทาง (เก็บว่ากรอกอะไรบ้าง)
+      // ===== Audit: เก็บละเอียดสุด — ทุกช่องทาง ทุกตัวเลข + ก่อน→หลัง + machine data =====
       const chName = (id) => (MD.channels.find(c => c.id === id)?.name) || id;
-      const totRev = rows.reduce((a, r) => a + (Number(r.rev) || 0), 0);
+      const nz = (v) => Number(v) || 0;
+      const totRev = rows.reduce((a, r) => a + nz(r.rev), 0);
+      const totOrd = rows.reduce((a, r) => a + nz(r.ord), 0);
+      const totAd  = rows.reduce((a, r) => a + nz(r.ad), 0);
+      const totInq = rows.reduce((a, r) => a + nz(r.inq), 0);
+      const totNew = rows.reduce((a, r) => a + nz(r.newC), 0);
+      const totOld = rows.reduce((a, r) => a + nz(r.oldC), 0);
+      const chDetail = (o) => {
+        const p = [];
+        if (nz(o.rev))  p.push(bahtStr(o.rev));
+        if (nz(o.ord))  p.push(`${nz(o.ord)} ออร์เดอร์`);
+        if (nz(o.ad))   p.push(`แอด ${bahtStr(o.ad)}`);
+        if (nz(o.inq))  p.push(`ทัก ${nz(o.inq)}`);
+        if (nz(o.newC)) p.push(`ใหม่ ${nz(o.newC)}`);
+        if (nz(o.oldC)) p.push(`เก่า ${nz(o.oldC)}`);
+        return p.join(' · ');
+      };
       const auditFields = [{ label: 'ยอดรวม', value: bahtStr(totRev) }];
-      rows.filter(r => Number(r.rev) > 0).forEach(r => auditFields.push({
-        label: chName(r.id),
-        value: bahtStr(r.rev) + (Number(r.ord) ? ` · ${r.ord} ออร์เดอร์` : '') + (Number(r.ad) ? ` · แอด ${bahtStr(r.ad)}` : ''),
-      }));
-      if (Number(chatTime) > 0) auditFields.push({ label: 'เวลาตอบแชท', value: `${chatTime} นาที` });
+      if (totOrd) auditFields.push({ label: 'ออร์เดอร์รวม', value: `${totOrd}` });
+      if (totAd)  auditFields.push({ label: 'ค่าแอดรวม', value: bahtStr(totAd) });
+      if (totInq) auditFields.push({ label: 'คนทักรวม', value: `${totInq}` });
+      if (totNew) auditFields.push({ label: 'ลูกค้าใหม่รวม', value: `${totNew}` });
+      if (totOld) auditFields.push({ label: 'ลูกค้าเก่ารวม', value: `${totOld}` });
+      // ต่อช่องทาง — เก็บทุกช่องที่มีข้อมูล (ไม่กรองแค่ rev>0 อีกต่อไป → ไม่ตก inq/newC/oldC)
+      rows.forEach(r => { const d = chDetail(r); if (d) auditFields.push({ label: chName(r.id), value: d }); });
+      if (nz(chatTime) > 0) auditFields.push({ label: 'เวลาตอบแชทเฉลี่ย', value: `${chatTime} นาที` });
       if (note) auditFields.push({ label: 'โน้ต', value: note });
-      logAudit({ action: 'create', entityType: 'daily', entityName: date, summary: `บันทึกยอดขายวันที่ ${date} (รวม ${bahtStr(totRev)})`, fields: auditFields });
+
+      // ก่อน→หลัง (เฉพาะแก้ของเดิมที่ยัง active) — ต่อช่องทาง ต่อตัวเลข
+      const before = beforeRef.current;
+      const isEdit = exists;
+      let auditChanges = null;
+      if (before && exists) {
+        const ch = [];
+        const mLabels = { rev: 'ยอด', ord: 'ออร์เดอร์', ad: 'ค่าแอด', inq: 'คนทัก', newC: 'ลูกค้าใหม่', oldC: 'ลูกค้าเก่า' };
+        const fmt = (k, v) => (k === 'rev' || k === 'ad') ? bahtStr(nz(v)) : `${nz(v)}`;
+        rows.forEach(r => {
+          const o = before.channels?.[r.id] || {};
+          Object.keys(mLabels).forEach(k => {
+            if (nz(r[k]) !== nz(o[k])) ch.push({ label: `${chName(r.id)} · ${mLabels[k]}`, from: fmt(k, o[k]), to: fmt(k, r[k]) });
+          });
+        });
+        if (nz(before.chatTime) !== nz(chatTime)) ch.push({ label: 'เวลาตอบแชท', from: `${nz(before.chatTime)} นาที`, to: `${nz(chatTime)} นาที` });
+        if ((before.note || '') !== (note || '')) ch.push({ label: 'โน้ต', from: before.note || '—', to: note || '—' });
+        if (ch.length) auditChanges = ch;
+      }
+
+      logAudit({
+        action: isEdit ? 'update' : 'create',
+        entityType: 'daily',
+        entityName: date,
+        summary: `${isEdit ? 'แก้ไข' : 'บันทึก'}ยอดขายวันที่ ${date} (รวม ${bahtStr(totRev)}${totOrd ? `, ${totOrd} ออร์เดอร์` : ''})`,
+        fields: auditFields,
+        changes: auditChanges,
+        data: { date, day_name, channels, totals: { rev: totRev, ord: totOrd, ad: totAd, inq: totInq, newC: totNew, oldC: totOld }, avg_reply_minutes: nz(chatTime), note: note || '' },
+      });
       window.__reload?.();
       toast(t('toastSaved'), 'success');
       onClose();
@@ -272,7 +327,24 @@ export function RecordSalesModal({ data, onClose }) {
         if (/deleted_at/.test(error.message || '')) { toast('ต้องรัน SQL migration (deleted_at) ใน Supabase ก่อนจึงจะลบได้', 'error'); setSaving(false); return; }
         throw error;
       }
-      logAudit({ action: 'delete', entityType: 'daily', entityName: date, summary: `ลบยอดขายรายวันวันที่ ${date}` });
+      // เก็บค่าทั้งหมดที่กำลังลบ — ตรวจสอบ/กู้คืนได้ภายหลัง
+      const _chName = (id) => (MD.channels.find(c => c.id === id)?.name) || id;
+      const _nz = (v) => Number(v) || 0;
+      const _totRev = rows.reduce((a, r) => a + _nz(r.rev), 0);
+      const delFields = [{ label: 'ยอดรวมที่ลบ', value: bahtStr(_totRev) }];
+      rows.forEach(r => {
+        const p = [];
+        if (_nz(r.rev))  p.push(bahtStr(r.rev));
+        if (_nz(r.ord))  p.push(`${_nz(r.ord)} ออร์เดอร์`);
+        if (_nz(r.ad))   p.push(`แอด ${bahtStr(r.ad)}`);
+        if (_nz(r.inq))  p.push(`ทัก ${_nz(r.inq)}`);
+        if (_nz(r.newC)) p.push(`ใหม่ ${_nz(r.newC)}`);
+        if (_nz(r.oldC)) p.push(`เก่า ${_nz(r.oldC)}`);
+        if (p.length) delFields.push({ label: _chName(r.id), value: p.join(' · ') });
+      });
+      if (_nz(chatTime)) delFields.push({ label: 'เวลาตอบแชท', value: `${chatTime} นาที` });
+      if (note) delFields.push({ label: 'โน้ต', value: note });
+      logAudit({ action: 'delete', entityType: 'daily', entityName: date, summary: `ลบยอดขายรายวันวันที่ ${date} (รวม ${bahtStr(_totRev)})`, fields: delFields, data: { date, channels: beforeRef.current?.channels || null, note: note || '', chatTime: _nz(chatTime) } });
       window.__reload?.();
       toast('ย้ายข้อมูลรายวันไปถังขยะแล้ว', 'success');
       onClose();
@@ -2145,7 +2217,28 @@ export function MonthlyTargetModal({ data, onClose }) {
       tgtFields.push({ label: 'เพดาน ACOS', value: `${Number(acosCeil) || 25}%` });
       if (Number(cogsPct) > 0) tgtFields.push({ label: 'ต้นทุนสินค้า', value: `${Number(cogsPct)}%` });
       if (Number(otherExpense) > 0) tgtFields.push({ label: 'ค่าใช้จ่ายอื่น', value: B(Number(otherExpense)) });
-      logAudit({ action: 'update', entityType: 'monthly', entityName: `${months[monthIdx]} ${year}`, summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})`, fields: tgtFields });
+      // ก่อน→หลัง — เทียบ config เป้าเดิม (เห็นว่าค่าไหนถูกแก้ รวมถึงค่าที่ถูกล้างเป็น 0)
+      const exMeta = (existing && existing.meta) || {};
+      const tgtChanges = [];
+      const cmpMoney = (label, a, b) => { if (Math.round(Number(a) || 0) !== Math.round(Number(b) || 0)) tgtChanges.push({ label, from: B(Number(a) || 0), to: B(Number(b) || 0) }); };
+      const cmpNum = (label, a, b, sfx = '') => { if ((Number(a) || 0) !== (Number(b) || 0)) tgtChanges.push({ label, from: `${Number(a) || 0}${sfx}`, to: `${Number(b) || 0}${sfx}` }); };
+      cmpMoney('เป้ารวม', existing?.target, total);
+      chTargets.forEach(c => cmpMoney(`เป้า ${c.name}`, exMeta.channelTargets?.[c.id], c.target));
+      cmpMoney('งบแอดรวม', exMeta.adBudget, adSum);
+      adChannels.forEach(c => cmpMoney(`งบแอด ${c.name}`, exMeta.adChannels?.[c.id], c.budget));
+      cmpNum('เป้าลูกค้าใหม่', exMeta.newCustTarget, newCustTarget);
+      cmpNum('เพดาน ACOS', exMeta.acosCeil ?? 25, Number(acosCeil) || 25, '%');
+      cmpNum('ต้นทุนสินค้า %', exMeta.cogsPct, Math.min(100, Math.max(0, Number(cogsPct) || 0)), '%');
+      cmpMoney('ค่าใช้จ่ายอื่น', exMeta.otherExpense, otherExpense);
+      logAudit({
+        action: existing ? 'update' : 'create',
+        entityType: 'monthly',
+        entityName: `${months[monthIdx]} ${year}`,
+        summary: `ตั้งเป้าเดือน ${months[monthIdx]} ${year} (${B(Number(total) || 0)})`,
+        fields: tgtFields,
+        changes: tgtChanges.length ? tgtChanges : null,
+        data: { month: monthIdx + 1, year, target: nn(total), meta },
+      });
       window.__reload?.();
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
       onClose();
@@ -2493,7 +2586,24 @@ export function HistoricalEntryModal({ onClose, data }) {
       if (dbRows.length === 0) { toast('ไม่มีข้อมูลให้บันทึก', 'error'); setBusy(false); return; }
       const { error } = await supabase.from('tmk_monthly_history').upsert(dbRows);
       if (error) throw error;
-      logAudit({ action: 'update', entityType: 'monthly', entityName: 'ข้อมูลย้อนหลัง', summary: `บันทึกข้อมูลย้อนหลัง ${dbRows.length} เดือน` });
+      // รายละเอียด: ค่าทุกเดือนที่บันทึก + ระบุเดือนที่สลับเป็นโหมดรายเดือน
+      const histFields = dbRows.map(rr => {
+        const p = [];
+        if (Number(rr.actual))   p.push(`ยอด ${B(rr.actual)}`);
+        if (Number(rr.orders))   p.push(`${rr.orders} ออร์เดอร์`);
+        if (Number(rr.ad_spend)) p.push(`แอด ${B(rr.ad_spend)}`);
+        if (Number(rr.new_cust)) p.push(`ลูกค้าใหม่ ${rr.new_cust}`);
+        if (Number(rr.messages)) p.push(`คนทัก ${rr.messages}`);
+        if (rr.meta?.entryMode === 'monthly') p.push('[โหมดรายเดือน]');
+        return { label: `${rr.month_th} ${rr.year}`, value: p.join(' · ') || '—' };
+      });
+      const modeFlips = dbRows.filter(rr => rr.meta?.entryMode === 'monthly').length;
+      logAudit({
+        action: 'update', entityType: 'monthly', entityName: `ข้อมูลย้อนหลัง ปี ${year}`,
+        summary: `บันทึกข้อมูลย้อนหลัง ${dbRows.length} เดือน (ปี ${year})${modeFlips ? ` · ตั้งโหมดรายเดือน ${modeFlips} เดือน` : ''}`,
+        fields: histFields,
+        data: { year, months: dbRows.map(rr => ({ month: rr.month, actual: rr.actual, orders: rr.orders, ad_spend: rr.ad_spend, new_cust: rr.new_cust, messages: rr.messages, entryMode: rr.meta?.entryMode || 'daily' })) },
+      });
       window.__reload?.();
       toast('บันทึกข้อมูลย้อนหลังเรียบร้อย', 'success');
       onClose();

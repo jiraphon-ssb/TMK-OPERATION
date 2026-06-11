@@ -361,7 +361,12 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
       const { data: upd, error } = await supabase.from('tmk_monthly_history').update({ meta: newMeta }).eq('month', month + 1).eq('year', year).select('id');
       if (error) throw error;
       if (!upd || upd.length === 0) { window.__toast?.('ยังไม่มีข้อมูลเดือนนี้ — ตั้งเป้า/กรอกยอดก่อนเปลี่ยนโหมด', 'warn'); return; }
-      logAudit({ action: 'update', entityType: 'monthly', entityName: `${monthLabel} ${year}`, summary: `เปลี่ยนโหมดข้อมูลเดือน${monthLabel} ${year} → ${toMode === 'daily' ? 'รายวัน' : 'รายเดือน'}` });
+      logAudit({
+        action: 'update', entityType: 'monthly', entityName: `${monthLabel} ${year}`,
+        summary: `เปลี่ยนโหมดข้อมูลเดือน${monthLabel} ${year} → ${toMode === 'daily' ? 'รายวัน' : 'รายเดือน'}`,
+        changes: [{ label: 'โหมดข้อมูล', from: entryMode === 'daily' ? 'รายวัน' : 'รายเดือน', to: toMode === 'daily' ? 'รายวัน' : 'รายเดือน' }],
+        data: { month: month + 1, year, from: entryMode, to: toMode },
+      });
       window.__reload?.();
       window.__toast?.('เปลี่ยนโหมดข้อมูลแล้ว', 'success');
     } catch (e) {

@@ -366,6 +366,7 @@ function mapToTMK(raw) {
       summary: details.summary || a.action,
       fields: Array.isArray(details.fields) ? details.fields : null,   // ค่าที่กรอก/บันทึก
       changes: Array.isArray(details.changes) ? details.changes : null, // สิ่งที่เปลี่ยน ก่อน→หลัง
+      data: details.data || null, // ข้อมูลโครงสร้าง (machine-readable) — สำหรับรายงาน/กู้คืน
     };
   });
 
@@ -572,7 +573,7 @@ export function computeMonth(monthIdx0, yearBE) {
   }));
   // เจาะลึกรายวัน: แต่ละวันยอดมาจากช่องทางไหน กี่บาท กี่% (ทุกช่อง, ทุกวันที่กรอก, ล่าสุดก่อน)
   const dailyBreakdown = [...rows].sort((a, b) => b.day - a.day).map(r => {
-    const perCh = (TMK.channels || []).map(base => ({ id: base.id, name: base.name, hex: base.hex, rev: round2(r.ch[base.id]?.rev || 0) })).filter(c => c.rev > 0).sort((a, b) => b.rev - a.rev);
+    const perCh = (TMK.channels || []).map(base => ({ id: base.id, name: base.name, hex: base.hex, rev: round2(r.ch[base.id]?.rev || 0) })).filter(c => c.rev > 0); // คงลำดับช่องทางมาตรฐาน (TMK.channels sort แล้ว) — legend/แท่ง สีตรงกันทุกวัน
     const tot = round2(perCh.reduce((s, c) => s + c.rev, 0));
     return { d: r.day, label: `${r.day} ${_ABBR[monthNum - 1]}`, dayName: r.dayName, total: tot, channels: perCh.map(c => ({ ...c, pct: tot > 0 ? (c.rev / tot) * 100 : 0 })) };
   });

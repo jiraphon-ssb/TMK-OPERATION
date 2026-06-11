@@ -201,7 +201,7 @@ function CalendarView({ tasks, filtered, fProps }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden', flex: 1, minHeight: 0 }}>
           {show.map(t => {
             const c = DD.campaigns.find(x => x.id === t.camp);
-            return <span key={t.id} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 4, background: (c?.color || '#888') + '22', color: c?.color || '#888', whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25, flexShrink: 0 }}>{t.title}</span>;
+            return <span key={t.id} title={t.title + (c ? ` · ${c.name}` : '')} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 4, background: (c?.color || '#888') + '22', color: c?.color || '#888', whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25, flexShrink: 0 }}>{t.title}</span>;
           })}
         </div>
         {more > 0 && <span style={{ fontSize: 'var(--fs-micro)', fontWeight: 'var(--fw-sem)', color: 'var(--accent-2)', textAlign: 'center', flexShrink: 0 }}>+{more} งาน</span>}
@@ -1455,7 +1455,7 @@ export function SettingsView({ sub, dark, setDark }) {
   const setActive = (id) => window.__goSection?.('settings', id);
   return (
     <div className="content-inner rise">
-      <div className="segbar" style={{ marginBottom: 16, display: 'inline-flex', flexWrap: 'wrap' }}>
+      <div className="segbar" style={{ marginBottom: 16, display: 'inline-flex', maxWidth: '100%' }}>
         {TABS.map(t => (
           <button key={t.id} className={'seg' + (active === t.id ? ' active' : '')}
             onClick={() => setActive(t.id)}>
@@ -1582,9 +1582,13 @@ function GeneralSettings({ dark, setDark }) {
           <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนสต็อกใกล้หมด</div><div className="cap">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div></div>
           <NotifToggle storeKey="tmk-notif-stock" />
         </div>
-        <div className="row between" style={{ padding: '12px 0' }}>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
           <div><div className="sm" style={{ fontWeight: 600 }}>เตือนกรอกยอดขายวันนี้</div><div className="cap">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div></div>
           <NotifToggle storeKey="tmk-notif-daily" />
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนยอดขาย &amp; ค่าแอด</div><div className="cap">เตือนเมื่อค่าแอดเกินเพดาน ACOS หรือยอดช้ากว่าแผน (Pace ต่ำกว่า 90%)</div></div>
+          <NotifToggle storeKey="tmk-notif-sales" />
         </div>
       </div>
 
@@ -1755,178 +1759,6 @@ function UpdatesView() {
   );
 }
 
-/* ====================  PROFILE VIEW  ==================== */
-export function ProfileView({ tasks }) {
-  const { user } = useUser() || {};
-  const { reload } = useData() || {};
-  // hooks ต้องเรียกก่อน early return เสมอ (Rules of Hooks)
-  const [name, setName] = useState(user?.name || '');
-  const [tab, setTab] = useState('tasks');
-  React.useEffect(() => {
-    if (user?.name && user.name !== name) setName(user.name);
-  }, [user?.name]);
-
-  // Fallback if user context not ready
-  if (!user) {
-    return (
-      <div className="content-inner rise">
-        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-          <div className="cap" style={{ color: 'var(--ink-3)' }}>กำลังโหลดโปรไฟล์...</div>
-        </div>
-      </div>
-    );
-  }
-
-  // Filter tasks — match user by:
-  // 1. user.name (e.g. "มัง")
-  // 2. user.department/duty (e.g. "MKT" — task says "MKT", user is MKT duty)
-  // 3. email username (fallback)
-  const myTasks = (tasks || DD.tasks || []).filter(t => {
-    const resp = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim());
-    return resp.includes(user.name)
-        || (user.department && resp.includes(user.department))
-        || resp.includes(user.email.split('@')[0]);
-  });
-  const myDone = myTasks.filter(t => t.status === 'done').length;
-  const myActive = myTasks.filter(t => t.status !== 'done').length;
-  // Activity จาก audit log จริงที่ email ตรงกัน
-  const myActivity = (DD.audit || []).filter(a => {
-    return a.user === user.name || a.user === user.email.split('@')[0];
-  });
-
-  const saveProfile = async () => {
-    if (!guardEdit()) return;
-    try {
-      // 1. Save to Supabase tmk_staff (ชื่อ + สี)
-      const existingStaff = (DD.staff || []).find(s => s.email === user.email);
-      const staffId = existingStaff?.id || ('s-' + user.email.replace(/[^a-z0-9]/gi, '').toLowerCase());
-      const { error } = await supabase.from('tmk_staff').upsert({
-        id: staffId,
-        name: name.trim() || user.email.split('@')[0],
-        role: existingStaff?.role || user.department || 'Staff',
-        email: user.email,
-        color: existingStaff?.color || user.color || '#3b82f6',
-      });
-      if (error) throw error;
-
-      // 2. Sync ชื่อใน tmk_user_roles
-      try {
-        await supabase.from('tmk_user_roles').upsert({
-          email: user.email,
-          role: user.role,
-          name: name.trim() || user.email.split('@')[0],
-        });
-      } catch (e) {
-        console.warn('tmk_user_roles name sync failed (might be missing column):', e);
-      }
-
-      // 3. Cache to localStorage
-      try {
-        const saved = JSON.parse(localStorage.getItem('tmk-user') || '{}');
-        localStorage.setItem('tmk-user', JSON.stringify({ ...saved, displayName: name }));
-        window.dispatchEvent(new Event('tmk-user-change'));
-      } catch {}
-
-      logAudit({ action: 'update', entityType: 'user', entityName: name, summary: `แก้ไขโปรไฟล์ "${name}"` });
-
-      // 4. Force reload data (in case realtime doesn't fire)
-      if (reload) await reload();
-
-      if (window.__toast) window.__toast('อัปเดตโปรไฟล์เรียบร้อย', 'success');
-    } catch (err) {
-      console.error(err);
-      if (window.__toast) window.__toast('บันทึกไม่สำเร็จ: ' + err.message, 'error');
-    }
-  };
-
-  const roleLabel = user.role === 'admin' ? 'ผู้ดูแลระบบ' : user.role === 'editor' ? 'แก้ไขได้' : 'ดูอย่างเดียว';
-
-  return (
-    <div className="content-inner rise">
-      {/* Profile Header */}
-      <div className="card" style={{ padding: 24, display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <UserIcon size={80} radius={20} />
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <div className="row" style={{ gap: 10, marginBottom: 4 }}>
-            <input className="input" value={name} onChange={e => setName(e.target.value)}
-              style={{ fontSize: 'var(--fs-h2)', fontWeight: 700, border: 'none', background: 'transparent', padding: 0, borderBottom: '2px solid var(--line)', borderRadius: 0, maxWidth: 250 }} />
-            <button className="btn btn-sm btn-primary" onClick={saveProfile}><Icon name="check" /> บันทึก</button>
-          </div>
-          <div className="cap" style={{ marginBottom: 8 }}>{user.email}</div>
-          <div className="row" style={{ gap: 8 }}>
-            <span className="chip chip-accent">{roleLabel}</span>
-            {user.loginAt && (
-              <span className="cap">เข้าใช้ครั้งล่าสุด {new Date(user.loginAt).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })}</span>
-            )}
-          </div>
-        </div>
-        <div className="grid g3" style={{ gap: 16, textAlign: 'center' }}>
-          <div>
-            <div className="num h1" style={{ color: 'var(--accent)' }}>{myTasks.length}</div>
-            <div className="cap">งานทั้งหมด</div>
-          </div>
-          <div>
-            <div className="num h1" style={{ color: 'var(--good)' }}>{myDone}</div>
-            <div className="cap">เสร็จแล้ว</div>
-          </div>
-          <div>
-            <div className="num h1" style={{ color: 'var(--warn)' }}>{myActive}</div>
-            <div className="cap">กำลังทำ</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tab: My tasks / My activity */}
-      <div className="segbar" style={{ marginBottom: 16, display: 'inline-flex' }}>
-        <button className={'seg' + (tab === 'tasks' ? ' active' : '')} onClick={() => setTab('tasks')}><Icon name="listChecks" /> งานของฉัน ({myTasks.length})</button>
-        <button className={'seg' + (tab === 'activity' ? ' active' : '')} onClick={() => setTab('activity')}><Icon name="clock" /> ประวัติของฉัน ({myActivity.length})</button>
-      </div>
-
-      {tab === 'tasks' && (
-        <div className="card">
-          {myTasks.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}><div className="cap">ยังไม่มีงาน</div></div>}
-          {myTasks.map(t => {
-            const c = DD.campaigns.find(x => x.id === t.camp);
-            const stMap = { todo: { l: 'รอทำ', c: 'var(--ink-3)' }, inprogress: { l: 'กำลังทำ', c: 'var(--info)' }, review: { l: 'รอตรวจ', c: 'var(--warn)' }, done: { l: 'เสร็จ', c: 'var(--good)' } };
-            const st = stMap[t.status] || stMap.todo;
-            return (
-              <div key={t.id} role="button" tabIndex={0} onKeyDown={onCardKey} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
-                className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)', cursor: 'pointer', transition: 'background 0.1s' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: st.c, flexShrink: 0 }}></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sm" style={{ fontWeight: 600, textDecoration: t.status === 'done' ? 'line-through' : 'none' }}>{t.title}</div>
-                  <div className="cap">{c?.name} · {t.date}</div>
-                </div>
-                <span className="cap" style={{ color: st.c, fontWeight: 600 }}>{st.l}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {tab === 'activity' && (
-        <div className="card">
-          {myActivity.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}><div className="cap">ยังไม่มีประวัติ</div></div>}
-          {myActivity.map((a, i) => {
-            const m = actionMeta(a);
-            return (
-              <div key={i} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.c, flexShrink: 0 }}></span>
-                <div style={{ flex: 1 }}>
-                  <div className="sm" style={{ fontWeight: 600 }}>{m.l} · {ENTITY_TH[a.entity] || a.entity}</div>
-                  <div className="cap">{a.summary}</div>
-                </div>
-                <span className="cap">{a.time}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ความหมายของแต่ละ action (ครอบคลุมทุกประเภท) — ใช้ร่วม AuditView + ProfileView
 const ACTION_META = {

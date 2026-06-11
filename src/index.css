@@ -298,7 +298,7 @@ input, select, textarea { font-family: inherit; }
 .seg {
   border: none; background: transparent; color: var(--ink-2);
   padding: 8px 14px; border-radius: var(--r-sm); font-size: var(--fs-sm); font-weight: var(--fw-med);
-  white-space: nowrap; display: flex; align-items: center; gap: 7px; transition: all 0.14s var(--ease);
+  white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 7px; transition: all 0.14s var(--ease);
 }
 .seg .ico { width: 16px; height: 16px; }
 .seg.active { background: var(--surface); color: var(--accent-2); font-weight: var(--fw-sem); box-shadow: var(--sh-sm); }
@@ -372,6 +372,13 @@ input, select, textarea { font-family: inherit; }
 .g2 { grid-template-columns: repeat(2, 1fr); }
 .g3 { grid-template-columns: repeat(3, 1fr); }
 .g4 { grid-template-columns: repeat(4, 1fr); }
+/* statgrid — กริดสถิติเล็กในการ์ด: คงหลายคอลัมน์บนมือถือ (ไม่ยุบเป็น 1 แถวยาว) */
+.statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.statgrid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 460px) { .statgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* FB เจาะลึก 5 สถิติ: เรียงแถวเดียวบนจอใหญ่ → 2 คอลัมน์บนมือถือ (ไม่ยาว) */
+.fbstat { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto; gap: 12px; }
+@media (max-width: 700px) { .fbstat { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .row { display: flex; align-items: center; gap: 12px; }
 .col { display: flex; flex-direction: column; }
 .between { justify-content: space-between; }
@@ -508,6 +515,13 @@ input, select, textarea { font-family: inherit; }
   .g4 { grid-template-columns: repeat(2, 1fr); }
   .g3 { grid-template-columns: 1fr; }
   .g2 { grid-template-columns: 1fr; }
+  /* inline-column grids (เช่น 1.6fr 1fr) ไม่ยุบเองเพราะ inline style ชนะ — บังคับเป็น 1 คอลัมน์บนมือถือ
+     จำกัดเฉพาะ .grid (กราฟภายในใช้ display:grid เปล่าๆ ไม่โดน) */
+  .content .grid[style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }
+  /* ตารางกว้าง — เลื่อนแนวนอนแทนล้นจอ */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* หัวการ์ด (ชื่อ + ปุ่ม/แท็บ) ขึ้นบรรทัดใหม่เมื่อแคบ แทนล้นจอ */
+  .card-head { flex-wrap: wrap; }
 }
 @media (max-width: 1120px) and (min-width: 901px) {
   .search { width: 180px; }

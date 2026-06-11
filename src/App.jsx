@@ -6,8 +6,8 @@ import { TMK } from './data.js';
 import { Icon, B, Bk, N, Avatar, UserIcon, ORDER_STATUSES, orderStatusMeta, orderStatusIndex } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
-import { PlannerView, CatalogView, SettingsView, ProfileView } from './views-2.jsx';
-import { Onboarding, HelpCenter, GuideOverlay } from './onboarding.jsx';
+import { PlannerView, CatalogView, SettingsView } from './views-2.jsx';
+import { Onboarding } from './onboarding.jsx';
 import { EntryView } from './views-entry.jsx';
 import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
@@ -439,12 +439,10 @@ function AppInner() {
   const [notif, setNotif] = useState(false);
   const [menu, setMenu] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
-  const [guide, setGuide] = useState(null); // { topicId, steps, current, onDone }
   const contentRef = useRef(null);
 
   const nav = NAV.find(n => n.id === section);
-  // Settings/profile/help ไม่อยู่ใน NAV แต่มี sub-tabs — อ่านจาก subMap ตรง
+  // Settings ไม่อยู่ใน NAV แต่มี sub-tabs — อ่านจาก subMap ตรง
   const SECTIONS_WITH_SUBS = ['settings'];
   const sub = (nav?.subs || SECTIONS_WITH_SUBS.includes(section)) ? subMap[section] : null;
 
@@ -481,12 +479,6 @@ function AppInner() {
     window.__toast = toast;
     window.__reload = dataReload; // ให้โมดัลรีโหลดทันทีหลังบันทึก (กันค้างถ้า realtime ช้า/หลุด)
     window.__goSection = (sec, s) => go(sec, s);
-    window.__startGuide = (topicId, steps, onDone) => {
-      // Navigate to first step
-      const first = steps[0];
-      if (first.nav) go(first.nav[0], first.nav[1]);
-      setGuide({ topicId, steps, current: 0, onDone });
-    };
   }, [toast]);
 
   // Show onboarding on first login
@@ -587,18 +579,37 @@ function AppInner() {
         .map(p => ({ id: 'stock-' + p.id, kind: 'stock', title: `${p.name} ${p.stock === 'out' ? 'หมดสต็อก' : 'ใกล้หมด'}`, txt: 'ดูสินค้า' }))
     : [];
 
+  // ยอดขาย/แอด — เตือนเมื่อ ACOS เกินเพดาน หรือยอดช้ากว่าแผน (toggle: tmk-notif-sales)
+  const notifsSales = readFlag('tmk-notif-sales') ? (() => {
+    const out = [];
+    const ceil = TMK.consts.ACOS_CEIL || 25;
+    (TMK.channels || []).forEach(c => {
+      if (c.actual > 0 && c.ad > 0) {
+        const acos = (c.ad / c.actual) * 100;
+        if (acos > ceil) out.push({ id: 'acos-' + c.id, kind: 'sales', title: `${c.name}: ค่าแอด ${acos.toFixed(0)}% ของยอด (เพดาน ${ceil}%)`, txt: 'ดูภาพรวม' });
+      }
+    });
+    const Cm = TMK.computed || {};
+    if ((TMK.consts.TARGET || 0) > 0 && typeof Cm.PACE_PCT === 'number' && Cm.PACE_PCT < 90) {
+      out.push({ id: 'pace', kind: 'sales', title: `ยอดช้ากว่าแผน — จังหวะทำยอด ${Cm.PACE_PCT.toFixed(0)}%`, txt: 'ดูภาพรวม' });
+    }
+    return out;
+  })() : [];
+
   const notifGroups = [
     { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
+    { key: 'sales', label: 'ยอดขาย/แอด', items: notifsSales, color: 'var(--warn)' },
     { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
     { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
     { key: 'stock', label: 'สต็อก', items: notifsStock, color: 'var(--info)' },
     { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
   ].filter(g => g.items.length > 0);
-  const notifs = [...notifsTodaySales, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
+  const notifs = [...notifsTodaySales, ...notifsSales, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
 
   const onNotifClick = (n) => {
     setNotif(false);
     if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
+    if (n.kind === 'sales') { go('sales', 'overview'); return; }
     if (n.kind === 'stock') { go('catalog', 'products'); return; }
     if (n.kind === 'lastmonth') { go('sales', 'monthly'); setTimeout(() => window.__openModal('historical'), 100); return; }
     go('planner', 'kanban');
@@ -612,15 +623,14 @@ function AppInner() {
       case 'planner': return <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />;
       case 'catalog': return <CatalogView sub={sub} />;
       case 'settings': return <SettingsView sub={sub} dark={dark} setDark={setDark} />;
-      case 'profile': return <ProfileView tasks={tasks} />;
       default: return null;
     }
   };
 
   const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
 
-  // Special sections not in NAV (profile, settings, help)
-  const SPECIAL_LABELS = { profile: 'โปรไฟล์', settings: 'ตั้งค่า' };
+  // Special sections not in NAV (settings)
+  const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
   const topnav = navStyle === 'topnav';
 
@@ -639,37 +649,12 @@ function AppInner() {
           ))}
         </div>
         <div className="rail-foot">
-          <button className="rail-icon-sm" onClick={() => setShowHelp(true)} title="ช่วยเหลือ">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-          </button>
           <div style={{ position: 'relative' }}>
             <RailAvatar onClick={() => setMenu(m => !m)} />
             {menu && <ProfileMenu go={go} dark={dark} setDark={setDark} close={() => setMenu(false)} onLogout={logout} />}
           </div>
         </div>
       </nav>
-
-      {/* ---------- Context Panel (panel variation) ---------- */}
-      {!topnav && nav?.subs && (
-        <aside className="panel desktop-only">
-          <div className="panel-head">
-            <div className="panel-title">{nav.label}</div>
-            <div className="panel-sub">{t(nav.id === 'sales' ? 'panelSalesSub' : nav.id === 'planner' ? 'panelPlannerSub' : nav.id === 'catalog' ? 'panelCatalogSub' : 'panelSystemSub')}</div>
-          </div>
-          <div className="panel-group">
-            {nav.subs.map(s => (
-              <button key={s.id} className={'panel-item' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
-                <Icon name={s.icon} />{s.label}
-                {counts[s.id] != null && <span className="count">{counts[s.id]}</span>}
-              </button>
-            ))}
-          </div>
-        </aside>
-      )}
 
       {/* ---------- Main ---------- */}
       <div className="main">
@@ -691,26 +676,15 @@ function AppInner() {
           </div>
         </header>
 
-        {/* sub tabs inside .content */}
+        {/* sub tabs inside .content — แถบแนวนอนเดียว (สไตล์เดียวกับตั้งค่า) รองรับทุกหน้าจอ: wrap ลงบรรทัดใหม่เมื่อแคบ */}
         <div className="content" ref={contentRef}>
-          {topnav && nav?.subs && (
-            <div className="desktop-only content-inner" style={{ marginBottom: 16 }}>
+          {nav?.subs && (
+            <div className="content-inner" style={{ marginBottom: 16 }}>
               <div className="segbar" style={{ display: 'inline-flex', maxWidth: '100%' }}>
                 {nav.subs.map(s => (
                   <button key={s.id} className={'seg' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
                     <Icon name={s.icon} />{s.label}
                     {counts[s.id] != null && <span className="chip" style={{ marginLeft: 2 }}>{counts[s.id]}</span>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          {nav?.subs && (
-            <div className="mobile-only content-inner" style={{ marginBottom: 16 }}>
-              <div className="segbar">
-                {nav.subs.map(s => (
-                  <button key={s.id} className={'seg' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
-                    <Icon name={s.icon} />{s.label}
                   </button>
                 ))}
               </div>
@@ -781,9 +755,7 @@ function AppInner() {
               </div>
             ))}
             <div className="divider" style={{ margin: '12px 0' }}></div>
-            <button className="panel-item" onClick={() => go('profile')}><Icon name="users" />โปรไฟล์</button>
             <button className="panel-item" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
-            <button className="panel-item" onClick={() => { setDrawer(false); setShowHelp(true); }}><svg className="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>ช่วยเหลือ</button>
             <button className="panel-item" style={{ color: 'var(--bad)' }} onClick={logout}><Icon name="external" />ออกจากระบบ</button>
           </div>
         </>
@@ -819,61 +791,6 @@ function AppInner() {
 
       {/* Onboarding tour */}
       {showShell && showOnboarding && <Onboarding onComplete={completeOnboarding} />}
-
-      {/* Help Center popup */}
-      {authed && showHelp && !guide && (
-        <div className="modal-scrim" onClick={() => setShowHelp(false)} style={{ zIndex: 9980 }}>
-          <div onClick={e => e.stopPropagation()} style={{
-            position: 'relative', width: '90%', maxWidth: 640, maxHeight: '80vh',
-            background: 'var(--surface)', borderRadius: 'var(--r-xl)',
-            boxShadow: 'var(--sh-pop)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
-          }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center' }}>
-                <Icon name="sparkle" />
-              </span>
-              <div style={{ flex: 1 }}><div className="h3">ช่วยเหลือ</div><div className="cap">คู่มือการใช้งาน TMK Operation</div></div>
-              <button className="icon-btn" onClick={() => setShowHelp(false)}><Icon name="x" /></button>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-              <HelpCenter onStartGuide={(topicId, steps, onDone) => {
-                setShowHelp(false);
-                const first = steps[0];
-                if (first.nav) go(first.nav[0], first.nav[1]);
-                setGuide({ topicId, steps, current: 0, onDone });
-              }} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Interactive Guide Overlay */}
-      {authed && guide && (
-        <GuideOverlay
-          steps={guide.steps}
-          current={guide.current}
-          onNext={() => {
-            const nextIdx = guide.current + 1;
-            if (nextIdx < guide.steps.length) {
-              const nextStep = guide.steps[nextIdx];
-              if (nextStep.nav) go(nextStep.nav[0], nextStep.nav[1]);
-              setGuide({ ...guide, current: nextIdx });
-            }
-          }}
-          onPrev={() => {
-            if (guide.current > 0) {
-              const prevIdx = guide.current - 1;
-              const prevStep = guide.steps[prevIdx];
-              if (prevStep.nav) go(prevStep.nav[0], prevStep.nav[1]);
-              setGuide({ ...guide, current: prevIdx });
-            }
-          }}
-          onClose={() => { setGuide(null); setShowHelp(true); }}
-          onDone={() => { if (guide.onDone) guide.onDone(); setGuide(null); setShowHelp(true); }}
-        />
-      )}
-
-      {/* Help button removed — now in rail */}
 
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />
@@ -993,7 +910,6 @@ function ProfileMenu({ go, dark, setDark, close, onLogout }) {
           </div>
         </div>
         <div className="divider"></div>
-        <button className="menu-row" onClick={() => go('profile')}><Icon name="users" />โปรไฟล์</button>
         <button className="menu-row" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
         <div className="divider"></div>
         <button className="menu-row danger" onClick={onLogout}><Icon name="external" />ออกจากระบบ</button>
