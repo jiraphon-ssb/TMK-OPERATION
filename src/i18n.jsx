@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Multi-language (TH/EN)
    ============================================================ */
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 
 const LangContext = createContext();
 
@@ -504,7 +504,7 @@ export function LangProvider({ children }) {
 
   const switchLang = useCallback((l) => {
     setLang(l);
-    try { localStorage.setItem('tmk-lang', l); } catch {}
+    try { localStorage.setItem('tmk-lang', l); } catch { /* ignore */ }
   }, []);
 
   const t = useCallback((key, ...args) => {

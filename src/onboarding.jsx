@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Onboarding tour + Help system
    ============================================================ */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import { Icon } from './components.jsx';
 import { useLang } from './i18n.jsx';
 
@@ -73,11 +73,13 @@ export function TourOverlay({ step, total, current, onNext, onPrev, onClose }) {
   const [rect, setRect] = useState(null);
   const tooltipRef = useRef(null);
 
-  useEffect(() => {
+  // วัดตำแหน่ง target จาก DOM จริง (ต้องหลัง layout) — useLayoutEffect วัดก่อน paint กัน spotlight กระพริบ
+  useLayoutEffect(() => {
     const el = document.querySelector(step.target);
     if (el) {
       const r = el.getBoundingClientRect();
       // target ที่ซ่อน (เช่น rail บนมือถือ) → rect ขนาด 0 → ถือว่าไม่มี (โชว์ tooltip กลางจอแทน ไม่พังมุมจอ)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- จำเป็น: เก็บผลวัด layout จริงลง state (ไม่มีทางทำตอน render)
       if (r.width === 0 && r.height === 0) { setRect(null); return; }
       setRect(r);
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

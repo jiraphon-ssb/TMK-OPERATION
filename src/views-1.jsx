@@ -1,17 +1,16 @@
 /* ============================================================
    TMK Operation — Views part 1: Home (cockpit) + Sales
    ============================================================ */
-import React, { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, Section, InfoTip } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, InfoTip } from './components.jsx';
 import { useUser } from './userContext.jsx';
-import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, thaiDate, todayISO } from './lib/dateUtils.js';
+import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
 const D = TMK;
-const C = TMK.computed;
 // ❌ ไม่ destructure constants เพราะ primitive snapshot จะค้างที่ 0
 // ✅ ใช้ TMK.consts.X inline เพื่อให้อัปเดตจาก Supabase ทันที
 
@@ -660,7 +659,7 @@ function YoYChart({ data: dataProp, year }) {
   );
 }
 
-function SalesChannels({ dateProps, prevMonthName, md, prevMd }) {
+function SalesChannels({ dateProps, md, prevMd }) {
   const consts = md.consts, channels = md.channels;
   const bigIds = ['facebook', 'line'];
   const big = channels.filter(c => bigIds.includes(c.id));
@@ -724,7 +723,7 @@ function SocialChannelCard({ ch, md, consts }) {
 }
 
 // การ์ดช่องทางทั่วไป (เดิม)
-function ChannelCard({ ch, md, consts, prevMd }) {
+function ChannelCard({ ch, consts, prevMd }) {
   const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
   const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad / ch.actual) * 100 : null;
   const cogsPct = consts.cogsPct || 0;
@@ -757,7 +756,7 @@ function ChannelCard({ ch, md, consts, prevMd }) {
   );
 }
 
-function SalesAds({ dateProps, prevMonthName, md }) {
+function SalesAds({ dateProps, md }) {
   const consts = md.consts, channels = md.channels;
   // KPI สรุป — เลือกช่องทางได้ (ค่าเริ่ม Facebook + LINE) — คุมเฉพาะ 4 การ์ดบนสุด
   const _defSel = ['facebook', 'line'].filter(id => channels.some(c => c.id === id));
@@ -944,7 +943,7 @@ function SalesAds({ dateProps, prevMonthName, md }) {
   );
 }
 
-function SalesCustomers({ dateProps, prevMonthName, md }) {
+function SalesCustomers({ dateProps, md }) {
   const C = md.computed;
   // สัดส่วนลูกค้าใหม่คิดจาก "จำนวนคน" (ไม่ได้แยกรายได้ใหม่/เก่า)
   const custTot = C.NEW_C + C.OLD_C;
@@ -999,6 +998,7 @@ function SalesCustomers({ dateProps, prevMonthName, md }) {
       </div>
 
       {/* Cohort table — ซ่อนจนกว่าจะมี tmk_cohort จริง (กันการ์ดว่างถาวร) */}
+      {/* eslint-disable-next-line no-constant-binary-expression */}
       {false && (
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head"><h3>{'ตาราง'} Cohort Retention</h3></div>

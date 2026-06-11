@@ -1,9 +1,9 @@
 /* ============================================================
    TMK Operation — Modals & Login
    ============================================================ */
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, P, N, Icon, readImageCompressed, SIZES, SHIRT_COLORS, lotTotal as calcLotTotal, lotValue as calcLotValue, barcodeSVGString, Barcode, ORDER_STATUSES, orderStatusMeta } from './components.jsx';
+import { B, Bk, P, N, Icon, readImageCompressed, SIZES, SHIRT_COLORS, lotTotal as calcLotTotal, lotValue as calcLotValue, barcodeSVGString, Barcode, orderStatusMeta } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -104,7 +104,6 @@ export function RecordSalesModal({ data, onClose }) {
   const [note, setNote] = useState('');
   const [chatTime, setChatTime] = useState('');
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
   const [touched, setTouched] = useState(false); // มีการแก้ไขค้าง → เตือนก่อนปิด
   const loadDirty = useRef(false); // ผู้ใช้พิมพ์ระหว่างที่ข้อมูลกำลังโหลด → กันโหลดมาทับ (race fix)
@@ -116,12 +115,10 @@ export function RecordSalesModal({ data, onClose }) {
   useEffect(() => {
     let cancel = false;
     loadDirty.current = false; // เริ่มโหลดวันใหม่ = ยังไม่พิมพ์
-    setLoading(true);
     (async () => {
       const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', 'd-' + date).maybeSingle();
       if (cancel) return;
       setExists(!!row && !row.deleted_at);
-      setLoading(false);
       // snapshot ค่าเดิมจาก DB (ทุก field/ช่องทาง) — ใช้ทำ log ก่อน→หลัง + merge กันช่องเดิมหายตอนเซฟ
       beforeRef.current = row ? {
         channels: (row.channels && typeof row.channels === 'object') ? { ...row.channels } : {},
@@ -1407,7 +1404,7 @@ export function ReservationModal({ data, onClose }) {
               <button type="button" className="btn btn-sm btn-ghost" onClick={addItem}><Icon name="plus" /> เพิ่มรายการ</button>
             </div>
             {items.map((it, i) => {
-              const colors = Object.keys(variants).filter(c => Object.entries(variants[c]).some(([s, q]) => availOf(c, s) > 0 || s === it.size));
+              const colors = Object.keys(variants).filter(c => Object.entries(variants[c]).some(([s]) => availOf(c, s) > 0 || s === it.size));
               const sizes = it.color ? Object.keys(variants[it.color] || {}).filter(s => availOf(it.color, s) > 0 || s === it.size) : [];
               const av = availOf(it.color, it.size);
               return (
@@ -2550,9 +2547,15 @@ export function HistoricalEntryModal({ onClose, data }) {
   // ตัวเลือกปี — แก้ย้อนหลังข้ามปีได้ (ปีปัจจุบัน ถึง ย้อนหลัง 5 ปี)
   const yearOptions = [0, 1, 2, 3, 4, 5].map(d => _today.yearBE - d);
   const [year, setYear] = useState(data?.year || _today.yearBE); // จำปีที่เลือกจากหน้าเดือน (กันเปิดมาปีปัจจุบันเสมอ)
-  const [rows, setRows] = useState(() => buildRows(_today.yearBE));
+  const [rows, setRows] = useState(() => buildRows(data?.year || _today.yearBE));
   const [touched, setTouched] = useState(false);
-  useEffect(() => { setRows(buildRows(year)); setTouched(false); }, [year]); // เปลี่ยนปี → โหลดค่าเดิมของปีนั้น
+  // เปลี่ยนปี → โหลดค่าเดิมของปีนั้น (ปรับตอน render แทน setState ใน effect → ไม่ render ซ้ำ/ไม่กระพริบ)
+  const [rowsYear, setRowsYear] = useState(year);
+  if (rowsYear !== year) {
+    setRowsYear(year);
+    setRows(buildRows(year));
+    setTouched(false);
+  }
   const up = (i, k, v) => { setTouched(true); setRows(rs => rs.map((r, j) => j === i ? { ...r, [k]: v } : r)); };
 
   const [busy, setBusy] = useState(false);
@@ -2662,10 +2665,43 @@ export function HistoricalEntryModal({ onClose, data }) {
 export function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState(() => { try { return localStorage.getItem('tmk-remember-email') || ''; } catch { return ''; } });
   const [pw, setPw] = useState('');
+  const [showPw, setShowPw] = useState(false); // ดู/ซ่อนรหัสผ่าน
   const [agree, setAgree] = useState(false);
   const [remember, setRemember] = useState(() => { try { return localStorage.getItem('tmk-remember') === 'true'; } catch { return false; } });
   const [showTerms, setShowTerms] = useState(false);
-  const submit = (e) => { e.preventDefault(); if (agree) onLogin(email.trim() || 'jiraphon.e@tmk.co', remember); };
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const rememberEmail = (em) => {
+    try {
+      if (remember) { localStorage.setItem('tmk-remember', 'true'); localStorage.setItem('tmk-remember-email', em); }
+      else { localStorage.removeItem('tmk-remember'); localStorage.removeItem('tmk-remember-email'); }
+    } catch { /* ignore */ }
+  };
+
+  // เข้าสู่ระบบด้วยอีเมล+รหัส (แอดมินเป็นคนตั้งรหัสให้ — ไม่มีตั้งเอง/ลืมรหัสในหน้านี้)
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    const em = email.trim().toLowerCase();
+    if (!em) { setErr('กรุณากรอกอีเมล'); return; }
+    if (!pw) { setErr('กรุณากรอกรหัสผ่าน'); return; }
+    if (!agree) { setErr('กรุณายอมรับข้อตกลงก่อน'); return; }
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: em, password: pw });
+      if (error) throw error;
+      rememberEmail(em);
+      onLogin?.(em);
+    } catch (e2) {
+      const m = e2.message || '';
+      setErr(/invalid login/i.test(m) ? 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
+        : /not confirmed/i.test(m) ? 'อีเมลยังไม่ได้ยืนยัน — ติดต่อแอดมิน'
+        : 'เข้าสู่ระบบไม่สำเร็จ: ' + m);
+    } finally { setBusy(false); }
+  };
+
+  const canSubmit = !busy && !!email.trim() && !!pw && agree;
   return (
     <div className="login">
       <div className="login-art">
@@ -2691,12 +2727,21 @@ export function LoginScreen({ onLogin }) {
           </div>
           <div className="field" style={{ marginBottom: 14 }}>
             <label>อีเมล</label>
-            <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@tmk.co" />
+            <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@tmk.co" autoComplete="username" />
           </div>
           <div className="field" style={{ marginBottom: 14 }}>
             <label>รหัสผ่าน</label>
-            <input className="input" type="password" value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" />
+            <div style={{ position: 'relative' }}>
+              <input className="input" type={showPw ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" autoComplete="current-password" style={{ width: '100%', paddingRight: 42 }} />
+              <button type="button" onClick={() => setShowPw(v => !v)} title={showPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'} aria-label={showPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: showPw ? 'var(--accent)' : 'var(--ink-3)', width: 30, height: 30, display: 'grid', placeItems: 'center', padding: 0 }}>
+                <Icon name="eye" />
+              </button>
+            </div>
           </div>
+
+          {err && <div className="sm" style={{ background: 'var(--bad-soft, rgba(255,90,90,0.12))', color: 'var(--bad, #d9434e)', padding: '9px 12px', borderRadius: 'var(--r-sm)', marginBottom: 14 }}>{err}</div>}
+
           <div style={{ marginBottom: 14 }}>
             <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
               <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
@@ -2705,7 +2750,7 @@ export function LoginScreen({ onLogin }) {
           </div>
           <div style={{ marginBottom: 18 }}>
             <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={agree} onChange={e => { if (!agree) { setShowTerms(true); } else { setAgree(false); } }} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
+              <input type="checkbox" checked={agree} onChange={() => { if (!agree) { setShowTerms(true); } else { setAgree(false); } }} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
               <span className="cap">ยอมรับ<button type="button" onClick={e => { e.preventDefault(); setShowTerms(true); }} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: 'inherit', fontFamily: 'inherit' }}>ข้อตกลงและกฎระเบียบการใช้งานระบบ</button></span>
             </label>
           </div>
@@ -2798,9 +2843,13 @@ export function LoginScreen({ onLogin }) {
               </div>
             </div>
           )}
-          <button className="btn btn-primary" type="submit" disabled={!agree} style={{ width: '100%', justifyContent: 'center', padding: '11px', opacity: agree ? 1 : 0.5 }}>
-            เข้าสู่ระบบ (Sign In) <Icon name="arrowR" />
+          <button className="btn btn-primary" type="submit" disabled={!canSubmit} style={{ width: '100%', justifyContent: 'center', padding: '11px', opacity: canSubmit ? 1 : 0.5 }}>
+            {busy ? 'กำลังเข้าสู่ระบบ…' : <>เข้าสู่ระบบ (Sign In) <Icon name="arrowR" /></>}
           </button>
+
+          <div className="cap" style={{ textAlign: 'center', marginTop: 16, color: 'var(--ink-4)' }}>
+            ลืมรหัสผ่าน? ติดต่อผู้ดูแลระบบเพื่อตั้งรหัสใหม่
+          </div>
         </form>
       </div>
     </div>
