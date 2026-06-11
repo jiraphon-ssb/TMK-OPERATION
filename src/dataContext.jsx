@@ -6,7 +6,7 @@
    - Force re-render ผ่าน React state เมื่อ data มา
    - Realtime subscription: อัปเดตอัตโนมัติเมื่อ DB เปลี่ยน
    ============================================================ */
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { TMK } from './data.js';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.js';
 import { getToday, THAI_MONTHS } from './lib/dateUtils.js';
@@ -99,12 +99,17 @@ async function loadAllTables() {
     }
   });
   if (failed.length) result.__errors = failed; // ส่งต่อให้ load() แจ้งผู้ใช้ (กันตารางพังดูเหมือน "ไม่มีข้อมูล")
+
+  // ยอดสะสมต่อลูกค้าจาก view (รวมทุกออเดอร์ ไม่ติด limit 500) — optional: ถ้ายังไม่รัน migration
+  // จะไม่เข้า __errors (ไม่ขึ้นเตือน) และ mapToTMK fallback ไปรวมจาก orders ที่โหลดมาแทน
+  const ctRes = await supabase.from('tmk_customer_totals').select('*');
+  if (!ctRes.error && Array.isArray(ctRes.data)) result.customerTotals = ctRes.data;
+
   return result;
 }
 
 // แปลง raw Supabase data → TMK structure
 function mapToTMK(raw) {
-  const settings = raw.settings || {};
   const today = getToday(); // วันที่จริงของเครื่อง = source of truth ของ "วันนี้"
   // ค่าตั้งค่า "รายเดือน" ของเดือนปัจจุบัน (เก็บใน tmk_monthly_history: target + meta jsonb)
   const _curRow = (raw.monthly || []).find(m => Number(m.year) === today.yearBE && Number(m.month) === today.month);
@@ -293,7 +298,8 @@ function mapToTMK(raw) {
     const liveMTD = round2(Object.values(dailyAgg).reduce((s, c) => s + (c.rev || 0), 0));
     const liveORD = Object.values(dailyAgg).reduce((s, c) => s + (c.ord || 0), 0);
     const liveAD = round2(dailyAdTotal);
-    if (liveMTD > 0 || liveAD > 0) { // รวมเดือนที่ยิงแอดแต่ยังไม่มียอดขาย (กันค่าแอดหายจาก quarter/YoY)
+    // เดือนปัจจุบันใช้ผลรวมรายวันเสมอ (รวมกรณี 0) — ลบยอดทั้งเดือนแล้ว quarter/YoY เป็น ฿0 ตาม ไม่ค้างค่าเก่า
+    {
       const cur = monthly.find(m => Number(m.year) === currentYear && Number(m.month) === currentMonth);
       if (cur) {
         // assign (ไม่ใช่ max) → เดือนปัจจุบัน = ผลรวมรายวันเสมอ; แก้รายวันลดลงค่าก็ลดตาม ไม่ค้างสูงเพี้ยน
@@ -351,7 +357,7 @@ function mapToTMK(raw) {
   const audit = (raw.audit || []).map(a => {
     let details = {};
     try { details = typeof a.details === 'string' ? JSON.parse(a.details) : (a.details || {}); }
-    catch {}
+    catch { /* ignore */ }
     // type มาจาก a.action ตรงๆ (robust) — map action → หมวดที่ UI ใช้ (create/update/delete)
     const ACTION_TYPE = { create: 'create', update: 'update', delete: 'delete', purge: 'delete', restore: 'create', move: 'update', export: 'update' };
     const type = ACTION_TYPE[a.action] || (details.summary?.includes('สร้าง') ? 'create' : details.summary?.includes('ลบ') ? 'delete' : 'update');
@@ -436,10 +442,9 @@ function mapToTMK(raw) {
   }));
   // ซิงค์เดือนปัจจุบันด้วยยอดรายวัน (live) — monthly_history.actual มักยังไม่อัปเดตจาก daily
   // → หน้าไตรมาส / กราฟ 3 เดือน / YoY แสดงเดือนนี้ตรงกับ dashboard
-  if (MTD > 0 || AD > 0) { // รวมเดือนที่ยิงแอดแต่ยังไม่มียอดขาย
+  { // เดือนปัจจุบัน = ผลรวมรายวันเสมอ (รวมกรณี 0) → ไตรมาส/3 เดือน/YoY ตรงกับ dashboard ไม่ค้างค่าเก่า
     const _cur = monthlyRaw.find(m => m.year === currentYear && m.month === currentMonth);
     if (_cur) {
-      // assign → เดือนปัจจุบัน = ผลรวมรายวันเสมอ (กันค่าค้างสูงเพี้ยน)
       _cur.actual = MTD;
       _cur.orders = ORD;
       _cur.adSpend = AD;
@@ -460,11 +465,15 @@ function mapToTMK(raw) {
       createdAt: o.created_at, qty: items.reduce((a, it) => a + (Number(it.qty) || 0), 0),
     };
   });
+  // ยอดสะสมต่อลูกค้า: ใช้ view (รวมทุกออเดอร์) ก่อน — ไม่มี view (ยังไม่รัน migration) ค่อย fallback รวมจาก orders ที่โหลดมา (อาจต่ำกว่าจริงถ้าเกิน 500)
   const _ordByCust = {};
   orders.forEach(o => { if (!o.customerId) return; const c = _ordByCust[o.customerId] || (_ordByCust[o.customerId] = { count: 0, spent: 0 }); c.count++; if (o.status !== 'cancelled') c.spent += o.total; });
+  const _ctByCust = {};
+  (raw.customerTotals || []).forEach(t => { if (t.customer_id) _ctByCust[t.customer_id] = { count: Number(t.order_count || 0), spent: Number(t.total_spent || 0) }; });
+  const _custTotal = (id) => _ctByCust[id] || _ordByCust[id] || { count: 0, spent: 0 };
   const customers = (raw.customers || []).map(c => ({
     id: c.id, code: c.code || '', name: c.name || '', phone: c.phone || '', line: c.line || '', address: c.address || '', note: c.note || '',
-    createdAt: c.created_at, orderCount: _ordByCust[c.id]?.count || 0, totalSpent: _ordByCust[c.id]?.spent || 0,
+    createdAt: c.created_at, orderCount: _custTotal(c.id).count, totalSpent: _custTotal(c.id).spent,
   }));
 
   return {
@@ -730,7 +739,7 @@ export function DataProvider({ children }) {
     const startPolling = () => {
       if (usingPoll || !mountedRef.current) return;
       usingPoll = true;
-      try { supabase?.realtime?.disconnect?.(); } catch {} // หยุด WS reconnect storm
+      try { supabase?.realtime?.disconnect?.(); } catch { /* ignore */ } // หยุด WS reconnect storm
       pollTimer = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000); // รีเฟรชทุก 60 วิ
       document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ
       console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (60 วิ + ตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
@@ -754,11 +763,11 @@ export function DataProvider({ children }) {
         if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); }
         else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           clearTimeout(connectTimeout);
-          try { supabase.removeChannel(channel); } catch {}
+          try { supabase.removeChannel(channel); } catch { /* ignore */ }
           startPolling();
         }
       });
-      connectTimeout = setTimeout(() => { try { supabase.removeChannel(channel); } catch {} startPolling(); }, 8000); // WS ค้าง → fallback
+      connectTimeout = setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } startPolling(); }, 8000); // WS ค้าง → fallback
     } else {
       startPolling();
     }
@@ -767,7 +776,7 @@ export function DataProvider({ children }) {
       mountedRef.current = false;
       clearTimeout(timer); clearTimeout(connectTimeout); clearInterval(pollTimer);
       document.removeEventListener('visibilitychange', onVis);
-      if (channel) { try { supabase.removeChannel(channel); } catch {} }
+      if (channel) { try { supabase.removeChannel(channel); } catch { /* ignore */ } }
     };
   }, [load]);
 
