@@ -54,33 +54,52 @@ function mapRolesAndStaff(userRoles, staff) {
   };
 }
 
-// โหลดทุกตารางพร้อมกัน
+// Query map ต่อตาราง — แยกออกมาเพื่อใช้ซ้ำใน refreshTables (per-table refresh)
+// จุดเดียวเปลี่ยน → ทั้ง loadAllTables และ refreshTables เห็นพร้อมกัน
+const dailyFromDate = () => { const d = new Date(); d.setMonth(d.getMonth() - 13); return d.toISOString().slice(0, 10); };
+const QUERIES = {
+  settings:    () => supabase.from('tmk_settings').select('*').eq('id', 'main').maybeSingle(),
+  channels:    () => supabase.from('tmk_channels').select('*').is('deleted_at', null).order('sort_order'),
+  campaigns:   () => supabase.from('tmk_campaigns').select('*').is('deleted_at', null).order('sort_order', { nullsFirst: false }).order('start_date'),
+  tasks:       () => supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
+  products:    () => supabase.from('tmk_products').select('*').is('deleted_at', null).order('created_at'),
+  po:          () => supabase.from('tmk_purchase_orders').select('*').is('deleted_at', null).order('arrival_date'),
+  audit:       () => supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
+  roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
+  staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
+  duties:      () => supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
+  // จำกัด 13 เดือนล่าสุด — เดือนเก่ากว่านั้น computeMonth fallback ไป tmk_monthly_history.actual
+  daily:       () => supabase.from('tmk_daily_sales').select('*').gte('date', dailyFromDate()).order('date'),
+  adCamps:     () => supabase.from('tmk_ad_campaigns').select('*').is('deleted_at', null).order('start_date'),
+  segments:    () => supabase.from('tmk_customer_segments').select('*').is('deleted_at', null).order('sort_order'),
+  fbMetrics:   () => supabase.from('tmk_fb_metrics').select('*').eq('id', 'current').maybeSingle(),
+  monthly:     () => supabase.from('tmk_monthly_history').select('*').order('year').order('month'),
+  colorMix:    () => supabase.from('tmk_color_mix').select('*').order('sort_order'),
+  sizeMix:     () => supabase.from('tmk_size_mix').select('*').order('sort_order'),
+  // จำกัด 300 รายล่าสุด — ค้นหาฝั่ง server ในหน้า CustomersView ครอบคลุมลูกค้านอกชุดนี้
+  customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(300),
+  orders:      () => supabase.from('tmk_orders').select('*').order('created_at', { ascending: false }).limit(500),
+  customerTotals: () => supabase.from('tmk_customer_totals').select('*'),
+};
+// ตาราง Supabase → key ใน raw/QUERIES (สำหรับแมป realtime event)
+const TABLE_KEY = {
+  tmk_channels: 'channels', tmk_campaigns: 'campaigns', tmk_tasks: 'tasks', tmk_products: 'products',
+  tmk_settings: 'settings', tmk_user_roles: 'roles', tmk_staff: 'staff', tmk_duties: 'duties',
+  tmk_daily_sales: 'daily', tmk_ad_campaigns: 'adCamps', tmk_customer_segments: 'segments',
+  tmk_fb_metrics: 'fbMetrics', tmk_monthly_history: 'monthly', tmk_color_mix: 'colorMix',
+  tmk_size_mix: 'sizeMix', tmk_purchase_orders: 'po', tmk_orders: 'orders', tmk_customers: 'customers',
+};
+// ตารางที่กระทบ derived (orderCount/totalSpent) → ต้อง refresh view ด้วย
+const TOTALS_TRIGGERS = new Set(['orders']);
+
+// โหลดทุกตารางพร้อมกัน (ครั้งแรก) — เรียก QUERIES ทั้งชุด
 async function loadAllTables() {
   if (!isSupabaseConfigured) {
     throw new Error('Supabase ยังไม่ได้ตั้งค่า (.env)');
   }
 
-  const tables = {
-    settings:    supabase.from('tmk_settings').select('*').eq('id', 'main').maybeSingle(),
-    channels:    supabase.from('tmk_channels').select('*').is('deleted_at', null).order('sort_order'),
-    campaigns:   supabase.from('tmk_campaigns').select('*').is('deleted_at', null).order('sort_order', { nullsFirst: false }).order('start_date'),
-    tasks:       supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
-    products:    supabase.from('tmk_products').select('*').is('deleted_at', null).order('created_at'),
-    po:          supabase.from('tmk_purchase_orders').select('*').is('deleted_at', null).order('arrival_date'),
-    audit:       supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
-    roles:       supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
-    staff:       supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
-    duties:      supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
-    daily:       supabase.from('tmk_daily_sales').select('*').order('date'),
-    adCamps:     supabase.from('tmk_ad_campaigns').select('*').is('deleted_at', null).order('start_date'),
-    segments:    supabase.from('tmk_customer_segments').select('*').is('deleted_at', null).order('sort_order'),
-    fbMetrics:   supabase.from('tmk_fb_metrics').select('*').eq('id', 'current').maybeSingle(),
-    monthly:     supabase.from('tmk_monthly_history').select('*').order('year').order('month'),
-    colorMix:    supabase.from('tmk_color_mix').select('*').order('sort_order'),
-    sizeMix:     supabase.from('tmk_size_mix').select('*').order('sort_order'),
-    customers:   supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }),
-    orders:      supabase.from('tmk_orders').select('*').order('created_at', { ascending: false }).limit(500),
-  };
+  const mainKeys = Object.keys(QUERIES).filter(k => k !== 'customerTotals');
+  const tables = Object.fromEntries(mainKeys.map(k => [k, QUERIES[k]()]));
 
   const keys = Object.keys(tables);
   const results = await Promise.all(Object.values(tables));
@@ -100,9 +119,9 @@ async function loadAllTables() {
   });
   if (failed.length) result.__errors = failed; // ส่งต่อให้ load() แจ้งผู้ใช้ (กันตารางพังดูเหมือน "ไม่มีข้อมูล")
 
-  // ยอดสะสมต่อลูกค้าจาก view (รวมทุกออเดอร์ ไม่ติด limit 500) — optional: ถ้ายังไม่รัน migration
-  // จะไม่เข้า __errors (ไม่ขึ้นเตือน) และ mapToTMK fallback ไปรวมจาก orders ที่โหลดมาแทน
-  const ctRes = await supabase.from('tmk_customer_totals').select('*');
+  // ยอดสะสมต่อลูกค้าจาก view (รวมทุกออเดอร์ ไม่ติด limit 500) — optional
+  // ถ้ายัง migration ไม่รันก็เงียบ (ไม่เข้า __errors) และ mapToTMK fallback ไปรวมจาก orders ที่โหลดมา
+  const ctRes = await QUERIES.customerTotals();
   if (!ctRes.error && Array.isArray(ctRes.data)) result.customerTotals = ctRes.data;
 
   return result;
@@ -691,6 +710,7 @@ export function DataProvider({ children }) {
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false); // กันโหลดซ้อน (window.__reload + realtime ยิงพร้อมกัน)
   const pendingRef = useRef(false);
+  const rawRef = useRef(null); // baseline ของทุกตาราง — ใช้สำหรับ per-table refresh (ไม่ต้องโหลดใหม่ทั้งชุด)
 
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
@@ -704,6 +724,7 @@ export function DataProvider({ children }) {
       setLoading(true);
       const raw = await loadAllTables();
       if (!mountedRef.current) return;
+      rawRef.current = raw; // เก็บ baseline สำหรับ refreshTables (per-table refresh ที่จะใช้แทน full reload)
       const mapped = mapToTMK(raw);
       mutateTMK(mapped);
       if (window.__canEdit !== false) recordInventorySnapshot(); // บันทึกมูลค่าคลังของวันนี้ (ถ้าเปลี่ยน) — ข้ามถ้าเป็น viewer (กัน viewer เขียน DB)
@@ -729,6 +750,37 @@ export function DataProvider({ children }) {
     }
   }, []);
 
+  // Per-table refresh — ตารางไหนเปลี่ยน fetch ใหม่เฉพาะตารางนั้น แล้วยัดกลับเข้า raw cache + map ใหม่ + bump version
+  // ลด bandwidth/render churn เมื่อใครเซฟอะไรก็ตาม (ไม่ต้องดาวน์โหลด 20 ตารางใหม่ทุกครั้ง)
+  // — ไม่มี baseline หรือ list มี customers/orders ที่ตัวรวม view ต้องอัปเดต → fallback ไป full load
+  const refreshTables = useCallback(async (tableNames) => {
+    const keys = [...new Set((tableNames || []).map(t => TABLE_KEY[t]).filter(k => k && QUERIES[k]))];
+    if (!rawRef.current || !keys.length) { return load(); }
+    if (inFlightRef.current) { pendingRef.current = true; return; }
+    inFlightRef.current = true;
+    try {
+      const results = await Promise.all(keys.map(k => QUERIES[k]()));
+      if (!mountedRef.current) return;
+      results.forEach((r, i) => {
+        if (!r.error) rawRef.current[keys[i]] = r.data;
+      });
+      // ถ้าตารางที่เปลี่ยนกระทบ derived view (เช่น orders → tmk_customer_totals) → refresh view ด้วย
+      if (keys.some(k => TOTALS_TRIGGERS.has(k))) {
+        const ct = await QUERIES.customerTotals();
+        if (!ct.error && Array.isArray(ct.data)) rawRef.current.customerTotals = ct.data;
+      }
+      const mapped = mapToTMK(rawRef.current);
+      mutateTMK(mapped);
+      setVersion(v => v + 1);
+    } catch (e) {
+      console.warn('per-table refresh failed, fallback to full load:', e?.message);
+      await load();
+    } finally {
+      inFlightRef.current = false;
+      if (pendingRef.current && mountedRef.current) { pendingRef.current = false; load(); }
+    }
+  }, [load]);
+
   useEffect(() => {
     mountedRef.current = true;
     load();
@@ -745,6 +797,7 @@ export function DataProvider({ children }) {
       console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (60 วิ + ตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
     };
     const channel = supabase?.channel('tmk-realtime');
+    const pendingTables = new Set(); // ตารางที่เปลี่ยน — flush ทีเดียวด้วย refreshTables
     if (channel) {
       [
         'tmk_channels','tmk_campaigns','tmk_tasks','tmk_products','tmk_settings',
@@ -755,8 +808,12 @@ export function DataProvider({ children }) {
         // ไม่ subscribe tmk_audit_logs — การเขียน log ไม่ควร trigger reload เต็ม (ลด reload ซ้ำตอนเซฟ)
       ].forEach(t => {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
+          pendingTables.add(t);
           clearTimeout(timer);
-          timer = setTimeout(load, 300);
+          timer = setTimeout(() => {
+            const ts = [...pendingTables]; pendingTables.clear();
+            refreshTables(ts); // ดึงเฉพาะตารางที่เปลี่ยน — แทน full reload เดิม
+          }, 300);
         });
       });
       channel.subscribe((status) => {
@@ -778,7 +835,7 @@ export function DataProvider({ children }) {
       document.removeEventListener('visibilitychange', onVis);
       if (channel) { try { supabase.removeChannel(channel); } catch { /* ignore */ } }
     };
-  }, [load]);
+  }, [load, refreshTables]);
 
   return (
     <DataContext.Provider value={{ loading, error, version, reload: load }}>

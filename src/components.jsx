@@ -247,6 +247,14 @@ export const stockMeta = s => s === 'out' ? { c: 'var(--bad)', cls: 'chip-bad', 
   : s === 'low' ? { c: 'var(--warn)', cls: 'chip-warn', label: 'ใกล้หมด' }
   : { c: 'var(--good)', cls: 'chip-good', label: 'ปกติ' };
 
+/* ---------- Threshold colors (เกณฑ์เดียวกันทุกหน้า — เลิกฝัง ternary inline) ---------- */
+// ROAS: ≥3 ดี / ≥2 เฝ้าระวัง / น้อยกว่า แย่
+export const roasColor = r => r == null ? 'var(--ink-3)' : r >= 3 ? 'var(--good)' : r >= 2 ? 'var(--warn)' : 'var(--bad)';
+// ACOS: ≤เพดาน ดี / ≤40% เฝ้าระวัง / เกิน แย่ (เพดาน default 25%)
+export const acosColor = (a, ceil = 25) => a == null ? 'var(--ink-3)' : a <= ceil ? 'var(--good)' : a <= 40 ? 'var(--warn)' : 'var(--bad)';
+// %เป้า: ใช้เกณฑ์เดียวกับ paceStatus เพื่อให้สีในตาราง/วงแหวน/การ์ดตรงกัน
+export const targetColor = p => p == null ? 'var(--ink-3)' : p >= 95 ? 'var(--good)' : p >= 80 ? 'var(--warn)' : 'var(--bad)';
+
 /* ---------- useCountUp ---------- */
 export function useCountUp(target, ms = 900) {
   const [v, setV] = useState(0);
@@ -347,7 +355,8 @@ export function MiniArea({ data, w = 320, h = 90, color = 'var(--accent)', fill 
         {yTicks.map((v, i) => <span key={i}>{axisFmt(v)}</span>)}
       </div>
       {/* พื้นที่กราฟ + เส้นกริด */}
-      <div style={{ gridColumn: 2, gridRow: 1, position: 'relative', height: h }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+      <div style={{ gridColumn: 2, gridRow: 1, position: 'relative', height: h, touchAction: 'pan-y' }}
+           onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHover(null)}>
         {yTicks.map((v, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: `${(yOf(v) / h) * 100}%`, borderTop: '1px dashed var(--line)', opacity: 0.45 }} />)}
         <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: h, display: 'block', position: 'relative' }}>
           <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
@@ -394,7 +403,10 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
         const proj = safeH(d.proj);
         const aVal = Number(d[valueKey]) || 0, pVal = Number(d.proj) || 0;
         return (
-          <div key={i} onMouseEnter={() => setHi(i)} onMouseLeave={() => setHi(null)} style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end', cursor: 'default' }}>
+          <div key={i}
+               onPointerEnter={() => setHi(i)} onPointerDown={() => setHi(i)}
+               onPointerLeave={() => setHi(null)}
+               style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, height: '100%', justifyContent: 'flex-end', cursor: 'default', touchAction: 'manipulation' }}>
             {hi === i && (
               <div style={{ position: 'absolute', bottom: 'calc(100% - 14px)', left: '50%', transform: 'translateX(-50%)', background: 'var(--ink)', color: 'var(--paper)', padding: '7px 11px', borderRadius: 8, fontSize: 12, whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: 10, textAlign: 'left', lineHeight: 1.45, boxShadow: '0 6px 20px rgba(0,0,0,.25)' }}>
                 <div style={{ opacity: 0.75, fontWeight: 600, fontSize: 11 }}>{d[labelKey]}</div>

@@ -3,7 +3,7 @@
    ============================================================ */
 import { useState, useMemo } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, InfoTip } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, InfoTip, roasColor, acosColor, targetColor } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
@@ -294,14 +294,20 @@ function DailyStackedChart({ days, prevDays, prevLabel, h = 240 }) {
               <polyline points={prevPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} fill="none" stroke="var(--ink-3)" strokeWidth="2" strokeDasharray="5 4" opacity="0.65" vectorEffect="non-scaling-stroke" />
             </svg>
           )}
+          {/* lblStep: เว้นช่วงป้ายแกน X — มือถือ 31 วันป้ายจะทับ → โชว์ทุก ~step วัน + วันสุดท้าย */}
           {chrono.map((day, di) => {
             const barPct = (day.total / max) * 100; // ความสูงแท่ง (%) → ใช้ปักหมุด tooltip ที่ "ปลายแท่ง"
+            const lblStep = Math.max(1, Math.ceil(n / 13));
+            const showLabel = di % lblStep === 0 || di === n - 1;
             return (
-            <div key={day.d} onMouseEnter={() => setHi(di)} onMouseLeave={() => setHi(null)} style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative', cursor: 'default' }}>
+            <div key={day.d}
+                 onPointerEnter={() => setHi(di)} onPointerDown={() => setHi(di)}
+                 onPointerLeave={() => setHi(null)}
+                 style={{ flex: 1, minWidth: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative', cursor: 'default', touchAction: 'manipulation' }}>
               <div style={{ display: 'flex', flexDirection: 'column', height: `${barPct}%`, width: '100%', maxWidth: 30, margin: '0 auto', borderRadius: '4px 4px 0 0', overflow: 'hidden', opacity: hi == null || hi === di ? 1 : 0.45, transition: 'opacity .12s' }}>
                 {day.channels.map(c => <div key={c.id} style={{ height: `${day.total > 0 ? (c.rev / day.total) * 100 : 0}%`, background: c.hex }} />)}
               </div>
-              <div className="cap" style={{ position: 'absolute', bottom: -15, left: 0, right: 0, textAlign: 'center', fontSize: 9, color: 'var(--ink-4)' }}>{day.d}</div>
+              {showLabel && <div className="cap" style={{ position: 'absolute', bottom: -15, left: 0, right: 0, textAlign: 'center', fontSize: 9, color: 'var(--ink-4)' }}>{day.d}</div>}
               {/* tooltip โผล่ที่ "ปลายแท่ง" ของวันนั้นๆ (เหนือยอดแท่งพอดี) */}
               {hi === di && (
                 <div style={{ position: 'absolute', bottom: `calc(${barPct}% + 8px)`, left: '50%', transform: `translateX(${di < n / 2 ? '-15%' : '-85%'})`, background: 'var(--ink)', color: 'var(--paper)', padding: '7px 10px', borderRadius: 8, fontSize: 11, whiteSpace: 'nowrap', zIndex: 20, textAlign: 'left', boxShadow: '0 6px 20px rgba(0,0,0,.25)', pointerEvents: 'none', lineHeight: 1.5 }}>
@@ -405,7 +411,15 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         <div className="card">
           <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</div>
           <div className="num display">{B(C.MTD)}</div>
-          <MomDelta current={C.MTD} previous={prevC.MTD} label={prevMonthName} />
+          {/* เดือนปัจจุบัน: เทียบ MTD กับ "วันที่เดียวกัน" ของเดือนก่อน — กันแดงหลอกตากลางเดือน */}
+          {(() => {
+            const isCurrent = md.isCurrent;
+            const prevSameDay = isCurrent
+              ? (prevMd.dailyBreakdown || []).filter(d => d.d <= consts.DAY).reduce((s, d) => s + (d.total || 0), 0)
+              : prevC.MTD;
+            const lbl = isCurrent ? `${prevMonthName} (${consts.DAY} วันแรก)` : prevMonthName;
+            return <MomDelta current={C.MTD} previous={prevSameDay} label={lbl} />;
+          })()}
           <div className="bar" style={{ marginTop: 14 }}>
             <span style={{ width: `${consts.TARGET > 0 ? Math.min((C.MTD/consts.TARGET)*100,100) : 0}%`, background: st.c }}></span>
           </div>
@@ -475,10 +489,10 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
                   <td><span className="row" style={{ gap: 8, fontWeight: 600 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>{ch.name}</span></td>
                   <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.target > 0 ? Bk(ch.target) : '—'}</td>
                   <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{Bk(ch.actual)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: tgtPct == null ? 'var(--ink-3)' : tgtPct >= 100 ? 'var(--good)' : tgtPct >= 70 ? 'var(--warn)' : 'var(--bad)' }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: targetColor(tgtPct) }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</td>
                   <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.ad > 0 ? Bk(ch.ad) : '—'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: adPct == null ? 'var(--ink-3)' : adPct <= consts.ACOS_CEIL ? 'var(--good)' : adPct <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{adPct == null ? '—' : P(adPct, 0)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: roasColor(roas) }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: acosColor(adPct, consts.ACOS_CEIL) }}>{adPct == null ? '—' : P(adPct, 0)}</td>
                 </tr>
               );
             })}
@@ -631,7 +645,8 @@ function YoYChart({ data: dataProp, year }) {
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', color: 'var(--ink-4)', fontSize: 9, height: 150, paddingBottom: 18, lineHeight: 1, whiteSpace: 'nowrap' }}>
           {yTicks.map((v, i) => <span key={i}>{Bc(v)}</span>)}
         </div>
-        <div style={{ position: 'relative' }} onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+        <div style={{ position: 'relative', touchAction: 'pan-y' }}
+             onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHi(null)}>
           <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ width: '100%', height: 150, display: 'block' }}>
             <path d={path(lineP('y25'))} fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
             <path d={path(lineP('y26'))} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
@@ -711,8 +726,8 @@ function SocialChannelCard({ ch, md, consts }) {
       </div>
       <div className="statgrid" style={{ gap: 10, marginTop: 10, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
         <div><div className="cap">ยอดขาย</div><div className="num sm" style={{ fontWeight: 700 }}>{B(ch.actual)}</div></div>
-        <div><div className="cap">โฆษณาคืนกี่เท่า <InfoTip text="ROAS = ยอดขาย ÷ ค่าแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)" label="ROAS" align="right" /> (ROAS)</div><div className="num sm" style={{ fontWeight: 700, color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
-        <div><div className="cap">ค่าแอด%ยอด <InfoTip text="ACOS = ค่าแอด ÷ ยอดขาย × 100 (ยิ่งต่ำยิ่งคุ้ม)" label="ACOS" align="right" /> (ACOS)</div><div className="num sm" style={{ fontWeight: 700, color: acos == null ? 'var(--ink-3)' : acos <= consts.ACOS_CEIL ? 'var(--good)' : acos <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{acos != null ? P(acos, 0) : '—'}</div></div>
+        <div><div className="cap">โฆษณาคืนกี่เท่า <InfoTip text="ROAS = ยอดขาย ÷ ค่าแอด (ยิ่งสูงยิ่งดี, ≥3 ดีมาก)" label="ROAS" align="right" /> (ROAS)</div><div className="num sm" style={{ fontWeight: 700, color: roasColor(roas) }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+        <div><div className="cap">ค่าแอด%ยอด <InfoTip text="ACOS = ค่าแอด ÷ ยอดขาย × 100 (ยิ่งต่ำยิ่งคุ้ม)" label="ACOS" align="right" /> (ACOS)</div><div className="num sm" style={{ fontWeight: 700, color: acosColor(acos, consts.ACOS_CEIL) }}>{acos != null ? P(acos, 0) : '—'}</div></div>
       </div>
       <div className="row between" style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
         <span className="cap">เป้า <span className="num" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{ch.target > 0 ? B(ch.target) : '—'}</span></span>
@@ -745,8 +760,8 @@ function ChannelCard({ ch, consts, prevMd }) {
       <div className="statgrid-2" style={{ gap: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
         <div><div className="cap">{'ออร์เดอร์'}</div><div className="num h3">{N(ch.orders)}</div></div>
         <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num h3">{ch.orders > 0 ? B(ch.actual / ch.orders) : '—'}</div></div>
-        <div><div className="cap">โฆษณาคืนกี่เท่า (ROAS)</div><div className="num h3" style={{ color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
-        <div><div className="cap">ค่าแอด%ยอด (ACOS)</div><div className="num h3" style={{ color: acos == null ? 'var(--ink-3)' : acos <= consts.ACOS_CEIL ? 'var(--good)' : acos <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{acos != null ? P(acos, 0) : '—'}</div></div>
+        <div><div className="cap">โฆษณาคืนกี่เท่า (ROAS)</div><div className="num h3" style={{ color: roasColor(roas) }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
+        <div><div className="cap">ค่าแอด%ยอด (ACOS)</div><div className="num h3" style={{ color: acosColor(acos, consts.ACOS_CEIL) }}>{acos != null ? P(acos, 0) : '—'}</div></div>
       </div>
       <div className="row between" style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
         <span className="cap">กำไร{cogsPct === 0 ? ' (ยังไม่หักทุน)' : ''} <InfoTip text={`กำไร = ยอดขาย − ต้นทุนสินค้า${cogsPct > 0 ? ` (${cogsPct}%)` : ' (ยังไม่ตั้ง)'} − ค่าแอด − ค่าธรรมเนียม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ''}`} label="กำไร" /></span>
@@ -867,14 +882,14 @@ function SalesAds({ dateProps, md }) {
           </div>
           <div className="card card-pad-sm">
             <div className="cap" style={{ marginBottom: 6 }}>ROAS <InfoTip text="โฆษณาคืนกี่เท่า = รายได้ ÷ ค่าแอด (ของช่องที่เลือก)" label="ROAS" /></div>
-            <div className="num h1" style={{ color: kRoas == null ? 'var(--ink-4)' : kRoas >= 3 ? 'var(--good)' : kRoas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{kRoas != null ? kRoas.toFixed(2) : '—'}</div>
+            <div className="num h1" style={{ color: roasColor(kRoas) }}>{kRoas != null ? kRoas.toFixed(2) : '—'}</div>
             {_chatSel && kRoas != null && kRoas < 2
               ? <div className="cap" style={{ marginTop: 4, color: 'var(--warn)', fontWeight: 600 }}>⚠️ {'ดูคู่แชท (คนทัก→ปิด)'}</div>
               : <div className="cap" style={{ marginTop: 4 }}>{'≥ 3 ดีมาก · ≥ 2 พอใช้'}</div>}
           </div>
           <div className="card card-pad-sm">
             <div className="cap" style={{ marginBottom: 6 }}>% {'ค่าแอด'} (ACoS) <InfoTip text="ค่าแอด ÷ รายได้ × 100 (ของช่องที่เลือก) — ยิ่งต่ำยิ่งคุ้ม" label="ACoS" /></div>
-            <div className="num h1" style={{ color: kAcos == null ? 'var(--ink-4)' : kAcos <= consts.ACOS_CEIL ? 'var(--good)' : kAcos <= 40 ? 'var(--warn)' : 'var(--bad)' }}>{kAcos != null ? P(kAcos, 1) : '—'}</div>
+            <div className="num h1" style={{ color: acosColor(kAcos, consts.ACOS_CEIL) }}>{kAcos != null ? P(kAcos, 1) : '—'}</div>
             <div className="cap" style={{ marginTop: 4 }}>{'เกณฑ์ ≤'} {consts.ACOS_CEIL}%</div>
           </div>
         </div>
@@ -930,7 +945,7 @@ function SalesAds({ dateProps, md }) {
                   <td><span className="cap">{c.platform}</span></td>
                   <td className="num" style={{ textAlign: 'right' }}>{Bk(c.budget)}</td>
                   <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{Bk(c.spent)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: c.roas >= 3 ? 'var(--good)' : c.roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{Number(c.roas || 0).toFixed(1)}x</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: roasColor(c.roas) }}>{Number(c.roas || 0).toFixed(1)}x</td>
                   <td><span className={`chip ${s.cls}`}>{s.l}</span></td>
                 </tr>
               );

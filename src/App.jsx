@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — App shell, navigation, routing
    ============================================================ */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { TMK } from './data.js';
 import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
@@ -455,7 +455,8 @@ function AppInner() {
   }, [dark]);
 
   // รีเฟรชเมื่อสลับ toggle แจ้งเตือน (NotifToggle dispatch 'tmk-prefs') → กระดิ่งอัปเดตทันที
-  const [, setPrefsBump] = useState(0);
+  // เก็บค่า bump ไว้เป็น dep ของ useMemo notifications (Phase F memoization)
+  const [prefsBump, setPrefsBump] = useState(0);
   useEffect(() => {
     const h = () => setPrefsBump(n => n + 1);
     window.addEventListener('tmk-prefs', h);
@@ -484,6 +485,17 @@ function AppInner() {
   const completeOnboarding = useCallback(() => {
     setShowOnboarding(false);
     try { localStorage.setItem('tmk-onboarded', 'true'); } catch { /* ignore */ }
+  }, []);
+
+  // กันล้อเมาส์เปลี่ยนค่า input[type=number] เงียบๆ ตอน scroll ฟอร์มกรอกยอด/สินค้า
+  // (Chrome/Firefox: focus ค้าง + scroll → ค่าเพิ่ม/ลด → ยอดเพี้ยนถูกเซฟจริงได้)
+  useEffect(() => {
+    const onWheel = (e) => {
+      const t = e.target;
+      if (t && t.tagName === 'INPUT' && t.type === 'number' && document.activeElement === t) t.blur();
+    };
+    document.addEventListener('wheel', onWheel, { passive: true });
+    return () => document.removeEventListener('wheel', onWheel);
   }, []);
   useEffect(() => {
     const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSpotlight(s => !s); } };
@@ -519,75 +531,69 @@ function AppInner() {
   };
 
   // ===== แจ้งเตือน — แยก 3 แบบ: วันนี้ / ตามวันที่ / เดือนที่แล้ว =====
-  // เฉพาะงานของหน้าที่ผู้ใช้ปัจจุบัน (admin เห็นทั้งหมด) — ข้อมูลจริงจาก Supabase
-  const readFlag = (k) => { try { return localStorage.getItem(k) !== 'false'; } catch { return true; } };
-  const notifOn = readFlag('tmk-notif-overdue');
-  const todayDay = TMK.consts.DAY; // วันจริง
-  const myDuty = currentUserCtx?.name || '';
-  const myDept = currentUserCtx?.department || '';
-  const seeAll = currentUserCtx?.role === 'admin';
-  const isMine = (tk) => seeAll || (tk.responsible || []).some(r => r === myDuty || r === myDept);
-  // ผลต่างวันแบบวันที่จริง (รองรับข้ามเดือน/ปี) — ไม่ใช่แค่เลขวัน
-  const _todayIso = todayISO();
-  const diffOf = (x) => { const iso = x.dateISO || parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
-  const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
-
-  // 1) วันนี้
-  const notifsToday = openTasks.filter(x => diffOf(x) === 0)
-    .map(x => ({ ...x, kind: 'task', sev: 'today', txt: t('dueToday') }));
-  // 2) ตามวันที่ (เกินกำหนด + ใกล้ถึง ภายใน reminderDays)
-  const notifsDated = openTasks.filter(x => { const d = diffOf(x); return d != null && d !== 0; })
-    .map(x => { const diff = diffOf(x); return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
-    .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
-    .sort((a, b) => a._diff - b._diff);
-  // 2.5) ยังไม่ได้กรอกยอดขายวันนี้ (toggle แยกของตัวเอง: tmk-notif-daily)
-  const dailyNotifOn = readFlag('tmk-notif-daily');
-  const notifsTodaySales = (dailyNotifOn && !((TMK.dailyMonth || []).some(d => d.d === todayDay)))
-    ? [{ id: 'today-sales', kind: 'todaysales', title: 'ยังไม่ได้กรอกยอดขายวันนี้', txt: 'กรอกเลย' }]
-    : [];
-  // 3) เดือนที่แล้ว — เตือนถ้ายังไม่ได้สรุปยอดเดือนก่อน (จาก monthly_history จริง)
-  const notifsLastMonth = (() => {
-    if (!notifOn) return [];
-    const cm = TMK.consts.current_month, cy = TMK.consts.current_year;
-    const pm = cm === 1 ? 12 : cm - 1;
-    const py = cm === 1 ? cy - 1 : cy;
-    const rec = (TMK.monthly || []).find(m => m.month === pm && m.year === py);
-    if (rec && rec.actual > 0) return [];
-    return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
-  })();
-
-  // สต็อกใกล้/หมด (ใช้ toggle tmk-notif-stock)
-  const notifsStock = readFlag('tmk-notif-stock')
-    ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low')
-        .map(p => ({ id: 'stock-' + p.id, kind: 'stock', title: `${p.name} ${p.stock === 'out' ? 'หมดสต็อก' : 'ใกล้หมด'}`, txt: 'ดูสินค้า' }))
-    : [];
-
-  // ยอดขาย/แอด — เตือนเมื่อ ACOS เกินเพดาน หรือยอดช้ากว่าแผน (toggle: tmk-notif-sales)
-  const notifsSales = readFlag('tmk-notif-sales') ? (() => {
-    const out = [];
-    const ceil = TMK.consts.ACOS_CEIL || 25;
-    (TMK.channels || []).forEach(c => {
-      if (c.actual > 0 && c.ad > 0) {
-        const acos = (c.ad / c.actual) * 100;
-        if (acos > ceil) out.push({ id: 'acos-' + c.id, kind: 'sales', title: `${c.name}: ค่าแอด ${acos.toFixed(0)}% ของยอด (เพดาน ${ceil}%)`, txt: 'ดูภาพรวม' });
+  // เฉพาะงานของหน้าที่ผู้ใช้ปัจจุบัน (admin เห็นทั้งหมด) — memo เพื่อเลี่ยงคำนวณซ้ำทุก render
+  // dep: tasks, dataVersion (TMK เปลี่ยน), prefsBump (toggle เตือน), currentUserCtx (สิทธิ์/หน้าที่)
+  const { notifs, notifGroups } = useMemo(() => {
+    const readFlag = (k) => { try { return localStorage.getItem(k) !== 'false'; } catch { return true; } };
+    const notifOn = readFlag('tmk-notif-overdue');
+    const todayDay = TMK.consts.DAY;
+    const myDuty = currentUserCtx?.name || '';
+    const myDept = currentUserCtx?.department || '';
+    const seeAll = currentUserCtx?.role === 'admin';
+    const isMine = (tk) => seeAll || (tk.responsible || []).some(r => r === myDuty || r === myDept);
+    const _todayIso = todayISO();
+    const diffOf = (x) => { const iso = x.dateISO || parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
+    const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
+    const notifsToday = openTasks.filter(x => diffOf(x) === 0)
+      .map(x => ({ ...x, kind: 'task', sev: 'today', txt: t('dueToday') }));
+    const notifsDated = openTasks.filter(x => { const d = diffOf(x); return d != null && d !== 0; })
+      .map(x => { const diff = diffOf(x); return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
+      .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
+      .sort((a, b) => a._diff - b._diff);
+    const dailyNotifOn = readFlag('tmk-notif-daily');
+    const notifsTodaySales = (dailyNotifOn && !((TMK.dailyMonth || []).some(d => d.d === todayDay)))
+      ? [{ id: 'today-sales', kind: 'todaysales', title: 'ยังไม่ได้กรอกยอดขายวันนี้', txt: 'กรอกเลย' }]
+      : [];
+    const notifsLastMonth = (() => {
+      if (!notifOn) return [];
+      const cm = TMK.consts.current_month, cy = TMK.consts.current_year;
+      const pm = cm === 1 ? 12 : cm - 1;
+      const py = cm === 1 ? cy - 1 : cy;
+      const rec = (TMK.monthly || []).find(m => m.month === pm && m.year === py);
+      if (rec && rec.actual > 0) return [];
+      return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
+    })();
+    const notifsStock = readFlag('tmk-notif-stock')
+      ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low')
+          .map(p => ({ id: 'stock-' + p.id, kind: 'stock', title: `${p.name} ${p.stock === 'out' ? 'หมดสต็อก' : 'ใกล้หมด'}`, txt: 'ดูสินค้า' }))
+      : [];
+    const notifsSales = readFlag('tmk-notif-sales') ? (() => {
+      const out = [];
+      const ceil = TMK.consts.ACOS_CEIL || 25;
+      (TMK.channels || []).forEach(c => {
+        if (c.actual > 0 && c.ad > 0) {
+          const acos = (c.ad / c.actual) * 100;
+          if (acos > ceil) out.push({ id: 'acos-' + c.id, kind: 'sales', title: `${c.name}: ค่าแอด ${acos.toFixed(0)}% ของยอด (เพดาน ${ceil}%)`, txt: 'ดูภาพรวม' });
+        }
+      });
+      const Cm = TMK.computed || {};
+      if ((TMK.consts.TARGET || 0) > 0 && typeof Cm.PACE_PCT === 'number' && Cm.PACE_PCT < 90) {
+        out.push({ id: 'pace', kind: 'sales', title: `ยอดช้ากว่าแผน — จังหวะทำยอด ${Cm.PACE_PCT.toFixed(0)}%`, txt: 'ดูภาพรวม' });
       }
-    });
-    const Cm = TMK.computed || {};
-    if ((TMK.consts.TARGET || 0) > 0 && typeof Cm.PACE_PCT === 'number' && Cm.PACE_PCT < 90) {
-      out.push({ id: 'pace', kind: 'sales', title: `ยอดช้ากว่าแผน — จังหวะทำยอด ${Cm.PACE_PCT.toFixed(0)}%`, txt: 'ดูภาพรวม' });
-    }
-    return out;
-  })() : [];
-
-  const notifGroups = [
-    { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
-    { key: 'sales', label: 'ยอดขาย/แอด', items: notifsSales, color: 'var(--warn)' },
-    { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
-    { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
-    { key: 'stock', label: 'สต็อก', items: notifsStock, color: 'var(--info)' },
-    { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
-  ].filter(g => g.items.length > 0);
-  const notifs = [...notifsTodaySales, ...notifsSales, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
+      return out;
+    })() : [];
+    const groups = [
+      { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
+      { key: 'sales', label: 'ยอดขาย/แอด', items: notifsSales, color: 'var(--warn)' },
+      { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
+      { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
+      { key: 'stock', label: 'สต็อก', items: notifsStock, color: 'var(--info)' },
+      { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
+    ].filter(g => g.items.length > 0);
+    const all = [...notifsTodaySales, ...notifsSales, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
+    return { notifs: all, notifGroups: groups };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- TMK เป็น mutable global → ใช้ dataVersion เป็น proxy
+  }, [tasks, dataVersion, prefsBump, currentUserCtx, t]);
 
   const onNotifClick = (n) => {
     setNotif(false);
@@ -644,7 +650,12 @@ function AppInner() {
           <button className="icon-btn mobile-only" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
           <div className="topbar-titles">
             {!forced && nav?.subs && <div className="topbar-crumb desktop-only">{nav.label} <Icon name="chevR" /> {subLabel}</div>}
-            <div className="topbar-title">{subLabel || nav?.label || SPECIAL_LABELS[section] || ''}</div>
+            {/* มือถือ: รวม "หมวด · แท็บ" ใน title เพื่อบอกตำแหน่งชัดเจน (crumb ถูกซ่อน) */}
+            <div className="topbar-title">
+              {nav?.subs && subLabel ? (
+                <><span className="desktop-only">{subLabel}</span><span className="mobile-only">{nav.label} · {subLabel}</span></>
+              ) : (subLabel || nav?.label || SPECIAL_LABELS[section] || '')}
+            </div>
           </div>
           <div className="topbar-spacer"></div>
           <div className="topbar-actions">

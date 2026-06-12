@@ -105,6 +105,7 @@ export function RecordSalesModal({ data, onClose }) {
   const [chatTime, setChatTime] = useState('');
   const [saving, setSaving] = useState(false);
   const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
+  const [openSecondary, setOpenSecondary] = useState({}); // ผู้ใช้กดเปิดแถวรอง (คนทัก/ลูกค้าใหม่-เก่า) เอง — ต่อ channel
   const [touched, setTouched] = useState(false); // มีการแก้ไขค้าง → เตือนก่อนปิด
   const loadDirty = useRef(false); // ผู้ใช้พิมพ์ระหว่างที่ข้อมูลกำลังโหลด → กันโหลดมาทับ (race fix)
   const beforeRef = useRef(null); // ค่าเดิมจาก DB ตอนเปิด (snapshot) → ทำ log ก่อน→หลัง + เก็บค่าที่ถูกลบ
@@ -407,6 +408,11 @@ export function RecordSalesModal({ data, onClose }) {
           {/* Channel cards — each channel is a card */}
           {rows.map((r, i) => {
             const ch = MD.channels.find(c => c.id === r.id) || { hex: 'var(--ink-3)', name: r.id, hasAd: false }; // กัน crash ถ้าช่องถูกลบขณะเปิด
+            // แสดงแถวรอง (คนทัก/ลูกค้าใหม่/ลูกค้าเก่า) เฉพาะช่องแชท หรือเมื่อมีค่าเดิม หรือกดเปิดเอง
+            // — Shopee/TikTok/Lazada/CRM ปกติไม่กรอกคนทัก ฟอร์มจะสั้นลงเกือบครึ่ง
+            const isChat = ch.id === 'facebook' || ch.id === 'line';
+            const hasSecondary = (+r.inq) > 0 || (+r.newC) > 0 || (+r.oldC) > 0;
+            const showSecondary = isChat || hasSecondary || (openSecondary[r.id] === true);
             return (
               <div key={r.id} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', borderLeft: `3px solid ${ch.hex}` }}>
                 <div className="row" style={{ gap: 7, fontWeight: 600, marginBottom: 10 }}>
@@ -414,14 +420,21 @@ export function RecordSalesModal({ data, onClose }) {
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: ch.hasAd ? '1fr 1fr 1fr' : '1fr 1fr', gap: 10 }}>
                   <div className="field"><label>ยอดขาย (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
-                  <div className="field"><label>ออร์เดอร์</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
+                  <div className="field"><label>ออเดอร์</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
                   {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
                 </div>
-                <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 8 }}>
-                  <div className="field"><label>คนทัก</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.inq} onChange={e => up(i, 'inq', e.target.value)} /></div>
-                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
-                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
-                </div>
+                {showSecondary ? (
+                  <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 8 }}>
+                    <div className="field"><label>คนทัก</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.inq} onChange={e => up(i, 'inq', e.target.value)} /></div>
+                    <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
+                    <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
+                  </div>
+                ) : (
+                  <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 8, color: 'var(--ink-3)' }}
+                          onClick={() => setOpenSecondary(m => ({ ...m, [r.id]: true }))}>
+                    + คนทัก / ลูกค้าใหม่-เก่า
+                  </button>
+                )}
               </div>
             );
           })}

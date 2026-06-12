@@ -293,8 +293,15 @@ input, select, textarea { font-family: inherit; }
 .content-inner { max-width: 1280px; margin: 0 auto; }
 
 /* Segmented sub-nav */
-.segbar { display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: var(--r); overflow-x: auto; }
+.segbar { position: relative; display: flex; gap: 4px; padding: 4px; background: var(--surface-2); border-radius: var(--r); overflow-x: auto; }
 .segbar::-webkit-scrollbar { display: none; }
+/* มือถือ: fade ขอบขวาบอกว่าปัดได้ (ป้องกันแท็บล้นจอแล้วถูกซ่อนเงียบๆ) */
+@media (max-width: 900px) {
+  .segbar {
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  }
+}
 .seg {
   border: none; background: transparent; color: var(--ink-2);
   padding: 8px 14px; border-radius: var(--r-sm); font-size: var(--fs-sm); font-weight: var(--fw-med);
@@ -423,6 +430,21 @@ input, select, textarea { font-family: inherit; }
 .table tr:last-child td { border-bottom: none; }
 .table tbody tr { transition: background 0.12s; }
 .table tbody tr:hover { background: var(--surface-2); }
+/* Sticky header สำหรับตารางที่อยู่ใน scroll container (.table-wrap)
+   — border-collapse ทำให้ border-bottom ไม่เลื่อนตาม cell → ใช้ box-shadow แทน */
+.table-wrap thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--line);
+  border-bottom: none;
+}
+/* Sticky คอลัมน์แรก (ตารางสต็อก/รายงานที่กว้างเกินจอ) — opt-in ด้วย class */
+.table-sticky-first th:first-child,
+.table-sticky-first td:first-child {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--surface);
+}
+.table-wrap.table-sticky-first thead th:first-child { z-index: 3; }
 
 /* ============================================================
    MOBILE
@@ -535,7 +557,7 @@ input, select, textarea { font-family: inherit; }
   .g3 { grid-template-columns: minmax(0, 1fr); }
   .g2 { grid-template-columns: minmax(0, 1fr); }
   /* เลขยาวในการ์ด KPI เล็ก — ย่อพอดีบนมือถือ (กันล้นการ์ด · ห้ามย่อ k/M) */
-  .card-pad-sm .num.h1 { font-size: clamp(15px, 4.6vw, 26px); white-space: nowrap; }
+  .card-pad-sm .num.h1, .card .num.h1 { font-size: clamp(15px, 4.6vw, 22px); white-space: nowrap; }
   /* inline-column grids (เช่น 1.6fr 1fr) ไม่ยุบเองเพราะ inline style ชนะ — บังคับเป็น 1 คอลัมน์บนมือถือ
      จำกัดเฉพาะ .grid (กราฟภายในใช้ display:grid เปล่าๆ ไม่โดน) */
   .content .grid[style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }
