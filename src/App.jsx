@@ -1,14 +1,18 @@
 /* ============================================================
    TMK Operation — App shell, navigation, routing
    ============================================================ */
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
 import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
-import { PlannerView, CatalogView, SettingsView } from './views-2.jsx';
-import { Onboarding } from './onboarding.jsx';
-import { EntryView } from './views-entry.jsx';
+// Heavy views — code-split เป็น chunk แยก ลด main bundle (~330 kB)
+// views-1 (Home + Sales) คงเดิม เพราะ Home เป็นหน้าแรกหลัง login ต้องเร็ว
+const PlannerView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.PlannerView  })));
+const CatalogView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.CatalogView  })));
+const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.SettingsView })));
+const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
+const Onboarding   = lazy(() => import('./onboarding.jsx').then(m => ({ default: m.Onboarding })));
 import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
@@ -580,17 +584,49 @@ function AppInner() {
       if ((TMK.consts.TARGET || 0) > 0 && typeof Cm.PACE_PCT === 'number' && Cm.PACE_PCT < 90) {
         out.push({ id: 'pace', kind: 'sales', title: `ยอดช้ากว่าแผน — จังหวะทำยอด ${Cm.PACE_PCT.toFixed(0)}%`, txt: 'ดูภาพรวม' });
       }
+      // งบโฆษณาเกิน — เตือนเมื่อใช้จริง > งบที่ตั้ง (ของเดิมมีแค่หน้าโฆษณา ไม่เด้งกระดิ่ง)
+      const adBudget = Number(TMK.consts.AD_BUDGET || 0);
+      if (adBudget > 0 && Number(Cm.AD || 0) > adBudget) {
+        out.push({ id: 'ad-over', kind: 'sales', title: `ใช้งบโฆษณาเกินที่ตั้ง (${B(Cm.AD)} / ${B(adBudget)})`, txt: 'ดูภาพรวม' });
+      }
+      // pace ลูกค้าใหม่ช้ากว่าแผน — เทียบ NEW_C MTD กับเป้าตามวันที่ผ่านไป (โครงเดียวกับยอดขาย)
+      const cm = TMK.consts.current_month, cy = TMK.consts.current_year;
+      const curMonthRow = (TMK.monthly || []).find(m => m.month === cm && m.year === cy);
+      const newCTarget = Number(curMonthRow?.meta?.newCustTarget || 0);
+      if (newCTarget > 0 && TMK.consts.DAYS > 0) {
+        const expected = (TMK.consts.DAY / TMK.consts.DAYS) * newCTarget;
+        const newCPace = expected > 0 ? (Number(Cm.NEW_C || 0) / expected) * 100 : 100;
+        if (newCPace < 90) out.push({ id: 'newc-pace', kind: 'sales', title: `ลูกค้าใหม่ช้ากว่าแผน — pace ${newCPace.toFixed(0)}% (เป้า ${N(newCTarget)} คน/เดือน)`, txt: 'ดูลูกค้า' });
+      }
       return out;
+    })() : [];
+    // ออเดอร์ค้าง — pending/processing เกิน 2 วัน
+    const notifsOrders = readFlag('tmk-notif-orders') ? (() => {
+      const out = [];
+      const cutoff = new Date(Date.now() - 2 * 86400000).toISOString();
+      (TMK.orders || []).filter(o => ['pending','processing'].includes(o.status) && (o.createdAt || '') < cutoff).forEach(o => {
+        const days = Math.floor((Date.now() - new Date(o.createdAt).getTime()) / 86400000);
+        out.push({ id: 'order-' + o.id, kind: 'orders', title: `ออเดอร์ ${o.code} ค้าง ${days} วัน (${o.customerName || '—'})`, txt: 'ไปบอร์ดออเดอร์' });
+      });
+      return out.slice(0, 10); // จำกัด 10 รายการต่อกระดิ่ง
+    })() : [];
+    // PO ถึง/เลยกำหนด — arrivalDate <= วันนี้ และยังไม่รับเข้า
+    const notifsPO = readFlag('tmk-notif-po') ? (() => {
+      const todayStr = _todayIso;
+      return (TMK.poTracker || []).filter(p => p.arrivalDate && p.arrivalDate <= todayStr && p.status !== 'received' && p.status !== 'done')
+        .map(p => ({ id: 'po-' + p.id, kind: 'po', title: `PO ${p.product || ''} ${p.arrivalDate === todayStr ? 'ถึงกำหนดวันนี้' : 'เลยกำหนดแล้ว'}`, txt: 'ดู PO' }));
     })() : [];
     const groups = [
       { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
       { key: 'sales', label: 'ยอดขาย/แอด', items: notifsSales, color: 'var(--warn)' },
+      { key: 'orders', label: 'ออเดอร์ค้าง', items: notifsOrders, color: 'var(--warn)' },
+      { key: 'po', label: 'PO ถึงกำหนด', items: notifsPO, color: 'var(--bad)' },
       { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
       { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
       { key: 'stock', label: 'สต็อก', items: notifsStock, color: 'var(--info)' },
       { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
     ].filter(g => g.items.length > 0);
-    const all = [...notifsTodaySales, ...notifsSales, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
+    const all = [...notifsTodaySales, ...notifsSales, ...notifsOrders, ...notifsPO, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
     return { notifs: all, notifGroups: groups };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- TMK เป็น mutable global → ใช้ dataVersion เป็น proxy
   }, [tasks, dataVersion, prefsBump, currentUserCtx, t]);
@@ -598,22 +634,40 @@ function AppInner() {
   const onNotifClick = (n) => {
     setNotif(false);
     if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
-    if (n.kind === 'sales') { go('sales', 'overview'); return; }
+    if (n.kind === 'sales') {
+      // pace ลูกค้าใหม่ → ไปหน้าลูกค้า; อื่นๆ → ภาพรวม
+      if (n.id === 'newc-pace') go('sales', 'customers');
+      else go('sales', 'overview');
+      return;
+    }
     if (n.kind === 'stock') { go('catalog', 'products'); return; }
+    if (n.kind === 'orders') { go('catalog', 'orders'); return; }
+    if (n.kind === 'po') { go('catalog', 'po'); return; }
     if (n.kind === 'lastmonth') { go('sales', 'monthly'); setTimeout(() => window.__openModal('historical'), 100); return; }
     go('planner', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
   };
 
+  const LazyFallback = (
+    <div className="content-inner" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-4)' }}>
+      <span className="splash-ring" style={{ display:'inline-block', width:24, height:24, verticalAlign:'middle', marginRight:10 }} />
+      กำลังโหลดหน้า…
+    </div>
+  );
   const renderView = () => {
-    switch (section) {
-      case 'home': return <HomeView go={go} />;
-      case 'sales': return ['daily','monthly','status'].includes(sub) ? <EntryView sub={sub} /> : <SalesView sub={sub} />;
-      case 'planner': return <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />;
-      case 'catalog': return <CatalogView sub={sub} />;
-      case 'settings': return <SettingsView sub={sub} dark={dark} setDark={setDark} />;
-      default: return null;
-    }
+    // Home + Sales (views-1) ไม่ lazy เพราะเป็นหน้าแรกหลัง login — ต้องเร็ว
+    if (section === 'home') return <HomeView go={go} />;
+    if (section === 'sales' && !['daily','monthly','status'].includes(sub)) return <SalesView sub={sub} />;
+    // Heavy chunks — ห่อด้วย Suspense
+    return (
+      <Suspense fallback={LazyFallback}>
+        {section === 'sales' ? <EntryView sub={sub} />
+          : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
+          : section === 'catalog' ? <CatalogView sub={sub} />
+          : section === 'settings' ? <SettingsView sub={sub} dark={dark} setDark={setDark} />
+          : null}
+      </Suspense>
+    );
   };
 
   const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
@@ -784,7 +838,11 @@ function AppInner() {
       {syncing && <SyncIndicator />}
 
       {/* Onboarding tour */}
-      {showShell && showOnboarding && <Onboarding onComplete={completeOnboarding} />}
+      {showShell && showOnboarding && (
+        <Suspense fallback={null}>
+          <Onboarding onComplete={completeOnboarding} />
+        </Suspense>
+      )}
 
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />

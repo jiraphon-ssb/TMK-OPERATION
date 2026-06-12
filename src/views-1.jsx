@@ -963,6 +963,10 @@ function SalesCustomers({ dateProps, md }) {
   // สัดส่วนลูกค้าใหม่คิดจาก "จำนวนคน" (ไม่ได้แยกรายได้ใหม่/เก่า)
   const custTot = C.NEW_C + C.OLD_C;
   const newPct = custTot > 0 ? (C.NEW_C / custTot) * 100 : 0;
+  // เป้าลูกค้าใหม่ของเดือนที่เลือก (ตั้งใน MonthlyTargetModal — เก็บใน monthly_history.meta.newCustTarget)
+  const _selRow = (D.monthly || []).find(m => m.month === dateProps.month + 1 && m.year === dateProps.year);
+  const newCTarget = Number(_selRow?.meta?.newCustTarget || 0);
+  const newCPct = newCTarget > 0 ? (C.NEW_C / newCTarget) * 100 : null;
   return (
     <div className="content-inner rise">
       <SalesDateBar {...dateProps} />
@@ -972,7 +976,17 @@ function SalesCustomers({ dateProps, md }) {
         <div className="card card-pad-sm">
           <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าใหม่'} (MTD)</div>
           <div className="num h1" style={{ color: 'var(--good)' }}>{N(C.NEW_C)}</div>
-          <div className="cap" style={{ marginTop: 4 }}>{custTot > 0 ? P(newPct, 0) : '—'} {'ของลูกค้าทั้งหมด'}</div>
+          {/* แสดงเป้า + progress ถ้าตั้งไว้ — ไม่ตั้งก็คงข้อความเดิม */}
+          {newCTarget > 0 ? (
+            <>
+              <div className="cap" style={{ marginTop: 4 }}>เป้า {N(newCTarget)} · <span style={{ color: targetColor(newCPct), fontWeight: 600 }}>{P(newCPct, 0)}</span></div>
+              <div className="bar" style={{ marginTop: 6 }}>
+                <span style={{ width: `${Math.min(100, newCPct)}%`, background: targetColor(newCPct) }} />
+              </div>
+            </>
+          ) : (
+            <div className="cap" style={{ marginTop: 4 }}>{custTot > 0 ? P(newPct, 0) : '—'} {'ของลูกค้าทั้งหมด'}</div>
+          )}
         </div>
         <div className="card card-pad-sm">
           <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าเก่า'} (MTD)</div>

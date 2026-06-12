@@ -688,8 +688,24 @@ export function ProductModal({ data, onClose }) {
   const pickImage = async (file) => {
     if (!file) return;
     try {
-      const url = await readImageCompressed(file, 640, 0.82); // ย่อ ≤640px → data URL เล็ก
-      set('image', url);
+      // ย่อรูปก่อนเสมอ (ลดขนาดอัปโหลด/ขนาดเก็บ)
+      const dataUrl = await readImageCompressed(file, 640, 0.82);
+      // อัปโหลดไป Supabase Storage — เก็บ public URL แทน data URL (ลดขนาดแถว DB จาก ~80kB เหลือ <200 ไบต์)
+      // ถ้า bucket ยังไม่มี/upload ล้มเหลว → fallback ใช้ data URL เหมือนเดิม (ไม่บล็อกฟอร์ม)
+      try {
+        const blob = await (await fetch(dataUrl)).blob();
+        const pid = f.id || ('p-tmp-' + Date.now());
+        const path = `products/${pid}.jpg`;
+        const { error } = await supabase.storage.from('tmk-images')
+          .upload(path, blob, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
+        if (error) throw error;
+        const { data: pub } = supabase.storage.from('tmk-images').getPublicUrl(path);
+        set('image', `${pub.publicUrl}?v=${Date.now()}`); // cache-bust หลังแก้รูป
+      } catch (e) {
+        console.warn('Storage upload failed → ใช้ data URL แทน:', e?.message);
+        set('image', dataUrl);
+        if (!/(bucket|not found|404)/i.test(e?.message || '')) toast('อัปโหลดรูปขึ้น Storage ไม่ได้ — ใช้แบบฝังในข้อมูล (ขนาดใหญ่กว่า)', 'warn');
+      }
     } catch { toast('อ่านรูปไม่สำเร็จ', 'error'); }
   };
 

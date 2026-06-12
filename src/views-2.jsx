@@ -1683,9 +1683,17 @@ function GeneralSettings({ dark, setDark }) {
           <div><div className="sm" style={{ fontWeight: 600 }}>เตือนกรอกยอดขายวันนี้</div><div className="cap">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div></div>
           <NotifToggle storeKey="tmk-notif-daily" />
         </div>
-        <div className="row between" style={{ padding: '12px 0' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนยอดขาย &amp; ค่าแอด</div><div className="cap">เตือนเมื่อค่าแอดเกินเพดาน ACOS หรือยอดช้ากว่าแผน (Pace ต่ำกว่า 90%)</div></div>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนยอดขาย &amp; ค่าแอด</div><div className="cap">เตือนเมื่อ ACOS เกินเพดาน, ใช้งบแอดเกินที่ตั้ง, ยอดช้ากว่าแผน หรือ pace ลูกค้าใหม่ช้า</div></div>
           <NotifToggle storeKey="tmk-notif-sales" />
+        </div>
+        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนออเดอร์ค้าง</div><div className="cap">เตือนเมื่อออเดอร์สถานะ "รอ/กำลังเตรียม" นานเกิน 2 วัน (กันลืมส่ง)</div></div>
+          <NotifToggle storeKey="tmk-notif-orders" />
+        </div>
+        <div className="row between" style={{ padding: '12px 0' }}>
+          <div><div className="sm" style={{ fontWeight: 600 }}>เตือน PO ถึงกำหนด</div><div className="cap">เตือนเมื่อ PO ถึงวันรับเข้าหรือเลยกำหนดแล้วยังไม่ได้รับเข้า</div></div>
+          <NotifToggle storeKey="tmk-notif-po" />
         </div>
       </div>
 
