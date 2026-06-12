@@ -141,8 +141,7 @@ function Spotlight({ onClose, onGo }) {
   results.forEach((r, i) => { r._i = i; grouped[r.cat] = grouped[r.cat] || []; grouped[r.cat].push(r); });
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', justifyContent: 'center', paddingTop: '12vh' }} onClick={onClose}>
-      <div style={{ position: 'absolute', inset: 0, background: 'rgba(8,18,32,0.45)', backdropFilter: 'blur(8px)' }}></div>
+    <div className="spotlight-scrim" onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: '100%', maxWidth: 580, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--sh-pop)', overflow: 'hidden', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
         {/* Input */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>

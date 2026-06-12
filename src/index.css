@@ -620,10 +620,23 @@ input, select, textarea { font-family: inherit; }
    MODALS
    ============================================================ */
 .modal-scrim {
-  position: fixed; inset: 0; background: rgba(8, 18, 32, 0.52);
-  backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+  position: fixed; inset: 0; background: rgba(8, 18, 32, 0.55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   z-index: 200; display: flex; align-items: center; justify-content: center;
   padding: 20px;
+}
+/* Spotlight scrim (Cmd+K search) — blur มาก, tint อ่อน (ไม่ทึบเหมือน modal เต็มจอ) */
+.spotlight-scrim {
+  position: fixed; inset: 0; z-index: 999;
+  background: rgba(8, 18, 32, 0.45);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  display: flex; justify-content: center; padding-top: 12vh;
+}
+/* Fallback: เบราว์เซอร์ที่ไม่รองรับ backdrop-filter (Safari เก่า / GPU ปิด / Reduce Motion / Firefox มี flag)
+   → ใช้ tint เข้มขึ้นทำให้เห็นการแยกชั้นชัดเจน (ของเดิม 0.52 + blur อ่อนไปเมื่อไม่มี blur) */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .modal-scrim     { background: rgba(8, 18, 32, 0.72); }
+  .spotlight-scrim { background: rgba(8, 18, 32, 0.62); }
 }
 .modal {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl);
