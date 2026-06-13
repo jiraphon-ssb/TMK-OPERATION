@@ -734,7 +734,8 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
   const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id);
   const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null; // MoM เทียบเดือนก่อน
   const inq = ch.inq || 0, orders = ch.orders || 0;
-  const conv = inq > 0 ? (orders / inq) * 100 : null;        // % ปิด = ปิดออเดอร์ ÷ คนทัก
+  const conv = inq > 0 ? (orders / inq) * 100 : null;        // % ปิด = ปิดออเดอร์ ÷ คนทัก (คนทัก = ลูกค้าใหม่+เก่า)
+  const convOver = conv != null && conv > 100;               // ออเดอร์ > จำนวนลูกค้า → cap แสดงผล + เตือน
   const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
   const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad / ch.actual) * 100 : null;
   const costPerInq = (ch.ad > 0 && inq > 0) ? ch.ad / inq : null;      // ต้นทุน/คนทัก
@@ -754,7 +755,7 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
         <div style={{ flex: 1, textAlign: 'center' }}><div className="num h1">{N(inq)}</div><div className="cap">คนทัก</div></div>
         <span style={{ width: 16, height: 16, display: 'inline-block', color: 'var(--ink-3)', flexShrink: 0 }}><Icon name="arrowR" /></span>
         <div style={{ flex: 1, textAlign: 'center' }}><div className="num h1" style={{ color: 'var(--good)' }}>{N(orders)}</div><div className="cap">ปิดออเดอร์</div></div>
-        <div style={{ flex: 1, textAlign: 'center', borderLeft: '1px solid var(--line)' }}><div className="num h1" style={{ color: conv == null ? 'var(--ink-3)' : conv >= 20 ? 'var(--good)' : 'var(--warn)' }}>{conv == null ? '—' : P(conv, 0)}</div><div className="cap">% ปิด <InfoTip text="อัตราปิดการขาย = ปิดออเดอร์ ÷ คนทัก × 100" label="% ปิด" align="right" /></div></div>
+        <div style={{ flex: 1, textAlign: 'center', borderLeft: '1px solid var(--line)' }}><div className="num h1" style={{ color: conv == null ? 'var(--ink-3)' : convOver ? 'var(--warn)' : conv >= 20 ? 'var(--good)' : 'var(--warn)' }}>{conv == null ? '—' : convOver ? '100%↑' : P(conv, 0)}</div><div className="cap">% ปิด <InfoTip text={convOver ? 'ออเดอร์มากกว่าจำนวนลูกค้า (ใหม่+เก่า) — อาจมีลูกค้าซื้อซ้ำหลายออเดอร์ หรือกรอกจำนวนลูกค้าไม่ครบ' : 'อัตราปิดการขาย = ปิดออเดอร์ ÷ คนทัก (ลูกค้าใหม่+เก่า) × 100'} label="% ปิด" align="right" /></div></div>
       </div>
       <div className="statgrid" style={{ gap: 10, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
         <div><div className="cap">เวลาตอบเฉลี่ย</div><div className="num sm" style={{ fontWeight: 700, color: 'var(--info)' }}>{reply > 0 ? <>{reply} <span className="cap">นาที</span></> : '—'}</div></div>
