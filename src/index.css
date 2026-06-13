@@ -643,6 +643,9 @@ input, select, textarea { font-family: inherit; }
   width: 100%; max-width: 560px; max-height: 92vh; display: flex; flex-direction: column;
   box-shadow: var(--sh-pop); animation: rise 0.26s var(--ease) both; overflow: hidden;
 }
+/* ปิด focus ring สีฟ้ารอบกล่อง — modal ถูก .focus() ตอนเปิดเพื่อ a11y (tabIndex -1)
+   ไม่ใช่ control ที่ผู้ใช้ tab เข้าไป จึงไม่ต้องโชว์ outline (screen reader ยังประกาศ dialog ปกติ) */
+.modal:focus, .modal:focus-visible { outline: none; }
 .modal-lg { max-width: 740px; }
 /* มือถือ: modal เต็มจอ (กรอกยอด/ฟอร์มยาว ไม่อึดอัด) */
 @media (max-width: 600px) {
