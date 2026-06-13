@@ -901,7 +901,7 @@ function SalesReportView() {
              productRank, sizeRank, colorRank, catRank, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- DD.products เป็น mutable global → ใช้ version proxy
   }, [sales, range, version]);
-  const { prodById, hexByColor, rows, byProduct, totalQty, totalAmount, totalCost, totalProfit, margin,
+  const { prodById, hexByColor, rows, totalQty, totalAmount, totalCost, totalProfit, margin,
           productRank, sizeRank, colorRank, catRank, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging } = agg;
   const dailyLabel = (day) => { const [, m, d] = day.split('-'); return `${Number(d)}/${Number(m)}`; };
   // กราฟมูลค่าคลังตามเวลา
@@ -1258,6 +1258,7 @@ function CustomersView() {
 
   // ค้นหาฝั่ง server (debounce 250ms) — กรณีลูกค้าจริงเกิน 300 ราย จะหาเจอนอกชุด
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading/clear flag ก่อน async fetch (จำเป็น)
     if (!ql) { setRemote(null); setSearching(false); return; }
     setSearching(true);
     const id = setTimeout(async () => {
@@ -1946,6 +1947,7 @@ function AuditView() {
 
   useEffect(() => {
     let cancel = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag ก่อน async fetch (จำเป็น)
     setLoading(true);
     (async () => {
       let q = supabase.from('tmk_audit_logs').select('*', { count: 'exact' })
