@@ -945,7 +945,10 @@ function SalesReportView() {
         {sales === null
           ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>กำลังโหลดประวัติการขาย…</div>
           : rows.length === 0
-            ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีประวัติการขายในช่วงนี้ — บันทึกการขายที่หน้า "สต็อก/คลัง"</div>
+            ? <div style={{ textAlign: 'center', padding: 24 }}>
+                <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีประวัติการขายในช่วงนี้</div>
+                <button className="btn btn-sm" onClick={() => window.__goSection?.('catalog', 'stock')}><Icon name="grid" /> ไปหน้าสต็อก/คลัง เพื่อบันทึกการขาย</button>
+              </div>
             : (
               <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
                 <KPI label="รวมขาย" value={<>{N(totalQty)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></>} />
@@ -1820,7 +1823,7 @@ function UpdatesView() {
     ]},
     { ver: '1.5.0', date: '8 มิ.ย. 2569', type: 'feature', items: [
       'ข้อมูลแยกตามเดือนทุกหน้า — เปลี่ยนไปเดือนอดีต/ปัจจุบัน/อนาคต ตัวเลขเปลี่ยนตามจริง',
-      'บันทึกยอดรายวันเก็บครบต่อช่องทาง: ออร์เดอร์ / ลูกค้าใหม่-เก่า / แชท (ไม่หายอีก)',
+      'บันทึกยอดรายวันเก็บครบต่อช่องทาง: ออเดอร์ / ลูกค้าใหม่-เก่า / แชท (ไม่หายอีก)',
       'เพิ่มการเก็บ "เวลาตอบแชทเฉลี่ย/วัน" → เฉลี่ยมาแสดงในการ์ด Facebook ของแต่ละเดือน',
       'ตั้งค่ารายเดือนแยกทุกเดือน (เป้า/งบ/เป้าต่อช่องทาง) + กรอกย้อนหลังไม่ทับค่าเดิม',
       'ย้ายปุ่มสร้างแคมเปญแอดไปที่ "ตั้งค่ารายเดือน" และ "สถานะ" + กรองแคมเปญตามเดือน',

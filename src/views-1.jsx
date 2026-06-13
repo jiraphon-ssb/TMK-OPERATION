@@ -435,7 +435,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
               const yoyStr = yoyPct == null ? '—' : (yoyPct >= 0 ? '+' : '') + P(yoyPct, 0);
               const yoyColor = yoyPct == null ? 'var(--ink-3)' : yoyPct >= 0 ? 'var(--good)' : 'var(--bad)';
               return [['Run rate', C.RUN ? B(C.RUN) : '—', consts.TARGET && C.RUN >= consts.TARGET ? 'var(--good)' : 'var(--warn)'],
-              ['ออร์เดอร์', N(C.ORD)], ['AOV', C.ORD ? B(C.AOV) : '—'], [`YoY ${curAbbr}`, yoyStr, yoyColor]];
+              ['ออเดอร์', N(C.ORD)], ['AOV', C.ORD ? B(C.AOV) : '—'], [`YoY ${curAbbr}`, yoyStr, yoyColor]];
             })().map((x,i)=>(
               <div key={i}>
                 <div className="cap">{x[0]}</div>
@@ -758,7 +758,7 @@ function ChannelCard({ ch, consts, prevMd }) {
         {tgtPct != null ? <>ขายได้ <b className="num" style={{ color: tgtPct >= 100 ? 'var(--good)' : 'var(--ink-2)' }}>{P(tgtPct, 0)}</b> ของเป้า {B(ch.target)}</> : 'ยังไม่ตั้งเป้า'}
       </div>
       <div className="statgrid-2" style={{ gap: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
-        <div><div className="cap">{'ออร์เดอร์'}</div><div className="num h3">{N(ch.orders)}</div></div>
+        <div><div className="cap">{'ออเดอร์'}</div><div className="num h3">{N(ch.orders)}</div></div>
         <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num h3">{ch.orders > 0 ? B(ch.actual / ch.orders) : '—'}</div></div>
         <div><div className="cap">โฆษณาคืนกี่เท่า (ROAS)</div><div className="num h3" style={{ color: roasColor(roas) }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
         <div><div className="cap">ค่าแอด%ยอด (ACOS)</div><div className="num h3" style={{ color: acosColor(acos, consts.ACOS_CEIL) }}>{acos != null ? P(acos, 0) : '—'}</div></div>
@@ -810,7 +810,7 @@ function SalesAds({ dateProps, md }) {
           <div>
             <div className="cap">{'งบทั้งหมด'}</div>
             <div className="num h1">{totalBudget > 0 ? Bk(totalBudget) : '— ยังไม่ตั้งงบ'}</div>
-            {totalBudget <= 0 && <span className="cap" style={{ color: 'var(--ink-4)' }}>ตั้งงบต่อช่องที่หน้า "ตั้งเป้ารายเดือน"</span>}
+            {totalBudget <= 0 && <button type="button" className="cap" onClick={() => window.__goSection?.('sales', 'monthly')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', font: 'inherit' }}>ตั้งงบต่อช่อง →</button>}
           </div>
           <div>
             <div className="cap">{'ใช้ไปแล้ว'}</div>
@@ -931,7 +931,10 @@ function SalesAds({ dateProps, md }) {
           <span className="cap">{'จัดการที่หน้า'} {'รายเดือน'}</span>
         </div>
         {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).length === 0 ? (
-          <div className="cap" style={{ textAlign: 'center', padding: '14px 0', color: 'var(--ink-4)' }}>ยังไม่มีแคมเปญแอดในเดือนนี้ — สร้างที่หน้า "ภาพรวมรายเดือน"</div>
+          <div style={{ textAlign: 'center', padding: '14px 0' }}>
+            <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีแคมเปญแอดในเดือนนี้</div>
+            <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="plus" /> สร้างแคมเปญแอด</button>
+          </div>
         ) : (
         <div className="table-wrap"><table className="table">
           <thead><tr><th>{'ชื่อแคมเปญ'}</th><th>{'แพลตฟอร์ม'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้ไป'}</th><th style={{textAlign:'right'}}>ROAS</th><th>{'สถานะ'}</th></tr></thead>
@@ -1014,7 +1017,12 @@ function SalesCustomers({ dateProps, md }) {
         {(() => {
           // เฉพาะสัปดาห์ที่ "กรอกลูกค้าจริง" — กันสัปดาห์ที่มีแต่ยอดขาย (ลูกค้า 0) โชว์เป็น 0% หลอกตา
           const wk = (md.custWeekly || []).filter(w => (w.newC + w.oldC) > 0);
-          if (!wk.length) return <div className="cap" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>{'ยังไม่มีข้อมูลลูกค้ารายสัปดาห์ — กรอกลูกค้าใหม่/เก่าที่ "บันทึก & ภาพรวมเดือน"'}</div>;
+          if (!wk.length) return (
+            <div style={{ textAlign: 'center', padding: 30 }}>
+              <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีข้อมูลลูกค้ารายสัปดาห์</div>
+              <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="pencil" /> กรอกลูกค้าใหม่/เก่า</button>
+            </div>
+          );
           const vals = wk.map(w => w.returningPct);
           const up = vals[vals.length - 1] >= vals[0];
           return (<>
@@ -1091,7 +1099,10 @@ function SalesCustomers({ dateProps, md }) {
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head"><h3>{'กลุ่มลูกค้า'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(รวมทุกเดือน · ตั้งค่าเอง)</span></h3></div>
         {getSegments().length === 0 ? (
-          <div className="cap" style={{ textAlign: 'center', padding: '12px 0', color: 'var(--ink-4)' }}>ยังไม่มีกลุ่มลูกค้า — ตั้งค่าที่หน้า "ภาพรวมรายเดือน" → กลุ่มลูกค้า</div>
+          <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีกลุ่มลูกค้า</div>
+            <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="users" /> ตั้งกลุ่มลูกค้า</button>
+          </div>
         ) : (
           <div className="grid g4">
             {getSegments().map(seg => (

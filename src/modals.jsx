@@ -228,7 +228,7 @@ export function RecordSalesModal({ data, onClose }) {
       const chDetail = (o) => {
         const p = [];
         if (nz(o.rev))  p.push(bahtStr(o.rev));
-        if (nz(o.ord))  p.push(`${nz(o.ord)} ออร์เดอร์`);
+        if (nz(o.ord))  p.push(`${nz(o.ord)} ออเดอร์`);
         if (nz(o.ad))   p.push(`แอด ${bahtStr(o.ad)}`);
         if (nz(o.inq))  p.push(`ทัก ${nz(o.inq)}`);
         if (nz(o.newC)) p.push(`ใหม่ ${nz(o.newC)}`);
@@ -236,7 +236,7 @@ export function RecordSalesModal({ data, onClose }) {
         return p.join(' · ');
       };
       const auditFields = [{ label: 'ยอดรวม', value: bahtStr(totRev) }];
-      if (totOrd) auditFields.push({ label: 'ออร์เดอร์รวม', value: `${totOrd}` });
+      if (totOrd) auditFields.push({ label: 'ออเดอร์รวม', value: `${totOrd}` });
       if (totAd)  auditFields.push({ label: 'ค่าแอดรวม', value: bahtStr(totAd) });
       if (totInq) auditFields.push({ label: 'คนทักรวม', value: `${totInq}` });
       if (totNew) auditFields.push({ label: 'ลูกค้าใหม่รวม', value: `${totNew}` });
@@ -252,7 +252,7 @@ export function RecordSalesModal({ data, onClose }) {
       let auditChanges = null;
       if (before && exists) {
         const ch = [];
-        const mLabels = { rev: 'ยอด', ord: 'ออร์เดอร์', ad: 'ค่าแอด', inq: 'คนทัก', newC: 'ลูกค้าใหม่', oldC: 'ลูกค้าเก่า' };
+        const mLabels = { rev: 'ยอด', ord: 'ออเดอร์', ad: 'ค่าแอด', inq: 'คนทัก', newC: 'ลูกค้าใหม่', oldC: 'ลูกค้าเก่า' };
         const fmt = (k, v) => (k === 'rev' || k === 'ad') ? bahtStr(nz(v)) : `${nz(v)}`;
         rows.forEach(r => {
           const o = before.channels?.[r.id] || {};
@@ -269,7 +269,7 @@ export function RecordSalesModal({ data, onClose }) {
         action: isEdit ? 'update' : 'create',
         entityType: 'daily',
         entityName: date,
-        summary: `${isEdit ? 'แก้ไข' : 'บันทึก'}ยอดขายวันที่ ${date} (รวม ${bahtStr(totRev)}${totOrd ? `, ${totOrd} ออร์เดอร์` : ''})`,
+        summary: `${isEdit ? 'แก้ไข' : 'บันทึก'}ยอดขายวันที่ ${date} (รวม ${bahtStr(totRev)}${totOrd ? `, ${totOrd} ออเดอร์` : ''})`,
         fields: auditFields,
         changes: auditChanges,
         data: { date, day_name, channels, totals: { rev: totRev, ord: totOrd, ad: totAd, inq: totInq, newC: totNew, oldC: totOld }, avg_reply_minutes: nz(chatTime), note: note || '' },
@@ -338,7 +338,7 @@ export function RecordSalesModal({ data, onClose }) {
       rows.forEach(r => {
         const p = [];
         if (_nz(r.rev))  p.push(bahtStr(r.rev));
-        if (_nz(r.ord))  p.push(`${_nz(r.ord)} ออร์เดอร์`);
+        if (_nz(r.ord))  p.push(`${_nz(r.ord)} ออเดอร์`);
         if (_nz(r.ad))   p.push(`แอด ${bahtStr(r.ad)}`);
         if (_nz(r.inq))  p.push(`ทัก ${_nz(r.inq)}`);
         if (_nz(r.newC)) p.push(`ใหม่ ${_nz(r.newC)}`);
@@ -456,7 +456,7 @@ export function RecordSalesModal({ data, onClose }) {
           {/* Summary KPIs */}
           <div className="sum-grid" style={{ marginBottom: 14 }}>
             {[['ยอดรวมวันนี้', B(s.tRev), 'var(--accent-2)'],
-              ['ออร์เดอร์', String(s.tOrd), 'var(--ink)'],
+              ['ออเดอร์', String(s.tOrd), 'var(--ink)'],
               ['AOV', B(s.aov), 'var(--ink)'],
               ['ค่าแอดรวม', B(s.tAd), 'var(--ink-2)'],
               ['ACOS', s.tAd > 0 ? P(s.acos) : '—', s.acos <= M_ACOS ? 'var(--good)' : 'var(--warn)']].map((x, i) => (
@@ -483,7 +483,7 @@ export function RecordSalesModal({ data, onClose }) {
                   </div>
                   <span className="num sm" style={{ fontWeight: 700, width: 75, textAlign: 'right' }}>{B(rev)}</span>
                   <span className="num cap" style={{ width: 36, textAlign: 'right' }}>{P(pct, 0)}</span>
-                  <span className="cap" style={{ width: 55, textAlign: 'right' }}>{r.ord || 0} ออร์เดอร์</span>
+                  <span className="cap" style={{ width: 55, textAlign: 'right' }}>{r.ord || 0} ออเดอร์</span>
                 </div>
               );
             })}
@@ -2627,7 +2627,7 @@ export function HistoricalEntryModal({ onClose, data }) {
       const histFields = dbRows.map(rr => {
         const p = [];
         if (Number(rr.actual))   p.push(`ยอด ${B(rr.actual)}`);
-        if (Number(rr.orders))   p.push(`${rr.orders} ออร์เดอร์`);
+        if (Number(rr.orders))   p.push(`${rr.orders} ออเดอร์`);
         if (Number(rr.ad_spend)) p.push(`แอด ${B(rr.ad_spend)}`);
         if (Number(rr.new_cust)) p.push(`ลูกค้าใหม่ ${rr.new_cust}`);
         if (Number(rr.messages)) p.push(`คนทัก ${rr.messages}`);
@@ -2668,7 +2668,7 @@ export function HistoricalEntryModal({ onClose, data }) {
           <thead><tr>
             <th>เดือน</th>
             <th style={{ textAlign: 'right' }}>ยอดรวม (฿)</th>
-            <th style={{ textAlign: 'right' }}>ออร์เดอร์</th>
+            <th style={{ textAlign: 'right' }}>ออเดอร์</th>
             <th style={{ textAlign: 'right' }}>ค่าแอด (฿)</th>
             <th style={{ textAlign: 'right' }}>ลูกค้าใหม่</th>
             <th style={{ textAlign: 'right' }}>จำนวนข้อความ</th>

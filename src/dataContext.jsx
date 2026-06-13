@@ -175,7 +175,7 @@ function mapToTMK(raw) {
     hex: ch.color,
     // เป้าต่อช่องทาง = ค่าของเดือนปัจจุบัน (meta.channelTargets); ไม่มี = 0
     target: Number((_curMeta.channelTargets && _curMeta.channelTargets[ch.id]) || 0),
-    // รายได้/ออร์เดอร์/ลูกค้า/ค่าแอด ต่อช่องทาง = ยอดจริงจาก daily เดือนปัจจุบัน (ตรงกับ computeMonth)
+    // รายได้/ออเดอร์/ลูกค้า/ค่าแอด ต่อช่องทาง = ยอดจริงจาก daily เดือนปัจจุบัน (ตรงกับ computeMonth)
     actual: round2(dailyAgg[ch.id]?.rev || 0),
     sortOrder: Number(ch.sort_order || 0),
     orders: dailyAgg[ch.id]?.ord || 0,
@@ -596,7 +596,7 @@ export function computeMonth(monthIdx0, yearBE) {
     shopee: r.ch.shopee?.rev || 0, tiktok: r.ch.tiktok?.rev || 0, lazada: r.ch.lazada?.rev || 0,
     facebook: r.ch.facebook?.rev || 0, line: r.ch.line?.rev || 0, crm: r.ch.crm?.rev || 0,
     total: round2(Object.values(r.ch).reduce((s, c) => s + (c.rev || 0), 0)), // รวม "ทุกช่องทาง" (รวมช่องที่เพิ่มเอง) — ตรงกับปฏิทิน
-    ord: Object.values(r.ch).reduce((s, c) => s + (c.ord || 0), 0), // รวมออร์เดอร์ทุกช่อง
+    ord: Object.values(r.ch).reduce((s, c) => s + (c.ord || 0), 0), // รวมออเดอร์ทุกช่อง
     ad: r.adSpend, note: r.note,
   }));
   // เจาะลึกรายวัน: แต่ละวันยอดมาจากช่องทางไหน กี่บาท กี่% (ทุกช่อง, ทุกวันที่กรอก, ล่าสุดก่อน)

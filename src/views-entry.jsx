@@ -205,8 +205,8 @@ function QuarterView({ year }) {
                   <span className="sm num">{d.actual > 0 ? Bk(d.actual) : '-'}</span>
                 </div>
                 <div className="row between">
-                  <span className="cap">Ring</span>
-                  <span className="sm num">{d.target > 0 ? pct + '%' : '-'}</span>
+                  <span className="cap">ขาดอีก</span>
+                  <span className="sm num" style={{ color: d.target > 0 && d.actual >= d.target ? 'var(--good)' : 'var(--ink)' }}>{d.target > 0 ? (d.actual >= d.target ? 'ถึงเป้า ✓' : Bk(d.target - d.actual)) : '-'}</span>
                 </div>
               </div>
 
@@ -465,14 +465,16 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
             return (
               <button key={d} disabled={disabled} onClick={() => window.__openModal('record', { date: isoFor(d) })}
                 title={ent ? `วันที่ ${d} — ${B(rev)}` : future ? `วันที่ ${d} — ยังไม่ถึง` : `วันที่ ${d} — ยังไม่กรอก`}
-                style={{ aspectRatio: '1', minHeight: 38, borderRadius: 6, border: today ? '2px solid var(--accent)' : '1px solid var(--line)', background: ent ? 'var(--good-soft)' : 'var(--surface)', cursor: disabled ? 'default' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: '2px 1px', opacity: future ? 0.4 : 1, overflow: 'hidden' }}>
+                style={{ position: 'relative', aspectRatio: '1', minHeight: 38, borderRadius: 6, border: today ? '2px solid var(--accent)' : '1px solid var(--line)', background: ent ? 'var(--good-soft)' : 'var(--surface)', cursor: disabled ? 'default' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: '2px 1px', opacity: future ? 0.4 : 1, overflow: 'hidden' }}>
+                {/* ✓ มุมขวาบน — สัญลักษณ์เสริมจากสี (ช่วยตาบอดสี) */}
+                {ent && <span style={{ position: 'absolute', top: 1, right: 2, fontSize: 8, fontWeight: 800, color: 'var(--good)', lineHeight: 1 }}>✓</span>}
                 <span style={{ fontSize: 10.5, fontWeight: 700, color: ent ? 'var(--good)' : 'var(--ink-3)' }}>{d}</span>
                 {ent && rev > 0 && <span style={{ fontSize: 8, fontWeight: 600, color: 'var(--good)', lineHeight: 1, whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{Bc(rev)}</span>}
               </button>
             );
           })}
         </div>
-        <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 8 }}>คลิกวันเพื่อกรอก/แก้ยอด · <span style={{ color: 'var(--good)' }}>เขียว</span> = กรอกแล้ว</div>
+        <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 8 }}>คลิกวันเพื่อกรอก/แก้ยอด · <span style={{ color: 'var(--good)' }}>เขียว ✓</span> = กรอกแล้ว</div>
       </div>
     </div>
   );
