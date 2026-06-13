@@ -2,6 +2,7 @@
    TMK Operation — Modals & Login
    ============================================================ */
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { TMK } from './data.js';
 import { B, Bk, P, N, Icon, readImageCompressed, SIZES, SHIRT_COLORS, lotTotal as calcLotTotal, lotValue as calcLotValue, barcodeSVGString, Barcode, orderStatusMeta } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
@@ -76,7 +77,10 @@ export function Modal({ icon, title, sub, onClose, footer, wide, children, confi
     boxRef.current?.focus?.(); // โฟกัสเข้า modal เมื่อเปิด (a11y)
     return () => window.removeEventListener('keydown', onKey);
   }, [confirmOnClose]);
-  return (
+  // Portal ไป document.body — กัน scrim โดน "ขัง" ใน stacking context ของหน้าที่มี transform
+  // (เช่น .content-inner.rise ที่มี animation → ทำให้ position:fixed ผูกกับ element นั้นแทน viewport
+  //  → พื้นหลังดำไม่เต็มจอ rail/topbar ทะลุ). Portal ทำให้ modal อยู่ root เสมอเหมือน modal อื่น
+  return createPortal(
     <div className="modal-scrim" onClick={tryClose}>
       <div ref={boxRef} className={'modal' + (wide ? ' modal-lg' : '')} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
         <div className="modal-head">
@@ -90,7 +94,8 @@ export function Modal({ icon, title, sub, onClose, footer, wide, children, confi
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
