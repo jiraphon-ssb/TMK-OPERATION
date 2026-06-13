@@ -500,6 +500,32 @@ function AppInner() {
     document.addEventListener('wheel', onWheel, { passive: true });
     return () => document.removeEventListener('wheel', onWheel);
   }, []);
+
+  // ===== Presence heartbeat — บันทึก "ออนไลน์" ของผู้ใช้ปัจจุบัน =====
+  // upsert แถวของตัวเองทุก ~45 วิ ระหว่างแท็บเปิดอยู่ (+ ตอนเปิด/กลับมาที่แท็บ)
+  // การ์ด "ทีมวันนี้" หน้าหลักอ่าน tmk_presence ทุก 30 วิ → online = last_seen ภายใน ~2.5 นาที
+  // page/name อ่านผ่าน ref → effect ไม่ rerun ทุกครั้งที่เปลี่ยนหน้า (ไม่ทิ้ง/ตั้ง interval ใหม่)
+  const presenceMetaRef = useRef({ page: section, name: currentUserCtx?.name || '' });
+  presenceMetaRef.current = { page: section, name: currentUserCtx?.name || '' };
+  useEffect(() => {
+    const email = session?.user?.email;
+    if (!email) return;
+    const key = email.toLowerCase();
+    const beat = () => {
+      if (document.visibilityState !== 'visible') return;
+      const nowIso = new Date().toISOString();
+      supabase.from('tmk_presence').upsert(
+        { email: key, name: presenceMetaRef.current.name, page: presenceMetaRef.current.page, last_seen_at: nowIso, updated_at: nowIso },
+        { onConflict: 'email' }
+      ).then(() => {}, () => {}); // เงียบถ้าตารางยังไม่ถูกสร้าง (ยังไม่รัน migration)
+    };
+    beat();
+    const id = setInterval(beat, 45000);
+    const onVis = () => { if (document.visibilityState === 'visible') beat(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
+  }, [session]);
+
   useEffect(() => {
     const onKey = (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSpotlight(s => !s); } };
     window.addEventListener('keydown', onKey);
@@ -508,7 +534,14 @@ function AppInner() {
   const closeModal = () => { setModal(null); };
   const logout = async () => {
     const email = session?.user?.email;
-    if (email) logAudit({ action: 'logout', entityType: 'auth', entityName: email, summary: `ออกจากระบบ (${email})` });
+    if (email) {
+      logAudit({ action: 'logout', entityType: 'auth', entityName: email, summary: `ออกจากระบบ (${email})` });
+      // mark offline ทันที — ตั้ง last_seen ย้อน 10 นาที (พ้นหน้าต่าง online แต่ยังนับเป็น "วันนี้")
+      supabase.from('tmk_presence').upsert(
+        { email: email.toLowerCase(), last_seen_at: new Date(Date.now() - 600000).toISOString(), updated_at: new Date().toISOString() },
+        { onConflict: 'email' }
+      ).then(() => {}, () => {});
+    }
     setMenu(false); setDrawer(false);
     setSection('home'); setSubMap(DEFAULT_SUB);
     try {

@@ -1,12 +1,13 @@
 /* ============================================================
    TMK Operation — Views part 1: Home (cockpit) + Sales
    ============================================================ */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, MiniArea, Bars, InfoTip, roasColor, acosColor, targetColor } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
+import { supabase } from './lib/supabaseClient.js';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
@@ -69,6 +70,155 @@ const LOG_FILTERS = [
   { id: 'task', label: 'งาน', match: a => a.entity === 'task' },
   { id: 'user', label: 'ผู้ใช้/ระบบ', match: a => a.entity === 'user' || a.action === 'login' || a.action === 'logout' },
 ];
+
+/* ---------- ทีมวันนี้ — ออนไลน์/ออฟไลน์ จาก tmk_presence (heartbeat) ---------- */
+const ONLINE_MS = 150000; // 2.5 นาที — heartbeat ทุก 45 วิ ให้ margin พอ
+const PAGE_LABEL = { home: 'หน้าหลัก', sales: 'ยอดขาย', planner: 'แผนงาน', catalog: 'สินค้า', settings: 'ตั้งค่า' };
+
+function TeamTodayCard({ go }) {
+  const [presence, setPresence] = useState([]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let alive = true;
+    const fetchP = async () => {
+      const { data, error } = await supabase.from('tmk_presence').select('email,name,page,last_seen_at');
+      if (alive && !error && Array.isArray(data)) setPresence(data);
+    };
+    fetchP();
+    // อ่านสด + ขยับ "now" ทุก 30 วิ → คนที่เงียบเกินหน้าต่างจะกลายเป็นออฟไลน์เอง
+    const id = setInterval(() => { setNow(Date.now()); fetchP(); }, 30000);
+    const onVis = () => { if (document.visibilityState === 'visible') { setNow(Date.now()); fetchP(); } };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+
+  const pmap = {};
+  presence.forEach(p => { if (p.email) pmap[String(p.email).toLowerCase()] = p; });
+  const todayStr = todayISO();
+  const openTasks = (D.tasks || []).filter(t => t.status !== 'done');
+  const members = (D.roles || []).map(r => {
+    const p = pmap[String(r.email || '').toLowerCase()];
+    const last = p?.last_seen_at ? new Date(p.last_seen_at).getTime() : 0;
+    const online = !!last && (now - last) < ONLINE_MS;
+    const activeToday = !!last && new Date(last).toISOString().slice(0, 10) === todayStr;
+    const load = openTasks.filter(t => (t.responsible || []).some(x => x === r.name || x === r.department)).length;
+    return { ...r, online, activeToday, page: p?.page || '', last, load };
+  });
+  // เรียง: ออนไลน์ก่อน → เคลื่อนไหววันนี้ → ล่าสุดใหม่สุด
+  members.sort((a, b) => (b.online - a.online) || (b.activeToday - a.activeToday) || (b.last - a.last));
+  const onlineCount = members.filter(m => m.online).length;
+  const activeCount = members.filter(m => m.activeToday).length;
+  const topLoad = [...members].filter(m => m.load > 0).sort((a, b) => b.load - a.load).slice(0, 2);
+
+  const ago = (ts) => {
+    if (!ts) return 'ยังไม่เข้าระบบ';
+    const s = Math.max(0, (now - ts) / 1000);
+    if (s < 60) return 'เมื่อสักครู่';
+    if (s < 3600) return `${Math.floor(s / 60)} นาทีที่แล้ว`;
+    if (s < 86400) return `${Math.floor(s / 3600)} ชม.ที่แล้ว`;
+    return `${Math.floor(s / 86400)} วันก่อน`;
+  };
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="card-head">
+        <h3><span style={{ color: 'var(--accent)' }}><Icon name="users" /></span> {'ทีมวันนี้'}
+          {members.length > 0 && <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}> · {onlineCount} ออนไลน์</span>}</h3>
+        <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'roles')}>{'จัดการทีม'} <Icon name="arrowR" /></button>
+      </div>
+      {members.length === 0 ? (
+        <div className="cap" style={{ textAlign: 'center', padding: '20px 0', color: 'var(--ink-4)' }}>ยังไม่มีสมาชิกในทีม</div>
+      ) : (<>
+        <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span className="chip chip-good"><span className="dot-c" style={{ background: 'var(--good)' }}></span> {onlineCount} ออนไลน์</span>
+          <span className="chip"><span className="dot-c" style={{ background: 'var(--ink-4)' }}></span> {members.length - onlineCount} ออฟไลน์</span>
+          <span className="chip" style={{ color: 'var(--ink-3)' }}>เคลื่อนไหววันนี้ {activeCount} คน</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {members.slice(0, 6).map((m, i) => (
+            <div key={m.email || i} className="row" style={{ gap: 10, padding: '6px 2px', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <Avatar name={m.name} color={m.color} size={28} />
+                <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: m.online ? 'var(--good)' : 'var(--ink-4)', border: '2px solid var(--surface)' }}></span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}
+                  {m.load > 0 && <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 400 }}> · งานค้าง {m.load}</span>}</div>
+                <div className="cap" style={{ color: m.online ? 'var(--good)' : 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {m.online ? `ออนไลน์${m.page ? ` · ดู${PAGE_LABEL[m.page] || m.page}` : ''}` : ago(m.last)}</div>
+              </div>
+            </div>
+          ))}
+          {members.length > 6 && <div className="cap" style={{ textAlign: 'center', color: 'var(--ink-4)', paddingTop: 4 }}>+ อีก {members.length - 6} คน</div>}
+        </div>
+        {topLoad.length > 0 && (
+          <div className="cap" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)', color: 'var(--ink-3)' }}>
+            งานค้างมากสุด: {topLoad.map(m => `${m.name} (${m.load})`).join(' · ')}</div>
+        )}
+      </>)}
+    </div>
+  );
+}
+
+/* ---------- แคมเปญ — donut total/กำลังรัน/เสี่ยง จาก TMK.campaigns ---------- */
+function CampaignsCard({ go }) {
+  const today = todayISO();
+  // ใกล้จบใน 5 วัน — คำนวณแบบ pure จาก today (เลี่ยง Date.now ระหว่าง render)
+  const [_ty, _tm, _td] = today.split('-').map(Number);
+  const soon = new Date(Date.UTC(_ty, _tm - 1, _td + 5)).toISOString().slice(0, 10);
+  const all = (D.campaigns || []).filter(c => c.status !== 'done' && c.status !== 'cancelled'); // แคมเปญที่ยัง active (รัน/กำลังจะรัน/พัก)
+  const live = all.filter(c => c.status === 'live');
+  // เสี่ยง = กำลังรัน และใกล้จบ/เลยกำหนดแล้ว (ต้องตัดสินใจต่อ/สรุป) หรือถูกพักไว้
+  const atRisk = all.filter(c => (c.status === 'live' && c.endISO && c.endISO <= soon) || c.status === 'paused');
+  const urgent = [...atRisk].filter(c => c.endISO).sort((a, b) => a.endISO.localeCompare(b.endISO))[0] || atRisk[0];
+  const total = all.length;
+  const pctOf = (n) => total > 0 ? (n / total) * 100 : 0;
+
+  return (
+    <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="card-head">
+        <h3><span style={{ color: 'var(--accent)' }}><Icon name="megaphone" /></span> {'แคมเปญ'}</h3>
+        <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'campaigns')}>{'ดูทั้งหมด'} <Icon name="arrowR" /></button>
+      </div>
+      {total === 0 ? (
+        <div style={{ textAlign: 'center', padding: '18px 0', color: 'var(--ink-4)' }}>
+          <div className="cap" style={{ marginBottom: 10 }}>ยังไม่มีแคมเปญที่กำลังดำเนินอยู่</div>
+          <button className="btn btn-sm" onClick={() => go('settings', 'campaigns')}>{'สร้างแคมเปญ'}</button>
+        </div>
+      ) : (<>
+        <div className="row" style={{ justifyContent: 'space-around', gap: 8, padding: '6px 0 4px' }}>
+          <div style={{ textAlign: 'center' }}>
+            <Ring pct={100} size={68} stroke={7} color="var(--accent)"><span className="num" style={{ fontSize: 20, fontWeight: 800 }}>{total}</span></Ring>
+            <div className="cap" style={{ marginTop: 6 }}>ทั้งหมด</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <Ring pct={pctOf(live.length)} size={68} stroke={7} color="var(--good)"><span className="num" style={{ fontSize: 20, fontWeight: 800 }}>{live.length}</span></Ring>
+            <div className="cap" style={{ marginTop: 6 }}>กำลังรัน</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <Ring pct={pctOf(atRisk.length)} size={68} stroke={7} color="var(--warn)"><span className="num" style={{ fontSize: 20, fontWeight: 800, color: atRisk.length ? 'var(--warn)' : undefined }}>{atRisk.length}</span></Ring>
+            <div className="cap" style={{ marginTop: 6 }}>เสี่ยง</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+          {urgent ? (
+            <div className="row" onClick={() => go('settings', 'campaigns')} style={{ gap: 9, cursor: 'pointer', alignItems: 'center' }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: urgent.color || 'var(--warn)', flexShrink: 0 }}></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ color: 'var(--warn)', fontWeight: 700 }}>ต้องดูด่วน</span> · {urgent.name}</div>
+                <div className="cap">{urgent.status === 'paused' ? 'ถูกพักไว้' : urgent.endISO && urgent.endISO < today ? `เลยกำหนด (จบ ${urgent.end})` : `ใกล้จบ ${urgent.end}`}</div>
+              </div>
+              <span style={{ flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
+            </div>
+          ) : (
+            <div className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>✅ ทุกแคมเปญอยู่ในแผน</div>
+          )}
+        </div>
+      </>)}
+    </div>
+  );
+}
 
 export function HomeView({ go }) {
   const { user } = useUser() || {};
@@ -200,8 +350,14 @@ export function HomeView({ go }) {
             </div>
           )}
         </div>
+
+        {/* แคมเปญ — ใต้สรุปเมื่อวาน */}
+        <CampaignsCard go={go} />
         </div>
 
+        {/* คอลัมน์ขวา — ทีมวันนี้ + อัพเดทล่าสุด */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+        <TeamTodayCard go={go} />
         {/* อัพเดท / ความเคลื่อนไหว — พระเอก */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="clock" /></span> {'อัพเดทล่าสุด'} {todayCount > 0 && <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>· วันนี้ {todayCount} รายการ</span>}</h3>
@@ -234,6 +390,7 @@ export function HomeView({ go }) {
               </div>
             ))}
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -1002,6 +1159,80 @@ function SalesAds({ dateProps, md }) {
   );
 }
 
+/* Combo chart รายสัปดาห์: แท่งคู่ ลูกค้าใหม่ vs เก่า (แกนซ้าย=จำนวน) + เส้นประ %ซื้อซ้ำ (แกนขวา=%) */
+function CustomerWeeklyCombo({ wk }) {
+  const [hi, setHi] = useState(null);
+  const h = 210, padT = 12, labelH = 24;
+  const plotH = h - padT - labelH;
+  const n = wk.length;
+  const maxCount = Math.max(1, ...wk.map(w => Math.max(w.newC || 0, w.oldC || 0)));
+  // ปัดแกนซ้ายขึ้นเป็นเลขสวย
+  const niceCeil = (v) => { if (v <= 5) return 5; const p = Math.pow(10, Math.floor(Math.log10(v))); const s = v / p; const m = s <= 1 ? 1 : s <= 2 ? 2 : s <= 5 ? 5 : 10; return m * p; };
+  const yMax = niceCeil(maxCount);
+  const rightMax = Math.max(10, Math.ceil(Math.max(...wk.map(w => w.returningPct || 0)) / 10) * 10); // แกนขวา % ปัดขึ้นทีละ 10
+  const barH = (v) => Math.max(0, ((Number(v) || 0) / yMax) * plotH);
+  const lineY = (pct) => plotH - ((Number(pct) || 0) / rightMax) * plotH; // y px ของจุด %ซื้อซ้ำ
+  const pts = wk.map((w, i) => ({ x: ((i + 0.5) / n) * 1000, y: lineY(w.returningPct) }));
+  const leftTicks = [yMax, yMax / 2, 0], rightTicks = [rightMax, rightMax / 2, 0];
+  return (
+    <div style={{ fontFamily: 'var(--font)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', columnGap: 8, height: h }}>
+        {/* แกนซ้าย — จำนวนลูกค้า */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-end', fontSize: 9, color: 'var(--ink-4)', paddingTop: padT, paddingBottom: labelH, lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {leftTicks.map((v, i) => <span key={i}>{N(v)}</span>)}
+        </div>
+        {/* พื้นที่กราฟ */}
+        <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', height: plotH, marginTop: padT }}>
+            {/* เส้นกริด */}
+            {leftTicks.map((v, i) => <div key={i} style={{ position: 'absolute', left: 0, right: 0, top: `${(1 - v / yMax) * 100}%`, borderTop: '1px dashed var(--line)', opacity: 0.4 }} />)}
+            {/* แท่งคู่ต่อสัปดาห์ */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%', gap: 10 }}>
+              {wk.map((w, i) => (
+                <div key={i} onPointerEnter={() => setHi(i)} onPointerDown={() => setHi(i)} onPointerLeave={() => setHi(null)}
+                     style={{ flex: 1, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 4, height: '100%', position: 'relative', cursor: 'default', touchAction: 'manipulation' }}>
+                  <div title="ลูกค้าใหม่" style={{ width: '38%', maxWidth: 26, height: barH(w.newC), background: 'var(--good)', borderRadius: '4px 4px 0 0', opacity: hi == null || hi === i ? 1 : 0.4, transition: 'opacity .12s' }} />
+                  <div title="ลูกค้าเก่า" style={{ width: '38%', maxWidth: 26, height: barH(w.oldC), background: 'var(--info)', borderRadius: '4px 4px 0 0', opacity: hi == null || hi === i ? 1 : 0.4, transition: 'opacity .12s' }} />
+                  {hi === i && (
+                    <div style={{ position: 'absolute', bottom: 'calc(100% + 4px)', left: '50%', transform: `translateX(${i < n / 2 ? '-20%' : '-80%'})`, background: 'var(--ink)', color: 'var(--paper)', padding: '7px 10px', borderRadius: 8, fontSize: 11, whiteSpace: 'nowrap', zIndex: 20, textAlign: 'left', lineHeight: 1.5, boxShadow: '0 6px 20px rgba(0,0,0,.25)', pointerEvents: 'none' }}>
+                      <div style={{ fontWeight: 700, marginBottom: 2 }}>สัปดาห์ {w.week}</div>
+                      <div className="row" style={{ gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--good)' }} />ลูกค้าใหม่ {N(w.newC)}</div>
+                      <div className="row" style={{ gap: 5 }}><span style={{ width: 7, height: 7, borderRadius: 2, background: 'var(--info)' }} />ลูกค้าเก่า {N(w.oldC)}</div>
+                      <div style={{ marginTop: 2, opacity: 0.85 }}>ซื้อซ้ำ {P(w.returningPct, 0)}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {/* เส้นประ %ซื้อซ้ำ (แกนขวา) */}
+            {pts.length >= 2 && (
+              <svg viewBox={`0 0 1000 ${plotH}`} preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: plotH, pointerEvents: 'none', zIndex: 2 }}>
+                <polyline points={pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+              </svg>
+            )}
+            {/* จุดบนเส้น %ซื้อซ้ำ */}
+            {pts.map((p, i) => <div key={i} style={{ position: 'absolute', left: `${p.x / 10}%`, top: p.y, width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)', transform: 'translate(-50%,-50%)', zIndex: 3, pointerEvents: 'none' }} />)}
+          </div>
+          {/* ป้ายสัปดาห์ */}
+          <div style={{ display: 'flex', height: labelH, alignItems: 'center' }}>
+            {wk.map((w, i) => <div key={i} className="cap" style={{ flex: 1, textAlign: 'center', color: 'var(--ink-3)' }}>สัปดาห์ {w.week}</div>)}
+          </div>
+        </div>
+        {/* แกนขวา — % ซื้อซ้ำ */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', alignItems: 'flex-start', fontSize: 9, color: 'var(--ink-4)', paddingTop: padT, paddingBottom: labelH, lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {rightTicks.map((v, i) => <span key={i}>{v}%</span>)}
+        </div>
+      </div>
+      {/* legend */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px', marginTop: 10, justifyContent: 'center' }}>
+        <span className="cap row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--good)' }} />ลูกค้าใหม่</span>
+        <span className="cap row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--info)' }} />ลูกค้าเก่า</span>
+        <span className="cap row" style={{ gap: 5 }}><span style={{ width: 16, borderTop: '2.5px dashed var(--accent)' }} />% ซื้อซ้ำ</span>
+      </div>
+    </div>
+  );
+}
+
 function SalesCustomers({ dateProps, md }) {
   const C = md.computed;
   // สัดส่วนลูกค้าใหม่คิดจาก "จำนวนคน" (ไม่ได้แยกรายได้ใหม่/เก่า)
@@ -1049,14 +1280,14 @@ function SalesCustomers({ dateProps, md }) {
         </div>
       </div>
 
-      {/* แนวโน้ม % ลูกค้าเก่า (ซื้อซ้ำ) รายสัปดาห์ + CLV */}
+      {/* ลูกค้าใหม่ vs เก่า รายสัปดาห์ (แท่งคู่) + เส้น %ซื้อซ้ำ + CLV */}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head">
-          <h3>{'% ลูกค้าเก่า (ซื้อซ้ำ) — แนวโน้มรายสัปดาห์'} <InfoTip text="ลูกค้าเก่า ÷ ลูกค้าทั้งหมด ในแต่ละสัปดาห์ (จากจำนวนคนจริง — ระบบไม่เก็บรายได้แยกใหม่/เก่า)" label="แนวโน้ม" /></h3>
+          <h3>{'ลูกค้าใหม่ vs เก่า — รายสัปดาห์'} <InfoTip text="แท่ง = จำนวนลูกค้าใหม่/เก่าต่อสัปดาห์ · เส้นประ = % ซื้อซ้ำ (ลูกค้าเก่า ÷ ลูกค้าทั้งหมด)" label="ลูกค้ารายสัปดาห์" /></h3>
           <span className="cap">CLV {'เฉลี่ย'} <b style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</b></span>
         </div>
         {(() => {
-          // เฉพาะสัปดาห์ที่ "กรอกลูกค้าจริง" — กันสัปดาห์ที่มีแต่ยอดขาย (ลูกค้า 0) โชว์เป็น 0% หลอกตา
+          // เฉพาะสัปดาห์ที่ "กรอกลูกค้าจริง" — กันสัปดาห์ที่มีแต่ยอดขาย (ลูกค้า 0) โชว์เป็น 0 หลอกตา
           const wk = (md.custWeekly || []).filter(w => (w.newC + w.oldC) > 0);
           if (!wk.length) return (
             <div style={{ textAlign: 'center', padding: 30 }}>
@@ -1064,12 +1295,12 @@ function SalesCustomers({ dateProps, md }) {
               <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="pencil" /> กรอกลูกค้าใหม่/เก่า</button>
             </div>
           );
-          const vals = wk.map(w => w.returningPct);
-          const up = vals[vals.length - 1] >= vals[0];
+          const rets = wk.map(w => w.returningPct);
+          const up = rets[rets.length - 1] >= rets[0];
           return (<>
-            <MiniArea data={vals} labels={wk.map(w => `สัปดาห์ ${w.week}`)} fmt={(v) => P(v, 0)} axisFmt={(v) => P(v, 0)} h={160} color="var(--info)" id="cust-returning" metricLabel="ลูกค้าเก่า" />
+            <CustomerWeeklyCombo wk={wk} />
             <div className="cap" style={{ marginTop: 8, color: up ? 'var(--good)' : 'var(--ink-3)', fontWeight: 600 }}>
-              {vals.length >= 2 ? (up ? '↗ ฐานลูกค้าซื้อซ้ำกำลังแข็งขึ้น' : '↘ สัดส่วนลูกค้าเก่าลดลง — ลองกระตุ้นลูกค้าเดิม') : 'มีข้อมูลสัปดาห์เดียว — รอข้อมูลเพิ่มเพื่อดูแนวโน้ม'}
+              {rets.length >= 2 ? (up ? '↗ สัดส่วนลูกค้าซื้อซ้ำกำลังแข็งขึ้น' : '↘ สัดส่วนลูกค้าเก่าลดลง — ลองกระตุ้นลูกค้าเดิม') : 'มีข้อมูลสัปดาห์เดียว — รอข้อมูลเพิ่มเพื่อดูแนวโน้ม'}
             </div>
           </>);
         })()}
