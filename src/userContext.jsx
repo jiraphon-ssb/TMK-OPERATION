@@ -14,6 +14,7 @@ export function UserProvider({ children, version }) {
   // อีเมลที่ล็อกอินจริง — มาจาก Supabase Auth session (persist/refresh ให้เอง)
   const [authEmail, setAuthEmail] = useState(null);
   useEffect(() => {
+    if (!supabase) return; // ยังไม่ตั้งค่า Supabase → ข้าม (กัน TypeError ตอน mount)
     let alive = true;
     supabase.auth.getSession().then(({ data }) => { if (alive) setAuthEmail(data.session?.user?.email || null); });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { if (alive) setAuthEmail(s?.user?.email || null); });

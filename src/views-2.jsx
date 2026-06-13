@@ -1168,7 +1168,9 @@ function OrdersView() {
   // จำกัด "ส่งแล้ว" ให้เหลือ 7 วันล่าสุด — กันคอลัมน์ยาวหลายร้อยใบ + ออเดอร์ active หายเมื่อทะลุ 500
   const cutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
   const matchSearch = (o) => !ql || `${o.code || ''} ${o.customerName || ''} ${o.trackingNo || ''}`.toLowerCase().includes(ql);
-  const isRecentShipped = (o) => (o.shippedDate || o.createdAt || '').slice(0, 10) >= cutoff;
+  // วันที่ส่งจริงจาก status log (ไม่มี field shippedDate) — fallback เป็นวันที่สร้างถ้าไม่มี log
+  const shipDate = (o) => ((o.statusLog || []).filter(x => x.status === 'shipped').map(x => x.at).sort().pop() || o.createdAt || '');
+  const isRecentShipped = (o) => shipDate(o).slice(0, 10) >= cutoff;
   const visible = orders.filter(o =>
     o.status !== 'cancelled' &&
     matchSearch(o) &&
@@ -1759,6 +1761,15 @@ function GeneralSettings({ dark, setDark }) {
 /* ---- Updates / Changelog ---- */
 function UpdatesView() {
   const updates = [
+    { ver: '2.2.1', date: '13 มิ.ย. 2569', type: 'fix', items: [
+      'แก้แจ้งเตือน PO ถึง/เลยกำหนด — เดิมเทียบวันที่ผิดรูปแบบทำให้เตือนคลาดเคลื่อน',
+      'แก้การ์ด "ทีมวันนี้" — "เคลื่อนไหววันนี้" คลาดเวลาโซนเวลา (คนเข้าก่อน 7 โมงเช้าถูกนับเป็นเมื่อวาน)',
+      'แก้บอร์ดออเดอร์ — ออเดอร์เก่าที่เพิ่งส่งวันนี้ไม่หายจากคอลัมน์ "ส่งแล้ว" อีก',
+      'แก้ฟิลเตอร์ประวัติการใช้งาน "แก้ไข/สร้าง" ให้เห็นครบทุกประเภท (ขาย/ปรับสต็อก/จอง/ออเดอร์/รับเข้า/กู้คืน)',
+      'แก้แจ้งเตือน "ยังไม่สรุปยอดเดือนก่อน" ที่เด้งหลอกทั้งที่กรอกรายวันครบแล้ว',
+      'แก้จังหวะคัดลอกยอดเมื่อวาน — กันค่าที่กำลังโหลดมาทับค่าที่เพิ่งคัดลอก',
+      'เสถียรขึ้น — กันจอขาวกรณีฐานข้อมูลยังไม่ถูกตั้งค่า + เก็บรายละเอียดสีข้อความแนวโน้มลูกค้า',
+    ]},
     { ver: '2.2.0', date: '13 มิ.ย. 2569', type: 'feature', items: [
       'หน้าหลักมีการ์ด "ทีมวันนี้" — เห็นใครออนไลน์/ออฟไลน์แบบสด (จุดเขียว/เทา) · ใครเคลื่อนไหววันนี้ · งานค้างต่อคน + สรุปคนที่งานค้างมากสุด',
       'หน้าหลักมีการ์ด "แคมเปญ" — วงแหวนสรุป ทั้งหมด/กำลังรัน/เสี่ยง + แถบ "ต้องดูด่วน" ชี้แคมเปญที่ใกล้จบ/เลยกำหนด/ถูกพัก',
@@ -1938,6 +1949,8 @@ const ACTION_META = {
   logout:  { l: 'ออกจากระบบ',  c: 'var(--ink-3)', g: 'auth' },
 };
 const actionMeta = (a) => ACTION_META[a.action] || { l: a.action || 'อื่นๆ', c: 'var(--info)', g: a.type || 'update' };
+// กลุ่มฟิลเตอร์ประวัติ → action keys (derive จาก ACTION_META ให้ครบทุก action เสมอ — เลี่ยง hardcode ตกหล่น)
+const ACTION_GROUP = Object.entries(ACTION_META).reduce((acc, [k, v]) => { (acc[v.g] = acc[v.g] || []).push(k); return acc; }, {});
 const ENTITY_TH = { task:'งาน', product:'สินค้า', campaign:'แคมเปญ', channel:'ช่องทาง', duty:'หน้าที่', user:'ผู้ใช้', daily:'ยอดขายรายวัน', monthly:'รายเดือน', segment:'กลุ่มลูกค้า', adCampaign:'แคมเปญแอด', ad:'แคมเปญแอด', po:'PO / สต็อก', auth:'ระบบ', data:'ข้อมูล', settings:'ตั้งค่า', system:'ระบบ' };
 
 function AuditView() {
@@ -1952,9 +1965,6 @@ function AuditView() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const types = [['all','ทั้งหมด'],['create','สร้าง'],['update','แก้ไข'],['delete','ลบ'],['auth','เข้า/ออกระบบ']];
-
-  // map filter group → action keys ใน DB (ตามที่ใช้ใน logAudit)
-  const ACTION_GROUP = { create: ['create'], update: ['update','move','export'], delete: ['delete','purge','restore'], auth: ['login','logout'] };
 
   useEffect(() => {
     let cancel = false;

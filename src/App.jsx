@@ -400,6 +400,7 @@ function AppInner() {
   const [authReady, setAuthReady] = useState(false); // เช็ค session แรกเสร็จหรือยัง (กันจอ login กระพริบตอน restore)
   const authed = !!session;
   useEffect(() => {
+    if (!supabase) { setAuthReady(true); return; } // ยังไม่ตั้งค่า Supabase → ข้าม (กัน crash, DataProvider แจ้ง error เอง)
     let alive = true;
     supabase.auth.getSession().then(({ data }) => { if (alive) { setSession(data.session); setAuthReady(true); } });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { if (alive) setSession(s); });
@@ -596,7 +597,9 @@ function AppInner() {
       const pm = cm === 1 ? 12 : cm - 1;
       const py = cm === 1 ? cy - 1 : cy;
       const rec = (TMK.monthly || []).find(m => m.month === pm && m.year === py);
-      if (rec && rec.actual > 0) return [];
+      // มียอดรวมรายเดือน หรือ มีข้อมูลรายวันของเดือนนั้น = ถือว่าสรุปแล้ว (กันเตือนหลอกเมื่อกรอกแบบรายวันล้วน)
+      const hasDaily = (TMK.dailyAll || []).some(d => d.year === py && d.month === pm);
+      if ((rec && rec.actual > 0) || hasDaily) return [];
       return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
     })();
     const notifsStock = readFlag('tmk-notif-stock')
@@ -645,8 +648,8 @@ function AppInner() {
     // PO ถึง/เลยกำหนด — arrivalDate <= วันนี้ และยังไม่รับเข้า
     const notifsPO = readFlag('tmk-notif-po') ? (() => {
       const todayStr = _todayIso;
-      return (TMK.poTracker || []).filter(p => p.arrivalDate && p.arrivalDate <= todayStr && p.status !== 'received' && p.status !== 'done')
-        .map(p => ({ id: 'po-' + p.id, kind: 'po', title: `PO ${p.product || ''} ${p.arrivalDate === todayStr ? 'ถึงกำหนดวันนี้' : 'เลยกำหนดแล้ว'}`, txt: 'ดู PO' }));
+      return (TMK.poTracker || []).filter(p => p.arrivalISO && p.arrivalISO <= todayStr && p.status !== 'received' && p.status !== 'done')
+        .map(p => ({ id: 'po-' + p.id, kind: 'po', title: `PO ${p.product || ''} ${p.arrivalISO === todayStr ? 'ถึงกำหนดวันนี้' : 'เลยกำหนดแล้ว'}`, txt: 'ดู PO' }));
     })() : [];
     const groups = [
       { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },

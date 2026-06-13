@@ -361,6 +361,7 @@ export function RecordSalesModal({ data, onClose }) {
     const { data: row } = await supabase.from('tmk_daily_sales').select('*').eq('id', pid).maybeSingle();
     if (!row || row.deleted_at) { toast('ไม่พบข้อมูลของเมื่อวาน', 'error'); return; }
     const cj = (row.channels && typeof row.channels === 'object') ? row.channels : {};
+    loadDirty.current = true; // กันผลโหลดของวันปัจจุบันที่ยังค้างอยู่มาทับค่าที่เพิ่งคัดลอก (race)
     setRows(MD.channels.map(c => {
       const j = cj[c.id] || {}; const col = colMap[c.id];
       const rev = j.rev != null ? j.rev : (col ? row[col] : 0);

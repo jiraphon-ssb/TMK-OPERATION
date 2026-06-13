@@ -100,7 +100,9 @@ function TeamTodayCard({ go }) {
     const p = pmap[String(r.email || '').toLowerCase()];
     const last = p?.last_seen_at ? new Date(p.last_seen_at).getTime() : 0;
     const online = !!last && (now - last) < ONLINE_MS;
-    const activeToday = !!last && new Date(last).toISOString().slice(0, 10) === todayStr;
+    // เทียบวันแบบ "เวลาท้องถิ่น" (ไม่ใช่ UTC) — กัน heartbeat ก่อน 07:00 ไทยถูกนับเป็นเมื่อวาน
+    const ld = last ? new Date(last) : null;
+    const activeToday = !!ld && `${ld.getFullYear()}-${String(ld.getMonth() + 1).padStart(2, '0')}-${String(ld.getDate()).padStart(2, '0')}` === todayStr;
     const load = openTasks.filter(t => (t.responsible || []).some(x => x === r.name || x === r.department)).length;
     return { ...r, online, activeToday, page: p?.page || '', last, load };
   });
@@ -569,6 +571,8 @@ function MomDelta({ current, previous, label }) {
 function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
   const C = md.computed, consts = md.consts, channels = md.channels, pnl = md.pnl;
   const prevC = prevMd.computed;
+  // ถึงเป้าเดือนนี้ → การ์ด MTD โชว์สถานะ "ทะลุเป้า" แบบ minimal (ป้าย + แถบทอง + ขอบเรือง)
+  const targetHit = md.isCurrent && consts.TARGET > 0 && C.MTD >= consts.TARGET;
   const st = paceStatus(C.PACE_PCT);
   const pace = useCountUp(C.PACE_PCT);
   const ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -600,8 +604,11 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       <SalesDateBar {...dateProps} />
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginBottom: 16 }}>
-        <div className="card">
-          <div className="eyebrow" style={{ marginBottom: 8 }}>{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</div>
+        <div className="card" style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)', boxShadow: '0 0 0 1px rgba(245,180,35,0.28), 0 10px 34px rgba(245,180,35,0.14)' } : undefined}>
+          <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
+            <span className="eyebrow">{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</span>
+            {targetHit && <span className="chip" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap' }}>🎉 ทะลุเป้าแล้ว</span>}
+          </div>
           <div className="num display">{B(C.MTD)}</div>
           {/* เดือนปัจจุบัน: เทียบ MTD กับ "วันที่เดียวกัน" ของเดือนก่อน — กันแดงหลอกตากลางเดือน */}
           {(() => {
@@ -613,11 +620,11 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             return <MomDelta current={C.MTD} previous={prevSameDay} label={lbl} />;
           })()}
           <div className="bar" style={{ marginTop: 14 }}>
-            <span style={{ width: `${consts.TARGET > 0 ? Math.min((C.MTD/consts.TARGET)*100,100) : 0}%`, background: st.c }}></span>
+            <span style={{ width: `${consts.TARGET > 0 ? Math.min((C.MTD/consts.TARGET)*100,100) : 0}%`, background: targetHit ? 'linear-gradient(90deg,#ffd86b,#f5a623)' : st.c }}></span>
           </div>
           <div className="row between" style={{ marginTop: 8 }}>
             <span className="cap">{'เป้า'} {consts.TARGET ? B(consts.TARGET) : '— ยังไม่ตั้ง'}</span>
-            <span className="cap num">{consts.TARGET > 0 ? P((C.MTD/consts.TARGET)*100) : '—'} {'ของเป้า'}</span>
+            <span className="cap num" style={targetHit ? { color: 'var(--warn)', fontWeight: 700 } : undefined}>{consts.TARGET > 0 ? P((C.MTD/consts.TARGET)*100) : '—'} {'ของเป้า'}</span>
           </div>
           <div className="grid g4" style={{ marginTop: 18, gap: 12 }}>
             {(() => {
@@ -1299,7 +1306,7 @@ function SalesCustomers({ dateProps, md }) {
           const up = rets[rets.length - 1] >= rets[0];
           return (<>
             <CustomerWeeklyCombo wk={wk} />
-            <div className="cap" style={{ marginTop: 8, color: up ? 'var(--good)' : 'var(--ink-3)', fontWeight: 600 }}>
+            <div className="cap" style={{ marginTop: 8, color: rets.length >= 2 && up ? 'var(--good)' : 'var(--ink-3)', fontWeight: 600 }}>
               {rets.length >= 2 ? (up ? '↗ สัดส่วนลูกค้าซื้อซ้ำกำลังแข็งขึ้น' : '↘ สัดส่วนลูกค้าเก่าลดลง — ลองกระตุ้นลูกค้าเดิม') : 'มีข้อมูลสัปดาห์เดียว — รอข้อมูลเพิ่มเพื่อดูแนวโน้ม'}
             </div>
           </>);
