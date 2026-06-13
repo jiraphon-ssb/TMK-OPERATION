@@ -643,10 +643,10 @@ function StockView() {
 
         {/* สรุปทั้งร้าน */}
         <div className="row" style={{ gap: 28, flexWrap: 'wrap', marginBottom: 16 }}>
-          <div><div className="cap">รวมสต็อกทั้งร้าน</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{N(shopUnits)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></div></div>
-          <div><div className="cap">มูลค่าต้นทุนคงคลัง</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{B(shopValue)}</div></div>
-          {shopReserved > 0 && <div><div className="cap">จองรวม / พร้อมขาย</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{N(shopReserved)} <span className="cap" style={{ fontWeight: 400 }}>/ {N(shopUnits - shopReserved)}</span></div></div>}
-          <div><div className="cap">สินค้าที่มีล็อต</div><div className="num" style={{ fontSize: 22, fontWeight: 800 }}>{lotCount}/{products.length}</div></div>
+          <div><div className="cap">รวมสต็อกทั้งร้าน</div><div className="num kpi-value">{N(shopUnits)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></div></div>
+          <div><div className="cap">มูลค่าต้นทุนคงคลัง</div><div className="num kpi-value">{B(shopValue)}</div></div>
+          {shopReserved > 0 && <div><div className="cap">จองรวม / พร้อมขาย</div><div className="num kpi-value">{N(shopReserved)} <span className="cap" style={{ fontWeight: 400 }}>/ {N(shopUnits - shopReserved)}</span></div></div>}
+          <div><div className="cap">สินค้าที่มีล็อต</div><div className="num kpi-value">{lotCount}/{products.length}</div></div>
         </div>
 
         {/* รายการจอง */}
@@ -930,7 +930,7 @@ function SalesReportView() {
     if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
   };
 
-  const KPI = ({ label, value, color }) => <div><div className="cap">{label}</div><div className="num" style={{ fontSize: 21, fontWeight: 800, color }}>{value}</div></div>;
+  const KPI = ({ label, value, color }) => <div><div className="cap">{label}</div><div className="num kpi-value" style={{ color }}>{value}</div></div>;
 
   return (
     <div className="content-inner rise">

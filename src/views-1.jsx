@@ -246,17 +246,49 @@ export function HomeView({ go }) {
    ============================================================ */
 
 /* Shared date picker bar */
-function SalesDateBar({ month, year, onPrev, onNext }) {
+function SalesDateBar({ month, year, onPrev, onNext, onPick, goToday, isCurrentMonth }) {
+  const [open, setOpen] = useState(false);
+  const _t = getToday();
+  const [pickYear, setPickYear] = useState(year);
   return (
     <div className="row between" style={{ marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
         <button className="btn btn-sm btn-ghost" onClick={onPrev} style={{ padding: '4px 8px' }}>
           <Icon name="chevR" className="flip-h" />
         </button>
-        <span className="h3 num">{THAI_MONTHS[month]} {year}</span>
-        <button className="btn btn-sm btn-ghost" onClick={onNext} style={{ padding: '4px 8px' }}>
+        {/* คลิกชื่อเดือนเพื่อเปิด picker (เลือกเดือน/ปีย้อนหลังได้ ไม่ต้องกดลูกศรทีละเดือน) */}
+        <div style={{ position: 'relative' }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => { setPickYear(year); setOpen(o => !o); }} style={{ fontWeight: 700 }}>
+            <span className="h3 num" style={{ fontWeight: 700 }}>{THAI_MONTHS[month]} {year}</span> <Icon name={open ? 'chevD' : 'chevR'} />
+          </button>
+          {open && (
+            <>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
+              <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 41, width: 260, padding: 12, boxShadow: 'var(--sh-pop)' }}>
+                <div className="row between" style={{ marginBottom: 10 }}>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setPickYear(y => y - 1)} style={{ padding: '2px 8px' }}><Icon name="chevR" className="flip-h" /></button>
+                  <span className="sm num" style={{ fontWeight: 700 }}>{pickYear}</span>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setPickYear(y => Math.min(y + 1, _t.yearBE))} style={{ padding: '2px 8px' }} disabled={pickYear >= _t.yearBE}><Icon name="chevR" /></button>
+                </div>
+                <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                  {THAI_MONTHS.map((mn, i) => {
+                    const future = pickYear > _t.yearBE || (pickYear === _t.yearBE && i > _t.month - 1);
+                    const sel = i === month && pickYear === year;
+                    return (
+                      <button key={i} disabled={future} className={'btn btn-sm' + (sel ? ' btn-primary' : '')}
+                        onClick={() => { onPick?.(i, pickYear); setOpen(false); }}
+                        style={{ padding: '6px 0', opacity: future ? 0.35 : 1 }}>{mn}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        <button className="btn btn-sm btn-ghost" onClick={onNext} style={{ padding: '4px 8px' }} disabled={isCurrentMonth}>
           <Icon name="chevR" />
         </button>
+        {!isCurrentMonth && <button className="btn btn-sm" onClick={goToday}>เดือนนี้</button>}
       </div>
     </div>
   );
@@ -341,7 +373,10 @@ export function SalesView({ sub }) {
   const prev = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
   const prevMonthName = THAI_MONTHS[month === 0 ? 11 : month - 1];
-  const dateProps = { month, year, onPrev: prev, onNext: next };
+  const goToday = () => { setMonth(_today.month - 1); setYear(_today.yearBE); };
+  const onPick = (m, y) => { setMonth(m); setYear(y); };
+  const isCurrentMonth = month === _today.month - 1 && year === _today.yearBE;
+  const dateProps = { month, year, onPrev: prev, onNext: next, onPick, goToday, isCurrentMonth };
   const { version } = useData() || {};
   // ข้อมูลของ "เดือนที่เลือก" — memo (คำนวณใหม่เมื่อเปลี่ยนเดือน/ปี หรือข้อมูลรีโหลด) กันคำนวณซ้ำทุก render
   const md = useMemo(() => computeMonth(month, year), [month, year, version]);
@@ -695,7 +730,9 @@ function SalesChannels({ dateProps, md, prevMd }) {
 }
 
 // การ์ดใหญ่ FB/LINE — เน้น "แชท → ปิดการขาย" (คนทัก → ปิดออเดอร์ → %ปิด) + ต้นทุน/มูลค่าต่อทัก
-function SocialChannelCard({ ch, md, consts }) {
+function SocialChannelCard({ ch, md, consts, prevMd }) {
+  const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id);
+  const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null; // MoM เทียบเดือนก่อน
   const inq = ch.inq || 0, orders = ch.orders || 0;
   const conv = inq > 0 ? (orders / inq) * 100 : null;        // % ปิด = ปิดออเดอร์ ÷ คนทัก
   const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
@@ -708,7 +745,10 @@ function SocialChannelCard({ ch, md, consts }) {
   return (
     <div className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
       <div className="card-head"><h3><span style={{ width: 11, height: 11, borderRadius: 3, background: ch.hex, display: 'inline-block', marginRight: 7, verticalAlign: 'middle' }} />{ch.name} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(แชท → ปิดการขาย)</span></h3>
-        <span className="num h3" style={{ fontWeight: 800 }}>{B(ch.actual)}</span></div>
+        <span className="row" style={{ gap: 8, alignItems: 'baseline' }}>
+          {growth != null && <span className="cap" style={{ color: growth >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{growth >= 0 ? '▲ +' : '▼ '}{growth}%</span>}
+          <span className="num h3" style={{ fontWeight: 800 }}>{B(ch.actual)}</span>
+        </span></div>
       {/* funnel: คนทัก → ปิดออเดอร์ → %ปิด */}
       <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
         <div style={{ flex: 1, textAlign: 'center' }}><div className="num h1">{N(inq)}</div><div className="cap">คนทัก</div></div>

@@ -414,6 +414,8 @@ input, select, textarea { font-family: inherit; }
 .metric-label { font-size: var(--fs-cap); color: var(--ink-3); font-weight: var(--fw-med); }
 .metric-value { font-size: 28px; font-weight: var(--fw-bold); letter-spacing: 0; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .metric-delta { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-cap); font-weight: var(--fw-sem); white-space: nowrap; }
+/* ตัวเลข KPI ในการ์ดสรุป (รายงาน/สต็อก) — token เดียวกันทุกหน้า แทน fontSize 21/22 inline ที่หลุด scale */
+.kpi-value { font-size: 22px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
 
 /* Progress */
 .bar { height: 7px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; }
