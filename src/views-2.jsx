@@ -1571,7 +1571,8 @@ function exportAllCSV() {
   (TMK.dailyAll || []).forEach(d => {
     const dateStr = `${d.year - 543}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
     Object.entries(d.ch || {}).forEach(([chId, c]) => {
-      dailyRows.push({ date: dateStr, channel: chId, rev: r2(c.rev || 0), ord: c.ord || 0, ad: r2(c.ad || 0), inq: c.inq || 0, newC: c.newC || 0, oldC: c.oldC || 0 });
+      // คนทัก = ลูกค้าใหม่ + เก่า (derive ให้ตรงกับ dashboard — ไม่ใช้ค่า inq ดิบที่เก็บไว้ก่อนเปลี่ยนนิยาม)
+      dailyRows.push({ date: dateStr, channel: chId, rev: r2(c.rev || 0), ord: c.ord || 0, ad: r2(c.ad || 0), inq: (c.newC || 0) + (c.oldC || 0), newC: c.newC || 0, oldC: c.oldC || 0 });
     });
   });
   // สรุปรายเดือนทั้งปี (เป้า vs จริง vs แอด vs ลูกค้าใหม่)
@@ -1639,7 +1640,7 @@ function exportMonthlyReportCSV(pickMonth, pickYearBE) {
   rows.forEach(r => {
     const dateStr = `${r.year - 543}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`;
     Object.entries(r.ch || {}).forEach(([chId, c]) => {
-      csv += [dateStr, esc(channelNameById[chId] || chId), r2(c.rev || 0), c.ord || 0, r2(c.ad || 0), c.inq || 0, c.newC || 0, c.oldC || 0].join(',') + '\n';
+      csv += [dateStr, esc(channelNameById[chId] || chId), r2(c.rev || 0), c.ord || 0, r2(c.ad || 0), (c.newC || 0) + (c.oldC || 0), c.newC || 0, c.oldC || 0].join(',') + '\n';
     });
   });
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
