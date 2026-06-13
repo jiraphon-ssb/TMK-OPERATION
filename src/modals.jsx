@@ -184,9 +184,10 @@ export function RecordSalesModal({ data, onClose }) {
       // per-channel jsonb เก็บครบทุก field (rev/ord/ad/inq/newC/oldC) — กันข้อมูลหาย
       const curChannels = {};
       for (const r of rows) {
+        const newC = Number(r.newC) || 0, oldC = Number(r.oldC) || 0;
         curChannels[r.id] = {
           rev: money(r.rev), ord: Number(r.ord) || 0, ad: money(r.ad),
-          inq: Number(r.inq) || 0, newC: Number(r.newC) || 0, oldC: Number(r.oldC) || 0,
+          inq: newC + oldC, newC, oldC, // คนทัก = ลูกค้าใหม่ + เก่า (เก็บให้ตรงนิยาม)
         };
       }
       // merge ค่าเดิมจาก DB ก่อน — ช่องทางที่ถูกลบ/ซ่อนออกจากรายการจะไม่สูญข้อมูลอดีต (data-loss fix)
@@ -222,15 +223,14 @@ export function RecordSalesModal({ data, onClose }) {
       const totRev = rows.reduce((a, r) => a + nz(r.rev), 0);
       const totOrd = rows.reduce((a, r) => a + nz(r.ord), 0);
       const totAd  = rows.reduce((a, r) => a + nz(r.ad), 0);
-      const totInq = rows.reduce((a, r) => a + nz(r.inq), 0);
       const totNew = rows.reduce((a, r) => a + nz(r.newC), 0);
       const totOld = rows.reduce((a, r) => a + nz(r.oldC), 0);
+      const totInq = totNew + totOld; // คนทัก = ลูกค้าใหม่ + เก่า
       const chDetail = (o) => {
         const p = [];
         if (nz(o.rev))  p.push(bahtStr(o.rev));
         if (nz(o.ord))  p.push(`${nz(o.ord)} ออเดอร์`);
         if (nz(o.ad))   p.push(`แอด ${bahtStr(o.ad)}`);
-        if (nz(o.inq))  p.push(`ทัก ${nz(o.inq)}`);
         if (nz(o.newC)) p.push(`ใหม่ ${nz(o.newC)}`);
         if (nz(o.oldC)) p.push(`เก่า ${nz(o.oldC)}`);
         return p.join(' · ');
@@ -252,7 +252,7 @@ export function RecordSalesModal({ data, onClose }) {
       let auditChanges = null;
       if (before && exists) {
         const ch = [];
-        const mLabels = { rev: 'ยอด', ord: 'ออเดอร์', ad: 'ค่าแอด', inq: 'คนทัก', newC: 'ลูกค้าใหม่', oldC: 'ลูกค้าเก่า' };
+        const mLabels = { rev: 'ยอด', ord: 'ออเดอร์', ad: 'ค่าแอด', newC: 'ลูกค้าใหม่', oldC: 'ลูกค้าเก่า' }; // ไม่ diff inq — เป็นค่า derived (ใหม่+เก่า)
         const fmt = (k, v) => (k === 'rev' || k === 'ad') ? bahtStr(nz(v)) : `${nz(v)}`;
         rows.forEach(r => {
           const o = before.channels?.[r.id] || {};
@@ -340,7 +340,6 @@ export function RecordSalesModal({ data, onClose }) {
         if (_nz(r.rev))  p.push(bahtStr(r.rev));
         if (_nz(r.ord))  p.push(`${_nz(r.ord)} ออเดอร์`);
         if (_nz(r.ad))   p.push(`แอด ${bahtStr(r.ad)}`);
-        if (_nz(r.inq))  p.push(`ทัก ${_nz(r.inq)}`);
         if (_nz(r.newC)) p.push(`ใหม่ ${_nz(r.newC)}`);
         if (_nz(r.oldC)) p.push(`เก่า ${_nz(r.oldC)}`);
         if (p.length) delFields.push({ label: _chName(r.id), value: p.join(' · ') });
@@ -413,10 +412,10 @@ export function RecordSalesModal({ data, onClose }) {
           {/* Channel cards — each channel is a card */}
           {rows.map((r, i) => {
             const ch = MD.channels.find(c => c.id === r.id) || { hex: 'var(--ink-3)', name: r.id, hasAd: false }; // กัน crash ถ้าช่องถูกลบขณะเปิด
-            // แสดงแถวรอง (คนทัก/ลูกค้าใหม่/ลูกค้าเก่า) เฉพาะช่องแชท หรือเมื่อมีค่าเดิม หรือกดเปิดเอง
-            // — Shopee/TikTok/Lazada/CRM ปกติไม่กรอกคนทัก ฟอร์มจะสั้นลงเกือบครึ่ง
+            // แสดงแถวรอง (ลูกค้าใหม่/ลูกค้าเก่า) เฉพาะช่องแชท หรือเมื่อมีค่าเดิม หรือกดเปิดเอง
+            // — "คนทัก" = ลูกค้าใหม่ + เก่า (คำนวณอัตโนมัติ ไม่ต้องกรอกแยก)
             const isChat = ch.id === 'facebook' || ch.id === 'line';
-            const hasSecondary = (+r.inq) > 0 || (+r.newC) > 0 || (+r.oldC) > 0;
+            const hasSecondary = (+r.newC) > 0 || (+r.oldC) > 0;
             const showSecondary = isChat || hasSecondary || (openSecondary[r.id] === true);
             return (
               <div key={r.id} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', borderLeft: `3px solid ${ch.hex}` }}>
@@ -429,16 +428,19 @@ export function RecordSalesModal({ data, onClose }) {
                   {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
                 </div>
                 {showSecondary ? (
-                  <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 8 }}>
-                    <div className="field"><label>คนทัก</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.inq} onChange={e => up(i, 'inq', e.target.value)} /></div>
+                  <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
                     <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
                     <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
                   </div>
                 ) : (
                   <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 8, color: 'var(--ink-3)' }}
                           onClick={() => setOpenSecondary(m => ({ ...m, [r.id]: true }))}>
-                    + คนทัก / ลูกค้าใหม่-เก่า
+                    + ลูกค้าใหม่ / เก่า
                   </button>
+                )}
+                {/* คนทัก = ลูกค้าใหม่ + เก่า (auto) — โชว์ให้เห็นเมื่อกรอกแล้ว */}
+                {showSecondary && ((+r.newC) > 0 || (+r.oldC) > 0) && (
+                  <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>คนทัก (ลูกค้ารวม): <b style={{ color: 'var(--ink-2)' }}>{((+r.newC) || 0) + ((+r.oldC) || 0)}</b> คน</div>
                 )}
               </div>
             );

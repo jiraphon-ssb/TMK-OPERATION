@@ -182,7 +182,8 @@ function mapToTMK(raw) {
     newRev: 0, oldRev: 0, // ไม่ได้แยกรายได้ใหม่/เก่า
     newCust: dailyAgg[ch.id]?.newC || 0,
     oldCust: dailyAgg[ch.id]?.oldC || 0,
-    inq: dailyAgg[ch.id]?.inq || 0,
+    // "คนทัก" = ลูกค้าใหม่ + ลูกค้าเก่า (ตามนิยามที่ผู้ใช้ต้องการ — คนทักคือจำนวนลูกค้ารวม)
+    inq: (dailyAgg[ch.id]?.newC || 0) + (dailyAgg[ch.id]?.oldC || 0),
     ad: round2(dailyAgg[ch.id]?.ad || 0),
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
@@ -555,8 +556,9 @@ export function computeMonth(monthIdx0, yearBE) {
   const ACOS_CEIL = Number(meta.acosCeil || 25);
 
   const channels = (TMK.channels || []).map(base => {
-    let rev = 0, ord = 0, ad = 0, newC = 0, oldC = 0, inq = 0;
-    rows.forEach(r => { const c = r.ch[base.id]; if (c) { rev += c.rev; ord += c.ord; ad += c.ad; newC += c.newC; oldC += c.oldC; inq += (c.inq || 0); } });
+    let rev = 0, ord = 0, ad = 0, newC = 0, oldC = 0;
+    rows.forEach(r => { const c = r.ch[base.id]; if (c) { rev += c.rev; ord += c.ord; ad += c.ad; newC += c.newC; oldC += c.oldC; } });
+    const inq = newC + oldC; // "คนทัก" = ลูกค้าใหม่ + เก่า (นิยามรวมจำนวนลูกค้า)
     return { ...base, actual: round2(rev), orders: ord, ad: round2(ad), newCust: newC, oldCust: oldC, inq, newRev: 0, oldRev: 0,
       target: Number((meta.channelTargets && meta.channelTargets[base.id]) || 0),
       adBudget: Number((meta.adChannels && meta.adChannels[base.id]) || 0) };
