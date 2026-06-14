@@ -268,12 +268,15 @@ export function HomeView({ go }) {
   // อัพเดท/log — กรอง + จัดกลุ่มตามวัน
   const f = LOG_FILTERS.find(x => x.id === filter);
   const logs = (D.audit || []).filter(a => filter === 'all' || (f && f.match && f.match(a)));
-  const todayCount = (D.audit || []).filter(a => String(a.ts || '').slice(0, 10) === todayISO()).length;
-  const _yest = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  // วันแบบเวลาท้องถิ่น (ไม่ใช่ UTC) — กันรายการช่วงเช้ามืด/ค่ำถูกจัดผิดวัน
+  const localDay = (ts) => { if (!ts) return ''; const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const _today = todayISO();
+  const _yest = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const todayCount = (D.audit || []).filter(a => localDay(a.ts) === _today).length;
   const groups = [];
   logs.forEach(a => {
-    const day = String(a.ts || '').slice(0, 10);
-    const key = day === todayISO() ? 'วันนี้' : day === _yest ? 'เมื่อวาน' : (a.ts ? new Date(a.ts).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : 'ก่อนหน้า');
+    const day = localDay(a.ts);
+    const key = day === _today ? 'วันนี้' : day === _yest ? 'เมื่อวาน' : (a.ts ? new Date(a.ts).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : 'ก่อนหน้า');
     let g = groups.find(x => x.key === key); if (!g) { g = { key, items: [] }; groups.push(g); }
     g.items.push(a);
   });

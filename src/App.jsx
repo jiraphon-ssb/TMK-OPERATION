@@ -639,7 +639,7 @@ function AppInner() {
     const notifsOrders = readFlag('tmk-notif-orders') ? (() => {
       const out = [];
       const cutoff = new Date(Date.now() - 2 * 86400000).toISOString();
-      (TMK.orders || []).filter(o => ['pending','processing'].includes(o.status) && (o.createdAt || '') < cutoff).forEach(o => {
+      (TMK.orders || []).filter(o => ['pending','processing'].includes(o.status) && o.createdAt && o.createdAt < cutoff).forEach(o => {
         const days = Math.floor((Date.now() - new Date(o.createdAt).getTime()) / 86400000);
         out.push({ id: 'order-' + o.id, kind: 'orders', title: `ออเดอร์ ${o.code} ค้าง ${days} วัน (${o.customerName || '—'})`, txt: 'ไปบอร์ดออเดอร์' });
       });

@@ -1266,23 +1266,26 @@ function CustomersView() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loading/clear flag ก่อน async fetch (จำเป็น)
     if (!ql) { setRemote(null); setSearching(false); return; }
     setSearching(true);
+    let alive = true; // กันผลค้นหาเก่ามาทับผลใหม่ (out-of-order async)
     const id = setTimeout(async () => {
       try {
         const { data } = await supabase.from('tmk_customers').select('*')
           .or(`name.ilike.%${ql}%,phone.ilike.%${ql}%,line.ilike.%${ql}%`)
           .limit(100);
-        setRemote(data || []);
-      } catch { setRemote([]); }
-      finally { setSearching(false); }
+        if (alive) setRemote(data || []);
+      } catch { if (alive) setRemote([]); }
+      finally { if (alive) setSearching(false); }
     }, 250);
-    return () => clearTimeout(id);
+    return () => { alive = false; clearTimeout(id); };
   }, [ql]);
 
   // สร้างลิสต์: ถ้ามีคำค้น → รวม local+remote dedup; ไม่มีคำค้น → ใช้ local อย่างเดียว
   const baseList = useMemo(() => {
     if (!ql) return customers;
     const byId = new Map();
-    [...customers, ...(remote || [])].forEach(c => byId.set(c.id, c));
+    // remote ก่อน, local ทับทีหลัง → ลูกค้าที่อยู่ในชุด local (มียอดซื้อ/ออเดอร์จริง) ชนะ
+    // กัน remote raw row (ไม่มี totalSpent/orderCount) มาทับให้โชว์ ฿0
+    [...(remote || []), ...customers].forEach(c => byId.set(c.id, c));
     const qLower = ql.toLowerCase();
     return [...byId.values()].filter(c => `${c.name || ''} ${c.phone || ''} ${c.line || ''}`.toLowerCase().includes(qLower));
   }, [customers, remote, ql]);
@@ -1761,6 +1764,15 @@ function GeneralSettings({ dark, setDark }) {
 /* ---- Updates / Changelog ---- */
 function UpdatesView() {
   const updates = [
+    { ver: '2.2.2', date: '15 มิ.ย. 2569', type: 'fix', items: [
+      'กันตัดสต็อกซ้ำตอน "ส่งออเดอร์" — กดซ้ำ/ส่งจาก 2 เครื่อง/เน็ตหน่วง จะไม่ตัดสต็อก+ยอดซ้ำอีก (idempotent)',
+      'หน้าลูกค้า: ค้นหาแล้วไม่โชว์ ฿0 / 0 ออเดอร์ ผิดอีก (ลูกค้าที่มีในชุดหลักจะแสดงยอดจริง) + กันผลค้นหาเก่าทับผลใหม่',
+      'กันยอดขายรายวันถูกเขียนทับ — ถ้าอีกอุปกรณ์บันทึกวันเดียวกันระหว่างที่เปิดอยู่ จะเตือนแทนการทับข้อมูล',
+      'กันขายทับของที่จองไว้ให้ออเดอร์ — เตือนยืนยันก่อน (กันออเดอร์ของไม่พอตอนส่ง)',
+      'กันออเดอร์ถูกบันทึกแต่จองสต็อกไม่สำเร็จ — จองก่อนเซฟ ถ้าพลาดจะไม่บันทึกออเดอร์ (กัน ATP เพี้ยน)',
+      'แก้เวลาโซนเวลา — ฟีดหน้าหลัก "วันนี้/เมื่อวาน" + ฟิลเตอร์วันที่หน้าประวัติ ไม่ตกหล่นรายการช่วงเช้ามืด/ค่ำ',
+      'เก็บรายละเอียด — กันแจ้งเตือนออเดอร์ค้าง "NaN วัน", จำนวนในออเดอร์เป็นจำนวนเต็มเสมอ, กันวันที่งานผิดรูปแบบ',
+    ]},
     { ver: '2.2.1', date: '13 มิ.ย. 2569', type: 'fix', items: [
       'แก้แจ้งเตือน PO ถึง/เลยกำหนด — เดิมเทียบวันที่ผิดรูปแบบทำให้เตือนคลาดเคลื่อน',
       'แก้การ์ด "ทีมวันนี้" — "เคลื่อนไหววันนี้" คลาดเวลาโซนเวลา (คนเข้าก่อน 7 โมงเช้าถูกนับเป็นเมื่อวาน)',
@@ -1974,8 +1986,9 @@ function AuditView() {
       let q = supabase.from('tmk_audit_logs').select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(page * PAGE, page * PAGE + PAGE - 1);
-      if (dateFrom) q = q.gte('created_at', dateFrom);
-      if (dateTo)   q = q.lte('created_at', dateTo + 'T23:59:59');
+      // ระบุโซนเวลาไทย (+07:00) — กันขอบวันเพี้ยน (bare date = UTC ทำให้ตกหล่นช่วงเช้ามืด/ล้ำวันถัดไป)
+      if (dateFrom) q = q.gte('created_at', dateFrom + 'T00:00:00+07:00');
+      if (dateTo)   q = q.lte('created_at', dateTo + 'T23:59:59+07:00');
       if (search.trim()) q = q.ilike('details', `%${search.trim()}%`); // details เป็น text(JSON) — ค้นข้อความใน summary/entityName
       if (filter !== 'all') q = q.in('action', ACTION_GROUP[filter] || [filter]);
       const { data, count, error } = await q;

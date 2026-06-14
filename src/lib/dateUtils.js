@@ -26,6 +26,7 @@ export function parseTaskDate(s, year = 2026) {
   const m = String(s).match(/^(\d+)\s+(.+)$/);
   if (!m) return null;
   const day = parseInt(m[1], 10);
+  if (!(day >= 1 && day <= 31)) return null; // กันวันที่ผิด (เช่น "99 มิ.ย.") → ISO เพี้ยน
   const monthKey = Object.keys(THAI_MONTHS_ABBR).find(k => m[2].includes(k));
   if (!monthKey) return null;
   const month = THAI_MONTHS_ABBR[monthKey];

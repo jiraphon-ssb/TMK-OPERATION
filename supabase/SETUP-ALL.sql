@@ -555,8 +555,17 @@ language plpgsql
 security definer
 set search_path = public
 as $$
-declare item jsonb; s jsonb;
+declare item jsonb; s jsonb; v_updated int;
 begin
+  -- เปลี่ยนสถานะออเดอร์ก่อน + กันตัดสต็อกซ้ำ: ทำสต็อก/บันทึกขายเฉพาะ "ครั้งแรก" ที่เปลี่ยนเป็น shipped
+  -- (idempotent — กันตัดซ้ำกรณีกดซ้ำ/หลายอุปกรณ์/realtime หน่วง)
+  update public.tmk_orders
+    set status = p_status, status_log = p_status_log, updated_at = now()
+  where id = p_order_id and status is distinct from 'shipped';
+  get diagnostics v_updated = row_count;
+  if v_updated = 0 then
+    return; -- ออเดอร์ถูกส่ง/ตัดสต็อกไปแล้ว → ไม่ทำซ้ำ
+  end if;
   for item in select value from jsonb_array_elements(coalesce(p_updates, '[]'::jsonb)) loop
     update public.tmk_products
       set lots          = item->'lots',
@@ -573,9 +582,6 @@ begin
             coalesce(s->>'source', 'order'), s->>'order_code', coalesce(s->'lines', '[]'::jsonb))
     on conflict (id) do nothing;
   end loop;
-  update public.tmk_orders
-    set status = p_status, status_log = p_status_log, updated_at = now()
-  where id = p_order_id;
 end;
 $$;
 grant execute on function public.tmk_fulfill_order(text, text, jsonb, jsonb, jsonb) to anon, authenticated;

@@ -129,6 +129,7 @@ export function RecordSalesModal({ data, onClose }) {
       beforeRef.current = row ? {
         channels: (row.channels && typeof row.channels === 'object') ? { ...row.channels } : {},
         note: row.note || '', chatTime: Number(row.avg_reply_minutes) || 0, deleted: !!row.deleted_at,
+        savedAt: row.updated_at || null, // baseline สำหรับ optimistic lock (กันอุปกรณ์อื่นเซฟทับ)
       } : null;
       // ผู้ใช้พิมพ์ระหว่างโหลด → ไม่เอาข้อมูล DB มาทับ (กันที่พิมพ์ไป 1-2 ตัวหาย)
       if (loadDirty.current) return;
@@ -192,6 +193,7 @@ export function RecordSalesModal({ data, onClose }) {
       }
       // merge ค่าเดิมจาก DB ก่อน — ช่องทางที่ถูกลบ/ซ่อนออกจากรายการจะไม่สูญข้อมูลอดีต (data-loss fix)
       const channels = { ...(beforeRef.current?.channels || {}), ...curChannels };
+      const nowIso = new Date().toISOString();
       const row = {
         id: 'd-' + date,
         date,
@@ -208,7 +210,23 @@ export function RecordSalesModal({ data, onClose }) {
         avg_reply_minutes: Number(chatTime) || 0,
         note: note || '',
         deleted_at: null, // กรอกวันเดิมที่เคยลบ → กู้กลับ (กันข้อมูลล่องหน)
+        updated_at: nowIso, // bump เสมอ → optimistic lock ของอุปกรณ์อื่นจับการแก้ได้
       };
+      // optimistic lock — ถ้าแถวถูกแก้หลังเราเปิดโมดัล (อุปกรณ์อื่นเซฟ) → ไม่เขียนทับ ให้ปิด/เปิดใหม่
+      // ดึงเฉพาะตอน query สำเร็จ (ถ้าคอลัมน์ยังไม่มีบน DB เก่า → ข้าม lock ไม่บล็อกการเซฟ)
+      {
+        const baseSavedAt = beforeRef.current?.savedAt ?? null;
+        const { data: _cur, error: _lockErr } = await supabase.from('tmk_daily_sales').select('updated_at, deleted_at').eq('id', 'd-' + date).maybeSingle();
+        if (!_lockErr) {
+          const curSavedAt = (_cur && !_cur.deleted_at) ? (_cur.updated_at || null) : null;
+          if (curSavedAt !== baseSavedAt) {
+            toast('มีการบันทึกยอดวันนี้จากอุปกรณ์อื่น — ปิดแล้วเปิดใหม่เพื่อดึงค่าล่าสุด (กันเขียนทับ)', 'warn');
+            window.__reload?.();
+            setSaving(false);
+            return;
+          }
+        }
+      }
       let { error } = await supabase.from('tmk_daily_sales').upsert(row);
       // ถ้ายังไม่ได้รัน migration (ไม่มีคอลัมน์เสริม) → บันทึกแบบ core columns (รายได้ยังเก็บได้)
       if (error && /channels|avg_reply_minutes|deleted_at/i.test(error.message || '')) {
@@ -1009,6 +1027,25 @@ export function SellModal({ data, onClose }) {
     });
     const keys = Object.keys(agg);
     if (!keys.length) { toast('เพิ่มรายการที่จะขายก่อน (เลือกล็อต / สี / ไซส์ / จำนวน)', 'error'); return; }
+    // กันขายทับของจอง: ถ้าจำนวนขายต่อ variant > (ของจริง − ที่จองไว้) → เตือนยืนยัน (ออเดอร์ที่จองอาจของไม่พอ)
+    if ((product.reservations || []).length) {
+      const sellByVariant = {};
+      keys.forEach(key => {
+        const [lotId, colorId, size] = key.split('||');
+        const cname = (lotById(lotId)?.colors || []).find(c => c.id === colorId)?.name || '';
+        const vk = cname + '||' + size;
+        sellByVariant[vk] = (sellByVariant[vk] || 0) + agg[key];
+      });
+      const dip = [];
+      for (const vk in sellByVariant) {
+        const [cname, size] = vk.split('||');
+        const reserved = Number(product.reservedByVariant?.[cname]?.[size]) || 0;
+        if (reserved <= 0) continue;
+        const physical = Number(product.variants?.[cname]?.[size]) || 0;
+        if (sellByVariant[vk] > physical - reserved) dip.push(`${cname} ${size} (จอง ${reserved})`);
+      }
+      if (dip.length && !window.confirm(`⚠️ ${dip.join(', ')} มีของจองไว้ให้ออเดอร์ — ขายตอนนี้อาจทำให้ออเดอร์ที่จองของไม่พอ\nยืนยันขายต่อ?`)) return;
+    }
     setBusy(true);
     // clone lots (deep grid) แล้วหักช่อง
     const newLots = lots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
@@ -1946,7 +1983,7 @@ export function OrderModal({ data, onClose }) {
     if (data?.status === 'shipped') { toast('ออเดอร์ที่ "ส่งแล้ว" แก้ไขไม่ได้ (สต็อกถูกตัดแล้ว)', 'error'); return; }
     const cleanItems = items.filter(it => it.productId && it.color && it.size && Number(it.qty) > 0).map(it => {
       const p = prodById(it.productId);
-      return { productId: it.productId, name: p?.name || '', color: it.color, size: it.size, qty: nn(it.qty), price: nn(it.price), cost: 0 };
+      return { productId: it.productId, name: p?.name || '', color: it.color, size: it.size, qty: Math.round(nn(it.qty)), price: nn(it.price), cost: 0 };
     });
     if (!cleanItems.length) { toast('เพิ่มรายการสินค้าก่อน', 'error'); return; }
     const custName = (custNew ? custNew.name : (customers.find(c => c.id === custId)?.name || '')).trim();
@@ -1973,11 +2010,20 @@ export function OrderModal({ data, onClose }) {
       const sub = cleanItems.reduce((a, it) => a + it.qty * it.price, 0);
       const tot = Math.max(0, sub - nn(discount));
       const order = { id: oid, code, customer_id: customerId || null, customer_name: custName, items: cleanItems, subtotal: sub, discount: nn(discount), total: tot, status, channel: channel.trim(), tracking_no: trackingNo.trim(), carrier: carrier.trim(), note: note.trim(), status_log: data?.statusLog || [{ status, at: new Date().toISOString(), by: '' }] };
+      // จองสต็อก "ก่อน" เซฟออเดอร์ (reserve-then-commit) — ถ้าจองพลาด ออเดอร์จะไม่ถูกเซฟ
+      // กันเคส "ออเดอร์เซฟแล้วแต่จองไม่สำเร็จ" → ATP เกินจริง/ขายซ้ำ
+      if (data?.id) await releaseOrderReservations(data.id); // แก้ออเดอร์: ปล่อยจองเดิมก่อน
+      const willReserve = status !== 'shipped' && status !== 'cancelled';
+      if (willReserve) await applyOrderReservations({ ...order, customerName: custName });
       const { error } = await supabase.from('tmk_orders').upsert(order);
-      if (error) throw error;
-      // จองสต็อก (ยังไม่ส่ง) — ออเดอร์ที่ยัง active
-      if (data?.id) await releaseOrderReservations(data.id); // แก้ออเดอร์: ปล่อยจองเดิมก่อน (กันจองค้างของสินค้าที่ถูกเอาออกจากออเดอร์)
-      if (status !== 'shipped' && status !== 'cancelled') await applyOrderReservations({ ...order, customerName: custName });
+      if (error) {
+        // rollback การจอง — กันจองค้างโดยไม่มีออเดอร์ (แก้ออเดอร์: คืนจองเดิมของออเดอร์นั้น)
+        try {
+          if (willReserve) await releaseOrderReservations(oid);
+          if (data?.id) await applyOrderReservations({ ...data, id: oid });
+        } catch { /* best-effort rollback */ }
+        throw error;
+      }
       logAudit({ action: 'order', entityType: 'order', entityName: code, summary: `${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์ ${code} (${custName}) ${totalQty} ตัว`, fields: [{ label: 'ลูกค้า', value: custName }, { label: 'ยอดรวม', value: B(tot) }, { label: 'สถานะ', value: orderStatusMeta(status).label }] });
       window.__reload?.();
       toast(`${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์สำเร็จ`, 'success');

@@ -509,7 +509,7 @@ export function LangProvider({ children }) {
 
   const t = useCallback((key, ...args) => {
     let str = T[lang]?.[key] || T.th[key] || key;
-    args.forEach((a, i) => { str = str.replace(`{${i}}`, a); });
+    args.forEach((a, i) => { str = str.split(`{${i}}`).join(a == null ? '' : a); });
     return str;
   }, [lang]);
 
