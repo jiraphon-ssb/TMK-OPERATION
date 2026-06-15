@@ -53,7 +53,7 @@ export function UpdateBanner() {
         <div className="update-banner-title">มีเวอร์ชันใหม่ — v{newVer}</div>
         <div className="update-banner-sub">อัปเดตเพื่อรับฟีเจอร์ล่าสุด + แก้บั๊ก</div>
       </div>
-      <button className="btn btn-sm update-banner-cta" onClick={() => window.location.reload()}>อัปเดตเดี๋ยวนี้</button>
+      <button className="btn btn-sm update-banner-cta" style={{ background: 'var(--rail)', color: '#fff', borderColor: 'var(--rail)' }} onClick={() => window.location.reload()}>อัปเดตเดี๋ยวนี้</button>
       <button className="update-banner-x" onClick={dismiss} aria-label="ภายหลัง"><Icon name="x" /></button>
     </div>
   );
