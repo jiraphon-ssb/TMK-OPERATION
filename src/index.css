@@ -517,8 +517,8 @@ input, select, textarea { font-family: inherit; }
 .update-banner-txt { flex: 1; min-width: 0; }
 .update-banner-title { font-size: 14px; font-weight: 700; color: var(--ink); }
 .update-banner-sub { font-size: 12px; color: var(--ink-2, var(--ink)); opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.update-banner-cta { background: var(--rail); color: #fff; border: none; white-space: nowrap; flex-shrink: 0; }
-.update-banner-cta:hover { filter: brightness(1.18); }
+.update-banner-cta { display: inline-flex; align-items: center; justify-content: center; padding: 7px 15px; border: none; border-radius: var(--r-sm); background: var(--rail); color: #fff; font-size: var(--fs-cap); font-weight: var(--fw-sem); cursor: pointer; white-space: nowrap; flex-shrink: 0; transition: filter 0.15s var(--ease); }
+.update-banner-cta:hover { filter: brightness(1.25); }
 .update-banner-x { background: transparent; border: none; cursor: pointer; color: var(--ink-3); padding: 5px; display: grid; place-items: center; flex-shrink: 0; }
 .update-banner-x:hover { color: var(--ink); }
 @media (max-width: 560px) { .update-banner-sub { display: none; } }
