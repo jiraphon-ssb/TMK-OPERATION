@@ -76,7 +76,7 @@ function SyncIndicator() {
   return (
     <>
       <div className="tmk-syncbar" aria-hidden="true"></div>
-      <div className="tmk-syncchip"><span className="splash-ring"></span>กำลังซิงค์ข้อมูล…</div>
+      <div className="tmk-syncchip-wrap"><div className="tmk-syncchip"><span className="splash-ring"></span>กำลังซิงค์ข้อมูล…</div></div>
     </>
   );
 }
