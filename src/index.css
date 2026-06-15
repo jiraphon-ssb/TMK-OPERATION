@@ -349,6 +349,12 @@ input, select, textarea { font-family: inherit; }
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-lg); padding: 22px;
   box-shadow: var(--sh-sm);
+  transition: border-color 0.16s var(--ease), box-shadow 0.16s var(--ease), transform 0.16s var(--ease);
+}
+.card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--rail) 18%, transparent);
+  transform: translateY(-2px);
 }
 .card-pad-sm { padding: 16px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
