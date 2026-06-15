@@ -22,32 +22,6 @@ function getAdCampaigns() { return TMK.adCampaigns || []; }
 /* ---------- Customer segments from Supabase (TMK.segments) ---------- */
 function getSegments() { return TMK.segments || []; }
 
-/* small KPI tile — clickable with optional onClick */
-export function Kpi({ label, value, delta, deltaDir, deltaColor, icon, sub, accent, onClick, hint }) {
-  return (
-    <div className="card card-pad-sm" onClick={onClick}
-      role={onClick ? 'button' : undefined} tabIndex={onClick ? 0 : undefined}
-      onKeyDown={onClick ? (e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }) : undefined}
-      style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: onClick ? 'pointer' : 'default', transition: 'box-shadow 0.15s' }}>
-      <div className="row between">
-        <span className="metric-label">{label}{hint ? <InfoTip text={hint} label={label} /> : null}</span>
-        {icon && <span style={{ color: accent || 'var(--ink-3)' }}><Icon name={icon} /></span>}
-      </div>
-      <div className="metric-value">{value}</div>
-      {(delta || sub) && (
-        <div className="row" style={{ gap: 8 }}>
-          {delta && (
-            <span className="metric-delta" style={{ color: deltaColor || (deltaDir === 'down' ? 'var(--bad)' : 'var(--good)') }}>
-              <Icon name={deltaDir === 'down' ? 'down' : 'up'} /> {delta}
-            </span>
-          )}
-          {sub && <span className="cap">{sub}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ============================================================
    HOME — Executive cockpit
    ============================================================ */

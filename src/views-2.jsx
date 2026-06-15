@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
 import { B, P, N, Icon, stockMeta, Avatar, Ring, MiniArea, Bars, UserIcon, SIZES, ORDER_STATUSES, barcodeSVGString } from './components.jsx';
-import { advanceOrderStatus, Modal } from './modals.jsx';
+import { advanceOrderStatus, Modal, mutateProductReservations } from './modals.jsx';
 import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
@@ -651,9 +651,8 @@ function StockView() {
   const releaseReservation = async (p, rsvId, alsoSell) => {
     if (!guardEdit()) return;
     try {
-      const newRes = (p.reservations || []).filter(r => r.id !== rsvId);
-      const { error } = await supabase.from('tmk_products').update({ reservations: newRes, updated_at: new Date().toISOString() }).eq('id', p.id);
-      if (error) throw error;
+      const { ok, error } = await mutateProductReservations(p.id, (cur) => cur.filter(r => r.id !== rsvId));
+      if (!ok) throw error || new Error('ปล่อยจองไม่สำเร็จ');
       logAudit({ action: 'release', entityType: 'product', entityName: p.name, summary: `ปล่อยจองสต็อก "${p.name}"` });
       if (window.__reload) await window.__reload();
       if (window.__toast) window.__toast(alsoSell ? 'ปล่อยจองแล้ว — บันทึกการขายต่อได้เลย' : 'ปล่อยจองเรียบร้อย', 'success');
@@ -1884,6 +1883,18 @@ function AuditView() {
   });
   const totalPages = Math.max(1, Math.ceil(total / PAGE));
 
+  // ปุ่มลัดช่วงวันที่ (คำนวณ pure จาก today — ไม่ใช้ Date.now ใน render)
+  const _ad = todayISO();
+  const _adShift = (n) => { const [y, m, d] = _ad.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+  const datePresets = [
+    { label: 'วันนี้', from: _ad, to: _ad },
+    { label: '7 วัน', from: _adShift(-6), to: _ad },
+    { label: '30 วัน', from: _adShift(-29), to: _ad },
+    { label: 'เดือนนี้', from: `${_ad.slice(0, 7)}-01`, to: _ad },
+  ];
+  const setRange = (from, to) => { setDateFrom(from); setDateTo(to); setPage(0); };
+  const activePreset = datePresets.find(p => p.from === dateFrom && p.to === dateTo)?.label;
+
   return (
     <div className="content-inner rise">
       <div className="card">
@@ -1893,11 +1904,21 @@ function AuditView() {
             {types.map(t => <button key={t[0]} className={`seg ${filter===t[0]?'active':''}`} onClick={()=>{ setFilter(t[0]); setPage(0); }}>{t[1]}</button>)}
           </div>
         </div>
-        {/* ค้นหา + กรองช่วงวันที่ */}
-        <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <input className="input" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="🔍 ค้นหา (สรุป/ชื่อ)" style={{ flex: '1 1 200px' }} />
-          <input className="input" type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(0); }} title="ตั้งแต่" style={{ flex: '0 0 auto' }} />
-          <input className="input" type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(0); }} title="ถึง" style={{ flex: '0 0 auto' }} />
+        {/* ค้นหา + ช่วงวันที่ + ปุ่มลัด */}
+        <div className="row wrap" style={{ gap: 10, marginBottom: 14, alignItems: 'center' }}>
+          <div className="search" style={{ flex: '1 1 230px', minWidth: 180 }}>
+            <Icon name="search" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา (สรุป / ชื่อ)" />
+          </div>
+          <div className="audit-range">
+            <input type="date" value={dateFrom} onChange={e => setRange(e.target.value, dateTo)} title="ตั้งแต่" />
+            <span className="audit-range-sep">→</span>
+            <input type="date" value={dateTo} onChange={e => setRange(dateFrom, e.target.value)} title="ถึง" />
+          </div>
+          <div className="row wrap" style={{ gap: 6 }}>
+            {datePresets.map(p => <button key={p.label} className={`audit-preset ${activePreset === p.label ? 'on' : ''}`} onClick={() => setRange(p.from, p.to)}>{p.label}</button>)}
+            {(dateFrom || dateTo) && <button className="audit-preset audit-preset-clear" onClick={() => setRange('', '')}>ล้าง ✕</button>}
+          </div>
         </div>
         <div>
           {loading && <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>กำลังโหลด…</div>}
@@ -2128,29 +2149,37 @@ function ChannelsView() {
           </button>
         </div>
 
-        {showAdd && (
-          <div style={{ padding: 16, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', marginBottom: 12 }}>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>เพิ่มช่องทางใหม่</div>
-            <div className="col" style={{ gap: 10 }}>
+        {showAdd && (() => {
+          const closeAdd = () => { setShowAdd(false); setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewHasAd(false); };
+          return (
+            <Modal
+              icon="layers"
+              title="เพิ่มช่องทางใหม่"
+              sub="ช่องทางที่ใช้บันทึกยอดขายและค่าโฆษณา"
+              onClose={closeAdd}
+              confirmOnClose={!!(newName.trim() || newLogo)}
+              footer={<>
+                <button className="btn btn-sm" onClick={closeAdd} disabled={busy}>ยกเลิก</button>
+                <button className="btn btn-sm btn-primary" onClick={addChannel} disabled={!newName.trim() || busy}>
+                  <Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}
+                </button>
+              </>}
+            >
+              {/* พรีวิวสด */}
+              <div className="duty-preview">
+                {newLogo
+                  ? <img className="duty-preview-logo" src={newLogo} alt="" />
+                  : <span className="duty-dot" style={{ background: newColor }} />}
+                <span className={'duty-preview-name' + (newName.trim() ? '' : ' duty-preview-muted')}>{newName.trim() || 'ชื่อช่องทาง'}</span>
+                {newHasAd && <span className="duty-preview-badge">มีโฆษณา</span>}
+              </div>
               <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
-                {/* Logo upload */}
                 <div style={{ flexShrink: 0 }}>
-                  <div className="cap" style={{ marginBottom: 4 }}>โลโก้ (PNG/SVG)</div>
-                  <label style={{
-                    display: 'grid', placeItems: 'center',
-                    width: 80, height: 80, borderRadius: 12,
-                    background: newLogo ? '#fff' : 'var(--surface)',
-                    border: '2px dashed var(--line)',
-                    cursor: 'pointer', position: 'relative', overflow: 'hidden',
-                  }}>
-                    {newLogo ? (
-                      <img src={newLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                    ) : (
-                      <div style={{ textAlign: 'center', color: 'var(--ink-3)' }}>
-                        <div style={{ fontSize: 20 }}>📷</div>
-                        <div className="cap" style={{ fontSize: 9 }}>คลิกอัปโหลด</div>
-                      </div>
-                    )}
+                  <div className="cap" style={{ marginBottom: 6 }}>โลโก้ (PNG/SVG)</div>
+                  <label className="logo-drop" style={newLogo ? { background: '#fff' } : null}>
+                    {newLogo
+                      ? <img src={newLogo} alt="" />
+                      : <span className="logo-drop-hint"><Icon name="image" /><span className="cap" style={{ fontSize: 10 }}>คลิกอัปโหลด</span></span>}
                     <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
                       try { setNewLogo(await readFileAsBase64(e.target.files?.[0])); }
                       catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
@@ -2162,36 +2191,102 @@ function ChannelsView() {
                     </button>
                   )}
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div className="cap" style={{ marginBottom: 4 }}>ชื่อ *</div>
-                  <input className="input" placeholder="เช่น Shopee, Instagram, TikTok" value={newName} onChange={e => setNewName(e.target.value)} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="cap" style={{ marginBottom: 6 }}>ชื่อ *</div>
+                  <input className="input" autoFocus placeholder="เช่น Shopee, Instagram, TikTok" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addChannel(); }} />
                 </div>
               </div>
               <div>
-                <div className="cap" style={{ marginBottom: 4 }}>สีประจำช่องทาง</div>
-                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                <div className="cap" style={{ marginBottom: 6 }}>สีประจำช่องทาง</div>
+                <div className="swatch-row">
                   {PALETTE.map(c => (
-                    <button key={c} onClick={() => setNewColor(c)} style={{
-                      width: 30, height: 30, borderRadius: 8, background: c,
-                      border: newColor === c ? '3px solid var(--ink)' : '3px solid transparent',
-                      cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
-                    }}></button>
+                    <button key={c} className={'swatch' + (newColor === c ? ' on' : '')} onClick={() => setNewColor(c)} title={c} style={{ '--sw': c }} aria-label={`เลือกสี ${c}`} aria-pressed={newColor === c}>
+                      {newColor === c && <Icon name="check" />}
+                    </button>
                   ))}
                 </div>
               </div>
-              <label className="row" style={{ gap: 8, cursor: 'pointer', alignItems: 'center' }}>
-                <input type="checkbox" checked={newHasAd} onChange={e => setNewHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด & แสดงในตารางโฆษณา</span>
+              <label className="row" style={{ gap: 9, cursor: 'pointer', alignItems: 'center' }}>
+                <input type="checkbox" checked={newHasAd} onChange={e => setNewHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }} />
+                <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด &amp; แสดงในตารางโฆษณา</span>
               </label>
-              <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-                <button className="btn btn-sm" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</button>
-                <button className="btn btn-sm btn-primary" onClick={addChannel} disabled={!newName.trim() || busy}>
-                  <Icon name="check" /> {busy ? 'กำลังบันทึก...' : 'บันทึก'}
-                </button>
+            </Modal>
+          );
+        })()}
+
+        {/* แก้ไขช่องทาง — popup */}
+        {editing && (() => {
+          const c = channels.find(x => x.id === editing);
+          if (!c) return null;
+          const hasLogo = editLogo && editLogo.startsWith('data:');
+          return (
+            <Modal
+              icon="layers"
+              title="แก้ไขช่องทาง"
+              sub={c.name}
+              onClose={() => setEditing(null)}
+              confirmOnClose={editName !== c.name || editLogo !== (c.logoUrl || c.icon || '') || editColor !== (c.hex || c.color || PALETTE[0]) || String(editFee) !== String(c.platformFeePct || 0) || editHasAd !== !!c.hasAd}
+              footer={
+                <div className="row" style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}><Icon name="trash" /> ลบ</button>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
+                    <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+                  </div>
+                </div>
+              }
+            >
+              {/* พรีวิวสด */}
+              <div className="duty-preview">
+                {hasLogo
+                  ? <img className="duty-preview-logo" src={editLogo} alt="" />
+                  : <span className="duty-dot" style={{ background: editColor }} />}
+                <span className={'duty-preview-name' + (editName.trim() ? '' : ' duty-preview-muted')}>{editName.trim() || 'ชื่อช่องทาง'}</span>
+                {editHasAd && <span className="duty-preview-badge">มีโฆษณา</span>}
               </div>
-            </div>
-          </div>
-        )}
+              <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ flexShrink: 0 }}>
+                  <div className="cap" style={{ marginBottom: 6 }}>โลโก้</div>
+                  <label className="logo-drop" style={hasLogo ? { background: '#fff' } : null}>
+                    {hasLogo
+                      ? <img src={editLogo} alt="" />
+                      : <span className="logo-drop-hint"><Icon name="image" /><span className="cap" style={{ fontSize: 10 }}>คลิกอัปโหลด</span></span>}
+                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
+                      try { setEditLogo(await readFileAsBase64(e.target.files?.[0])); }
+                      catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
+                    }} />
+                  </label>
+                  {editLogo && (
+                    <button className="btn btn-sm" style={{ marginTop: 6, fontSize: 11, color: 'var(--bad)' }} onClick={() => setEditLogo('')}>ลบรูป</button>
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="cap" style={{ marginBottom: 6 }}>ชื่อ</div>
+                  <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 6 }}>สีประจำช่องทาง</div>
+                <div className="swatch-row">
+                  {PALETTE.map(col => (
+                    <button key={col} className={'swatch' + (editColor === col ? ' on' : '')} onClick={() => setEditColor(col)} title={col} style={{ '--sw': col }} aria-label={`เลือกสี ${col}`} aria-pressed={editColor === col}>
+                      {editColor === col && <Icon name="check" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 6 }}>ค่าธรรมเนียมแพลตฟอร์ม (%) — ใช้คำนวณกำไร/มาร์จิ้นจริง</div>
+                <input className="input" type="number" min="0" max="100" step="0.01" style={{ maxWidth: 160 }} value={editFee} onChange={e => setEditFee(e.target.value)} placeholder="0" />
+                <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>เช่น Shopee ~5–10%, ช่องทางตัวเอง (CRM) = 0</div>
+              </div>
+              <label className="row" style={{ gap: 9, cursor: 'pointer', alignItems: 'center' }}>
+                <input type="checkbox" checked={editHasAd} onChange={e => setEditHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }} />
+                <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด &amp; แสดงในตารางโฆษณา</span>
+              </label>
+            </Modal>
+          );
+        })()}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
           {channels.length === 0 && (
@@ -2200,85 +2295,7 @@ function ChannelsView() {
             </div>
           )}
           {channels.map(c => {
-            const isEditing = editing === c.id;
             const isOver = dragOver === c.id;
-
-            if (isEditing) {
-              return (
-                <div key={c.id} style={{ padding: 14, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', margin: '4px 0' }}>
-                  <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขช่องทาง</div>
-                  <div className="col" style={{ gap: 10 }}>
-                    <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
-                      <div style={{ flexShrink: 0 }}>
-                        <div className="cap" style={{ marginBottom: 4 }}>โลโก้</div>
-                        <label style={{
-                          display: 'grid', placeItems: 'center',
-                          width: 80, height: 80, borderRadius: 12,
-                          background: editLogo && editLogo.startsWith('data:') ? '#fff' : 'var(--surface)',
-                          border: '2px dashed var(--line)',
-                          cursor: 'pointer', overflow: 'hidden',
-                        }}>
-                          {editLogo && editLogo.startsWith('data:') ? (
-                            <img src={editLogo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                          ) : (
-                            <div style={{ textAlign: 'center', color: 'var(--ink-3)' }}>
-                              <div style={{ fontSize: 20 }}>📷</div>
-                              <div className="cap" style={{ fontSize: 9 }}>คลิกอัปโหลด</div>
-                            </div>
-                          )}
-                          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
-                            try { setEditLogo(await readFileAsBase64(e.target.files?.[0])); }
-                            catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
-                          }} />
-                        </label>
-                        {editLogo && (
-                          <button className="btn btn-sm" style={{ marginTop: 6, fontSize: 11, color: 'var(--bad)' }} onClick={() => setEditLogo('')}>
-                            ลบรูป
-                          </button>
-                        )}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div className="cap" style={{ marginBottom: 4 }}>ชื่อ</div>
-                        <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
-                      </div>
-                    </div>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>สี</div>
-                      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                        {PALETTE.map(col => (
-                          <button key={col} onClick={() => setEditColor(col)} style={{
-                            width: 28, height: 28, borderRadius: 7, background: col,
-                            border: editColor === col ? '3px solid var(--ink)' : '3px solid transparent',
-                            cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
-                          }}></button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>ค่าธรรมเนียมแพลตฟอร์ม (%) — ใช้คำนวณกำไร/มาร์จิ้นจริง</div>
-                      <input className="input" type="number" min="0" max="100" step="0.01" style={{ maxWidth: 160 }}
-                        value={editFee} onChange={e => setEditFee(e.target.value)} placeholder="0" />
-                      <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>เช่น Shopee ~5–10%, ช่องทางตัวเอง (CRM) = 0</div>
-                    </div>
-                    <label className="row" style={{ gap: 8, cursor: 'pointer', alignItems: 'center' }}>
-                      <input type="checkbox" checked={editHasAd} onChange={e => setEditHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                      <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด & แสดงในตารางโฆษณา</span>
-                    </label>
-                    <div className="row between">
-                      <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}>
-                        <Icon name="trash" /> ลบ
-                      </button>
-                      <div className="row" style={{ gap: 8 }}>
-                        <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
-                        <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}>
-                          <Icon name="check" /> {busy ? 'บันทึก...' : 'บันทึก'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
 
             return (
               <div key={c.id}
@@ -2452,40 +2469,100 @@ function DutiesView() {
           </button>
         </div>
 
-        {/* Add new duty form */}
-        {showAdd && (
-          <div style={{ padding: 16, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', marginBottom: 12 }}>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>เพิ่มหน้าที่ใหม่</div>
-            <div className="col" style={{ gap: 10 }}>
-              <div>
-                <div className="cap" style={{ marginBottom: 4 }}>ชื่อหน้าที่ *</div>
-                <input className="input" placeholder="เช่น Logistics, Customer Service" value={newName} onChange={e => setNewName(e.target.value)} />
+        {/* Add new duty — popup modal */}
+        {showAdd && (() => {
+          const closeAdd = () => { setShowAdd(false); setNewName(''); setNewColor(PALETTE[0]); setNewDesc(''); };
+          return (
+            <Modal
+              icon="shield"
+              title="เพิ่มหน้าที่ใหม่"
+              sub="ใช้มอบหมายงานและจัดกลุ่มผู้รับผิดชอบ"
+              onClose={closeAdd}
+              confirmOnClose={!!(newName.trim() || newDesc.trim())}
+              footer={<>
+                <button className="btn btn-sm" onClick={closeAdd} disabled={busy}>ยกเลิก</button>
+                <button className="btn btn-sm btn-primary" onClick={addDuty} disabled={!newName.trim() || busy}>
+                  <Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}
+                </button>
+              </>}
+            >
+              {/* พรีวิวสด */}
+              <div className="duty-preview">
+                <span className="duty-dot" style={{ background: newColor }} />
+                <span className={'duty-preview-name' + (newName.trim() ? '' : ' duty-preview-muted')}>{newName.trim() || 'ชื่อหน้าที่'}</span>
+                {newDesc.trim() && <span className="duty-preview-desc">· {newDesc.trim()}</span>}
               </div>
               <div>
-                <div className="cap" style={{ marginBottom: 4 }}>สีประจำหน้าที่</div>
-                <div className="row" style={{ gap: 6 }}>
+                <div className="cap" style={{ marginBottom: 6 }}>ชื่อหน้าที่ *</div>
+                <input className="input" autoFocus placeholder="เช่น Logistics, Customer Service" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addDuty(); }} />
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 6 }}>สีประจำหน้าที่</div>
+                <div className="swatch-row">
                   {PALETTE.map(c => (
-                    <button key={c} onClick={() => setNewColor(c)} title={c} style={{
-                      width: 32, height: 32, borderRadius: 8, background: c,
-                      border: newColor === c ? '3px solid var(--ink)' : '3px solid transparent',
-                      cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
-                    }}></button>
+                    <button key={c} className={'swatch' + (newColor === c ? ' on' : '')} onClick={() => setNewColor(c)} title={c} style={{ '--sw': c }} aria-label={`เลือกสี ${c}`} aria-pressed={newColor === c}>
+                      {newColor === c && <Icon name="check" />}
+                    </button>
                   ))}
                 </div>
               </div>
               <div>
-                <div className="cap" style={{ marginBottom: 4 }}>คำอธิบาย</div>
+                <div className="cap" style={{ marginBottom: 6 }}>คำอธิบาย</div>
                 <input className="input" placeholder="เช่น ทีมจัดส่งสินค้า / แพ็คของ" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
               </div>
-              <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-                <button className="btn btn-sm" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</button>
-                <button className="btn btn-sm btn-primary" onClick={addDuty} disabled={!newName.trim() || busy}>
-                  <Icon name="check" /> {busy ? 'กำลังบันทึก...' : 'บันทึก'}
-                </button>
+            </Modal>
+          );
+        })()}
+
+        {/* แก้ไขหน้าที่ — popup */}
+        {editing && (() => {
+          const d = duties.find(x => x.id === editing);
+          if (!d) return null;
+          const count = userCount(d.id);
+          return (
+            <Modal
+              icon="shield"
+              title="แก้ไขหน้าที่"
+              sub={d.name}
+              onClose={() => setEditing(null)}
+              confirmOnClose={editName !== d.name || editColor !== d.color || editDesc !== (d.description || '')}
+              footer={
+                <div className="row" style={{ width: '100%', justifyContent: 'space-between' }}>
+                  <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteDuty(d)} disabled={busy}><Icon name="trash" /> ลบ {count > 0 && `(มี ${count} คน)`}</button>
+                  <div className="row" style={{ gap: 8 }}>
+                    <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
+                    <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+                  </div>
+                </div>
+              }
+            >
+              {/* พรีวิวสด */}
+              <div className="duty-preview">
+                <span className="duty-dot" style={{ background: editColor }} />
+                <span className={'duty-preview-name' + (editName.trim() ? '' : ' duty-preview-muted')}>{editName.trim() || 'ชื่อหน้าที่'}</span>
+                {editDesc.trim() && <span className="duty-preview-desc">· {editDesc.trim()}</span>}
               </div>
-            </div>
-          </div>
-        )}
+              <div>
+                <div className="cap" style={{ marginBottom: 6 }}>ชื่อหน้าที่ *</div>
+                <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 6 }}>สีประจำหน้าที่</div>
+                <div className="swatch-row">
+                  {PALETTE.map(c => (
+                    <button key={c} className={'swatch' + (editColor === c ? ' on' : '')} onClick={() => setEditColor(c)} title={c} style={{ '--sw': c }} aria-label={`เลือกสี ${c}`} aria-pressed={editColor === c}>
+                      {editColor === c && <Icon name="check" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="cap" style={{ marginBottom: 6 }}>คำอธิบาย</div>
+                <input className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} />
+              </div>
+            </Modal>
+          );
+        })()}
 
         {/* Duties list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -2495,49 +2572,7 @@ function DutiesView() {
             </div>
           )}
           {duties.map(d => {
-            const isEditing = editing === d.id;
             const count = userCount(d.id);
-
-            if (isEditing) {
-              return (
-                <div key={d.id} style={{ padding: 14, background: 'var(--accent-soft)', borderRadius: 'var(--r-sm)', margin: '4px 0' }}>
-                  <div className="eyebrow" style={{ marginBottom: 10 }}>แก้ไขหน้าที่</div>
-                  <div className="col" style={{ gap: 10 }}>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>ชื่อ</div>
-                      <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
-                    </div>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>สี</div>
-                      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                        {PALETTE.map(c => (
-                          <button key={c} onClick={() => setEditColor(c)} style={{
-                            width: 28, height: 28, borderRadius: 7, background: c,
-                            border: editColor === c ? '3px solid var(--ink)' : '3px solid transparent',
-                            cursor: 'pointer', boxShadow: '0 0 0 1px var(--line)',
-                          }}></button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="cap" style={{ marginBottom: 4 }}>คำอธิบาย</div>
-                      <input className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} />
-                    </div>
-                    <div className="row between">
-                      <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteDuty(d)} disabled={busy}>
-                        <Icon name="trash" /> ลบ {count > 0 && `(มี ${count} คน)`}
-                      </button>
-                      <div className="row" style={{ gap: 8 }}>
-                        <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
-                        <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}>
-                          <Icon name="check" /> {busy ? 'บันทึก...' : 'บันทึก'}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
 
             return (
               <div key={d.id} className="row" style={{ gap: 12, padding: '14px 12px', borderBottom: '1px solid var(--line-2)' }}>
@@ -2593,6 +2628,7 @@ function RolesView() {
   const [pwBusy, setPwBusy] = useState(false);
 
   // New user form
+  const [showAdd, setShowAdd] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('editor');
@@ -2761,7 +2797,7 @@ function RolesView() {
       if (e2) throw e2;
 
       logAudit({ action: 'create', entityType: 'user', entityName: email, summary: `เพิ่มผู้ใช้ ${name} (${email})` });
-      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || '');
+      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); setShowAdd(false);
       if (reload) await reload();
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
     } catch (err) {
@@ -2778,11 +2814,15 @@ function RolesView() {
     return resp.includes(name) || (dutyName && resp.includes(dutyName));
   }).length;
 
+  const closeAdd = () => { setShowAdd(false); setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); };
+
   return (
     <div className="content-inner rise">
-      <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr', gap: 16, alignItems: 'start' }}>
-        <div className="card">
-          <div className="card-head"><h3><span style={{color:'var(--accent)'}}><Icon name="shield" /></span> สิทธิ์ผู้ใช้</h3></div>
+      <div className="card">
+          <div className="card-head">
+            <h3><span style={{color:'var(--accent)'}}><Icon name="shield" /></span> สิทธิ์ผู้ใช้ <span className="cap" style={{ fontWeight: 500 }}>({users.length})</span></h3>
+            <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}><Icon name="userPlus" /> เพิ่มผู้ใช้ใหม่</button>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {users.map(u => {
@@ -2811,14 +2851,18 @@ function RolesView() {
               );
             })}
           </div>
-        </div>
+      </div>
 
-        <div className="card">
-          <div className="card-head" style={{ marginBottom: 4 }}>
-            <h3><span style={{ color: 'var(--accent)' }}><Icon name="userPlus" /></span> เพิ่มผู้ใช้ใหม่</h3>
-          </div>
-          <div className="cap" style={{ color: 'var(--ink-3)', marginBottom: 18 }}>กรอกข้อมูลเพื่อเพิ่มสมาชิกเข้าทีม</div>
-
+      {/* เพิ่มผู้ใช้ใหม่ — popup */}
+      {showAdd && (
+        <Modal icon="userPlus" title="เพิ่มผู้ใช้ใหม่" sub="กรอกข้อมูลเพื่อเพิ่มสมาชิกเข้าทีม" onClose={closeAdd}
+          confirmOnClose={!!(newEmail.trim() || newName.trim())}
+          footer={
+            <div className="row" style={{ width: '100%', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-sm" onClick={closeAdd} disabled={busy}>ยกเลิก</button>
+              <button className="btn btn-sm btn-primary" onClick={addUser} disabled={!newEmail.trim() || busy}><Icon name="userPlus" /> {busy ? 'กำลังบันทึก…' : 'เพิ่มผู้ใช้'}</button>
+            </div>
+          }>
           <div className="col" style={{ gap: 16 }}>
             {/* อีเมล */}
             <div className="col" style={{ gap: 6 }}>
@@ -2878,18 +2922,13 @@ function RolesView() {
               })}
             </div>
 
-            <button className="btn btn-primary" onClick={addUser}
-              disabled={!newEmail.trim() || busy} style={{ width: '100%', justifyContent: 'center', padding: '11px', marginTop: 4, opacity: (newEmail.trim() && !busy) ? 1 : 0.5 }}>
-              <Icon name="userPlus" /> {busy ? 'กำลังบันทึก...' : 'เพิ่มผู้ใช้'}
-            </button>
-
             <div className="cap" style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: 'var(--ink-4)', lineHeight: 1.5 }}>
               <span style={{ color: 'var(--accent)', flexShrink: 0 }}><Icon name="sparkle" /></span>
               บันทึกลง Supabase อัตโนมัติ · ตั้งรหัสเข้าระบบให้ได้ภายหลังที่ปุ่มแก้ไข (ดินสอ)
             </div>
           </div>
-        </div>
-      </div>
+        </Modal>
+      )}
 
       {/* แก้ไขผู้ใช้ — popup */}
       {editing && (() => {

@@ -29,6 +29,35 @@ const guardClose = (touched, onClose) => { if (touched && !window.confirm(DISCAR
 // ID ที่ไม่ชนกัน (กันกดบันทึกซ้ำ/หลายคนพร้อมกัน → ข้อมูลซ้ำหรือทับกัน)
 const uid = (prefix) => prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
+// optimistic-lock ทั่วไปสำหรับแก้แถวสินค้า (lots / stock_on_hand / actual_units / reservations)
+// กัน 2 เครื่องเขียนทับกันแล้วข้อมูลอีกเครื่องหาย (lost update)
+// compute(freshRow) => patchObject | null  — return null เพื่อยกเลิกแบบไม่ error (เช่น สต็อกหมดไปแล้ว)
+//   *ต้อง* คำนวณ patch จาก freshRow (ค่าล่าสุดใน DB) เสมอ เพื่อให้ re-derive ถูกตอน retry
+// เขียนทับเฉพาะเมื่อ updated_at ยังไม่เปลี่ยน (precondition); ถ้าชน → วน re-fetch + re-compute ใหม่
+export async function mutateProductRow(productId, compute, attempts = 4) {
+  for (let i = 0; i < attempts; i++) {
+    const { data: cur, error: selErr } = await supabase
+      .from('tmk_products').select('lots, stock_on_hand, actual_units, reservations, updated_at').eq('id', productId).maybeSingle();
+    if (selErr) return { error: selErr };
+    if (!cur) return { error: { message: 'ไม่พบสินค้า' } };
+    const patch = compute(cur);
+    if (!patch) return { aborted: true };
+    let q = supabase.from('tmk_products')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', productId);
+    q = (cur.updated_at == null) ? q.is('updated_at', null) : q.eq('updated_at', cur.updated_at);
+    const { data: upd, error: updErr } = await q.select('id');
+    if (updErr) return { error: updErr };
+    if (upd && upd.length) return { ok: true };
+    // 0 แถว = มีเครื่องอื่นเขียนแทรกหลังเราอ่าน → วน re-fetch + re-compute กับค่าล่าสุด
+  }
+  return { error: { message: 'แก้ไขชนกับอุปกรณ์อื่น — รีโหลดแล้วลองใหม่' } };
+}
+// helper เฉพาะ reservations (append/filter) — เรียกผ่าน mutateProductRow
+export async function mutateProductReservations(productId, transform, attempts = 4) {
+  return mutateProductRow(productId, (cur) => ({ reservations: transform(Array.isArray(cur.reservations) ? cur.reservations : []) }), attempts);
+}
+
 // Generic save wrapper — ส่ง audit (optional) เพื่อบันทึกประวัติการใช้งานเมื่อสำเร็จ
 async function saveRow(table, row, label = 'บันทึก', audit = null) {
   try {
@@ -110,7 +139,6 @@ export function RecordSalesModal({ data, onClose }) {
   const [chatTime, setChatTime] = useState('');
   const [saving, setSaving] = useState(false);
   const [exists, setExists] = useState(false); // มีข้อมูลวันนี้ใน DB แล้ว → โชว์ปุ่มลบ
-  const [openSecondary, setOpenSecondary] = useState({}); // ผู้ใช้กดเปิดแถวรอง (คนทัก/ลูกค้าใหม่-เก่า) เอง — ต่อ channel
   const [touched, setTouched] = useState(false); // มีการแก้ไขค้าง → เตือนก่อนปิด
   const loadDirty = useRef(false); // ผู้ใช้พิมพ์ระหว่างที่ข้อมูลกำลังโหลด → กันโหลดมาทับ (race fix)
   const beforeRef = useRef(null); // ค่าเดิมจาก DB ตอนเปิด (snapshot) → ทำ log ก่อน→หลัง + เก็บค่าที่ถูกลบ
@@ -336,7 +364,9 @@ export function RecordSalesModal({ data, onClose }) {
       if (pPct >= 95) tips.push({ c: 'var(--good)', m: `Pace ${pPct.toFixed(0)}% ทันเป้า` });
       else tips.push({ c: 'var(--warn)', m: `Pace ${pPct.toFixed(0)}% — ต้องเร่ง` });
     }
-    return { tRev, tOrd, tAd, aov, acos, newMtd, pPct, rr, vsAvg, tips, ok: tRev > 0, tNewC, tOldC };
+    // บันทึกได้เมื่อมี metric ใดก็ได้ (ไม่ใช่แค่ยอดขาย) — กันวันที่มีแค่ค่าแอด/ออเดอร์/ลูกค้าใหม่กรอกไม่ได้
+    const ok = tRev > 0 || tAd > 0 || tOrd > 0 || tNewC > 0 || tOldC > 0;
+    return { tRev, tOrd, tAd, aov, acos, newMtd, pPct, rr, vsAvg, tips, ok, tNewC, tOldC };
   }, [rows, sel]);
 
   const handleDelete = async () => {
@@ -421,21 +451,20 @@ export function RecordSalesModal({ data, onClose }) {
           <div className="row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="field" style={{ maxWidth: 220, margin: 0 }}>
               <label>วันที่</label>
-              <input type="date" className="input" max={todayISO()} value={date} onChange={e => setDate(e.target.value)} />
+              <input type="date" className="input" max={todayISO()} value={date} onChange={e => { const v = e.target.value; if (touched && !window.confirm(DISCARD_MSG)) return; setDate(v); }} />
             </div>
             <button type="button" className="btn btn-sm" onClick={copyYesterday} title="ดึงยอดของเมื่อวานมาเป็นจุดเริ่ม">
               <Icon name="refresh" /> คัดลอกเมื่อวาน
             </button>
           </div>
 
-          {/* Channel cards — each channel is a card */}
+          {/* Channel cards — 2 คอลัมน์ ลดการเลื่อน */}
+          <div className="rec-channel-grid">
           {rows.map((r, i) => {
             const ch = MD.channels.find(c => c.id === r.id) || { hex: 'var(--ink-3)', name: r.id, hasAd: false }; // กัน crash ถ้าช่องถูกลบขณะเปิด
-            // แสดงแถวรอง (ลูกค้าใหม่/ลูกค้าเก่า) เฉพาะช่องแชท หรือเมื่อมีค่าเดิม หรือกดเปิดเอง
-            // — "คนทัก" = ลูกค้าใหม่ + เก่า (คำนวณอัตโนมัติ ไม่ต้องกรอกแยก)
-            const isChat = ch.id === 'facebook' || ch.id === 'line';
-            const hasSecondary = (+r.newC) > 0 || (+r.oldC) > 0;
-            const showSecondary = isChat || hasSecondary || (openSecondary[r.id] === true);
+            // โชว์ลูกค้าใหม่/เก่าทุกช่องเสมอ → การ์ดโครงเดียวกัน สูงเท่ากันทุกแถว ไม่ต้องกดขยาย
+            // "คนทัก" = ลูกค้าใหม่ + เก่า (คำนวณอัตโนมัติ ไม่ต้องกรอกแยก)
+            const inq = ((+r.newC) || 0) + ((+r.oldC) || 0);
             return (
               <div key={r.id} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', borderLeft: `3px solid ${ch.hex}` }}>
                 <div className="row" style={{ gap: 7, fontWeight: 600, marginBottom: 10 }}>
@@ -446,24 +475,18 @@ export function RecordSalesModal({ data, onClose }) {
                   <div className="field"><label>ออเดอร์</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
                   {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
                 </div>
-                {showSecondary ? (
-                  <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
-                    <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
-                    <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
-                  </div>
-                ) : (
-                  <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 8, color: 'var(--ink-3)' }}
-                          onClick={() => setOpenSecondary(m => ({ ...m, [r.id]: true }))}>
-                    + ลูกค้าใหม่ / เก่า
-                  </button>
-                )}
-                {/* คนทัก = ลูกค้าใหม่ + เก่า (auto) — โชว์ให้เห็นเมื่อกรอกแล้ว */}
-                {showSecondary && ((+r.newC) > 0 || (+r.oldC) > 0) && (
-                  <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>คนทัก (ลูกค้ารวม): <b style={{ color: 'var(--ink-2)' }}>{((+r.newC) || 0) + ((+r.oldC) || 0)}</b> คน</div>
+                <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
+                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
+                </div>
+                {/* คนทัก = ลูกค้าใหม่ + เก่า (auto) — โชว์เมื่อกรอกแล้ว */}
+                {inq > 0 && (
+                  <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>คนทัก (ลูกค้ารวม): <b style={{ color: 'var(--ink-2)' }}>{inq}</b> คน</div>
                 )}
               </div>
             );
           })}
+          </div>
 
           <div className="field-row">
             <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" className="input" placeholder="0" value={chatTime} onChange={e => { loadDirty.current = true; setTouched(true); setChatTime(e.target.value); }} /></div>
@@ -498,13 +521,13 @@ export function RecordSalesModal({ data, onClose }) {
               return (
                 <div key={r.id} className="row" style={{ gap: 10, padding: '8px 0', borderBottom: '1px solid var(--line-2)' }}>
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>
-                  <span className="sm" style={{ fontWeight: 600, width: 70 }}>{ch.name}</span>
-                  <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--surface-3)', overflow: 'hidden' }}>
+                  <span className="sm" style={{ fontWeight: 600, width: 70, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.name}</span>
+                  <div style={{ flex: 1, minWidth: 40, height: 8, borderRadius: 4, background: 'var(--surface-3)', overflow: 'hidden' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: ch.hex, borderRadius: 4 }}></div>
                   </div>
-                  <span className="num sm" style={{ fontWeight: 700, width: 75, textAlign: 'right' }}>{B(rev)}</span>
-                  <span className="num cap" style={{ width: 36, textAlign: 'right' }}>{P(pct, 0)}</span>
-                  <span className="cap" style={{ width: 55, textAlign: 'right' }}>{r.ord || 0} ออเดอร์</span>
+                  <span className="num sm" style={{ fontWeight: 700, width: 84, flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>{B(rev)}</span>
+                  <span className="num cap" style={{ width: 38, flexShrink: 0, textAlign: 'right' }}>{P(pct, 0)}</span>
+                  <span className="cap" style={{ width: 72, flexShrink: 0, textAlign: 'right', whiteSpace: 'nowrap' }}>{r.ord || 0} ออเดอร์</span>
                 </div>
               );
             })}
@@ -683,6 +706,16 @@ export function ProductModal({ data, onClose }) {
   const imgRef = useRef(null);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
 
+  // baseline updated_at (สินค้าเดิม) → optimistic-lock กัน save ทับ stock movement (ขาย/รับ/ปรับ) ที่เกิดระหว่างเปิดฟอร์ม
+  const baseUpdatedAtRef = useRef(undefined);
+  useEffect(() => {
+    if (!data?.id) return;
+    let cancel = false;
+    supabase.from('tmk_products').select('updated_at').eq('id', data.id).maybeSingle()
+      .then(({ data: row }) => { if (!cancel) baseUpdatedAtRef.current = row ? (row.updated_at ?? null) : null; });
+    return () => { cancel = true; };
+  }, [data?.id]);
+
   const lots = f.lots || [];
   const hasLots = lots.length > 0;
   // มีล็อต → สต็อก = ผลรวมทุกช่องทุกล็อต (อ่านอย่างเดียว); ไม่มีล็อต → ใช้ช่องสต็อกเดิม
@@ -763,8 +796,8 @@ export function ProductModal({ data, onClose }) {
       price: nn(f.price),
       target_units: Number(f.units) || 0,
       actual_units: nn(f.units), // = จำนวนที่ขาย (แสดงผล + คิดรายได้)
-      // มีล็อต → สต็อก = ผลรวมล็อต; ไม่มีล็อต → ช่องสต็อกเดิม (เว้นว่าง = ไม่ track null→'ok')
-      stock_on_hand: cleanHasLots ? cleanTotal : (f.onHand === '' || f.onHand == null ? null : nn(f.onHand)),
+      // มีล็อต → สต็อก = ผลรวมล็อต; ไม่มีล็อต → ช่องสต็อกเดิม (เว้นว่าง = 0; คอลัมน์เป็น NOT NULL ห้ามส่ง null)
+      stock_on_hand: cleanHasLots ? cleanTotal : nn(f.onHand),
       reorder_point: nn(f.reorder),
       strategy: f.strategy || '',
       image_url: f.image || null,
@@ -785,7 +818,7 @@ export function ProductModal({ data, onClose }) {
         { label: 'จำนวนล็อต', value: cleanHasLots ? `${cleanLots.length} ล็อต` : '—' },
         { label: 'จุดสั่งผลิตซ้ำ', value: N(Number(f.reorder) || 0) },
       ],
-    });
+    }, data ? baseUpdatedAtRef.current : undefined);
     setBusy(false);
     if (ok) onClose();
   };
@@ -959,15 +992,32 @@ export function ProductModal({ data, onClose }) {
 }
 
 // บันทึกสินค้า — เผื่อ DB ยังไม่มีคอลัมน์ image_url/lots ให้ fallback ตัดออกแล้วลองใหม่ (เตือนให้รัน migration)
-async function saveProductRow(row, isUpdate, audit) {
+async function saveProductRow(row, isUpdate, audit, lockUpdatedAt) {
   // คอลัมน์เสริมที่อาจยังไม่มีใน DB (ยังไม่ได้รัน migration) → ตัดออกทีละตัวแล้วลองใหม่
   // (PostgREST ฟ้องทีละคอลัมน์ จึงวน loop จนสำเร็จ; เก็บข้อมูลให้ได้มากที่สุด)
   const OPTIONAL_COLS = ['category', 'supplier', 'sku', 'barcode', 'image_url', 'lots'];
-  const payload = { ...row };
+  const payload = { ...row, updated_at: new Date().toISOString() }; // bump เสมอ → optimistic-lock ของฟอร์มอื่นจับการแก้ได้
   const dropped = [];
+  // สินค้าเดิม + มี baseline → update แบบมี precondition (updated_at ไม่เปลี่ยน) กัน save ทับ stock movement ที่เกิดระหว่างเปิดฟอร์ม
+  const useLock = isUpdate && lockUpdatedAt !== undefined;
   try {
     for (let attempt = 0; attempt <= OPTIONAL_COLS.length; attempt++) {
-      const { error } = await supabase.from('tmk_products').upsert(payload);
+      let error;
+      if (useLock) {
+        let q = supabase.from('tmk_products').update(payload).eq('id', row.id);
+        q = (lockUpdatedAt == null) ? q.is('updated_at', null) : q.eq('updated_at', lockUpdatedAt);
+        const res = await q.select('id');
+        error = res.error;
+        if (!error && (!res.data || res.data.length === 0)) {
+          // 0 แถว = มีเครื่องอื่นแก้สินค้านี้ (ขาย/รับ/ปรับ) หลังเราเปิดฟอร์ม → ไม่เขียนทับ
+          toast('มีการแก้ไขสินค้านี้จากที่อื่น (เช่น ขาย/รับของ/ปรับสต็อก) — ปิดแล้วเปิดใหม่เพื่อดึงค่าล่าสุด แล้วบันทึกอีกครั้ง', 'warn');
+          window.__reload?.();
+          return false;
+        }
+      } else {
+        const res = await supabase.from('tmk_products').upsert(payload);
+        error = res.error;
+      }
       if (!error) break;
       const isColErr = /column|schema cache|PGRST204|does not exist/i.test(error.message || '');
       const target = OPTIONAL_COLS.find(c => (c in payload) && (error.message || '').includes(c));
@@ -1047,41 +1097,46 @@ export function SellModal({ data, onClose }) {
       if (dip.length && !window.confirm(`⚠️ ${dip.join(', ')} มีของจองไว้ให้ออเดอร์ — ขายตอนนี้อาจทำให้ออเดอร์ที่จองของไม่พอ\nยืนยันขายต่อ?`)) return;
     }
     setBusy(true);
-    // clone lots (deep grid) แล้วหักช่อง
-    const newLots = lots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
-    const idxById = {}; newLots.forEach((l, idx) => { idxById[l.id] = idx; });
-    let soldTotal = 0, soldCost = 0, clamped = false;
-    const auditFields = [];
-    const saleLines = []; // structured สำหรับรายงาน: { color, size, qty, cost }
-    keys.forEach(key => {
-      const [lotId, colorId, size] = key.split('||');
-      const lot = newLots[idxById[lotId]];
-      if (!lot) return;
-      const avail = Number(lot.grid?.[colorId]?.[size]) || 0;
-      let take = agg[key];
-      if (take > avail) { take = avail; clamped = true; }
-      if (take <= 0) return;
-      const row = { ...(lot.grid[colorId] || {}) };
-      const left = avail - take;
-      if (left > 0) row[size] = left; else delete row[size];
-      lot.grid[colorId] = row;
-      soldTotal += take;
-      const unitCost = Number(lot.cost) || 0;
-      soldCost += take * unitCost; // ต้นทุนขาย (จากต้นทุนต่อตัวของล็อต) → ใช้คิดกำไรในรายงาน
-      const colorName = (lot.colors || []).find(c => c.id === colorId)?.name || 'สี';
-      auditFields.push({ label: `${colorName} ${size}`, value: `×${take} (${lot.lotNo || 'ล็อต'})` });
-      saleLines.push({ color: colorName, size, qty: take, cost: unitCost });
+    // ตัดสต็อกแบบ optimistic-lock: re-derive การหักล็อตจากค่าล่าสุดใน DB เสมอ (กัน 2 เครื่องขายตัดทับกัน)
+    let captured = null;
+    const mres = await mutateProductRow(product.id, (cur) => {
+      const freshLots = Array.isArray(cur.lots) ? cur.lots : [];
+      const newLots = freshLots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
+      const idxById = {}; newLots.forEach((l, idx) => { idxById[l.id] = idx; });
+      let soldTotal = 0, soldCost = 0, clamped = false;
+      const auditFields = [];
+      const saleLines = []; // structured สำหรับรายงาน: { color, size, qty, cost }
+      keys.forEach(key => {
+        const [lotId, colorId, size] = key.split('||');
+        const lot = newLots[idxById[lotId]];
+        if (!lot) return;
+        const avail = Number(lot.grid?.[colorId]?.[size]) || 0;
+        let take = agg[key];
+        if (take > avail) { take = avail; clamped = true; }
+        if (take <= 0) return;
+        const row = { ...(lot.grid[colorId] || {}) };
+        const left = avail - take;
+        if (left > 0) row[size] = left; else delete row[size];
+        lot.grid[colorId] = row;
+        soldTotal += take;
+        const unitCost = Number(lot.cost) || 0;
+        soldCost += take * unitCost; // ต้นทุนขาย (จากต้นทุนต่อตัวของล็อต) → ใช้คิดกำไรในรายงาน
+        const colorName = (lot.colors || []).find(c => c.id === colorId)?.name || 'สี';
+        auditFields.push({ label: `${colorName} ${size}`, value: `×${take} (${lot.lotNo || 'ล็อต'})` });
+        saleLines.push({ color: colorName, size, qty: take, cost: unitCost });
+      });
+      if (soldTotal <= 0) return null; // สต็อกถูกตัดไปหมดก่อนแล้ว (เครื่องอื่นขายตัด)
+      const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
+      const newUnits = Number(cur.actual_units || 0) + soldTotal;
+      captured = { soldTotal, soldCost, clamped, auditFields, saleLines };
+      return { lots: newLots, stock_on_hand: newStock, actual_units: newUnits };
     });
-    if (soldTotal <= 0) { setBusy(false); toast('ไม่มีจำนวนที่ตัดได้ — สต็อกอาจหมดแล้ว', 'error'); return; }
-    const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
-    const newUnits = Number(product.units || 0) + soldTotal;
+    if (mres.aborted) { setBusy(false); toast('ไม่มีจำนวนที่ตัดได้ — สต็อกอาจหมดแล้ว', 'error'); return; }
+    if (mres.error) { setBusy(false); toast('ตัดสต็อกไม่สำเร็จ: ' + mres.error.message, 'error'); return; }
+    const { soldTotal, soldCost, clamped, auditFields, saleLines } = captured;
     try {
-      const { error } = await supabase.from('tmk_products')
-        .update({ lots: newLots, stock_on_hand: newStock, actual_units: newUnits, updated_at: new Date().toISOString() })
-        .eq('id', product.id);
-      if (error) throw error;
       // บันทึกการขายลงตารางจริง (tmk_sales) — รายงานอ่านจากตารางนี้ (ไม่พึ่ง audit log อย่างเดียว)
-      try { await supabase.from('tmk_sales').insert({ id: 'sale-sell-' + product.id + '-' + Date.now().toString(36), sale_date: date || todayISO(), product_id: product.id, product_name: product.name, category: product.category || '', channel: '', qty: soldTotal, amount: soldTotal * (Number(product.price) || 0), cost: soldCost, source: 'sell', lines: saleLines }); } catch (e) { console.warn('tmk_sales:', e?.message); }
+      try { await supabase.from('tmk_sales').insert({ id: uid('sale-sell-' + product.id + '-'), sale_date: date || todayISO(), product_id: product.id, product_name: product.name, category: product.category || '', channel: '', qty: soldTotal, amount: soldTotal * (Number(product.price) || 0), cost: soldCost, source: 'sell', lines: saleLines }); } catch (e) { console.warn('tmk_sales:', e?.message); }
       logAudit({
         action: 'sale', entityType: 'product', entityName: product.name,
         summary: `ขาย "${product.name}" ${soldTotal} ตัว (ตัดสต็อก)${note ? ' — ' + note : ''}`,
@@ -1299,31 +1354,36 @@ export function StockAdjustModal({ data, onClose }) {
     const valid = lines.filter(lineReady);
     if (!valid.length) { toast('เพิ่มรายการปรับสต็อกก่อน (เลือกล็อต / สี / ไซส์ / เหตุผล / จำนวน)', 'error'); return; }
     setBusy(true);
-    const newLots = lots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
-    const idxById = {}; newLots.forEach((l, idx) => { idxById[l.id] = idx; });
-    let unitsDelta = 0;
-    const auditFields = [];
-    valid.forEach(l => {
-      const lot = newLots[idxById[l.lotId]]; if (!lot) return;
-      const avail = Number(lot.grid?.[l.colorId]?.[l.size]) || 0;
-      const reason = ADJUST_REASONS.find(r => r.id === l.reason) || ADJUST_REASONS[0];
-      const q = Math.max(0, Math.round(Number(l.qty) || 0));
-      const newQty = reason.mode === 'set' ? q : Math.max(0, avail + reason.sign * q);
-      const row = { ...(lot.grid[l.colorId] || {}) };
-      if (newQty > 0) row[l.size] = newQty; else delete row[l.size];
-      lot.grid[l.colorId] = row;
-      const actualDelta = newQty - avail;
-      if (reason.units && actualDelta > 0) unitsDelta += reason.units * actualDelta; // รับคืน → ลด actual_units
-      const colorName = (lot.colors || []).find(c => c.id === l.colorId)?.name || 'สี';
-      auditFields.push({ label: `${colorName} ${l.size} · ${reason.label}`, value: `${avail} → ${newQty} (${lot.lotNo || 'ล็อต'})` });
+    // ปรับสต็อกแบบ optimistic-lock: re-derive จากค่าล่าสุดใน DB (กัน 2 เครื่องปรับ/ขายทับกัน)
+    let captured = null;
+    const mres = await mutateProductRow(product.id, (cur) => {
+      const freshLots = Array.isArray(cur.lots) ? cur.lots : [];
+      const newLots = freshLots.map(l => ({ ...l, grid: Object.fromEntries(Object.entries(l.grid || {}).map(([cid, row]) => [cid, { ...row }])) }));
+      const idxById = {}; newLots.forEach((l, idx) => { idxById[l.id] = idx; });
+      let unitsDelta = 0;
+      const auditFields = [];
+      valid.forEach(l => {
+        const lot = newLots[idxById[l.lotId]]; if (!lot) return;
+        const avail = Number(lot.grid?.[l.colorId]?.[l.size]) || 0;
+        const reason = ADJUST_REASONS.find(r => r.id === l.reason) || ADJUST_REASONS[0];
+        const q = Math.max(0, Math.round(Number(l.qty) || 0));
+        const newQty = reason.mode === 'set' ? q : Math.max(0, avail + reason.sign * q);
+        const row = { ...(lot.grid[l.colorId] || {}) };
+        if (newQty > 0) row[l.size] = newQty; else delete row[l.size];
+        lot.grid[l.colorId] = row;
+        const actualDelta = newQty - avail;
+        if (reason.units && actualDelta > 0) unitsDelta += reason.units * actualDelta; // รับคืน → ลด actual_units
+        const colorName = (lot.colors || []).find(c => c.id === l.colorId)?.name || 'สี';
+        auditFields.push({ label: `${colorName} ${l.size} · ${reason.label}`, value: `${avail} → ${newQty} (${lot.lotNo || 'ล็อต'})` });
+      });
+      const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
+      const newUnits = Math.max(0, Number(cur.actual_units || 0) + unitsDelta);
+      captured = { auditFields };
+      return { lots: newLots, stock_on_hand: newStock, actual_units: newUnits };
     });
-    const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
-    const newUnits = Math.max(0, Number(product.units || 0) + unitsDelta);
+    if (mres.error) { setBusy(false); toast('ปรับสต็อกไม่สำเร็จ: ' + mres.error.message, 'error'); return; }
+    const { auditFields } = captured;
     try {
-      const { error } = await supabase.from('tmk_products')
-        .update({ lots: newLots, stock_on_hand: newStock, actual_units: newUnits, updated_at: new Date().toISOString() })
-        .eq('id', product.id);
-      if (error) throw error;
       logAudit({ action: 'adjust', entityType: 'product', entityName: product.name, summary: `ปรับสต็อก "${product.name}"${note ? ' — ' + note : ''}`, fields: auditFields });
       window.__reload?.();
       toast('ปรับสต็อกเรียบร้อย', 'success');
@@ -1439,11 +1499,10 @@ export function ReservationModal({ data, onClose }) {
     setBusy(true);
     try {
       const rsv = { id: uid('rsv'), customer: customer.trim(), date: date || todayISO(), note: note.trim(), items: clean };
-      const newRes = [...(product.reservations || []), rsv];
-      const { error } = await supabase.from('tmk_products').update({ reservations: newRes, updated_at: new Date().toISOString() }).eq('id', product.id);
-      if (error) {
-        if (/reservations|column|schema cache|PGRST204/i.test(error.message || '')) { toast('ต้องรัน SQL migration (reservations) ก่อนจึงจะจองได้', 'error'); setBusy(false); return; }
-        throw error;
+      const { ok, error } = await mutateProductReservations(product.id, (cur) => [...cur, rsv]);
+      if (!ok) {
+        if (error && /reservations|column|schema cache|PGRST204/i.test(error.message || '')) { toast('ต้องรัน SQL migration (reservations) ก่อนจึงจะจองได้', 'error'); setBusy(false); return; }
+        throw error || new Error('จองไม่สำเร็จ');
       }
       logAudit({ action: 'reserve', entityType: 'product', entityName: product.name, summary: `จองสต็อก "${product.name}" ${clean.reduce((a, x) => a + x.qty, 0)} ตัว${customer ? ' — ' + customer : ''}`, fields: clean.map(x => ({ label: `${x.color} ${x.size}`, value: `×${x.qty}` })) });
       window.__reload?.();
@@ -1606,10 +1665,12 @@ export function ReceiveModal({ data, onClose }) {
     const received = colors.reduce((a, c) => a + Object.values(grid[c.id]).reduce((x, y) => x + y, 0), 0);
     setBusy(true);
     try {
-      const newLots = [...(product.lots || []), newLotObj];
-      const newStock = newLots.reduce((a, l) => a + calcLotTotal(l), 0);
-      const { error } = await supabase.from('tmk_products').update({ lots: newLots, stock_on_hand: newStock, updated_at: new Date().toISOString() }).eq('id', product.id);
-      if (error) throw error;
+      // รับเข้าแบบ optimistic-lock: ต่อล็อตใหม่เข้ากับ lots ล่าสุดใน DB (กันชนกับการขาย/ปรับสต็อกที่เกิดพร้อมกัน)
+      const mres = await mutateProductRow(product.id, (cur) => {
+        const newLots = [...(Array.isArray(cur.lots) ? cur.lots : []), newLotObj];
+        return { lots: newLots, stock_on_hand: newLots.reduce((a, l) => a + calcLotTotal(l), 0) };
+      });
+      if (mres.error) throw new Error(mres.error.message);
       // มาร์ค PO ว่าของเข้าแล้ว
       if (po.id) await supabase.from('tmk_purchase_orders').update({ status: 'Completed', updated_at: new Date().toISOString() }).eq('id', po.id);
       logAudit({ action: 'receive', entityType: 'product', entityName: product.name, summary: `รับเข้า PO "${po.product}" ${received} ตัว → ล็อต "${newLotObj.lotNo}"`, fields: [{ label: 'รับเข้า', value: `${N(received)} ตัว` }, { label: 'ล็อต', value: newLotObj.lotNo }, { label: 'ต้นทุน/ตัว', value: B(newLotObj.cost) }] });
@@ -1882,14 +1943,14 @@ async function applyOrderReservations(order) {
   (order.items || []).forEach(it => { (byProd[it.productId] = byProd[it.productId] || []).push({ color: it.color, size: it.size, qty: nn(it.qty) }); });
   await Promise.all(Object.entries(byProd).map(([pid, items]) => {
     const p = (MD.products || []).find(x => x.id === pid); if (!p) return null;
-    const others = (p.reservations || []).filter(r => r.orderId !== order.id);
     const rsv = { id: 'rsv-' + order.id, orderId: order.id, customer: order.customerName || '', date: todayISO(), note: `ออเดอร์ ${order.code}`, items };
-    return supabase.from('tmk_products').update({ reservations: [...others, rsv], updated_at: new Date().toISOString() }).eq('id', pid);
+    // re-derive จากค่าล่าสุด: เอา reservation เดิมของออเดอร์นี้ออกแล้วใส่ของใหม่ (optimistic-lock กัน lost update)
+    return mutateProductReservations(pid, (cur) => [...cur.filter(r => r.orderId !== order.id), rsv]);
   }).filter(Boolean));
 }
 async function releaseOrderReservations(orderId) {
   const affected = (MD.products || []).filter(p => (p.reservations || []).some(r => r.orderId === orderId));
-  await Promise.all(affected.map(p => supabase.from('tmk_products').update({ reservations: (p.reservations || []).filter(r => r.orderId !== orderId), updated_at: new Date().toISOString() }).eq('id', p.id)));
+  await Promise.all(affected.map(p => mutateProductReservations(p.id, (cur) => cur.filter(r => r.orderId !== orderId))));
 }
 // คำนวณการตัดสต็อก (FIFO) — ไม่เขียน DB → คืน batch updates + audit + จำนวนที่ตัดได้
 // (เขียนจริงแบบ atomic ใน advanceOrderStatus ผ่าน RPC tmk_fulfill_order)
@@ -2348,7 +2409,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>เป้าต่อช่อง</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="ch-grid-2">
           {chTargets.map((c, i) => (
             <div key={c.id} className="row" style={{ gap: 10 }}>
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
@@ -2368,7 +2429,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>งบแอดต่อช่อง</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="ch-grid-2">
           {adChannels.map((c, i) => (
             <div key={c.id} className="row" style={{ gap: 10 }}>
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
@@ -2478,12 +2539,11 @@ export function AdCampaignModal({ data, onClose }) {
         </div>
       </div>
 
-      <div className="field">
-        <label>งบประมาณ (฿)</label>
-        <input type="number" min="0" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
-      </div>
-
-      <div className="field-row">
+      <div className="field-row-3">
+        <div className="field">
+          <label>งบประมาณ (฿)</label>
+          <input type="number" min="0" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
+        </div>
         <div className="field">
           <label>วันเริ่ม</label>
           <input type="date" className="input" value={f.startDate} onChange={e => set('startDate', e.target.value)} />
@@ -2568,13 +2628,15 @@ export function CustomerSegmentModal({ onClose }) {
     </>
   );
   return (
-    <Modal icon="users" title="อัปเดตกลุ่มลูกค้า" sub="จัดกลุ่มลูกค้าตามพฤติกรรมการซื้อ" onClose={onClose} footer={footer} confirmOnClose={touched}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <Modal icon="users" title="อัปเดตกลุ่มลูกค้า" sub="จัดกลุ่มลูกค้าตามพฤติกรรมการซื้อ" onClose={onClose} footer={footer} wide confirmOnClose={touched}>
+      <div className="rec-channel-grid">
         {segments.map((seg, i) => (
           <div key={seg.name} style={{ padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)', borderLeft: `3px solid ${seg.color}` }}>
-            <div className="row between" style={{ marginBottom: 8 }}>
-              <span className="sm" style={{ fontWeight: 700 }}>{seg.name}</span>
-              <span className="cap" style={{ color: 'var(--ink-3)' }}>{seg.criteria}</span>
+            <div style={{ marginBottom: 10 }}>
+              <span className="row sm" style={{ fontWeight: 700, gap: 7 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 3, background: seg.color, flexShrink: 0 }}></span>{seg.name}
+              </span>
+              <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 3 }}>{seg.criteria}</div>
             </div>
             <div className="field-row">
               <div className="field">
@@ -2595,12 +2657,15 @@ export function CustomerSegmentModal({ onClose }) {
         <input type="number" min="0" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
       </div>
 
-      <div style={{ marginTop: 10, padding: '10px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
-        <div className="row between">
+      <div style={{ marginTop: 10, padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
+        <div className="row between" style={{ gap: 8 }}>
           <span className="cap">ลูกค้ารวม: <strong>{N(totalCount)}</strong> คน</span>
-          <span className="cap">รวม % รายได้: <strong>{totalRevPct}%</strong>
-            {totalRevPct === 100 ? ' ✓' : <span style={{ color: 'var(--warn)' }}> (ควรเป็น 100%)</span>}
+          <span className="cap">รวม % รายได้: <strong style={{ color: totalRevPct === 100 ? 'var(--good)' : 'var(--warn)' }}>{totalRevPct}%</strong>
+            {totalRevPct === 100 ? ' ✓' : <span style={{ color: 'var(--ink-4)' }}> / 100%</span>}
           </span>
+        </div>
+        <div className="seg-progress">
+          <span style={{ width: `${Math.min(100, totalRevPct)}%`, background: totalRevPct === 100 ? 'var(--good)' : totalRevPct > 100 ? 'var(--bad)' : 'var(--accent)' }}></span>
         </div>
       </div>
     </Modal>
@@ -2712,7 +2777,7 @@ export function HistoricalEntryModal({ onClose, data }) {
         </select>
         <span className="cap" style={{ color: 'var(--ink-4)' }}>เลือกปีเพื่อแก้ไขย้อนหลังข้ามปีได้</span>
       </div>
-      <div className="table-wrap">
+      <div className="table-wrap hist-scroll">
         <table className="table" style={{ minWidth: 640 }}>
           <thead><tr>
             <th>เดือน</th>
@@ -2724,7 +2789,7 @@ export function HistoricalEntryModal({ onClose, data }) {
           </tr></thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={r.month}>
+              <tr key={r.month} className={r.isCurrent ? 'hist-row-current' : ''}>
                 <td style={{ fontWeight: 600 }}>{r.month}{r.isCurrent && <span className="cap" style={{ marginLeft: 6, color: 'var(--accent-2)' }}>· อัตโนมัติ</span>}</td>
                 {r.isCurrent ? (
                   <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึก & ภาพรวมเดือน"</td>

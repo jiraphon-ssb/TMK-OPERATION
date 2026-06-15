@@ -187,6 +187,7 @@ export const ICONS = {
   search: 'M11 11m-7 0a7 7 0 1 0 14 0a7 7 0 1 0-14 0M21 21l-4.3-4.3',
   bell: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
   plus: 'M12 5v14M5 12h14',
+  image: 'M4 4 L20 4 L20 20 L4 20 ZM4 16 L9 11 L13 15 L16 12 L20 16M9 9 m-1.3 0 a1.3 1.3 0 1 0 2.6 0 a1.3 1.3 0 1 0 -2.6 0',
   sun: 'M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8',
   chevR: 'M9 6l6 6-6 6',
@@ -428,20 +429,3 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
   );
 }
 
-/* ---------- Section wrapper ---------- */
-export function Section({ eyebrow, title, action, children, style }) {
-  return (
-    <section style={{ marginBottom: 22, ...style }}>
-      {(eyebrow || title || action) && (
-        <div className="row between" style={{ marginBottom: 14, alignItems: 'flex-end' }}>
-          <div>
-            {eyebrow && <div className="eyebrow" style={{ marginBottom: 5 }}>{eyebrow}</div>}
-            {title && <h2 className="h2">{title}</h2>}
-          </div>
-          {action}
-        </div>
-      )}
-      {children}
-    </section>
-  );
-}

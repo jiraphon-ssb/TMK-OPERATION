@@ -81,25 +81,3 @@ export function ToastProvider({ children }) {
 export function useToast() {
   return useContext(ToastContext);
 }
-
-/* ---- Confirmation dialog ---- */
-export function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel, cancelLabel, danger }) {
-  return (
-    <div className="modal-scrim" onClick={onCancel} style={{ zIndex: 10000 }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: 'var(--surface)', borderRadius: 'var(--r-xl)',
-        padding: '24px 28px', maxWidth: 400, width: '90%',
-        boxShadow: 'var(--sh-pop)',
-      }}>
-        <div className="h3" style={{ marginBottom: 8 }}>{title}</div>
-        <div className="sm" style={{ color: 'var(--ink-2)', marginBottom: 20, lineHeight: 1.5 }}>{message}</div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button className="btn" onClick={onCancel}>{cancelLabel || 'ยกเลิก'}</button>
-          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>
-            {confirmLabel || 'ยืนยัน'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}

@@ -34,16 +34,3 @@ export async function logAudit({ action, entityType, entityName = '', summary = 
     console.warn('logAudit non-fatal:', e?.message);
   }
 }
-
-// helper: เทียบ object เก่า/ใหม่ → รายการที่เปลี่ยน (ก่อน→หลัง)
-export function diffFields(oldObj, newObj, labels) {
-  const out = [];
-  for (const [key, label] of Object.entries(labels)) {
-    const a = oldObj ? oldObj[key] : undefined;
-    const b = newObj ? newObj[key] : undefined;
-    const sa = Array.isArray(a) ? a.join(', ') : (a == null ? '' : String(a));
-    const sb = Array.isArray(b) ? b.join(', ') : (b == null ? '' : String(b));
-    if (sa !== sb) out.push({ label, from: sa || '—', to: sb || '—' });
-  }
-  return out;
-}

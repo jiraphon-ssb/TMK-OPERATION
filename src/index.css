@@ -638,7 +638,7 @@ input, select, textarea { font-family: inherit; }
   .fab { display: grid; }
   .topbar { padding: 0 16px; height: 56px; }
   .content { padding: 16px 16px 84px; }
-  .search { display: none; }
+  .topbar .search { display: none; } /* ซ่อนเฉพาะช่องค้นหาบน topbar (ในฟิลเตอร์เนื้อหายังโชว์) */
   .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .g3 { grid-template-columns: minmax(0, 1fr); }
   .g2 { grid-template-columns: minmax(0, 1fr); }
@@ -750,6 +750,22 @@ input, select, textarea { font-family: inherit; }
 /* form fields */
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { font-size: var(--fs-sm); font-weight: var(--fw-sem); color: var(--ink-2); }
+/* ช่องตัวเลข — ชิดขวา + เลขความกว้างเท่ากัน อ่าน/เทียบยอดง่ายแบบสเปรดชีตการเงิน */
+input.input[type="number"] { text-align: right; font-variant-numeric: tabular-nums; }
+/* รายการช่องทาง 2 คอลัมน์ (เป้าต่อช่อง / งบแอดต่อช่อง) ลดการเลื่อน */
+.ch-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+@media (max-width: 560px) { .ch-grid-2 { grid-template-columns: 1fr; } }
+/* ตารางกรอกข้อมูลย้อนหลัง — หัวตารางลอย + ไฮไลต์เดือนปัจจุบัน */
+.hist-scroll { max-height: 56vh; overflow: auto; }
+.hist-scroll thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--line); }
+.hist-row-current > td { background: var(--accent-soft); }
+.hist-row-current > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+/* การ์ดช่องทาง (บันทึกยอดขายรายวัน) — 2 คอลัมน์ ลดการเลื่อน */
+.rec-channel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+@media (max-width: 620px) { .rec-channel-grid { grid-template-columns: 1fr; } }
+/* แถบความคืบหน้า % รายได้ (segment) */
+.seg-progress { height: 7px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; margin-top: 9px; }
+.seg-progress > span { display: block; height: 100%; border-radius: var(--r-pill); transition: width .25s var(--ease), background .25s var(--ease); }
 .input {
   font-family: var(--font); font-size: var(--fs-body); font-weight: var(--fw-med);
   padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
@@ -759,6 +775,56 @@ input, select, textarea { font-family: inherit; }
 .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .input:disabled { background: var(--surface-2); color: var(--ink-3); }
 textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
+/* ปุ่มลัดช่วงวันที่ (Audit) */
+.audit-preset {
+  padding: 6px 13px; font-family: var(--font); font-size: var(--fs-cap); font-weight: var(--fw-med);
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--surface); color: var(--ink-2); cursor: pointer; white-space: nowrap;
+  transition: background .14s var(--ease), border-color .14s var(--ease), color .14s var(--ease);
+}
+.audit-preset:hover { background: var(--surface-2); border-color: color-mix(in srgb, 36% var(--rail), var(--line)); color: var(--ink); }
+.audit-preset.on { background: var(--rail); border-color: var(--rail); color: #fff; }
+.audit-preset-clear { color: var(--bad); border-color: color-mix(in srgb, 28% var(--bad), var(--line)); }
+.audit-preset-clear:hover { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
+/* ช่วงวันที่ (Audit) — กล่องห่อ input date ให้ดูเป็นชุดเดียว */
+.audit-range { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.audit-range:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.audit-range input[type="date"] { border: none; background: transparent; padding: 4px 2px; width: 130px; font-family: var(--font); font-size: var(--fs-sm); color: var(--ink); outline: none; }
+.audit-range input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .55; }
+.audit-range .audit-range-sep { color: var(--ink-4); font-size: var(--fs-sm); }
+/* ตัวเลือกสี (color swatch) — ใช้ในฟอร์มหน้าที่ */
+.swatch-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatch {
+  width: 36px; height: 36px; border-radius: var(--r-sm); background: var(--sw);
+  border: none; cursor: pointer; position: relative; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent);
+  transition: transform .13s var(--ease), box-shadow .13s var(--ease);
+}
+.swatch:hover { transform: translateY(-2px); box-shadow: 0 5px 12px color-mix(in srgb, var(--sw) 50%, transparent); }
+.swatch.on { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--sw); }
+.swatch svg { width: 17px; height: 17px; stroke-width: 3; }
+/* แถบพรีวิวหน้าที่ */
+.duty-preview {
+  display: flex; align-items: center; gap: 9px; padding: 11px 14px;
+  border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line);
+}
+.duty-dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 7%, transparent); }
+.duty-preview-name { font-weight: 600; color: var(--ink); }
+.duty-preview-muted { color: var(--ink-4); }
+.duty-preview-desc { color: var(--ink-3); font-size: var(--fs-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.duty-preview-logo { width: 26px; height: 26px; border-radius: 7px; object-fit: contain; background: #fff; box-shadow: 0 0 0 1px var(--line); flex-shrink: 0; }
+.duty-preview-badge { margin-left: auto; flex-shrink: 0; font-size: var(--fs-cap); font-weight: 600; padding: 2px 10px; border-radius: var(--r-pill); background: color-mix(in srgb, 14% var(--accent), transparent); color: var(--accent); }
+/* ช่องอัปโหลดโลโก้ */
+.logo-drop {
+  display: grid; place-items: center; width: 84px; height: 84px; border-radius: var(--r);
+  background: var(--surface); border: 2px dashed var(--line); cursor: pointer; position: relative; overflow: hidden;
+  transition: border-color .14s var(--ease), background .14s var(--ease);
+}
+.logo-drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.logo-drop img { width: 100%; height: 100%; object-fit: contain; }
+.logo-drop-hint { text-align: center; color: var(--ink-3); display: grid; gap: 3px; padding: 4px; }
+.logo-drop-hint svg { width: 22px; height: 22px; margin: 0 auto; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .field-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .chips-pick { display: flex; flex-wrap: wrap; gap: 7px; }
