@@ -466,6 +466,13 @@ input, select, textarea { font-family: inherit; }
 @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes rise { from { transform: translateY(10px); } to { transform: none; } }
 @keyframes spin360 { to { transform: rotate(360deg); } }
+/* โหลดหน้า (lazy chunk) — ชัดเจน กลางพื้นที่เนื้อหา */
+.page-loading { min-height: 55vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+.page-loading-ring { width: 44px; height: 44px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--accent); animation: spin360 0.75s linear infinite; }
+.page-loading-title { font-size: var(--fs-h3); font-weight: 700; color: var(--ink-2); }
+.page-loading-sub { font-size: var(--fs-cap); color: var(--ink-4); }
+.page-loading-bar { width: 180px; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; position: relative; }
+.page-loading-bar::after { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 4px; background: var(--accent); animation: barIndet 1.1s ease-in-out infinite; }
 @keyframes logoPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.05); opacity: 0.85; } }
 @keyframes barIndet { 0% { left: -40%; } 100% { left: 100%; } }
 @keyframes dotBlink { 0%,80%,100% { opacity: 0.25; } 40% { opacity: 1; } }

@@ -81,6 +81,21 @@ function SyncIndicator() {
   );
 }
 
+/* ---- โหลดหน้า (lazy chunk) — แสดงชัดเจนว่ากำลังโหลด + ปุ่มรีเฟรชถ้าค้างนาน ---- */
+function PageLoading() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const id = setTimeout(() => setSlow(true), 8000); return () => clearTimeout(id); }, []);
+  return (
+    <div className="content-inner page-loading">
+      <div className="page-loading-ring" aria-hidden="true"></div>
+      <div className="page-loading-title">กำลังโหลดหน้า…</div>
+      <div className="page-loading-bar" aria-hidden="true"></div>
+      <div className="page-loading-sub">กำลังเตรียมข้อมูล รอสักครู่</div>
+      {slow && <button className="btn btn-sm" style={{ marginTop: 4 }} onClick={() => location.reload()}><Icon name="refresh" /> โหลดนานผิดปกติ — กดรีเฟรช</button>}
+    </div>
+  );
+}
+
 /* ---- Spotlight Search ---- */
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -674,19 +689,13 @@ function AppInner() {
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
   };
 
-  const LazyFallback = (
-    <div className="content-inner" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-4)' }}>
-      <span className="splash-ring" style={{ display:'inline-block', width:24, height:24, verticalAlign:'middle', marginRight:10 }} />
-      กำลังโหลดหน้า…
-    </div>
-  );
   const renderView = () => {
     // Home + Sales (views-1) ไม่ lazy เพราะเป็นหน้าแรกหลัง login — ต้องเร็ว
     if (section === 'home') return <HomeView go={go} />;
     if (section === 'sales' && !['daily','monthly','status'].includes(sub)) return <SalesView sub={sub} />;
     // Heavy chunks — ห่อด้วย Suspense
     return (
-      <Suspense fallback={LazyFallback}>
+      <Suspense fallback={<PageLoading />}>
         {section === 'sales' ? <EntryView sub={sub} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
           : section === 'catalog' ? <CatalogView sub={sub} />
