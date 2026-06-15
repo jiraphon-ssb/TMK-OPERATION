@@ -225,6 +225,7 @@ export const ICONS = {
   check: 'M5 12l5 5L20 6',
   layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2zM19 4v3M21 5h-3',
+  help: 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01',
 };
 
 export function Icon({ name, className }) {

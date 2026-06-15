@@ -175,6 +175,11 @@ function CampaignsCard({ go }) {
   const urgent = [...atRisk].filter(c => c.endISO).sort((a, b) => a.endISO.localeCompare(b.endISO))[0] || atRisk[0];
   const total = all.length;
   const pctOf = (n) => total > 0 ? (n / total) * 100 : 0;
+  // ความคืบหน้าแต่ละแคมเปญ = สัดส่วนเวลาที่ผ่านไปของช่วงแคมเปญ (pure — ไม่ใช้ Date.now)
+  const dnum = (iso) => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  const tNum = dnum(today);
+  const stMeta = { live: { l: 'กำลังรัน', c: 'var(--good)' }, upcoming: { l: 'รอเริ่ม', c: 'var(--info)' }, paused: { l: 'พัก', c: 'var(--warn)' } };
+  const progressOf = (c) => { if (!c.startISO || !c.endISO) return null; const s = dnum(c.startISO), e = dnum(c.endISO); if (e <= s) return 100; return Math.max(0, Math.min(100, ((tNum - s) / (e - s)) * 100)); };
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -216,6 +221,27 @@ function CampaignsCard({ go }) {
           ) : (
             <div className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>✅ ทุกแคมเปญอยู่ในแผน</div>
           )}
+        </div>
+        {/* ความคืบหน้าแต่ละแคมเปญ — รันไปกี่ % แล้ว (ครบทุกตัว) */}
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-3)' }}>ความคืบหน้าแต่ละแคมเปญ</div>
+          {all.map(c => {
+            const p = progressOf(c);
+            const sm = stMeta[c.status] || { l: c.status, c: 'var(--ink-3)' };
+            return (
+              <div key={c.id} onClick={() => go('settings', 'campaigns')} style={{ cursor: 'pointer' }}>
+                <div className="row between" style={{ gap: 8, marginBottom: 5, alignItems: 'center' }}>
+                  <span className="row" style={{ gap: 7, minWidth: 0, flex: 1 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: c.color || 'var(--ink-3)', flexShrink: 0 }}></span>
+                    <span className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
+                  </span>
+                  <span className="cap num" style={{ flexShrink: 0, color: sm.c, fontWeight: 700 }}>{p == null ? sm.l : `${Math.round(p)}%`}</span>
+                </div>
+                <div className="bar" style={{ height: 6 }}><span style={{ width: `${p == null ? 0 : p}%`, background: c.color || 'var(--accent)' }}></span></div>
+                <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sm.l}{c.start && c.end ? ` · ${c.start}–${c.end}` : ''}</div>
+              </div>
+            );
+          })}
         </div>
       </>)}
     </div>

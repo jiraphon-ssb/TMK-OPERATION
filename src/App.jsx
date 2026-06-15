@@ -12,7 +12,6 @@ const PlannerView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.
 const CatalogView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.CatalogView  })));
 const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
-const Onboarding   = lazy(() => import('./onboarding.jsx').then(m => ({ default: m.Onboarding })));
 import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
@@ -21,6 +20,7 @@ import { logAudit } from './lib/audit.js';
 import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
+import { WhatsNew, UpdateBanner } from './WhatsNew.jsx';
 
 /* ---- Loading splash (โหลดข้อมูลครั้งแรก) ---- */
 function LoadingScreen() {
@@ -441,8 +441,6 @@ function AppInner() {
   const [drawer, setDrawer] = useState(false);
   const [notif, setNotif] = useState(false);
   const [menu, setMenu] = useState(false);
-  // โชว์ทัวร์เฉพาะตอน login สด (trigger ใน handleLogin) — refresh ที่มี session ค้างไม่ต้องโชว์ซ้ำ
-  const [showOnboarding, setShowOnboarding] = useState(false);
   const contentRef = useRef(null);
 
   const nav = NAV.find(n => n.id === section);
@@ -485,11 +483,6 @@ function AppInner() {
     window.__reload = dataReload; // ให้โมดัลรีโหลดทันทีหลังบันทึก (กันค้างถ้า realtime ช้า/หลุด)
     window.__goSection = (sec, s) => go(sec, s);
   }, [toast]);
-
-  const completeOnboarding = useCallback(() => {
-    setShowOnboarding(false);
-    try { localStorage.setItem('tmk-onboarded', 'true'); } catch { /* ignore */ }
-  }, []);
 
   // กันล้อเมาส์เปลี่ยนค่า input[type=number] เงียบๆ ตอน scroll ฟอร์มกรอกยอด/สินค้า
   // (Chrome/Firefox: focus ค้าง + scroll → ค่าเพิ่ม/ลด → ยอดเพี้ยนถูกเซฟจริงได้)
@@ -538,10 +531,10 @@ function AppInner() {
     if (email) {
       logAudit({ action: 'logout', entityType: 'auth', entityName: email, summary: `ออกจากระบบ (${email})` });
       // mark offline ทันที — ตั้ง last_seen ย้อน 10 นาที (พ้นหน้าต่าง online แต่ยังนับเป็น "วันนี้")
-      supabase.from('tmk_presence').upsert(
-        { email: email.toLowerCase(), last_seen_at: new Date(Date.now() - 600000).toISOString(), updated_at: new Date().toISOString() },
-        { onConflict: 'email' }
-      ).then(() => {}, () => {});
+      // ใช้ update (ไม่ใช่ upsert) → แก้แค่ 2 คอลัมน์ ไม่ทับ name/page ให้เป็น null
+      supabase.from('tmk_presence').update(
+        { last_seen_at: new Date(Date.now() - 600000).toISOString(), updated_at: new Date().toISOString() }
+      ).eq('email', email.toLowerCase()).then(() => {}, () => {});
     }
     setMenu(false); setDrawer(false);
     setSection('home'); setSubMap(DEFAULT_SUB);
@@ -555,8 +548,6 @@ function AppInner() {
   // Called by LoginScreen หลัง signIn/signUp สำเร็จ — auth จริงทำใน LoginScreen, session เปลี่ยนเองผ่าน onAuthStateChange
   const handleLogin = (email) => {
     const userEmail = email || '';
-    // login สด + ยังไม่เคยดูทัวร์ → โชว์ onboarding
-    try { if (!localStorage.getItem('tmk-onboarded')) setShowOnboarding(true); } catch { /* ignore */ }
     logAudit({ action: 'login', entityType: 'auth', entityName: userEmail, summary: `เข้าสู่ระบบ (${userEmail})` });
   };
 
@@ -872,12 +863,11 @@ function AppInner() {
       {showShell && Shell({ forced: false })}
       {syncing && <SyncIndicator />}
 
-      {/* Onboarding tour */}
-      {showShell && showOnboarding && (
-        <Suspense fallback={null}>
-          <Onboarding onComplete={completeOnboarding} />
-        </Suspense>
-      )}
+      {/* What's New — widget มุมขวาล่าง */}
+      {showShell && <WhatsNew />}
+
+      {/* แถบ "มีเวอร์ชันใหม่" — เด้งบนสุดเมื่อ deploy บิลด์ใหม่ */}
+      {showShell && <UpdateBanner />}
 
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />
