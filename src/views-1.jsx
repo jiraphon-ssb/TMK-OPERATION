@@ -198,7 +198,7 @@ function CampaignsCard({ go }) {
         </div>
         {/* ความคืบหน้าแต่ละแคมเปญ — รันไปกี่ % แล้ว (ครบทุกตัว) */}
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-3)' }}>ความคืบหน้าแต่ละแคมเปญ</div>
+          <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-3)' }}>ช่วงเวลาแคมเปญ <span style={{ fontWeight: 500, color: 'var(--ink-4)' }}>(เวลาผ่านไปกี่ % — ไม่ใช่งานที่เสร็จ)</span></div>
           {all.map(c => {
             const p = progressOf(c);
             const sm = stMeta[c.status] || { l: c.status, c: 'var(--ink-3)' };

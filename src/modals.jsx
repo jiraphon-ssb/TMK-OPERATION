@@ -1494,7 +1494,10 @@ export function ReservationModal({ data, onClose }) {
 
   const handleSave = async () => {
     if (busy || !product) return;
-    const clean = items.filter(it => it.color && it.size && lineQty(it) > 0).map(it => ({ color: it.color, size: it.size, qty: lineQty(it) }));
+    // รวมบรรทัด color+size เดียวกันก่อน clamp — กัน oversell: เดิม 2 บรรทัด Red/M clamp จาก snapshot เดียวกันได้เต็มทั้งคู่
+    const merged = new Map();
+    items.forEach(it => { if (!it.color || !it.size) return; const k = it.color + ' ' + it.size; const e = merged.get(k) || { color: it.color, size: it.size, qty: 0 }; e.qty += Math.max(0, Math.round(Number(it.qty) || 0)); merged.set(k, e); });
+    const clean = [...merged.values()].map(e => ({ color: e.color, size: e.size, qty: Math.max(0, Math.min(e.qty, availOf(e.color, e.size))) })).filter(x => x.qty > 0);
     if (!clean.length) { toast('เพิ่มรายการจองก่อน (สี / ไซส์ / จำนวน)', 'error'); return; }
     setBusy(true);
     try {

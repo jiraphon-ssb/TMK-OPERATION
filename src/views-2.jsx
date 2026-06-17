@@ -819,7 +819,8 @@ function ProductVariantMatrix({ p }) {
 }
 
 /* ---------- CSV download helper (Blob + UTF-8 BOM, กัน formula-injection) ---------- */
-const _csvEsc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+// กัน CSV formula-injection (Excel) แต่ "ยกเว้นเลขล้วน" — เลขติดลบ (-1234.56) ต้องคงเป็นตัวเลข ไม่งั้น SUM ใน Excel ข้าม
+const _csvEsc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
 function downloadCSV(filename, blocks) {
   let csv = '';
   blocks.forEach(({ title, cols, rows }) => {
@@ -1318,10 +1319,13 @@ function CustomersView() {
     let alive = true; // กันผลค้นหาเก่ามาทับผลใหม่ (out-of-order async)
     const id = setTimeout(async () => {
       try {
-        const { data } = await supabase.from('tmk_customers').select('*')
-          .or(`name.ilike.%${ql}%,phone.ilike.%${ql}%,line.ilike.%${ql}%`)
+        // sanitize: comma/วงเล็บ ทำ grammar ของ PostgREST .or() พัง → 400 (เคยคืน [] เงียบ). ตัดทิ้งก่อน interpolate
+        const safe = ql.replace(/[,()]/g, ' ').trim();
+        if (!safe) { if (alive) setRemote([]); return; }
+        const { data, error } = await supabase.from('tmk_customers').select('*')
+          .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,line.ilike.%${safe}%`)
           .limit(100);
-        if (alive) setRemote(data || []);
+        if (alive) setRemote(error ? [] : (data || [])); // เช็ก error: อย่ากลืน 400 เป็น "ไม่พบ" เงียบ
       } catch { if (alive) setRemote([]); }
       finally { if (alive) setSearching(false); }
     }, 250);
@@ -1616,7 +1620,7 @@ function NotifToggle({ storeKey }) {
 
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
 function exportAllCSV() {
-  const esc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // กัน CSV formula injection (Excel)
+  const esc = _csvEsc; // ใช้ helper เดียว (numeric-aware: ไม่ทำเลขลบเป็น text)
   const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
   // ขยายข้อมูลรายวันต่อช่องทาง (dataset ที่มีค่าที่สุด — เก็บไว้ใน TMK.dailyAll ครบทุกเดือน)
   const dailyRows = [];
@@ -1629,14 +1633,14 @@ function exportAllCSV() {
   });
   // สรุปรายเดือนทั้งปี (เป้า vs จริง vs แอด vs ลูกค้าใหม่)
   const monthlyRows = (TMK.monthly || []).map(m => ({
-    year: m.year, month: m.month, target: m.target, actual: r2(m.actual), adSpend: r2(m.adSpend), orders: m.orders, newCust: m.newCust,
-  }));
+    year: m.year - 543, month: m.month, target: m.target, actual: r2(m.actual), adSpend: r2(m.adSpend), orders: m.orders, newCust: m.newCust,
+  })); // m.year เก็บเป็น พ.ศ. — แปลงเป็น ค.ศ. ให้ตรงกับ section Daily×Channel (กันไฟล์เดียวปนปีต่างกัน 543)
   // Audit log (200 แถวล่าสุดที่โหลดอยู่ — หน้า audit แยกมี pagination เต็มในอนาคต)
   const auditRows = (TMK.audit || []).map(a => ({
     ts: a.ts || '', user: a.user || '', action: a.action || '', entity: a.entityType || '', name: a.entityName || '', summary: a.summary || '',
   }));
   const sections = [
-    ['ช่องทาง (Channels)', ['name', 'target', 'actual', 'orders', 'ad'], TMK.channels || []],
+    ['ช่องทาง — เดือนปัจจุบัน (Channels — current month)', ['name', 'target', 'actual', 'orders', 'ad'], TMK.channels || []],
     ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'stockValue', 'reorder'], TMK.products || []],
     ['งาน (Tasks)', ['title', 'date', 'status', 'camp', 'channel'], TMK.tasks || []],
     ['แคมเปญ (Campaigns)', ['name', 'status', 'start', 'end'], TMK.campaigns || []],
@@ -1666,7 +1670,7 @@ function exportAllCSV() {
 // รายงานรายเดือน (CSV) — สรุปต่อช่องทาง (เป้า/ยอด/ค่าแอด/ROAS) + ยอดรายวันต่อช่องทาง (สำหรับส่งผู้บริหาร)
 // pickMonth: 1-12 (ค่า default = เดือนปัจจุบัน), pickYearBE: ปี พ.ศ.
 function exportMonthlyReportCSV(pickMonth, pickYearBE) {
-  const esc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; }; // กัน CSV formula injection (Excel)
+  const esc = _csvEsc; // ใช้ helper เดียว (numeric-aware: ไม่ทำเลขลบเป็น text)
   const t = getToday();
   const month = pickMonth || t.month;
   const yearBE = pickYearBE || t.yearBE;
@@ -1836,7 +1840,8 @@ function AuditView() {
   // Server-side pagination — เลิกพึ่ง TMK.audit ที่ cap 200 แถว, ดึงจริงจาก DB พร้อม count
   const PAGE = 50;
   const [filter, setFilter] = useState('all');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState('');         // ค่าที่พิมพ์ (responsive)
+  const [searchQ, setSearchQ] = useState('');        // ค่าที่ debounce แล้ว → ใช้ยิง query (กันยิงทุก keystroke)
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(0);
@@ -1844,6 +1849,9 @@ function AuditView() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const types = [['all','ทั้งหมด'],['create','สร้าง'],['update','แก้ไข'],['delete','ลบ'],['auth','เข้า/ออกระบบ']];
+
+  // debounce ช่องค้นหา 300ms — เลิกยิง query ทุก keystroke (เดิม 6 ตัวอักษร = 6 query)
+  useEffect(() => { const id = setTimeout(() => setSearchQ(search), 300); return () => clearTimeout(id); }, [search]);
 
   useEffect(() => {
     let cancel = false;
@@ -1856,7 +1864,7 @@ function AuditView() {
       // ระบุโซนเวลาไทย (+07:00) — กันขอบวันเพี้ยน (bare date = UTC ทำให้ตกหล่นช่วงเช้ามืด/ล้ำวันถัดไป)
       if (dateFrom) q = q.gte('created_at', dateFrom + 'T00:00:00+07:00');
       if (dateTo)   q = q.lte('created_at', dateTo + 'T23:59:59+07:00');
-      if (search.trim()) q = q.ilike('details', `%${search.trim()}%`); // details เป็น text(JSON) — ค้นข้อความใน summary/entityName
+      if (searchQ.trim()) q = q.ilike('details', `%${searchQ.trim()}%`); // details เป็น text(JSON) — ค้นข้อความใน summary/entityName
       if (filter !== 'all') q = q.in('action', ACTION_GROUP[filter] || [filter]);
       const { data, count, error } = await q;
       if (cancel) return;
@@ -1865,7 +1873,7 @@ function AuditView() {
       setLoading(false);
     })();
     return () => { cancel = true; };
-  }, [page, filter, search, dateFrom, dateTo]);
+  }, [page, filter, searchQ, dateFrom, dateTo]);
 
   // แปลง raw row → format เดียวกับ TMK.audit (ใช้ helpers เดิม) — fallback หากแปลงไม่ได้
   const mapped = rows.map(r => {
@@ -1876,8 +1884,8 @@ function AuditView() {
       entity: d.entityType || '',
       user: r.user_email || 'system',
       summary: d.summary || '',
-      changes: d.changes,
-      fields: d.fields,
+      changes: Array.isArray(d.changes) ? d.changes : null, // guard: log ผิดรูป (string) จะทำ .map() throw → ErrorBoundary จอขาวทั้งแอป
+      fields: Array.isArray(d.fields) ? d.fields : null,
       time: new Date(r.created_at).toLocaleString('th-TH', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'short' }),
     };
   });
@@ -1929,7 +1937,7 @@ function AuditView() {
             return (
               <div key={i} className="row" style={{ gap: 13, padding: '13px 4px', borderBottom: '1px solid var(--line-2)' }}>
                 <Avatar name={a.user} color={s.color} size={34} />
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
                   <div className="sm"><strong>{a.user}</strong> · <span className="faint">{ENTITY_TH[a.entity] || a.entity}</span></div>
                   <div className="cap" style={{ marginTop: 2 }}>{a.summary}</div>
                   {a.changes && a.changes.length > 0 && (
@@ -2023,7 +2031,7 @@ function ChannelsView() {
         has_ad: !!editHasAd, // เปิด/ปิดช่องค่าโฆษณาของช่องทางนี้
       };
       // ลอง update รวม logo_url + platform_fee_pct; ถ้า column ยังไม่มี (ยังไม่รัน migration) → บันทึกฟิลด์หลักแทน
-      const full = { ...payload, logo_url: editLogo, platform_fee_pct: Number(editFee) || 0 };
+      const full = { ...payload, logo_url: editLogo, platform_fee_pct: Math.min(100, Math.max(0, Number(editFee) || 0)) }; // clamp 0–100 (พิมพ์/วางเกินช่วงทำ P&L เพี้ยน)
       const { error } = await supabase.from('tmk_channels').update(full).eq('id', editing);
       if (error) {
         if (/column .* does not exist/i.test(error.message)) {

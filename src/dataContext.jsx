@@ -187,7 +187,7 @@ function mapToTMK(raw) {
     ad: round2(dailyAgg[ch.id]?.ad || 0),
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
-    platformFeePct: Number(ch.platform_fee_pct || 0), // ค่าธรรมเนียมแพลตฟอร์มจริงต่อช่องทาง (0 = ยังไม่ตั้ง)
+    platformFeePct: Math.min(100, Math.max(0, Number(ch.platform_fee_pct || 0))), // ค่าธรรมเนียมจริงต่อช่องทาง (0 = ยังไม่ตั้ง) · clamp 0–100 กันค่าเก่าผิดช่วงทำ P&L เพี้ยน
   })).sort((a, b) => { const ia = _CH_ORDER.indexOf(a.id), ib = _CH_ORDER.indexOf(b.id); return ((ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)) || (a.sortOrder - b.sortOrder); });
 
   // Campaigns
@@ -331,13 +331,14 @@ function mapToTMK(raw) {
       }
     }
   }
-  const month3 = monthly
-    .filter(m => m.year === currentYear && m.month >= currentMonth - 2 && m.month <= currentMonth)
-    .map(m => ({
-      m: m.month_th,
-      actual: Number(m.actual || 0),
-      proj: Number(m.projected || 0),
-    }));
+  // 3 เดือนล่าสุดแบบ wrap ข้ามปี (ม.ค./ก.พ. ต้องดึง พ.ย./ธ.ค. ปีก่อนด้วย) — เดิม pin year เดียวทำให้ตกแท่ง
+  const month3 = [];
+  for (let off = 2; off >= 0; off--) {
+    let mo = currentMonth - off, yr = currentYear;
+    while (mo < 1) { mo += 12; yr -= 1; }
+    const r = monthly.find(m => m.year === yr && m.month === mo);
+    month3.push({ m: THAI_MONTH[mo - 1], actual: Number(r?.actual || 0), proj: Number(r?.projected || 0) });
+  }
   // YoY: 6 เดือนของปีปัจจุบัน + ปีก่อน
   const lastYear = currentYear - 1;
   const yoy = [];

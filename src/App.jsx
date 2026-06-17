@@ -137,6 +137,14 @@ function Spotlight({ onClose, onGo }) {
     (TMK.channels || []).filter(c => lc(c.name).includes(ql)).forEach(c => {
       results.push({ cat: 'ช่องทาง', icon: 'layers', label: c.name, sub: `เป้า ${Bk(c.target)}`, color: c.hex, action: () => { onGo('sales', 'channels'); onClose(); } });
     });
+    // Orders (ค้นด้วยรหัสออเดอร์ / ชื่อลูกค้า)
+    (TMK.orders || []).filter(o => lc(o.code).includes(ql) || lc(o.customerName).includes(ql)).slice(0, 4).forEach(o => {
+      results.push({ cat: 'ออเดอร์', icon: 'listChecks', label: o.code || o.customerName || 'ออเดอร์', sub: `${o.customerName || ''} · ${B(o.total)}`, color: 'var(--accent-2)', action: () => { onGo('catalog', 'orders'); onClose(); } });
+    });
+    // Customers (ค้นด้วยชื่อ / เบอร์ / รหัส)
+    (TMK.customers || []).filter(c => lc(c.name).includes(ql) || lc(c.phone).includes(ql) || lc(c.code).includes(ql)).slice(0, 4).forEach(c => {
+      results.push({ cat: 'ลูกค้า', icon: 'users', label: c.name || c.code || 'ลูกค้า', sub: `${c.phone || ''}${c.orderCount ? ' · ' + c.orderCount + ' ออเดอร์' : ''}`, color: 'var(--info)', action: () => { onGo('catalog', 'customers'); onClose(); } });
+    });
     // Navigation
     [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'planner', sub: 'calendar' }, { l: 'Kanban', s: 'planner', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'planner', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'settings', sub: 'campaigns' }]
       .filter(n => lc(n.l).includes(ql)).forEach(n => {
