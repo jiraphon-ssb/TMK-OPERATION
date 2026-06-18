@@ -62,14 +62,14 @@ const QUERIES = {
   channels:    () => supabase.from('tmk_channels').select('*').is('deleted_at', null).order('sort_order'),
   campaigns:   () => supabase.from('tmk_campaigns').select('*').is('deleted_at', null).order('sort_order', { nullsFirst: false }).order('start_date'),
   tasks:       () => supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
-  products:    () => supabase.from('tmk_products').select('*').is('deleted_at', null).order('created_at'),
+  products:    () => supabase.from('tmk_products').select('id,name,price,actual_units,stock_on_hand,reorder_point,strategy,image_url,category,supplier,sku,barcode,lots,reservations').is('deleted_at', null).order('created_at'),
   po:          () => supabase.from('tmk_purchase_orders').select('*').is('deleted_at', null).order('arrival_date'),
-  audit:       () => supabase.from('tmk_audit_logs').select('*').order('created_at', { ascending: false }).limit(200),
+  audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at').order('created_at', { ascending: false }).limit(200),
   roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
   staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
   duties:      () => supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
   // จำกัด 13 เดือนล่าสุด — เดือนเก่ากว่านั้น computeMonth fallback ไป tmk_monthly_history.actual
-  daily:       () => supabase.from('tmk_daily_sales').select('*').gte('date', dailyFromDate()).order('date'),
+  daily:       () => supabase.from('tmk_daily_sales').select('date,day_name,channels,ad_spend,avg_reply_minutes,note,deleted_at,shopee,tiktok,lazada,facebook,line_oa,crm').gte('date', dailyFromDate()).order('date'),
   adCamps:     () => supabase.from('tmk_ad_campaigns').select('*').is('deleted_at', null).order('start_date'),
   segments:    () => supabase.from('tmk_customer_segments').select('*').is('deleted_at', null).order('sort_order'),
   fbMetrics:   () => supabase.from('tmk_fb_metrics').select('*').eq('id', 'current').maybeSingle(),
@@ -77,8 +77,8 @@ const QUERIES = {
   colorMix:    () => supabase.from('tmk_color_mix').select('*').order('sort_order'),
   sizeMix:     () => supabase.from('tmk_size_mix').select('*').order('sort_order'),
   // จำกัด 300 รายล่าสุด — ค้นหาฝั่ง server ในหน้า CustomersView ครอบคลุมลูกค้านอกชุดนี้
-  customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(300),
-  orders:      () => supabase.from('tmk_orders').select('*').order('created_at', { ascending: false }).limit(500),
+  customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(150),
+  orders:      () => supabase.from('tmk_orders').select('id,code,customer_id,customer_name,items,subtotal,discount,total,status,channel,tracking_no,carrier,note,status_log,created_at').order('created_at', { ascending: false }).limit(200),
   customerTotals: () => supabase.from('tmk_customer_totals').select('*'),
 };
 // ตาราง Supabase → key ใน raw/QUERIES (สำหรับแมป realtime event)
@@ -791,13 +791,15 @@ export function DataProvider({ children }) {
     // Realtime subscription — ถ้าต่อ WS ไม่ได้ (เน็ตหลุด/ปิด realtime) → degrade เป็น polling (ไม่ retry รัวจน console รก)
     let timer = null, pollTimer = null, connectTimeout = null, usingPoll = false;
     const onVis = () => { if (document.visibilityState === 'visible' && mountedRef.current) load(); };
+    // ตารางที่เปลี่ยนบ่อยระหว่างทำงาน — poll fallback ดึงเฉพาะกลุ่มนี้ (ลด egress; ตารางตั้งค่าที่นิ่งจะรีเฟรชตอนสลับแท็บ/โหลดใหม่)
+    const POLL_TABLES = ['tmk_daily_sales', 'tmk_orders', 'tmk_customers', 'tmk_tasks', 'tmk_products', 'tmk_purchase_orders', 'tmk_channels', 'tmk_campaigns', 'tmk_ad_campaigns'];
     const startPolling = () => {
       if (usingPoll || !mountedRef.current) return;
       usingPoll = true;
       try { supabase?.realtime?.disconnect?.(); } catch { /* ignore */ } // หยุด WS reconnect storm
-      pollTimer = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000); // รีเฟรชทุก 60 วิ
-      document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ
-      console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (60 วิ + ตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
+      pollTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshTables(POLL_TABLES); }, 120000); // ดึงเฉพาะตารางที่เปลี่ยนบ่อย ทุก 120 วิ
+      document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ (ดึงครบ)
+      console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (120 วิ เฉพาะตารางหลัก + ครบตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
     };
     const channel = supabase?.channel('tmk-realtime');
     const pendingTables = new Set(); // ตารางที่เปลี่ยน — flush ทีเดียวด้วย refreshTables
