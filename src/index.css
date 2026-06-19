@@ -944,3 +944,17 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
     --fs-micro: 12px;
   }
 }
+
+/* ============================================================
+   Mobile — จัดแถบฟิลเตอร์งานให้เรียงสวย (search เต็มแถว · status เต็มแถว · dropdown เรียงคู่)
+   ============================================================ */
+@media (max-width: 900px) {
+  .filterbar .row.wrap { gap: 8px; }
+  .filterbar .row.wrap > div:empty { display: none; }       /* ซ่อน spacer flex:1 */
+  .filterbar .search { width: 100% !important; order: -1; }  /* ค้นหา เต็มแถว บนสุด */
+  .filterbar .filt-seg { display: flex; width: 100%; }       /* สถานะ เต็มแถว ปุ่มแบ่งเท่ากัน */
+  .filterbar .filt-seg-btn { flex: 1; }
+  .filterbar .filt-dd { flex: 1 1 130px; }                   /* แคมเปญ/หน้าที่ ยืดแบ่งพื้นที่ เรียงคู่ */
+  .filterbar .filt-dd-btn { width: 100%; justify-content: space-between; }
+  .filterbar .filt-dd-cur { max-width: none; }               /* ใช้พื้นที่เต็ม ไม่ตัดสั้นเกิน */
+}
