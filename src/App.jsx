@@ -847,6 +847,7 @@ function AppInner() {
             ))}
             <div className="divider" style={{ margin: '12px 0' }}></div>
             <button className="panel-item" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
+            <button className="panel-item" onClick={() => setDark(d => !d)}><Icon name={dark ? 'sun' : 'moon'} />{dark ? 'โหมดสว่าง' : 'โหมดมืด'}</button>
             <button className="panel-item" style={{ color: 'var(--bad)' }} onClick={logout}><Icon name="external" />ออกจากระบบ</button>
           </div>
         </>
