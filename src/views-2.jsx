@@ -384,12 +384,12 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                           {(t.responsible || []).slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
                         </div>
                       </div>
-                      {/* มือถือลากไม่ได้ → ใช้ select เปลี่ยนสถานะแทน (desktop ใช้ลาก) */}
-                      <select className="mobile-only" value={t.status} aria-label="เปลี่ยนสถานะงาน"
+                      {/* มือถือลากไม่ได้ → select ย้ายสถานะ (คอนโทรลเล็ก กว้างตามเนื้อหา ไม่เต็มแถว · select ไม่ทำ iOS ซูม) */}
+                      <select className="mobile-only" value={t.status} aria-label="ย้ายสถานะงาน"
                         onClick={e => e.stopPropagation()}
                         onChange={e => { e.stopPropagation(); moveTask(t.id, e.target.value); }}
-                        style={{ marginTop: 9, width: '100%', fontSize: 16, padding: '8px', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', background: 'var(--surface-2)', color: 'var(--ink)', fontFamily: 'var(--font)' }}>
-                        {DD.kanbanMeta.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                        style={{ marginTop: 7, maxWidth: '100%', padding: '3px 6px', fontSize: 'var(--fs-cap)', height: 'auto', color: 'var(--ink-3)', fontFamily: 'var(--font)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', background: 'transparent', cursor: 'pointer' }}>
+                        {DD.kanbanMeta.map(k => <option key={k.id} value={k.id}>ย้ายไป {k.label}</option>)}
                       </select>
                     </div>
                   );
