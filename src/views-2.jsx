@@ -1303,7 +1303,7 @@ function OrdersView() {
 }
 
 function CustomersView() {
-  const customers = DD.customers || []; // 300 รายล่าสุดที่โหลดอยู่
+  const customers = DD.customers || []; // 150 รายล่าสุดที่โหลดอยู่ (เกินกว่านั้นใช้ค้นหา)
   const [q, setQ] = useState('');
   const [remote, setRemote] = useState(null); // ผลค้นหาจาก server (ครอบคลุมลูกค้านอกชุดล่าสุด)
   const [searching, setSearching] = useState(false);
@@ -1311,7 +1311,7 @@ function CustomersView() {
   const [pageLimit, setPageLimit] = useState(50); // pagination ฝั่ง UI
   const ql = q.trim();
 
-  // ค้นหาฝั่ง server (debounce 250ms) — กรณีลูกค้าจริงเกิน 300 ราย จะหาเจอนอกชุด
+  // ค้นหาฝั่ง server (debounce 250ms) — กรณีลูกค้าจริงเกิน 150 ราย จะหาเจอนอกชุด
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- loading/clear flag ก่อน async fetch (จำเป็น)
     if (!ql) { setRemote(null); setSearching(false); return; }
@@ -1322,10 +1322,21 @@ function CustomersView() {
         // sanitize: comma/วงเล็บ ทำ grammar ของ PostgREST .or() พัง → 400 (เคยคืน [] เงียบ). ตัดทิ้งก่อน interpolate
         const safe = ql.replace(/[,()]/g, ' ').trim();
         if (!safe) { if (alive) setRemote([]); return; }
-        const { data, error } = await supabase.from('tmk_customers').select('*')
+        const { data, error } = await supabase.from('tmk_customers')
+          .select('id,code,name,phone,line,address,note,created_at')
           .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,line.ilike.%${safe}%`)
           .limit(100);
-        if (alive) setRemote(error ? [] : (data || [])); // เช็ก error: อย่ากลืน 400 เป็น "ไม่พบ" เงียบ
+        if (error) { if (alive) setRemote([]); return; } // อย่ากลืน 400 เป็น "ไม่พบ" เงียบ
+        const rows = data || [];
+        // enrich ยอดสะสมจาก view เดียวกับ dataContext → ลูกค้านอกชุดล่าสุดจะได้ยอดจริง ไม่ใช่ ฿0/0 ออเดอร์ + normalize createdAt (กัน sort recent พัง)
+        const totals = {};
+        if (rows.length) {
+          const { data: ct } = await supabase.from('tmk_customer_totals')
+            .select('customer_id,order_count,total_spent').in('customer_id', rows.map(r => r.id));
+          (ct || []).forEach(t => { if (t.customer_id) totals[t.customer_id] = { orderCount: Number(t.order_count || 0), totalSpent: Number(t.total_spent || 0) }; });
+        }
+        const enriched = rows.map(c => ({ ...c, createdAt: c.created_at, orderCount: totals[c.id]?.orderCount || 0, totalSpent: totals[c.id]?.totalSpent || 0 }));
+        if (alive) setRemote(enriched);
       } catch { if (alive) setRemote([]); }
       finally { if (alive) setSearching(false); }
     }, 250);
@@ -1354,7 +1365,7 @@ function CustomersView() {
     <div className="content-inner rise">
       <div className="card">
         <div className="card-head">
-          <h3><span style={{ color: 'var(--accent)' }}><Icon name="users" /></span> ลูกค้า {baseList.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({N(baseList.length)}{!ql && customers.length === 300 ? '+' : ''})</span>}</h3>
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="users" /></span> ลูกค้า {baseList.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({N(baseList.length)}{!ql && customers.length >= 150 ? '+' : ''})</span>}</h3>
           <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('customer')}><Icon name="userPlus" /> เพิ่มลูกค้า</button>
         </div>
         {(customers.length > 0 || ql) && (

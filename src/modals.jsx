@@ -9,6 +9,7 @@ import tmkLogo from './assets/tmk-logo.png';
 import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { parseTaskDate, getToday, todayISO, thaiDate } from './lib/dateUtils.js';
+import { ScanButton } from './ScanButton.jsx';
 import { logAudit } from './lib/audit.js';
 import { computeMonth } from './dataContext.jsx';
 
@@ -770,6 +771,11 @@ export function ProductModal({ data, onClose }) {
 
   const handleSave = async () => {
     if (busy || !f.name.trim()) return;
+    // แก้สินค้าเดิมแต่ baseline updated_at ยังโหลดไม่เสร็จ → อย่าเซฟแบบไม่มี optimistic-lock (กัน lost update) ให้รอแล้วลองใหม่
+    if (data?.id && baseUpdatedAtRef.current === undefined) {
+      toast('กำลังโหลดข้อมูลสินค้าล่าสุด — รอสักครู่แล้วกดบันทึกอีกครั้ง', 'warn');
+      return;
+    }
     setBusy(true);
     // normalize ล็อต — เก็บเฉพาะสีที่มีจำนวน, ไซส์ที่ใช้จริง, ทิ้งล็อตว่างเปล่า
     const cleanLots = lots.map(l => {
@@ -1635,8 +1641,42 @@ export function ReceiveModal({ data, onClose }) {
   const [lot, setLotObj] = useState(() => ({ ...newLot(), date: po.arrivalISO || todayISO() }));
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [aiFilled, setAiFilled] = useState(false);
+  const [aiModel, setAiModel] = useState('');
 
   const patchLot = (fn) => { setTouched(true); setLotObj(fn); };
+
+  // เติมล็อตจากผล AI (ถ่ายใบส่งของ) — ไม่ auto-save, ผู้ใช้ตรวจก่อนกด "รับเข้าสต็อก"
+  const applyReceipt = (d, res) => {
+    if (!d || !Array.isArray(d.grid)) return;
+    setAiModel(res?.model || res?.provider || 'ai');
+    const sizesUsed = SIZES.filter(s => d.grid.some(g => g.size === s));
+    const colorByName = {}; const colors = [];
+    d.grid.forEach(g => {
+      const name = String(g.color || '').trim() || 'สี';
+      if (!colorByName[name]) {
+        const hex = SHIRT_COLORS.find(c => c.name === name)?.hex || '#cccccc';
+        const id = uid('clr'); colorByName[name] = id; colors.push({ id, name, hex });
+      }
+    });
+    const grid = {};
+    d.grid.forEach(g => {
+      const cid = colorByName[String(g.color || '').trim() || 'สี'];
+      const size = g.size; const qty = Math.max(0, Math.round(Number(g.qty) || 0));
+      if (!cid || !SIZES.includes(size) || qty <= 0) return;
+      (grid[cid] = grid[cid] || {})[size] = qty;
+    });
+    setTouched(true); setAiFilled(true);
+    setLotObj(l => ({
+      ...l,
+      lotNo: d.lotNo ? String(d.lotNo).trim() : l.lotNo,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(d.date || '') ? d.date : l.date,
+      cost: (d.costPerUnit != null && d.costPerUnit !== '') ? d.costPerUnit : l.cost,
+      sizes: sizesUsed.length ? sizesUsed : l.sizes,
+      colors: colors.length ? colors : l.colors,
+      grid: Object.keys(grid).length ? grid : l.grid,
+    }));
+  };
   const toggleSize = (size) => patchLot(l => {
     const has = l.sizes.includes(size);
     if (!has) return { ...l, sizes: SIZES.filter(s => l.sizes.includes(s) || s === size) };
@@ -1676,7 +1716,7 @@ export function ReceiveModal({ data, onClose }) {
       if (mres.error) throw new Error(mres.error.message);
       // มาร์ค PO ว่าของเข้าแล้ว
       if (po.id) await supabase.from('tmk_purchase_orders').update({ status: 'Completed', updated_at: new Date().toISOString() }).eq('id', po.id);
-      logAudit({ action: 'receive', entityType: 'product', entityName: product.name, summary: `รับเข้า PO "${po.product}" ${received} ตัว → ล็อต "${newLotObj.lotNo}"`, fields: [{ label: 'รับเข้า', value: `${N(received)} ตัว` }, { label: 'ล็อต', value: newLotObj.lotNo }, { label: 'ต้นทุน/ตัว', value: B(newLotObj.cost) }] });
+      logAudit({ action: 'receive', entityType: 'product', entityName: product.name, summary: `รับเข้า PO "${po.product}" ${received} ตัว → ล็อต "${newLotObj.lotNo}"`, fields: [{ label: 'รับเข้า', value: `${N(received)} ตัว` }, { label: 'ล็อต', value: newLotObj.lotNo }, { label: 'ต้นทุน/ตัว', value: B(newLotObj.cost) }, ...(aiFilled ? [{ label: 'กรอกด้วย AI', value: aiModel || 'ใช่' }] : [])] });
       window.__reload?.();
       toast(`รับเข้าสต็อก ${received} ตัวเรียบร้อย`, 'success');
       onClose();
@@ -1694,6 +1734,12 @@ export function ReceiveModal({ data, onClose }) {
         ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--bad)' }}>ไม่พบสินค้าชื่อ "{po.product}" ในแคตตาล็อก — สร้างสินค้าชื่อนี้ก่อน หรือแก้ชื่อ PO ให้ตรงกับสินค้า</div>
         : (<>
           <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>กรอกจำนวนที่รับเข้าจริงแยกตาม ไซส์ × สี → จะสร้างเป็นล็อตใหม่ให้สินค้า <b style={{ color: 'var(--ink)' }}>{product.name}</b> และมาร์ค PO นี้ว่าของเข้าแล้ว</div>
+          <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <ScanButton task="receipt" hint={{ sizes: SIZES, colors: SHIRT_COLORS.map(c => c.name), product: product.name }} onResult={applyReceipt} label="ถ่ายใบส่งของ → ให้ AI กรอก" />
+            {aiFilled
+              ? <span className="chip" style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', fontWeight: 600 }}>✨ กรอกด้วย AI — ตรวจให้ครบก่อนบันทึก</span>
+              : <span className="cap" style={{ color: 'var(--ink-4)' }}>หรือพิมพ์เองด้านล่าง</span>}
+          </div>
           <div className="field-row">
             <div className="field"><label>รหัสล็อต</label><input className="input" value={lot.lotNo} onChange={e => patchLot(l => ({ ...l, lotNo: e.target.value }))} placeholder="เช่น LOT-2406 (เว้นว่าง = อัตโนมัติ)" /></div>
             <div className="field"><label>วันที่รับเข้า</label><input type="date" className="input" value={lot.date} onChange={e => patchLot(l => ({ ...l, date: e.target.value }))} /></div>
@@ -1960,10 +2006,11 @@ async function releaseOrderReservations(orderId) {
 function computeFulfillment(order) {
   const byProd = {};
   (order.items || []).forEach(it => (byProd[it.productId] = byProd[it.productId] || []).push(it));
-  const updates = [], audits = [], sales = [];
+  const updates = [], audits = [], sales = [], missing = [];
   let totReq = 0, totDeducted = 0; // กันตัดสต็อกขาดเงียบๆ — เตือนถ้าสต็อกไม่พอ
   for (const pid in byProd) {
-    const p = (MD.products || []).find(x => x.id === pid); if (!p) continue;
+    const p = (MD.products || []).find(x => x.id === pid);
+    if (!p) { missing.push(pid); byProd[pid].forEach(it => { totReq += nn(it.qty); }); continue; } // สินค้าถูกลบ/ยังโหลดไม่เข้า → อย่าตัดเงียบ (caller จะ abort)
     let lots = p.lots || []; let costTotal = 0, soldQty = 0, amount = 0; const lines = [];
     byProd[pid].forEach(it => {
       const r = deductVariantFIFO(lots, it.color, it.size, nn(it.qty));
@@ -1975,7 +2022,7 @@ function computeFulfillment(order) {
     audits.push({ pid, p, soldQty, amount, costTotal, lines });
     if (soldQty > 0) sales.push({ id: 'sale-' + order.id + '-' + pid, sale_date: todayISO(), product_id: pid, product_name: p.name, category: p.category || '', channel: order.channel || '', qty: soldQty, amount, cost: costTotal, source: 'order', order_code: order.code, lines });
   }
-  return { updates, audits, sales, totReq, totDeducted };
+  return { updates, audits, sales, totReq, totDeducted, missing };
 }
 // fallback (ยังไม่ได้รัน SQL function) — เขียนแบบเดิม non-atomic
 async function fulfillLegacyWrite(order, updates, sales, log) {
@@ -1992,7 +2039,12 @@ export async function advanceOrderStatus(order, newStatus, by = '') {
     const log = [...(order.statusLog || []), { status: newStatus, at: new Date().toISOString(), by }];
     if (newStatus === 'shipped' && order.status !== 'shipped') {
       // ส่งแล้ว → ตัดสต็อก (FIFO) + ปล่อยจอง + บวกขาย + เปลี่ยนสถานะ — ทั้งหมดใน transaction เดียว (atomic)
-      const { updates, audits, sales, totReq, totDeducted } = computeFulfillment(order);
+      const { updates, audits, sales, totReq, totDeducted, missing } = computeFulfillment(order);
+      // มีสินค้าในออเดอร์ที่หาไม่เจอ (ถูกลบ/ยังโหลดไม่เข้า) → อย่า ship เงียบ (จะจองค้าง+ขายหาย) ให้ผู้ใช้รีโหลด/แก้ก่อน
+      if (missing.length) { toast('พบสินค้าที่ถูกลบหรือยังโหลดไม่ครบในออเดอร์นี้ — รีเฟรชหน้าแล้วลองส่งใหม่ (ถ้าสินค้าถูกลบ ให้กู้คืนหรือแก้ออเดอร์ก่อน)', 'error'); return false; }
+      // ส่งไม่ครบ (สต็อกไม่พอ) → บันทึกจำนวนค้างส่งลง status_log ถาวร ไม่งั้นร่องรอยว่าค้างใครหายไป
+      const shortfall = totReq - totDeducted;
+      if (shortfall > 0) log[log.length - 1] = { ...log[log.length - 1], shortfall, note: `สต็อกไม่พอ — ค้างส่ง ${shortfall}/${totReq} ตัว` };
       const { error: rpcErr } = await supabase.rpc('tmk_fulfill_order', { p_order_id: order.id, p_status: 'shipped', p_status_log: log, p_updates: updates, p_sales: sales });
       if (rpcErr) {
         if (/PGRST202|could not find the function|schema cache/i.test(rpcErr.message || '')) {
@@ -2032,6 +2084,18 @@ export function OrderModal({ data, onClose }) {
   const _t = (fn) => (...a) => { setTouched(true); fn(...a); };
 
   const prodById = (id) => products.find(p => p.id === id);
+  // ตอนแก้ออเดอร์เดิม: จองของออเดอร์นี้ถูกนับใน reservedByVariant อยู่แล้ว → บวกกลับก่อนคิด avail ไม่งั้นโชว์ "พร้อมขาย" ต่ำเกินจริง
+  const ownReserved = useMemo(() => {
+    const m = {};
+    if (data?.id) (data.items || []).forEach(it => {
+      if (!it.productId || !it.color || !it.size) return;
+      const byColor = (m[it.productId] = m[it.productId] || {});
+      const bySize = (byColor[it.color] = byColor[it.color] || {});
+      bySize[it.size] = (bySize[it.size] || 0) + nn(it.qty);
+    });
+    return m;
+  }, [data]);
+  const ownRes = (pid, color, size) => (ownReserved[pid]?.[color]?.[size]) || 0;
   const setItem = (i, patch) => { setTouched(true); setItems(its => its.map((x, j) => j === i ? { ...x, ...patch } : x)); };
   const addItem = () => { setTouched(true); setItems(its => [...its, emptyOrderItem()]); };
   const removeItem = (i) => { setTouched(true); setItems(its => its.length > 1 ? its.filter((_, j) => j !== i) : [emptyOrderItem()]); };
@@ -2140,7 +2204,7 @@ export function OrderModal({ data, onClose }) {
             const p = prodById(it.productId);
             const colors = p ? Object.keys(p.variants || {}) : [];
             const sizes = (p && it.color) ? Object.keys(p.variants[it.color] || {}) : [];
-            const avail = (p && it.color && it.size) ? (Number(p.variants[it.color]?.[it.size]) || 0) - (Number(p.reservedByVariant?.[it.color]?.[it.size]) || 0) : null;
+            const avail = (p && it.color && it.size) ? (Number(p.variants[it.color]?.[it.size]) || 0) - Math.max(0, (Number(p.reservedByVariant?.[it.color]?.[it.size]) || 0) - ownRes(p.id, it.color, it.size)) : null;
             return (
               <div key={it.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8 }}>
@@ -2152,7 +2216,7 @@ export function OrderModal({ data, onClose }) {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
                   <select className="input" value={it.color} disabled={!it.productId} onChange={e => setItem(i, { color: e.target.value, size: '' })}><option value="">สี</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}</select>
-                  <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}><option value="">ไซส์</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {Math.max(0, (Number(p.variants[it.color]?.[s]) || 0) - (Number(p.reservedByVariant?.[it.color]?.[s]) || 0))})</option>)}</select>
+                  <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}><option value="">ไซส์</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {Math.max(0, (Number(p.variants[it.color]?.[s]) || 0) - Math.max(0, (Number(p.reservedByVariant?.[it.color]?.[s]) || 0) - ownRes(p.id, it.color, s)))})</option>)}</select>
                   <input type="number" min="0" className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="จำนวน" />
                   <input type="number" min="0" className="input num" value={it.price} onChange={e => setItem(i, { price: e.target.value })} placeholder="ราคา/ตัว" />
                 </div>
