@@ -929,3 +929,18 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
   .planner-kanban { display: flex; grid-template-columns: none; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; }
   .planner-kanban > * { flex: 0 0 240px; }
 }
+
+/* ============================================================
+   Mobile — ยกสเกลฟอนต์ทั้งชุดให้บาลานซ์กับ input 16px (กันซูม iOS)
+   เดิม body 14.5 / label 13 / cap 12 ทำให้ input 16 เด่นกว่าข้อความรอบๆ
+   มือถือยกขึ้นให้ใกล้กัน (อ่านง่ายขึ้นด้วย) — ไม่กระทบ desktop
+   ============================================================ */
+@media (max-width: 900px) {
+  :root {
+    --fs-h3:    16px;
+    --fs-body:  15.5px;
+    --fs-sm:    14.5px;
+    --fs-cap:   13px;
+    --fs-micro: 12px;
+  }
+}
