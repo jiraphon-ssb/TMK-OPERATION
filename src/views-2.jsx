@@ -323,9 +323,8 @@ function CalendarView({ filtered, fProps }) {
 function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
   const [over, setOver] = React.useState(null);
   const dragId = React.useRef(null);
-  const onDrop = async (status) => {
-    const id = dragId.current;
-    dragId.current = null; setOver(null);
+  // ย้ายสถานะงาน — ใช้ทั้ง drag (desktop) และ select (มือถือ ที่ลากไม่ได้)
+  const moveTask = async (id, status) => {
     if (!id) return;
     if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
     const prev = tasks.find(t => t.id === id)?.status;
@@ -343,6 +342,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
       if (window.__toast) window.__toast('ย้ายไม่สำเร็จ: ' + err.message, 'error');
     }
   };
+  const onDrop = (status) => { const id = dragId.current; dragId.current = null; setOver(null); moveTask(id, status); };
   return (
     <div className="content-inner rise">
       <PlannerFilters {...fProps} />
@@ -384,6 +384,13 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                           {(t.responsible || []).slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
                         </div>
                       </div>
+                      {/* มือถือลากไม่ได้ → ใช้ select เปลี่ยนสถานะแทน (desktop ใช้ลาก) */}
+                      <select className="mobile-only" value={t.status} aria-label="เปลี่ยนสถานะงาน"
+                        onClick={e => e.stopPropagation()}
+                        onChange={e => { e.stopPropagation(); moveTask(t.id, e.target.value); }}
+                        style={{ marginTop: 9, width: '100%', fontSize: 16, padding: '8px', borderRadius: 'var(--r-sm)', border: '1px solid var(--line)', background: 'var(--surface-2)', color: 'var(--ink)', fontFamily: 'var(--font)' }}>
+                        {DD.kanbanMeta.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
+                      </select>
                     </div>
                   );
                 })}
@@ -722,7 +729,7 @@ function StockView() {
         {products.length === 0
           ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้า — ไปหน้า "สินค้า" เพื่อเพิ่ม + ใส่ล็อต (ไซส์ × สี)</div>
           : (
-            <div className="table-wrap" style={{ overflowX: 'auto' }}>
+            <div className="table-wrap table-sticky-first" style={{ overflowX: 'auto' }}>
               <table className="table" style={{ minWidth: 'max-content' }}>
                 <thead><tr>
                   <th>สินค้า</th>
@@ -1382,7 +1389,7 @@ function CustomersView() {
         {baseList.length === 0
           ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>{ql ? `ไม่พบลูกค้า "${ql}"` : 'ยังไม่มีลูกค้า — เพิ่มเอง หรือระบบสร้างให้ตอนทำออเดอร์'}</div>
           : <>
-            <div className="table-wrap"><table className="table">
+            <div className="table-wrap table-sticky-first"><table className="table">
               <thead><tr><th>ลูกค้า</th><th>ติดต่อ</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดซื้อรวม</th></tr></thead>
               <tbody>{shown.map(c => (
                 <tr key={c.id} onClick={() => window.__openModal('customer', c)} style={{ cursor: 'pointer' }}>
@@ -1473,11 +1480,11 @@ function CampaignsView() {
   return (
     <div className="content-inner rise">
       <div className="row between" style={{ marginBottom: 16 }}>
-        <div className="eyebrow">{campaigns.length} แคมเปญ · ลาก ↕️ เพื่อเรียงลำดับ</div>
+        <div className="eyebrow">{campaigns.length} แคมเปญ · เรียงลำดับได้ (ลากบนคอม / ปุ่ม ▲▼ บนมือถือ)</div>
         <button className="btn btn-primary" onClick={() => window.__openModal('campaign')}><Icon name="plus" /> สร้างแคมเปญ</button>
       </div>
       <div className="grid g2">
-        {campaigns.map(c => {
+        {campaigns.map((c, idx) => {
           const isOver = dragOver === c.id;
           return (
             <div key={c.id}
@@ -1499,11 +1506,16 @@ function CampaignsView() {
               }}>
               <div className="row between" style={{ marginBottom: 12 }}>
                 <div className="row" style={{ gap: 8, flex: 1, minWidth: 0 }}>
-                  <span title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', cursor: 'grab', flexShrink: 0 }}>
+                  <span className="desktop-only" title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', cursor: 'grab', flexShrink: 0 }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
                       <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
                     </svg>
+                  </span>
+                  {/* มือถือลากไม่ได้ → stepper ▲▼ แนวตั้ง (กะทัดรัด ไม่กินความกว้างชื่อ) */}
+                  <span className="mobile-only reorder-stepper" style={{ flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                    <button disabled={idx === 0 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx - 1].id)} aria-label="เลื่อนขึ้น">▲</button>
+                    <button disabled={idx === campaigns.length - 1 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx + 1].id)} aria-label="เลื่อนลง">▼</button>
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h3 style={{ cursor: 'pointer' }} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>{c.name}</h3>
@@ -2313,7 +2325,7 @@ function ChannelsView() {
               <div className="cap">ยังไม่มีช่องทาง — กด "เพิ่มช่องทางใหม่" เพื่อเริ่ม</div>
             </div>
           )}
-          {channels.map(c => {
+          {channels.map((c, idx) => {
             const isOver = dragOver === c.id;
 
             return (
@@ -2332,11 +2344,16 @@ function ChannelsView() {
                   opacity: dragId === c.id ? 0.4 : 1,
                   transition: 'all 0.15s',
                 }}>
-                <span title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
+                <span className="desktop-only" title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
                     <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
                   </svg>
+                </span>
+                {/* มือถือลากไม่ได้ → stepper ▲▼ แนวตั้ง */}
+                <span className="mobile-only reorder-stepper" style={{ flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  <button disabled={idx === 0 || busy} onClick={() => reorderChannel(c.id, channels[idx - 1].id)} aria-label="เลื่อนขึ้น">▲</button>
+                  <button disabled={idx === channels.length - 1 || busy} onClick={() => reorderChannel(c.id, channels[idx + 1].id)} aria-label="เลื่อนลง">▼</button>
                 </span>
                 {c.logoUrl ? (
                   <img src={c.logoUrl} alt={c.name} style={{

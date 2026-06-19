@@ -763,6 +763,9 @@ input.input[type="number"] { text-align: right; font-variant-numeric: tabular-nu
 /* การ์ดช่องทาง (บันทึกยอดขายรายวัน) — 2 คอลัมน์ ลดการเลื่อน */
 .rec-channel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
 @media (max-width: 620px) { .rec-channel-grid { grid-template-columns: 1fr; } }
+/* แถวรายการสินค้าในออเดอร์ — 4 คอลัมน์บนจอกว้าง, 2 คอลัมน์บนมือถือ (กัน select ไซซ์ถูกบีบ) */
+.order-item-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+@media (max-width: 560px) { .order-item-grid { grid-template-columns: 1fr 1fr; } }
 /* แถบความคืบหน้า % รายได้ (segment) */
 .seg-progress { height: 7px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; margin-top: 9px; }
 .seg-progress > span { display: block; height: 100%; border-radius: var(--r-pill); transition: width .25s var(--ease), background .25s var(--ease); }
@@ -877,3 +880,30 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
   .login { grid-template-columns: 1fr; }
   .login-art { display: none; }
 }
+
+/* ============================================================
+   Mobile UX เฟส 1 (P0) — วางท้ายไฟล์เพื่อให้ชนะ base ทุกตัว (source order)
+   ============================================================ */
+@media (max-width: 900px) {
+  /* กัน iOS Safari ซูมเด้งตอนโฟกัสช่องกรอก — ต้อง ≥16px (ห้ามแก้ด้วย maximum-scale = เสีย a11y) */
+  .input, input, select, textarea, .search input { font-size: 16px; }
+  /* touch target ≥44px (Apple HIG / Material) — กดพลาดน้อยลงบนจอแคบ */
+  .btn, .seg, .tab, .filt-seg-btn, .pick, .audit-preset { min-height: 44px; }
+  .icon-btn { width: 44px; height: 44px; }
+  /* safe-area: ปุ่ม/แถบล่างพ้น home-indicator (ใช้คู่ viewport-fit=cover ใน index.html) */
+  .content { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .fab { bottom: calc(80px + env(safe-area-inset-bottom)); }
+  .modal-foot { padding-bottom: calc(15px + env(safe-area-inset-bottom)); }
+}
+
+/* ============================================================
+   Mobile UX เฟส 2 — stepper ▲▼ เรียงลำดับ (แทนลากบนมือถือ)
+   ============================================================ */
+.reorder-stepper button {
+  display: block; width: 36px; height: 30px; padding: 0;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2);
+  border-radius: 7px; cursor: pointer; font-size: 11px; line-height: 1;
+}
+.reorder-stepper button:first-child { margin-bottom: 4px; }
+.reorder-stepper button:disabled { opacity: 0.32; cursor: default; }
+.reorder-stepper button:not(:disabled):active { background: var(--accent-soft); color: var(--accent); }

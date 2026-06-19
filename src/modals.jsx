@@ -472,13 +472,13 @@ export function RecordSalesModal({ data, onClose }) {
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }}></span>{ch.name}
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: ch.hasAd ? '1fr 1fr 1fr' : '1fr 1fr', gap: 10 }}>
-                  <div className="field"><label>ยอดขาย (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
-                  <div className="field"><label>ออเดอร์</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
-                  {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
+                  <div className="field"><label>ยอดขาย (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
+                  <div className="field"><label>ออเดอร์</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
+                  {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
-                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
-                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
                 </div>
                 {/* คนทัก = ลูกค้าใหม่ + เก่า (auto) — โชว์เมื่อกรอกแล้ว */}
                 {inq > 0 && (
@@ -490,7 +490,7 @@ export function RecordSalesModal({ data, onClose }) {
           </div>
 
           <div className="field-row">
-            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" className="input" placeholder="0" value={chatTime} onChange={e => { loadDirty.current = true; setTouched(true); setChatTime(e.target.value); }} /></div>
+            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={chatTime} onChange={e => { loadDirty.current = true; setTouched(true); setChatTime(e.target.value); }} /></div>
             <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { loadDirty.current = true; setTouched(true); setNote(e.target.value); }} /></div>
           </div>
         </>
@@ -831,7 +831,7 @@ export function ProductModal({ data, onClose }) {
   const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_products', data.id, 'สินค้า', { action: 'delete', entityType: 'product', entityName: data.name, summary: `ลบสินค้า "${data.name}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
 
   // สไตล์ช่องในตาราง ไซส์×สี
-  const cellInput = { width: 46, textAlign: 'center', padding: '5px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)', fontVariantNumeric: 'tabular-nums' };
+  const cellInput = { width: 50, textAlign: 'center', padding: '6px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16, fontVariantNumeric: 'tabular-nums' };
   const stickyTh = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-2)', minWidth: 156, textAlign: 'left' };
   const stickyTd = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', minWidth: 156 };
 
@@ -856,17 +856,17 @@ export function ProductModal({ data, onClose }) {
         <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อยืดลาย Summer" /></div>
       </div>
       <div className="field-row">
-        <div className="field"><label>ราคาขาย (฿)</label><input type="number" min="0" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" min="0" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>ราคาขาย (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
       </div>
       <div className="field-row">
         <div className="field">
           <label>สต็อกคงเหลือ{hasLots && <span className="cap" style={{ marginLeft: 6, color: 'var(--ink-4)' }}>(คิดจากล็อต)</span>}</label>
           {hasLots
             ? <input type="number" className="input num" value={grandTotal} readOnly disabled style={{ opacity: 0.7 }} />
-            : <input type="number" min="0" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" />}
+            : <input type="number" min="0" inputMode="decimal" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" />}
         </div>
-        <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" min="0" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
       </div>
       {hasLots && <div className="cap" style={{ marginTop: -4, marginBottom: 12, color: 'var(--ink-3)' }}>มูลค่าสต็อก (ต้นทุน): <b style={{ color: 'var(--ink)' }}>{B(grandValue)}</b></div>}
 
@@ -904,7 +904,7 @@ export function ProductModal({ data, onClose }) {
                     <div className="field" style={{ marginBottom: 0 }}><label>วันที่รับเข้า</label><input type="date" className="input" value={l.date} onChange={e => setLotField(i, 'date', e.target.value)} /></div>
                   </div>
                   <div className="field-row" style={{ marginBottom: 10 }}>
-                    <div className="field" style={{ marginBottom: 0 }}><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" className="input num" value={l.cost} onChange={e => setLotField(i, 'cost', e.target.value)} placeholder="0" /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={l.cost} onChange={e => setLotField(i, 'cost', e.target.value)} placeholder="0" /></div>
                     <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={l.note} onChange={e => setLotField(i, 'note', e.target.value)} placeholder="เช่น โรงงาน A / ผ้า Cotton" /></div>
                   </div>
 
@@ -1217,7 +1217,7 @@ export function SellModal({ data, onClose }) {
                       </select>
                     </div>
                     <div className="field" style={{ margin: 0 }}><label>จำนวน{l.size ? ` / เหลือ ${avail}` : ''}</label>
-                      <input type="number" min="0" max={avail || undefined} className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
+                      <input type="number" min="0" inputMode="decimal" max={avail || undefined} className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
                     </div>
                     <button type="button" className="icon-btn" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
                   </div>
@@ -1457,7 +1457,7 @@ export function StockAdjustModal({ data, onClose }) {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'end' }}>
                     <div className="field" style={{ margin: 0 }}><label>{isSet ? 'ตั้งเป็น (ตัว)' : 'จำนวน (ตัว)'}</label>
-                      <input type="number" min="0" className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
+                      <input type="number" min="0" inputMode="decimal" className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
                     </div>
                     <div className="cap" style={{ paddingBottom: 8, whiteSpace: 'nowrap', color: 'var(--ink-3)' }}>{l.size ? <>คงเหลือ {N(avail)} → <b style={{ color: newQty >= avail ? 'var(--good)' : 'var(--bad)' }}>{N(newQty)}</b></> : ''}</div>
                     <button type="button" className="icon-btn" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
@@ -1562,7 +1562,7 @@ export function ReservationModal({ data, onClose }) {
                     </select>
                   </div>
                   <div className="field" style={{ margin: 0 }}><label>จำนวน{it.size ? ` / ว่าง ${av}` : ''}</label>
-                    <input type="number" min="0" max={av || undefined} className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="0" />
+                    <input type="number" min="0" inputMode="decimal" max={av || undefined} className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="0" />
                   </div>
                   <button type="button" className="icon-btn" onClick={() => removeItem(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
                 </div>
@@ -1689,7 +1689,7 @@ export function ReceiveModal({ data, onClose }) {
   const setCell = (cid, size, v) => patchLot(l => { const q = Math.max(0, Math.round(Number(v) || 0)); const row = { ...(l.grid[cid] || {}) }; if (q > 0) row[size] = q; else delete row[size]; return { ...l, grid: { ...l.grid, [cid]: row } }; });
 
   const lotTot = calcLotTotal(lot);
-  const cellInput = { width: 46, textAlign: 'center', padding: '5px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)' };
+  const cellInput = { width: 50, textAlign: 'center', padding: '6px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16 };
   const stickyTh = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface-2)', minWidth: 156, textAlign: 'left' };
   const stickyTd = { position: 'sticky', left: 0, zIndex: 1, background: 'var(--surface)', minWidth: 156 };
 
@@ -1745,7 +1745,7 @@ export function ReceiveModal({ data, onClose }) {
             <div className="field"><label>วันที่รับเข้า</label><input type="date" className="input" value={lot.date} onChange={e => patchLot(l => ({ ...l, date: e.target.value }))} /></div>
           </div>
           <div className="field-row">
-            <div className="field"><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" className="input num" value={lot.cost} onChange={e => patchLot(l => ({ ...l, cost: e.target.value }))} placeholder="0" /></div>
+            <div className="field"><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={lot.cost} onChange={e => patchLot(l => ({ ...l, cost: e.target.value }))} placeholder="0" /></div>
             <div className="field"><label>โน้ต</label><input className="input" value={lot.note} onChange={e => patchLot(l => ({ ...l, note: e.target.value }))} placeholder="เช่น โรงงาน A" /></div>
           </div>
 
@@ -1948,7 +1948,7 @@ export function LabelModal({ data, onClose }) {
                     <span style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>{p.image ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Icon name="bag" />}</span>
                     <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{p.name}</div><div className="cap">{[p.sku && ('SKU ' + p.sku), p.barcode].filter(Boolean).join(' · ') || B(p.price)}</div></div>
                   </div></td>
-                  <td style={{ width: 90, textAlign: 'right' }}><input type="number" min="0" max="99" className="input num" style={{ width: 70 }} value={copies[p.id] || 0} onChange={e => setC(p.id, e.target.value)} /></td>
+                  <td style={{ width: 90, textAlign: 'right' }}><input type="number" min="0" inputMode="decimal" max="99" className="input num" style={{ width: 70 }} value={copies[p.id] || 0} onChange={e => setC(p.id, e.target.value)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -2214,11 +2214,11 @@ export function OrderModal({ data, onClose }) {
                   </select>
                   <button type="button" className="icon-btn" onClick={() => removeItem(i)} style={{ color: 'var(--bad)' }}><Icon name="x" /></button>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+                <div className="order-item-grid">
                   <select className="input" value={it.color} disabled={!it.productId} onChange={e => setItem(i, { color: e.target.value, size: '' })}><option value="">สี</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}</select>
                   <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}><option value="">ไซส์</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {Math.max(0, (Number(p.variants[it.color]?.[s]) || 0) - Math.max(0, (Number(p.reservedByVariant?.[it.color]?.[s]) || 0) - ownRes(p.id, it.color, s)))})</option>)}</select>
-                  <input type="number" min="0" className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="จำนวน" />
-                  <input type="number" min="0" className="input num" value={it.price} onChange={e => setItem(i, { price: e.target.value })} placeholder="ราคา/ตัว" />
+                  <input type="number" min="0" inputMode="decimal" className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="จำนวน" />
+                  <input type="number" min="0" inputMode="decimal" className="input num" value={it.price} onChange={e => setItem(i, { price: e.target.value })} placeholder="ราคา/ตัว" />
                 </div>
                 {avail != null && Number(it.qty) > avail && <div className="cap" style={{ color: 'var(--warn)', marginTop: 6 }}>พร้อมขายเหลือ {avail} (เกินจะกลายเป็นค้างส่ง)</div>}
               </div>
@@ -2226,7 +2226,7 @@ export function OrderModal({ data, onClose }) {
           })}
 
           <div className="field-row" style={{ marginTop: 4 }}>
-            <div className="field" style={{ marginBottom: 0 }}><label>ส่วนลด (฿)</label><input type="number" min="0" className="input num" value={discount} onChange={e => _t(setDiscount)(e.target.value)} placeholder="0" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>ส่วนลด (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={discount} onChange={e => _t(setDiscount)(e.target.value)} placeholder="0" /></div>
             <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง</label><input className="input" value={channel} onChange={e => _t(setChannel)(e.target.value)} placeholder="เช่น LINE / Shopee / หน้าร้าน" /></div>
           </div>
           <div className="field-row">
@@ -2321,7 +2321,7 @@ export function POModal({ data, onClose }) {
         </select>
       </div>
       <div className="field-row">
-        <div className="field"><label>จำนวน (ตัว)</label><input type="number" min="0" className="input num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวน (ตัว)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
         <div className="field"><label>สถานะ</label>
           <div className="segbar">
             <button className={'seg' + (f.status === 'Pending' ? ' active' : '')} onClick={() => set('status', 'Pending')}>กำลังผลิต</button>
@@ -2471,7 +2471,7 @@ export function MonthlyTargetModal({ data, onClose }) {
 
       <div className="field">
         <label>เป้ายอดรวม (฿)</label>
-        <input type="number" min="0" className="input" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
+        <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
       </div>
 
       <div className="field">
@@ -2482,7 +2482,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value)} />
+              <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value)} />
             </div>
           ))}
         </div>
@@ -2502,7 +2502,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value)} />
+              <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value)} />
             </div>
           ))}
         </div>
@@ -2515,23 +2515,23 @@ export function MonthlyTargetModal({ data, onClose }) {
       <div className="field-row">
         <div className="field">
           <label>เป้าลูกค้าใหม่</label>
-          <input type="number" min="0" className="input" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
+          <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
         </div>
         <div className="field">
           <label>เพดาน ACOS %</label>
-          <input type="number" min="0" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
+          <input type="number" min="0" inputMode="decimal" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
         </div>
       </div>
 
       <div className="field-row">
         <div className="field">
           <label>ต้นทุนสินค้า % (ของยอดขาย)</label>
-          <input type="number" min="0" max="100" className="input" placeholder="เช่น 40" value={cogsPct} onChange={e => { setTouched(true); setCogsPct(e.target.value); }} />
+          <input type="number" min="0" inputMode="decimal" max="100" className="input" placeholder="เช่น 40" value={cogsPct} onChange={e => { setTouched(true); setCogsPct(e.target.value); }} />
           <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ใช้คำนวณกำไรสุทธิ — ต้นทุนสินค้าคิดเป็น % ของยอดขาย</div>
         </div>
         <div className="field">
           <label>ค่าใช้จ่ายอื่น/เดือน (บาท)</label>
-          <input type="number" min="0" className="input" placeholder="0" value={otherExpense} onChange={e => { setTouched(true); setOtherExpense(e.target.value); }} />
+          <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={otherExpense} onChange={e => { setTouched(true); setOtherExpense(e.target.value); }} />
           <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ค่าส่ง/แพ็ค/เงินเดือน/ค่าเช่า ฯลฯ</div>
         </div>
       </div>
@@ -2609,7 +2609,7 @@ export function AdCampaignModal({ data, onClose }) {
       <div className="field-row-3">
         <div className="field">
           <label>งบประมาณ (฿)</label>
-          <input type="number" min="0" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
+          <input type="number" min="0" inputMode="decimal" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
         </div>
         <div className="field">
           <label>วันเริ่ม</label>
@@ -2708,11 +2708,11 @@ export function CustomerSegmentModal({ onClose }) {
             <div className="field-row">
               <div className="field">
                 <label>จำนวน (คน)</label>
-                <input type="number" min="0" className="input" placeholder="0" value={seg.count} onChange={e => upSeg(i, 'count', e.target.value === '' ? '' : +e.target.value)} />
+                <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={seg.count} onChange={e => upSeg(i, 'count', e.target.value === '' ? '' : +e.target.value)} />
               </div>
               <div className="field">
                 <label>% รายได้</label>
-                <input type="number" min="0" className="input" placeholder="0" value={seg.revPct} onChange={e => upSeg(i, 'revPct', e.target.value === '' ? '' : +e.target.value)} />
+                <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={seg.revPct} onChange={e => upSeg(i, 'revPct', e.target.value === '' ? '' : +e.target.value)} />
               </div>
             </div>
           </div>
@@ -2721,7 +2721,7 @@ export function CustomerSegmentModal({ onClose }) {
 
       <div className="field" style={{ marginTop: 14 }}>
         <label>CLV เฉลี่ย (฿)</label>
-        <input type="number" min="0" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
+        <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
       </div>
 
       <div style={{ marginTop: 10, padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
@@ -2861,11 +2861,11 @@ export function HistoricalEntryModal({ onClose, data }) {
                 {r.isCurrent ? (
                   <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึก & ภาพรวมเดือน"</td>
                 ) : (<>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
                 </>)}
               </tr>
             ))}

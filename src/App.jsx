@@ -760,6 +760,7 @@ function AppInner() {
             <button className="search desktop-only" onClick={() => setSpotlight(true)} style={{ cursor: 'pointer' }}>
               <Icon name="search" /><span style={{ flex: 1, color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' }}>{t('search')}...</span><kbd>{modKey}K</kbd>
             </button>
+            <button className="icon-btn mobile-only" onClick={() => setSpotlight(true)} title={t('search')} aria-label={t('search')}><Icon name="search" /></button>
             <button className="icon-btn" onClick={() => setNotif(n => !n)}>
               <Icon name="bell" />{notifs.length > 0 && <span className="dot"></span>}
             </button>
