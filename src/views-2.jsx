@@ -346,7 +346,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
   return (
     <div className="content-inner rise">
       <PlannerFilters {...fProps} />
-      <div className="grid g4" style={{ gap: 14, alignItems: 'start' }}>
+      <div className="grid g4 planner-kanban" style={{ gap: 14, alignItems: 'start' }}>
         {DD.kanbanMeta.map(col => {
           const list = filtered.filter(t => t.status === col.id);
           const tone = { todo: 'var(--ink-3)', inprogress: 'var(--info)', review: 'var(--warn)', done: 'var(--good)' }[col.id];

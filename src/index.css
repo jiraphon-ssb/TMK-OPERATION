@@ -646,7 +646,7 @@ input, select, textarea { font-family: inherit; }
   .card-pad-sm .num.h1, .card .num.h1 { font-size: clamp(15px, 4.6vw, 22px); white-space: nowrap; }
   /* inline-column grids (เช่น 1.6fr 1fr) ไม่ยุบเองเพราะ inline style ชนะ — บังคับเป็น 1 คอลัมน์บนมือถือ
      จำกัดเฉพาะ .grid (กราฟภายในใช้ display:grid เปล่าๆ ไม่โดน) */
-  .content .grid[style*="grid-template-columns"] { grid-template-columns: minmax(0, 1fr) !important; }
+  .content .grid[style*="grid-template-columns"]:not(.keep-cols) { grid-template-columns: minmax(0, 1fr) !important; }
   /* ตารางกว้าง — เลื่อนแนวนอนแทนล้นจอ */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   /* หัวการ์ด (ชื่อ + ปุ่ม/แท็บ) ขึ้นบรรทัดใหม่เมื่อแคบ แทนล้นจอ */
@@ -907,3 +907,25 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
 .reorder-stepper button:first-child { margin-bottom: 4px; }
 .reorder-stepper button:disabled { opacity: 0.32; cursor: default; }
 .reorder-stepper button:not(:disabled):active { background: var(--accent-soft); color: var(--accent); }
+
+/* ============================================================
+   Mobile UX เฟส 4 (P2 polish) — วางท้ายสุด ชนะ base
+   ============================================================ */
+@media (max-width: 600px) {
+  /* การ์ด/โมดัล padding แคบลงบนมือถือ คืนพื้นที่เนื้อหา ~12px/ด้าน */
+  .card { padding: 16px; }
+  .modal-body { padding: 16px; }
+  .modal-head { padding: 16px; }
+  .modal-foot { padding-left: 16px; padding-right: 16px; }
+  /* แถบช่วงวันที่ (ประวัติ) — ตัดบรรทัด + ช่องวันที่ยืดตามพื้นที่ ไม่ล้นจอ 360px */
+  .audit-range { flex-wrap: wrap; }
+  .audit-range input[type="date"] { width: auto; flex: 1; min-width: 0; }
+}
+@media (max-width: 380px) {
+  .content { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 900px) {
+  /* Planner kanban — เลื่อนแนวนอนคอลัมน์ละ 240px (เหมือน Orders) แทนบีบ 2 คอลัมน์อัด */
+  .planner-kanban { display: flex; grid-template-columns: none; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; }
+  .planner-kanban > * { flex: 0 0 240px; }
+}

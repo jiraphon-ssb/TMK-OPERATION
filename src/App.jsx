@@ -719,8 +719,8 @@ function AppInner() {
   const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
 
-  const Shell = ({ forced }) => (
-    <div className={'app' + (forced ? ' force-mobile' : '')}>
+  const Shell = () => (
+    <div className="app">
       {spotlight && <Spotlight onClose={() => setSpotlight(false)} onGo={go} />}
       {/* ---------- Icon Rail (desktop) ---------- */}
       <nav className="rail desktop-only">
@@ -746,7 +746,7 @@ function AppInner() {
         <header className="topbar">
           <button className="icon-btn mobile-only" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
           <div className="topbar-titles">
-            {!forced && nav?.subs && <div className="topbar-crumb desktop-only">{nav.label} <Icon name="chevR" /> {subLabel}</div>}
+            {nav?.subs && <div className="topbar-crumb desktop-only">{nav.label} <Icon name="chevR" /> {subLabel}</div>}
             {/* มือถือ: รวม "หมวด · แท็บ" ใน title เพื่อบอกตำแหน่งชัดเจน (crumb ถูกซ่อน) */}
             <div className="topbar-title">
               {nav?.subs && subLabel ? (
@@ -863,7 +863,15 @@ function AppInner() {
           ))}
         </div>
       </nav>
-      {canEdit && <button className="fab mobile-only" onClick={() => { go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100); }}><Icon name="plus" /></button>}
+      {canEdit && <button className="fab mobile-only" title="เพิ่มรายการ" onClick={() => {
+        // เปิด modal ที่เหมาะกับหน้าปัจจุบัน (เดิมเปิด "สร้างงาน" ทุกหน้า)
+        if (section === 'catalog') {
+          const m = { products: 'product', orders: 'order', customers: 'customer' }[sub] || 'product';
+          window.__openModal(m); return;
+        }
+        if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }
+        go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100); // home/planner/อื่นๆ → สร้างงาน
+      }}><Icon name="plus" /></button>}
     </div>
   );
 
@@ -879,7 +887,7 @@ function AppInner() {
       {authReady && !authed && <LoginScreen onLogin={handleLogin} />}
       {firstLoading && <LoadingScreen />}
       {firstError && <DataErrorScreen error={dataError} onRetry={dataReload} />}
-      {showShell && Shell({ forced: false })}
+      {showShell && Shell()}
       {syncing && <SyncIndicator />}
 
       {/* What's New — widget มุมขวาล่าง */}

@@ -432,7 +432,7 @@ function SalesDateBar({ month, year, onPrev, onNext, onPick, goToday, isCurrentM
                   <span className="sm num" style={{ fontWeight: 700 }}>{pickYear}</span>
                   <button className="btn btn-sm btn-ghost" onClick={() => setPickYear(y => Math.min(y + 1, _t.yearBE))} style={{ padding: '2px 8px' }} disabled={pickYear >= _t.yearBE}><Icon name="chevR" /></button>
                 </div>
-                <div className="grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                <div className="grid keep-cols" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                   {THAI_MONTHS.map((mn, i) => {
                     const future = pickYear > _t.yearBE || (pickYear === _t.yearBE && i > _t.month - 1);
                     const sel = i === month && pickYear === year;

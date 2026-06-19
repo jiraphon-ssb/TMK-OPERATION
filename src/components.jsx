@@ -23,7 +23,12 @@ export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
           resolve(canvas.toDataURL('image/jpeg', quality));
         } catch { reject(new Error('ย่อรูปไม่สำเร็จ')); } // ไม่ fallback เป็นไฟล์เต็ม (กันเก็บ data-URL ยักษ์)
       };
-      img.onerror = () => reject(new Error('รูปเสียหรือเปิดไม่ได้')); // เช่น HEIC/ไฟล์เสีย — ไม่เก็บไฟล์ดิบ
+      img.onerror = () => { // HEIC ของ iPhone เบราว์เซอร์มักเปิดไม่ได้ — แยกข้อความให้ผู้ใช้แก้เองได้
+        const heic = /hei[cf]/i.test(file.type || '') || /\.hei[cf]$/i.test(file.name || '');
+        reject(new Error(heic
+          ? 'รูปนี้เป็นไฟล์ HEIC ของ iPhone ที่เบราว์เซอร์เปิดไม่ได้ — ลองถ่ายใหม่ หรือตั้งกล้อง iPhone เป็น "Most Compatible" (ตั้งค่า > กล้อง > รูปแบบ)'
+          : 'รูปเสียหรือเปิดไม่ได้ — ลองรูปอื่น'));
+      };
       img.src = e.target.result;
     };
     reader.onerror = reject;
