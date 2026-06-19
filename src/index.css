@@ -765,7 +765,19 @@ input.input[type="number"] { text-align: right; font-variant-numeric: tabular-nu
 @media (max-width: 620px) { .rec-channel-grid { grid-template-columns: 1fr; } }
 /* แถวรายการสินค้าในออเดอร์ — 4 คอลัมน์บนจอกว้าง, 2 คอลัมน์บนมือถือ (กัน select ไซซ์ถูกบีบ) */
 .order-item-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
-@media (max-width: 560px) { .order-item-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .order-item-grid { grid-template-columns: 1fr 1fr; } }
+/* แถวฟิลด์ในโมดัล — desktop คงเดิม, มือถือยุบให้ช่องกว้างพอกรอก (modal portal อยู่นอก .content กฎ collapse เดิมเอื้อมไม่ถึง) */
+.mrow2  { display: grid; grid-template-columns: 1fr 1fr;  gap: 8px; }
+.mrow2b { display: grid; grid-template-columns: 1fr 1.2fr; gap: 8px; }
+.mrowf  { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.mrowf > .field { flex: 1 1 140px; min-width: 0; margin: 0; }
+.mrowf > .icon-btn, .mrowf > button { flex: 0 0 auto; }
+.mrow-qty { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: end; }
+@media (max-width: 600px) { .mrow2, .mrow2b { grid-template-columns: 1fr; } }
+@media (max-width: 480px) {
+  .mrow-qty { grid-template-columns: 1fr auto; }
+  .mrow-qty > .cap { grid-column: 1 / 2; grid-row: 2; white-space: normal; padding-bottom: 0; }
+}
 /* แถบความคืบหน้า % รายได้ (segment) */
 .seg-progress { height: 7px; border-radius: var(--r-pill); background: var(--surface-3); overflow: hidden; margin-top: 9px; }
 .seg-progress > span { display: block; height: 100%; border-radius: var(--r-pill); transition: width .25s var(--ease), background .25s var(--ease); }
@@ -957,4 +969,15 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
   .filterbar .filt-dd { flex: 1 1 130px; }                   /* แคมเปญ/หน้าที่ ยืดแบ่งพื้นที่ เรียงคู่ */
   .filterbar .filt-dd-btn { width: 100%; justify-content: space-between; }
   .filterbar .filt-dd-cur { max-width: none; }               /* ใช้พื้นที่เต็ม ไม่ตัดสั้นเกิน */
+}
+
+/* ============================================================
+   Mobile — เก็บจุด layout จากออดิตทั้งระบบ
+   ============================================================ */
+@media (max-width: 900px) {
+  .topbar-title { font-size: var(--fs-h3); }   /* title สั้นลง ไม่โดนตัด … ง่ายๆ เมื่อมีปุ่มเยอะ */
+}
+@media (max-width: 600px) {
+  :root { --fs-display: 24px; }                 /* หัวข้อทักทายไม่ใหญ่เกินสัดส่วนบนจอเล็ก */
+  .spotlight-scrim { padding-left: 16px; padding-right: 16px; }  /* กล่องค้นห ามี gutter ซ้าย-ขวา */
 }

@@ -1195,7 +1195,7 @@ export function SellModal({ data, onClose }) {
               const avail = cellAvail(lot, l.colorId, l.size);
               return (
                 <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div className="mrow2" style={{ marginBottom: 8 }}>
                     <div className="field" style={{ margin: 0 }}><label>ล็อต</label>
                       <select className="input" value={l.lotId} onChange={e => setLine(i, { lotId: e.target.value, colorId: '', size: '', qty: '' })}>
                         <option value="">— เลือกล็อต —</option>
@@ -1209,7 +1209,7 @@ export function SellModal({ data, onClose }) {
                       </select>
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'end' }}>
+                  <div className="mrowf">
                     <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
                       <select className="input" value={l.size} disabled={!l.colorId} onChange={e => setLine(i, { size: e.target.value, qty: '' })}>
                         <option value="">{l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'}</option>
@@ -1427,7 +1427,7 @@ export function StockAdjustModal({ data, onClose }) {
               const isSet = reason.mode === 'set';
               return (
                 <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div className="mrow2" style={{ marginBottom: 8 }}>
                     <div className="field" style={{ margin: 0 }}><label>ล็อต</label>
                       <select className="input" value={l.lotId} onChange={e => setLine(i, { lotId: e.target.value, colorId: '', size: '' })}>
                         <option value="">— เลือกล็อต —</option>
@@ -1442,7 +1442,7 @@ export function StockAdjustModal({ data, onClose }) {
                       </select>
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 8, marginBottom: 8 }}>
+                  <div className="mrow2b" style={{ marginBottom: 8 }}>
                     <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
                       <select className="input" value={l.size} disabled={!l.colorId} onChange={e => setLine(i, { size: e.target.value })}>
                         <option value="">{l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'}</option>
@@ -1455,7 +1455,7 @@ export function StockAdjustModal({ data, onClose }) {
                       </select>
                     </div>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'end' }}>
+                  <div className="mrow-qty">
                     <div className="field" style={{ margin: 0 }}><label>{isSet ? 'ตั้งเป็น (ตัว)' : 'จำนวน (ตัว)'}</label>
                       <input type="number" min="0" inputMode="decimal" className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
                     </div>
@@ -1550,7 +1550,7 @@ export function ReservationModal({ data, onClose }) {
               const sizes = it.color ? Object.keys(variants[it.color] || {}).filter(s => availOf(it.color, s) > 0 || s === it.size) : [];
               const av = availOf(it.color, it.size);
               return (
-                <div key={it.id} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                <div key={it.id} className="mrowf" style={{ marginBottom: 8 }}>
                   <div className="field" style={{ margin: 0 }}><label>สี</label>
                     <select className="input" value={it.color} onChange={e => setItem(i, { color: e.target.value, size: '' })}>
                       <option value="">— สี —</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}
@@ -2479,7 +2479,7 @@ export function MonthlyTargetModal({ data, onClose }) {
         <div className="ch-grid-2">
           {chTargets.map((c, i) => (
             <div key={c.id} className="row" style={{ gap: 10 }}>
-              <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
+              <span className="row" style={{ gap: 7, flex: '0 1 100px', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
               <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value)} />
@@ -2499,7 +2499,7 @@ export function MonthlyTargetModal({ data, onClose }) {
         <div className="ch-grid-2">
           {adChannels.map((c, i) => (
             <div key={c.id} className="row" style={{ gap: 10 }}>
-              <span className="row" style={{ gap: 7, width: 100, fontWeight: 600 }}>
+              <span className="row" style={{ gap: 7, flex: '0 1 100px', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
               <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value)} />

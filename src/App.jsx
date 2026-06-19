@@ -750,13 +750,13 @@ function AppInner() {
             {/* มือถือ: รวม "หมวด · แท็บ" ใน title เพื่อบอกตำแหน่งชัดเจน (crumb ถูกซ่อน) */}
             <div className="topbar-title">
               {nav?.subs && subLabel ? (
-                <><span className="desktop-only">{subLabel}</span><span className="mobile-only">{nav.label} · {subLabel}</span></>
+                <><span className="desktop-only">{subLabel}</span><span className="mobile-only">{subLabel}</span></>
               ) : (subLabel || nav?.label || SPECIAL_LABELS[section] || '')}
             </div>
           </div>
           <div className="topbar-spacer"></div>
           <div className="topbar-actions">
-            {!canEdit && <button className="chip" onClick={() => { const admins = (TMK.roles || []).filter(r => r.role === 'admin').map(r => `${r.name} (${r.email})`); toast(admins.length ? `ขอสิทธิ์แก้ไขได้ที่แอดมิน: ${admins.join(', ')}` : 'ยังไม่มีแอดมินในระบบ', 'warn'); }} title="คลิกดูแอดมินที่ขอสิทธิ์ได้" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 600, border: 'none', cursor: 'pointer' }}><Icon name="eye" /> ดูอย่างเดียว</button>}
+            {!canEdit && <button className="chip" onClick={() => { const admins = (TMK.roles || []).filter(r => r.role === 'admin').map(r => `${r.name} (${r.email})`); toast(admins.length ? `ขอสิทธิ์แก้ไขได้ที่แอดมิน: ${admins.join(', ')}` : 'ยังไม่มีแอดมินในระบบ', 'warn'); }} title="คลิกดูแอดมินที่ขอสิทธิ์ได้" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 600, border: 'none', cursor: 'pointer' }}><Icon name="eye" /><span className="desktop-only"> ดูอย่างเดียว</span></button>}
             <button className="search desktop-only" onClick={() => setSpotlight(true)} style={{ cursor: 'pointer' }}>
               <Icon name="search" /><span style={{ flex: 1, color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' }}>{t('search')}...</span><kbd>{modKey}K</kbd>
             </button>

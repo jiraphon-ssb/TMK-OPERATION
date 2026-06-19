@@ -266,7 +266,7 @@ function CalendarView({ filtered, fProps }) {
           <div className="card-head" style={{ flexWrap: 'wrap', gap: 10 }}>
             <div className="row" style={{ gap: 8 }}>
               <button className="icon-btn" onClick={() => shiftMonth(-1)} title="เดือนก่อน"><span style={{ transform: 'rotate(180deg)', display: 'grid' }}><Icon name="chevR" /></span></button>
-              <h3 style={{ minWidth: 150, textAlign: 'center' }}>{MONTHS_TH[ym.m]} {ym.y}</h3>
+              <h3 style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>{MONTHS_TH[ym.m]} {ym.y}</h3>
               <button className="icon-btn" onClick={() => shiftMonth(1)} title="เดือนถัดไป"><Icon name="chevR" /></button>
               <button className="btn btn-sm" onClick={goToday}>วันนี้</button>
             </div>
@@ -1278,8 +1278,8 @@ function OrdersView() {
                     <div key={o.id} draggable onDragStart={() => setDragId(o.id)} onDragEnd={() => setDragId(null)} style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', padding: '8px 10px', marginBottom: 7, cursor: 'grab', borderLeft: `3px solid ${col.color}` }}>
                       <div className="row between"><span style={{ fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }} onClick={() => window.__openModal('order', o)}>{o.code}</span><span className="num" style={{ fontWeight: 700 }}>{B(o.total)}</span></div>
                       <div className="cap" style={{ margin: '2px 0' }}>{o.customerName || '-'} · {N(o.qty)} ตัว</div>
-                      <div className="cap" style={{ color: 'var(--ink-4)' }}>{(o.items || []).slice(0, 2).map(it => `${it.color} ${it.size}×${it.qty}`).join(', ')}{(o.items || []).length > 2 ? '…' : ''}{o.trackingNo ? ` · 📦${o.trackingNo}` : ''}</div>
-                      <div className="row" style={{ gap: 4, marginTop: 6 }}>
+                      <div className="cap" style={{ color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(o.items || []).slice(0, 2).map(it => `${it.color} ${it.size}×${it.qty}`).join(', ')}{(o.items || []).length > 2 ? '…' : ''}{o.trackingNo ? ` · 📦${o.trackingNo}` : ''}</div>
+                      <div className="row" style={{ gap: 4, marginTop: 6, alignItems: 'stretch' }}>
                         <select className="input" style={{ flex: 1, padding: '3px 4px', fontSize: 'var(--fs-cap)', height: 'auto' }} value={o.status} onChange={e => changeStatus(o, e.target.value)} title="เปลี่ยนสถานะ">
                           {ORDER_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                           <option value="cancelled">ยกเลิก</option>
@@ -1983,7 +1983,7 @@ function AuditView() {
                   )}
                 </div>
                 <span className="chip" style={{ background: m.c+'1c', color: m.c, flexShrink: 0, alignSelf: 'flex-start' }}>{m.l}</span>
-                <span className="cap" style={{ width: 96, textAlign: 'right', flexShrink: 0, alignSelf: 'flex-start' }}>{a.time}</span>
+                <span className="cap" style={{ width: 78, textAlign: 'right', flexShrink: 0, alignSelf: 'flex-start' }}>{a.time}</span>
               </div>
             );
           })}

@@ -646,11 +646,11 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             ))}
           </div>
         </div>
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
           <Ring pct={pace} size={120} stroke={11} color={st.c}>
             <div><div className="num h1" style={{ color: st.c }}>{P(pace,0)}</div><div className="cap" style={{ lineHeight: 1.1 }}>จังหวะทำยอด</div></div>
           </Ring>
-          <div>
+          <div style={{ flex: '1 1 160px', minWidth: 0 }}>
             <span className={`chip ${st.cls}`} style={{ marginBottom: 10 }}>{st.label}</span>
             <div className="cap" style={{ marginTop: 10 }}>MTD / {'เป้า'} pace</div>
             <div className="num sm" style={{ fontWeight: 600 }}>{B(C.MTD)} / {C.PACE_TGT ? B(C.PACE_TGT) : '—'}</div>
