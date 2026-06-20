@@ -26,15 +26,27 @@ export async function aiExtractFromText(task, text, hint = {}) {
 async function invokeExtract(body) {
   if (!supabase) throw new Error('ยังไม่ได้ตั้งค่า Supabase');
   const { data, error } = await supabase.functions.invoke('ai-extract', { body });
-  if (error) throw new Error(humanize(error));
+  if (error) {
+    // supabase-js โยน FunctionsHttpError ที่ message เป็น generic ('non-2xx status code') + data=null
+    // ข้อความไทยจริงอยู่ใน error.context (Response) ต้องอ่านเอง
+    let serverMsg = '', status = 0;
+    try {
+      status = error.context?.status || 0;
+      const detail = error.context && typeof error.context.json === 'function' ? await error.context.json() : null;
+      serverMsg = detail?.error || '';
+    } catch { /* network fail (FunctionsFetchError) — ไม่มี body */ }
+    throw new Error(humanize(serverMsg, status, error.message));
+  }
   if (!data || data.ok !== true) throw new Error(data?.error || 'AI ไม่ตอบกลับ');
   return data;
 }
 
-function humanize(error) {
-  const msg = error?.message || String(error || '');
-  if (/Failed to send|fetch|network|Function not found|404/i.test(msg)) {
+function humanize(serverMsg, status, rawMsg) {
+  if (serverMsg) return serverMsg;                       // ข้อความไทยจาก Edge Function (403/400/500 ฯลฯ)
+  if (status === 401) return 'ต้องล็อกอินก่อนใช้ AI';
+  if (status === 403) return 'เฉพาะแอดมิน/ผู้แก้ไขเท่านั้นที่ใช้ AI ได้';
+  if (status === 404 || /Failed to send|fetch|network|Function not found|404/i.test(String(rawMsg || ''))) {
     return 'ยังเรียก AI ไม่ได้ — ฟังก์ชัน ai-extract ยังไม่ถูก deploy หรือคีย์ยังไม่ตั้ง (พิมพ์เองได้ตามปกติ)';
   }
-  return msg;
+  return String(rawMsg || '') || 'เรียก AI ไม่สำเร็จ';
 }

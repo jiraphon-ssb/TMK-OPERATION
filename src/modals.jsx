@@ -19,7 +19,7 @@ const toast = (m, k = 'success') => window.__toast?.(m, k);
 // แปลงเลข + กันค่าติดลบ + clamp เพดาน 1e12 (กันเลขมหาศาล 1e308 ทำลายกราฟ/ยอดรวม)
 const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
 // ปัดเงินเป็น 2 ตำแหน่งสตางค์ (ตัด noise float เช่น 1473.8400000000001 → 1473.84) — ค่าจริงครบ
-const money = (v) => Math.max(0, Math.round((Number(v) || 0) * 100) / 100); // เงิน ≥ 0 เสมอ (กันค่าติดลบจากการ paste)
+const money = (v) => Math.min(1e12, Math.max(0, Math.round((Number(v) || 0) * 100) / 100)); // เงิน 0..1e12 (กันติดลบ + เลขยักษ์/Infinity จาก paste ทำเซฟล้ม)
 // เงิน → ข้อความ ฿ + สตางค์ 2 ตำแหน่งเสมอ (ใช้ใน confirm/audit ให้ตรงกับทั้งเว็บ)
 const bahtStr = (v) => '฿' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -236,7 +236,7 @@ export function RecordSalesModal({ data, onClose }) {
         crm: money(byId.crm?.rev),
         channels,
         ad_spend: money(rows.reduce((a, r) => a + (Number(r.ad) || 0), 0)),
-        avg_reply_minutes: Number(chatTime) || 0,
+        avg_reply_minutes: nn(chatTime),
         note: note || '',
         deleted_at: null, // กรอกวันเดิมที่เคยลบ → กู้กลับ (กันข้อมูลล่องหน)
         updated_at: nowIso, // bump เสมอ → optimistic lock ของอุปกรณ์อื่นจับการแก้ได้
@@ -938,7 +938,7 @@ export function ProductModal({ data, onClose }) {
                                   <td style={stickyTd}>
                                     <div className="row" style={{ gap: 6 }}>
                                       <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : '#cccccc'} onChange={e => setColor(i, c.id, 'hex', e.target.value)} title="เลือกสี" style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, background: 'none', cursor: 'pointer', flexShrink: 0 }} />
-                                      <input value={c.name} onChange={e => setColor(i, c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)' }} />
+                                      <input value={c.name} onChange={e => setColor(i, c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16 }} />
                                       <button type="button" className="icon-btn" title="ลบสีนี้" onClick={() => removeColor(i, c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></button>
                                     </div>
                                   </td>
@@ -1662,15 +1662,15 @@ export function ReceiveModal({ data, onClose }) {
     const grid = {};
     d.grid.forEach(g => {
       const cid = colorByName[String(g.color || '').trim() || 'สี'];
-      const size = g.size; const qty = Math.max(0, Math.round(Number(g.qty) || 0));
+      const size = g.size; const qty = Math.min(1e9, Math.max(0, Math.round(Number(g.qty) || 0))); // clamp เพดานกัน AI hallucinate เลขยักษ์
       if (!cid || !SIZES.includes(size) || qty <= 0) return;
-      (grid[cid] = grid[cid] || {})[size] = qty;
+      const cell = (grid[cid] = grid[cid] || {}); cell[size] = (cell[size] || 0) + qty; // เซลล์สี×ไซส์ซ้ำ → บวกรวม (ไม่เขียนทับ)
     });
     setTouched(true); setAiFilled(true);
     setLotObj(l => ({
       ...l,
       lotNo: d.lotNo ? String(d.lotNo).trim() : l.lotNo,
-      date: /^\d{4}-\d{2}-\d{2}$/.test(d.date || '') ? d.date : l.date,
+      date: (() => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d.date || '')); if (!m) return l.date; let y = +m[1]; if (y >= 2500) y -= 543; /* พ.ศ.→ค.ศ. */ return (y >= 2000 && y <= 2100) ? `${y}-${m[2]}-${m[3]}` : l.date; })(),
       cost: (d.costPerUnit != null && d.costPerUnit !== '') ? d.costPerUnit : l.cost,
       sizes: sizesUsed.length ? sizesUsed : l.sizes,
       colors: colors.length ? colors : l.colors,
@@ -1769,7 +1769,7 @@ export function ReceiveModal({ data, onClose }) {
                           <td style={stickyTd}>
                             <div className="row" style={{ gap: 6 }}>
                               <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : '#cccccc'} onChange={e => setColor(c.id, 'hex', e.target.value)} style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, background: 'none', cursor: 'pointer', flexShrink: 0 }} />
-                              <input value={c.name} onChange={e => setColor(c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 'var(--fs-sm)' }} />
+                              <input value={c.name} onChange={e => setColor(c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16 }} />
                               <button type="button" className="icon-btn" onClick={() => removeColor(c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></button>
                             </div>
                           </td>
@@ -2003,13 +2003,14 @@ async function releaseOrderReservations(orderId) {
 }
 // คำนวณการตัดสต็อก (FIFO) — ไม่เขียน DB → คืน batch updates + audit + จำนวนที่ตัดได้
 // (เขียนจริงแบบ atomic ใน advanceOrderStatus ผ่าน RPC tmk_fulfill_order)
-function computeFulfillment(order) {
+function computeFulfillment(order, freshById) {
   const byProd = {};
   (order.items || []).forEach(it => (byProd[it.productId] = byProd[it.productId] || []).push(it));
   const updates = [], audits = [], sales = [], missing = [];
   let totReq = 0, totDeducted = 0; // กันตัดสต็อกขาดเงียบๆ — เตือนถ้าสต็อกไม่พอ
   for (const pid in byProd) {
-    const p = (MD.products || []).find(x => x.id === pid);
+    // ใช้ค่าสดจาก DB (freshById) ถ้ามี — กัน snapshot เก่าใน MD.products ทับการขาย/รับ/จองที่เกิดพร้อมกัน
+    const p = freshById ? freshById[pid] : (MD.products || []).find(x => x.id === pid);
     if (!p) { missing.push(pid); byProd[pid].forEach(it => { totReq += nn(it.qty); }); continue; } // สินค้าถูกลบ/ยังโหลดไม่เข้า → อย่าตัดเงียบ (caller จะ abort)
     let lots = p.lots || []; let costTotal = 0, soldQty = 0, amount = 0; const lines = [];
     byProd[pid].forEach(it => {
@@ -2039,7 +2040,16 @@ export async function advanceOrderStatus(order, newStatus, by = '') {
     const log = [...(order.statusLog || []), { status: newStatus, at: new Date().toISOString(), by }];
     if (newStatus === 'shipped' && order.status !== 'shipped') {
       // ส่งแล้ว → ตัดสต็อก (FIFO) + ปล่อยจอง + บวกขาย + เปลี่ยนสถานะ — ทั้งหมดใน transaction เดียว (atomic)
-      const { updates, audits, sales, totReq, totDeducted, missing } = computeFulfillment(order);
+      // re-fetch ค่าสต็อก/จอง/actual_units สดจาก DB ก่อนคำนวณ — กัน lost-update จาก snapshot เก่า (อีกแท็บ/เครื่องขาย-รับ-จองพร้อมกันก่อน realtime sync)
+      let freshById = null;
+      try {
+        const ids = [...new Set((order.items || []).map(it => it.productId).filter(Boolean))];
+        if (ids.length) {
+          const { data: rows, error: fErr } = await supabase.from('tmk_products').select('id,name,category,lots,reservations,actual_units').in('id', ids);
+          if (!fErr && rows) { freshById = {}; rows.forEach(r => { freshById[r.id] = { id: r.id, name: r.name, category: r.category, lots: r.lots || [], reservations: r.reservations || [], units: r.actual_units || 0 }; }); }
+        }
+      } catch { /* fetch พลาด → fallback ใช้ MD.products (computeFulfillment รับ null ได้) */ }
+      const { updates, audits, sales, totReq, totDeducted, missing } = computeFulfillment(order, freshById);
       // มีสินค้าในออเดอร์ที่หาไม่เจอ (ถูกลบ/ยังโหลดไม่เข้า) → อย่า ship เงียบ (จะจองค้าง+ขายหาย) ให้ผู้ใช้รีโหลด/แก้ก่อน
       if (missing.length) { toast('พบสินค้าที่ถูกลบหรือยังโหลดไม่ครบในออเดอร์นี้ — รีเฟรชหน้าแล้วลองส่งใหม่ (ถ้าสินค้าถูกลบ ให้กู้คืนหรือแก้ออเดอร์ก่อน)', 'error'); return false; }
       // ส่งไม่ครบ (สต็อกไม่พอ) → บันทึกจำนวนค้างส่งลง status_log ถาวร ไม่งั้นร่องรอยว่าค้างใครหายไป

@@ -12,6 +12,8 @@ window.addEventListener('vite:preloadError', (e) => {
     window.location.reload();
   }
 });
+// เคลียร์ flag เมื่อโหลดหน้าสำเร็จ → ถ้ามี deploy รอบถัดไปในแท็บเดิม ยัง recover (reload) ได้ ไม่ค้าง
+window.addEventListener('load', () => { try { sessionStorage.removeItem('tmk-chunk-reloaded'); } catch { /* ignore */ } });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

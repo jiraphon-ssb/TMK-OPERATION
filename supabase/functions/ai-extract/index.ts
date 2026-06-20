@@ -71,7 +71,7 @@ async function callClaude(task: typeof TASKS[string], image: { mediaType: string
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
       model: task.model,
-      max_tokens: 2048,
+      max_tokens: 8192, // เผื่อใบส่งของกริดใหญ่ (หลายสี×ไซส์) ไม่ให้ output ถูกตัด
       // tool-use แบบบังคับ = ได้ JSON ตาม schema แน่นอน (ไม่ต้องพึ่ง beta / ไม่ parse string เปราะ)
       tools: [{ name: "extract", description: "ส่งข้อมูลที่ดึงได้กลับเป็น JSON ตาม schema", input_schema: task.schema }],
       tool_choice: { type: "tool", name: "extract" },
@@ -80,6 +80,7 @@ async function callClaude(task: typeof TASKS[string], image: { mediaType: string
   });
   const j = await res.json();
   if (!res.ok) throw new Error(`Claude HTTP ${res.status}: ${j?.error?.message || JSON.stringify(j).slice(0, 200)}`);
+  if (j.stop_reason === "max_tokens") throw new Error("ใบส่งของมีรายการมากเกินไป — AI อ่านไม่ครบ กรุณาถ่ายแยกใบ หรือกรอกเอง");
   const block = (j.content || []).find((b: { type: string }) => b.type === "tool_use");
   if (!block) throw new Error("Claude ไม่คืน tool_use");
   return { data: block.input, usage: j.usage, model: j.model };
@@ -125,7 +126,7 @@ Deno.serve(async (req) => {
     const { data: role } = await admin
       .from("tmk_user_roles")
       .select("role")
-      .ilike("email", email)
+      .eq("email", email) // exact match (email lowercased แล้ว + ตารางเก็บ lowercase) — เลี่ยง ilike ที่ตี _/% เป็น wildcard
       .is("deleted_at", null)
       .maybeSingle();
     if (!role || !["admin", "editor"].includes(role.role)) {
@@ -134,7 +135,8 @@ Deno.serve(async (req) => {
 
     // ---- รับ request (extraction-only) ----
     const body = await req.json().catch(() => ({}));
-    const task = TASKS[body?.task];
+    // เช็ค own-property กัน prototype key (constructor/toString/__proto__) ลอดด่าน
+    const task = (typeof body?.task === "string" && Object.prototype.hasOwnProperty.call(TASKS, body.task)) ? TASKS[body.task] : null;
     if (!task) return json({ ok: false, error: "task ไม่รองรับ" }, 400);
     const image = body?.image?.dataBase64 ? { mediaType: body.image.mediaType || "image/jpeg", dataBase64: body.image.dataBase64 } : null;
     const text = typeof body?.text === "string" ? body.text : "";

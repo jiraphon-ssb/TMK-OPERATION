@@ -866,7 +866,7 @@ function AppInner() {
       {canEdit && <button className="fab mobile-only" title="เพิ่มรายการ" onClick={() => {
         // เปิด modal ที่เหมาะกับหน้าปัจจุบัน (เดิมเปิด "สร้างงาน" ทุกหน้า)
         if (section === 'catalog') {
-          const m = { products: 'product', orders: 'order', customers: 'customer' }[sub] || 'product';
+          const m = { products: 'product', orders: 'order', customers: 'customer', po: 'po' }[sub] || 'product';
           window.__openModal(m); return;
         }
         if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }

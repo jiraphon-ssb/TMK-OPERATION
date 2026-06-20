@@ -188,7 +188,7 @@ function mapToTMK(raw) {
     hasAd: Boolean(ch.has_ad),
     growthPct: Number(ch.growth_pct || 0),
     platformFeePct: Math.min(100, Math.max(0, Number(ch.platform_fee_pct || 0))), // ค่าธรรมเนียมจริงต่อช่องทาง (0 = ยังไม่ตั้ง) · clamp 0–100 กันค่าเก่าผิดช่วงทำ P&L เพี้ยน
-  })).sort((a, b) => { const ia = _CH_ORDER.indexOf(a.id), ib = _CH_ORDER.indexOf(b.id); return ((ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)) || (a.sortOrder - b.sortOrder); });
+  })).sort((a, b) => { const sa = a.sortOrder || 0, sb = b.sortOrder || 0; if (sa !== sb) return sa - sb; const ia = _CH_ORDER.indexOf(a.id), ib = _CH_ORDER.indexOf(b.id); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); }); // sort_order เป็นหลัก (reorder ▲▼/ลากได้จริง) → _CH_ORDER เป็น fallback ตอน tie
 
   // Campaigns
   const campaigns = (raw.campaigns || []).map(c => ({

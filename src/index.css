@@ -508,7 +508,7 @@ input, select, textarea { font-family: inherit; }
 .whatsnew-timeline { display: flex; flex-direction: column; gap: 12px; }
 .whatsnew-tl-row { display: flex; gap: 11px; align-items: flex-start; }
 .whatsnew-tl-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
-@media (max-width: 760px) { .whatsnew { bottom: 80px; right: 16px; } }
+@media (max-width: 760px) { .whatsnew { bottom: calc(146px + env(safe-area-inset-bottom)); right: 16px; } } /* ยกเหนือ FAB (+) 56px ไม่ให้ทับกันมุมขวาล่าง */
 
 /* ===== แถบ "มีเวอร์ชันใหม่" (บนสุด) ===== */
 .update-banner { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 1400; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 28px); width: 480px; padding: 11px 12px 11px 13px; background: color-mix(in srgb, var(--rail) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--rail) 38%, transparent); border-radius: var(--r-lg); box-shadow: var(--sh-pop); animation: ubIn .3s cubic-bezier(.2,.9,.3,1.2) both; }
@@ -969,6 +969,7 @@ textarea.input { resize: vertical; min-height: 74px; line-height: 1.5; }
   .filterbar .filt-dd { flex: 1 1 130px; }                   /* แคมเปญ/หน้าที่ ยืดแบ่งพื้นที่ เรียงคู่ */
   .filterbar .filt-dd-btn { width: 100%; justify-content: space-between; }
   .filterbar .filt-dd-cur { max-width: none; }               /* ใช้พื้นที่เต็ม ไม่ตัดสั้นเกิน */
+  .filterbar .filt-dd-menu { left: auto; right: 0; max-width: calc(100vw - 24px); } /* เมนูยึดขวา ไม่ล้นขอบจอ (ตัวขวาเดิมยื่นเกินถูก overflow ตัด) */
 }
 
 /* ============================================================
