@@ -1173,7 +1173,7 @@ export function CatalogView({ sub }) {
   if (sub === 'po') return <POView />;
   if (sub === 'stock') return <StockView />;
   if (sub === 'report') return <ReportHub />;
-  if (sub === 'orders') return <OrdersView />;
+  if (sub === 'orders') return <OrdersHub />;
   if (sub === 'customers') return <CustomersView />;
   return <ProductsView />;
 }
@@ -2019,6 +2019,127 @@ function printReceipt(order) {
   document.body.appendChild(iframe);
   const doc = iframe.contentWindow.document; doc.open(); doc.write(html); doc.close();
   setTimeout(() => { try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch { /* ignore */ } setTimeout(() => iframe.remove(), 1500); }, 350);
+}
+
+/* ====================  ออเดอร์จากไฟล์นำเข้า (รายละเอียด)  ==================== */
+function MpOrdersView() {
+  const [orders, setOrders] = useState(null);
+  const [skusByOrder, setSkusByOrder] = useState({});
+  const [err, setErr] = useState('');
+  const [month, setMonth] = useState('all');
+  const [channel, setChannel] = useState('all');
+  const [job, setJob] = useState('all');
+  const [q, setQ] = useState('');
+  const [openId, setOpenId] = useState(null);
+  const [limit, setLimit] = useState(120);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      setOrders(null); setErr('');
+      const o = await supabase.from('tmk_mp_orders').select('*').eq('status', 'active').order('order_date', { ascending: false, nullsFirst: false }).limit(50000);
+      if (cancel) return;
+      if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
+      const s = await supabase.from('tmk_mp_skus').select('order_no,design,color,size,qty,line_sales,channel').limit(120000);
+      if (cancel) return;
+      const byO = {}; (s.error ? [] : s.data || []).forEach(x => { (byO[x.order_no] = byO[x.order_no] || []).push(x); });
+      setSkusByOrder(byO); setOrders(o.data || []);
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  const months = useMemo(() => [...new Set((orders || []).map(o => o.order_month).filter(Boolean))].sort().reverse(), [orders]);
+  const channels = useMemo(() => [...new Set((orders || []).map(o => o.channel).filter(Boolean))], [orders]);
+  const ql = q.trim().toLowerCase();
+  const filtered = (orders || []).filter(o =>
+    (month === 'all' || o.order_month === month) &&
+    (channel === 'all' || o.channel === channel) &&
+    (job === 'all' || (o.job_type || 'ปลีก') === job) &&
+    (!ql || `${o.order_no} ${o.customer_name || ''} ${o.customer_code || ''} ${o.province || ''}`.toLowerCase().includes(ql))
+  );
+  const tot = filtered.reduce((a, x) => a + (Number(x.sales) || 0), 0);
+  const totQty = filtered.reduce((a, x) => a + (Number(x.qty) || 0), 0);
+  const byCh = {}; filtered.forEach(o => { byCh[o.channel] = (byCh[o.channel] || 0) + (Number(o.sales) || 0); });
+  const donutData = Object.entries(byCh).map(([k, v]) => ({ label: k, value: v, color: channelColor(k) })).sort((a, b) => b.value - a.value);
+
+  if (orders === null) return <div className="content-inner rise"><div className="card"><div className="cap" style={{ textAlign: 'center', padding: 28, color: 'var(--ink-4)' }}>กำลังโหลดออเดอร์…</div></div></div>;
+  if (err || orders.length === 0) return (
+    <div className="content-inner rise"><div className="card"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>
+      {/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration ก่อน' : 'ยังไม่มีออเดอร์จากไฟล์ — ไปที่ "รายงานขาย → นำเข้าไฟล์ขาย" เพื่อนำเข้า'}
+    </div></div></div>
+  );
+
+  const jobChip = (j) => ({ 'ปลีก': '', 'ส่ง': 'chip-accent', 'OEM': 'chip-warn' }[j] || '');
+  return (
+    <div className="content-inner rise">
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> ออเดอร์จากไฟล์นำเข้า <span className="cap" style={{ fontWeight: 400 }}>({N(filtered.length)})</span></h3></div>
+        <div className="metric-grid" style={{ marginBottom: 14 }}>
+          <MetricCard label="ออเดอร์" value={N(filtered.length)} icon="listChecks" />
+          <MetricCard label="ยอดขายรวม" value={B(tot)} tone="var(--accent)" sub={`${N(totQty)} ชิ้น`} />
+          <MetricCard label="เฉลี่ย/ออเดอร์" value={B(filtered.length ? tot / filtered.length : 0)} />
+          <MetricCard label="ช่องทาง" value={N(Object.keys(byCh).length)} sub="ช่อง" />
+        </div>
+        {donutData.length > 1 && <div style={{ maxWidth: 230, margin: '0 auto 6px' }}><DonutChart data={donutData} height={170} ariaLabel="สัดส่วนออเดอร์ตามช่องทาง" /></div>}
+        <input className="input" value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา ออเดอร์ / ชื่อลูกค้า / รหัสลูกค้า / จังหวัด" style={{ marginBottom: 10 }} />
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <div className="chips-pick"><button className={'pick' + (month === 'all' ? ' on' : '')} onClick={() => setMonth('all')}>ทุกเดือน</button>{months.map(m => <button key={m} className={'pick' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>{m}</button>)}</div>
+          <div className="chips-pick"><button className={'pick' + (job === 'all' ? ' on' : '')} onClick={() => setJob('all')}>ทุกงาน</button>{['ปลีก', 'ส่ง', 'OEM'].map(j => <button key={j} className={'pick' + (job === j ? ' on' : '')} onClick={() => setJob(j)}>{j}</button>)}</div>
+          <div className="chips-pick"><button className={'pick' + (channel === 'all' ? ' on' : '')} onClick={() => setChannel('all')}>ทุกช่อง</button>{channels.map(c => <button key={c} className={'pick' + (channel === c ? ' on' : '')} onClick={() => setChannel(c)}>{c}</button>)}</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="table-wrap table-sticky-first"><table className="table">
+          <thead><tr><th>ออเดอร์</th><th>วันที่</th><th>ช่องทาง</th><th>ลูกค้า</th><th>งาน</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
+          <tbody>{filtered.slice(0, limit).map(o => { const sk = skusByOrder[o.order_no] || []; const open = openId === o.id; return (
+            <React.Fragment key={o.id}>
+              <tr onClick={() => setOpenId(open ? null : o.id)} style={{ cursor: 'pointer' }}>
+                <td><span style={{ fontWeight: 600 }}>{o.order_no}</span></td>
+                <td className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</td>
+                <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: channelColor(o.channel) }} />{o.channel}</span></td>
+                <td>{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}</td>
+                <td>{(o.job_type && o.job_type !== 'ปลีก') ? <span className={'chip ' + jobChip(o.job_type)}>{o.job_type}</span> : <span className="cap">ปลีก</span>}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</td>
+                <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(o.sales)}</td>
+              </tr>
+              {open && (
+                <tr><td colSpan={7} style={{ background: 'var(--surface-2)' }}>
+                  <div className="row" style={{ gap: 18, flexWrap: 'wrap', marginBottom: sk.length ? 10 : 0, fontSize: 'var(--fs-sm)' }}>
+                    <span className="cap">การชำระ: <b style={{ color: 'var(--ink)' }}>{o.payment_type || '—'}</b></span>
+                    <span className="cap">ลูกค้า: <b style={{ color: 'var(--ink)' }}>{o.customer_type || '—'}</b></span>
+                    <span className="cap">เซลล์: <b style={{ color: 'var(--ink)' }}>{o.salesperson || '—'}</b></span>
+                    {o.cost > 0 && <span className="cap">ต้นทุน: <b style={{ color: 'var(--ink)' }}>{B(o.cost)}</b></span>}
+                    {o.profit > 0 && <span className="cap">กำไร: <b style={{ color: 'var(--good)' }}>{B(o.profit)}</b></span>}
+                    {o.mkt_commission > 0 && <span className="cap">ค่าธรรมเนียม: <b style={{ color: 'var(--ink)' }}>{B(o.mkt_commission)}</b></span>}
+                    {o.marketplace_id && o.marketplace_id !== '-' && <span className="cap">MP: {o.marketplace_id}</span>}
+                  </div>
+                  {sk.length > 0 && <table className="table" style={{ background: 'var(--surface)' }}>
+                    <thead><tr><th>ลาย</th><th>สี</th><th>ไซซ์</th><th style={{ textAlign: 'right' }}>จำนวน</th><th style={{ textAlign: 'right' }}>ยอด</th></tr></thead>
+                    <tbody>{sk.map((s, i) => <tr key={i}><td style={{ fontWeight: 600 }}>{s.design || '—'}</td><td className="cap">{s.color || '—'}</td><td className="cap">{s.size || '—'}</td><td className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</td></tr>)}</tbody>
+                  </table>}
+                </td></tr>
+              )}
+            </React.Fragment>
+          ); })}</tbody>
+        </table></div>
+        {filtered.length > limit && <div style={{ textAlign: 'center', marginTop: 12 }}><button className="btn btn-sm" onClick={() => setLimit(l => l + 200)}>โหลดเพิ่ม (เหลือ {N(filtered.length - limit)})</button></div>}
+      </div>
+    </div>
+  );
+}
+
+function OrdersHub() {
+  const [mode, setMode] = useState('mp');
+  return (<>
+    <div className="content-inner" style={{ paddingBottom: 0 }}>
+      <div className="segbar" style={{ marginBottom: 0 }}>
+        <button className={'seg' + (mode === 'mp' ? ' active' : '')} onClick={() => setMode('mp')}>ออเดอร์จากไฟล์ (นำเข้า)</button>
+        <button className={'seg' + (mode === 'internal' ? ' active' : '')} onClick={() => setMode('internal')}>ออเดอร์ภายใน (Kanban)</button>
+      </div>
+    </div>
+    {mode === 'mp' ? <MpOrdersView /> : <OrdersView />}
+  </>);
 }
 
 function OrdersView() {
