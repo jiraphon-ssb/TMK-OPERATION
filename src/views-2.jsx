@@ -531,8 +531,10 @@ function MpReportView() {
   const [lens, setLens] = useState('all'); // all | ปลีก | ส่ง | OEM (M1.3)
   const [compare, setCompare] = useState('none'); // none | mom | yoy
   const [chMode, setChMode] = useState('sales'); // sales | profit (M0.5 toggle)
-  const [tab, setTab] = useState('overview'); // overview | customers
+  const [tab, setTab] = useState('overview'); // overview | customers | sales
   const [importOpen, setImportOpen] = useState(false);
+  const [targets, setTargets] = useState([]);
+  const [drill, setDrill] = useState(null); // { dim, value, label } (M1.5)
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -545,6 +547,7 @@ function MpReportView() {
       const s = await supabase.from('tmk_mp_skus').select('order_no,source,channel,design,color,size,qty,line_sales,order_month').limit(120000);
       if (cancel) return;
       setOrders(o.data || []); setSkus(s.error ? [] : (s.data || []));
+      const t = await supabase.from('tmk_targets').select('*'); if (!cancel && !t.error) setTargets(t.data || []);
     })();
     return () => { cancel = true; };
   }, [reloadKey]);
@@ -641,6 +644,23 @@ function MpReportView() {
   const segGroups = Object.values(custSeg.reduce((o, c) => { (o[c.seg] = o[c.seg] || { name: c.seg, count: 0, spend: 0 }); o[c.seg].count++; o[c.seg].spend += c.lifeSpent || c.spend; return o; }, {})).sort((a, b) => b.count - a.count);
   const ltv = custs.length ? custs.reduce((a, c) => a + (c.lifeSpent || 0), 0) / custs.length : 0;
   const winBack = custSeg.filter(c => (c.seg === 'กำลังจะหาย' || c.seg === 'เคยภักดี (ห่างไป)') && (c.lifeSpent > 0 || c.spend > 0)).sort((a, b) => (b.lifeSpent || b.spend) - (a.lifeSpent || a.spend));
+  // M1.4 เป้า + pacing
+  const targetFor = (st, sid) => { if (month === 'all') return null; const [y, m] = month.split('-').map(Number); return targets.find(t => t.scope_type === st && (t.scope_id || '') === (sid || '') && t.year === y && t.month === m); };
+  const saveTarget = async (st, sid, val) => {
+    if (month === 'all') { window.__toast?.('เลือกเดือนก่อนตั้งเป้า', 'warn'); return; }
+    const [y, m] = month.split('-').map(Number); const id = `${st}:${sid}:${y}:${m}`; const tv = Math.max(0, Number(val) || 0);
+    const { error } = await supabase.from('tmk_targets').upsert({ id, scope_type: st, scope_id: sid, year: y, month: m, target_sales: tv, updated_at: new Date().toISOString() });
+    if (error) { window.__toast?.('บันทึกเป้าไม่สำเร็จ — รัน migration foundation ก่อน', 'error'); return; }
+    window.__toast?.('บันทึกเป้าแล้ว', 'success');
+    setTargets(prev => [...prev.filter(t => t.id !== id), { id, scope_type: st, scope_id: sid, year: y, month: m, target_sales: tv }]);
+  };
+  const _today = new Date();
+  const curMonthKey = `${_today.getFullYear()}-${String(_today.getMonth() + 1).padStart(2, '0')}`;
+  const isCurMonth = month !== 'all' && month === curMonthKey;
+  const daysInMonth = month !== 'all' ? new Date(Number(month.split('-')[0]), Number(month.split('-')[1]), 0).getDate() : 30;
+  const daysElapsed = isCurMonth ? _today.getDate() : daysInMonth;
+  const projectedSales = isCurMonth && daysElapsed > 0 ? agg.sales / daysElapsed * daysInMonth : agg.sales;
+  const overallTarget = targetFor('overall', '')?.target_sales || 0;
 
   const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
 
@@ -649,6 +669,23 @@ function MpReportView() {
   return (
     <div className="content-inner rise">
       {importOpen && <MpImportModal onClose={() => setImportOpen(false)} onDone={() => setReloadKey(k => k + 1)} />}
+      {drill && (() => {
+        const isSku = ['design', 'color', 'size'].includes(drill.dim);
+        const rows = isSku ? fs.filter(s => String(s[drill.dim] || '') === drill.value) : fo.filter(o => String(o[drill.dim] || '') === drill.value);
+        const tot = rows.reduce((a, x) => a + (Number(isSku ? x.line_sales : x.sales) || 0), 0);
+        return (
+          <Modal wide icon="grid" title={`รายละเอียด: ${drill.label}`} sub={`${N(rows.length)} รายการ · ${B(tot)}`} onClose={() => setDrill(null)} footer={<button className="btn" onClick={() => setDrill(null)}>ปิด</button>}>
+            <div className="table-wrap" style={{ maxHeight: 440, overflow: 'auto' }}><table className="table">
+              {isSku
+                ? <><thead><tr><th>ออเดอร์</th><th>ช่องทาง</th><th>ลาย</th><th>สี</th><th>ไซซ์</th><th style={{ textAlign: 'right' }}>จำนวน</th><th style={{ textAlign: 'right' }}>ยอด</th></tr></thead>
+                  <tbody>{rows.slice(0, 300).map((s, i) => <tr key={i}><td className="cap">{s.order_no}</td><td className="cap">{s.channel}</td><td>{s.design}</td><td className="cap">{s.color}</td><td className="cap">{s.size}</td><td className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</td></tr>)}</tbody></>
+                : <><thead><tr><th>ออเดอร์</th><th>วันที่</th><th>ช่องทาง</th><th>ลูกค้า</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอด</th></tr></thead>
+                  <tbody>{rows.slice(0, 300).map((o, i) => <tr key={i}><td className="cap">{o.order_no}</td><td className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</td><td className="cap">{o.channel}</td><td className="cap">{o.customer_name || o.customer_code || '—'}</td><td className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(o.sales)}</td></tr>)}</tbody></>}
+            </table></div>
+            {rows.length > 300 && <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>แสดง 300 จาก {N(rows.length)} รายการ</div>}
+          </Modal>
+        );
+      })()}
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head">
           <h3><span style={{ color: 'var(--accent)' }}><Icon name="sales" /></span> รายงานรวมข้ามช่องทาง</h3>
@@ -691,6 +728,7 @@ function MpReportView() {
         <div className="segbar" style={{ marginBottom: 16 }}>
           <button className={'seg' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>ภาพรวม</button>
           <button className={'seg' + (tab === 'customers' ? ' active' : '')} onClick={() => setTab('customers')}>ลูกค้า (CRM)</button>
+          <button className={'seg' + (tab === 'sales' ? ' active' : '')} onClick={() => setTab('sales')}>เซลล์ & เป้า</button>
         </div>
       )}
 
@@ -715,7 +753,7 @@ function MpReportView() {
               <div className="table-wrap"><table className="table">
                 <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th>{hasFee && <th style={{ textAlign: 'right' }}>ค่าธรรมเนียม</th>}{hasFee && <th style={{ textAlign: 'right' }}>กำไรจริง</th>}{hasFee && <th style={{ textAlign: 'right' }}>มาร์จิ้น</th>}<th style={{ minWidth: 90 }}>สัดส่วน</th></tr></thead>
                 <tbody>{chs.map(c => { const v = chMode === 'profit' ? c.profit : c.sales; const share = agg.sales > 0 ? (c.sales / agg.sales) * 100 : 0; const margin = c.sales > 0 ? (c.profit / c.sales) * 100 : 0; return (
-                  <tr key={c.name}>
+                  <tr key={c.name} onClick={() => setDrill({ dim: 'channel', value: c.name, label: `ช่องทาง ${c.name}` })} style={{ cursor: 'pointer' }}>
                     <td style={{ fontWeight: 600 }}>{c.name}</td>
                     <td className="num" style={{ textAlign: 'right' }}>{N(c.count)}</td>
                     <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.sales)}</td>
@@ -737,7 +775,7 @@ function MpReportView() {
             <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}><table className="table">
               <thead><tr><th style={{ width: 34 }}>#</th><th>ลาย</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
               <tbody>{agg.byDesign.slice(0, 15).map((d, i) => (
-                <tr key={d.name}><td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td><td style={{ fontWeight: 600 }}>{d.name}</td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(d.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(d.value)}</td></tr>
+                <tr key={d.name} onClick={() => setDrill({ dim: 'design', value: d.name, label: `ลาย ${d.name}` })} style={{ cursor: 'pointer' }}><td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td><td style={{ fontWeight: 600 }}>{d.name}</td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(d.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(d.value)}</td></tr>
               ))}</tbody>
             </table></div>
           )}
@@ -863,7 +901,7 @@ function MpReportView() {
               <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}><table className="table">
                 <thead><tr><th style={{ width: 34 }}>#</th><th>ลูกค้า</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดซื้อ</th><th>ช่องทาง</th></tr></thead>
                 <tbody>{topSpend.slice(0, 20).map((c, i) => (
-                  <tr key={c.code}>
+                  <tr key={c.code} onClick={() => setDrill({ dim: 'customer_code', value: c.code, label: c.name })} style={{ cursor: 'pointer' }}>
                     <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
                     <td><div style={{ fontWeight: 600 }}>{c.name}</div>{c.lifeOrders >= 2 && <span className="chip chip-accent" style={{ marginTop: 2 }}>ประจำ · สะสม {N(c.lifeOrders)} ออเดอร์</span>}</td>
                     <td className="num" style={{ textAlign: 'right' }}>{N(c.orders)}</td>
@@ -891,6 +929,58 @@ function MpReportView() {
               </table></div>
             </div>
           </>)}
+      </>)}
+
+      {orders.length > 0 && !err && tab === 'sales' && (<>
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <div className="eyebrow">เป้ายอดขาย {month === 'all' ? '' : `(${month})`}</div>
+          </div>
+          {month === 'all'
+            ? <div className="cap" style={{ color: 'var(--ink-4)' }}>เลือก "เดือน" ด้านบนเพื่อตั้งเป้า + ดู pacing</div>
+            : (() => {
+                const attain = overallTarget > 0 ? (agg.sales / overallTarget) * 100 : null;
+                const paceTarget = overallTarget > 0 ? overallTarget * (daysElapsed / daysInMonth) : 0;
+                const onPace = paceTarget > 0 ? agg.sales >= paceTarget : true;
+                return (<>
+                  <div className="field-row" style={{ marginBottom: 12 }}>
+                    <div className="field" style={{ marginBottom: 0 }}><label>เป้ายอดขายเดือนนี้ (฿)</label>
+                      <input type="number" min="0" inputMode="decimal" className="input num" defaultValue={overallTarget || ''} placeholder="ใส่เป้า แล้ว Enter" onKeyDown={e => { if (e.key === 'Enter') saveTarget('overall', '', e.target.value); }} onBlur={e => { if ((Number(e.target.value) || 0) !== overallTarget) saveTarget('overall', '', e.target.value); }} />
+                    </div>
+                  </div>
+                  {overallTarget > 0 ? (<>
+                    <div className="row between" style={{ marginBottom: 6 }}>
+                      <span className="cap">ทำได้ <b style={{ color: 'var(--ink)' }}>{B(agg.sales)}</b> / เป้า {B(overallTarget)}</span>
+                      <span style={{ fontWeight: 700, color: attain >= 100 ? 'var(--good)' : attain >= 70 ? 'var(--warn)' : 'var(--bad)' }}>{P(attain, 0)}</span>
+                    </div>
+                    <div className="bar" style={{ height: 14, position: 'relative' }}>
+                      <span style={{ width: `${Math.min(100, attain)}%`, background: attain >= 100 ? 'var(--good)' : 'var(--accent)' }} />
+                      {paceTarget > 0 && isCurMonth && <span style={{ position: 'absolute', left: `${Math.min(100, (paceTarget / overallTarget) * 100)}%`, top: -3, bottom: -3, width: 2, background: 'var(--ink)', borderRadius: 1 }} title="ควรอยู่ตรงนี้ตามวัน" />}
+                    </div>
+                    <div className="cap" style={{ marginTop: 8, color: 'var(--ink-3)' }}>
+                      {isCurMonth ? <>คาดสิ้นเดือน <b style={{ color: projectedSales >= overallTarget ? 'var(--good)' : 'var(--bad)' }}>{B(projectedSales)}</b> ({P(overallTarget > 0 ? projectedSales / overallTarget * 100 : 0, 0)} ของเป้า) · {onPace ? 'ตามจังหวะ ✓' : 'ช้ากว่าจังหวะ — ต้องเร่ง'}</> : <>เดือนนี้จบแล้ว — {attain >= 100 ? 'ถึงเป้า ✓' : `ขาดอีก ${B(Math.max(0, overallTarget - agg.sales))}`}</>}
+                    </div>
+                  </>) : <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้ตั้งเป้าเดือนนี้</div>}
+                </>);
+              })()}
+        </div>
+
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 14 }}>ยอดขายตามเซลล์ (leaderboard)</div>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th style={{ width: 34 }}>#</th><th>เซลล์</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th><th style={{ textAlign: 'right' }}>เฉลี่ย/ออเดอร์</th><th style={{ minWidth: 90 }}>สัดส่วน</th></tr></thead>
+            <tbody>{agg.bySales.map((s, i) => { const share = agg.sales > 0 ? (s.value / agg.sales) * 100 : 0; return (
+              <tr key={s.name} onClick={() => setDrill({ dim: 'salesperson', value: s.name, label: `เซลล์ ${s.name}` })} style={{ cursor: 'pointer' }}>
+                <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
+                <td style={{ fontWeight: 600 }}>{s.name}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{N(s.count)}</td>
+                <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(s.value)}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{B(s.count ? s.value / s.count : 0)}</td>
+                <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><div className="bar" style={{ flex: 1 }}><span style={{ width: `${share}%`, background: 'var(--accent-2)' }} /></div><span className="num cap" style={{ width: 34, textAlign: 'right' }}>{P(share, 0)}</span></div></td>
+              </tr>
+            ); })}</tbody>
+          </table></div>
+        </div>
       </>)}
     </div>
   );
