@@ -1043,159 +1043,436 @@ async function saveProductRow(row, isUpdate, audit, lockUpdatedAt) {
 }
 
 /* ---------- Import products from CSV (เอาข้อมูลสินค้าเข้าแคตตาล็อกครั้งละหลายรายการ) ---------- */
-function parseCSV(text) {
-  const rows = []; let row = [], cur = '', q = false;
+// เดาตัวคั่น (Thai/EU Excel มักใช้ ; · บางไฟล์ TAB/|) — นับนอกเครื่องหมายคำพูดจาก 10 บรรทัดแรก
+function detectDelimiter(s) {
+  const sample = String(s || '').split(/\r?\n/).slice(0, 10).join('\n');
+  let best = ',', bestScore = -1;
+  for (const d of [',', ';', '\t', '|']) {
+    let q = false, n = 0;
+    for (let i = 0; i < sample.length; i++) { const c = sample[i]; if (c === '"') q = !q; else if (!q && c === d) n++; }
+    if (n > bestScore) { bestScore = n; best = d; }
+  }
+  return best;
+}
+function parseCSV(text, delim) {
   const s = String(text || '').replace(/^﻿/, ''); // ตัด BOM
+  const d = delim || detectDelimiter(s);
+  const rows = []; let row = [], cur = '', q = false;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (q) { if (c === '"') { if (s[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
     else if (c === '"') q = true;
-    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === d) { row.push(cur); cur = ''; }
     else if (c === '\n' || c === '\r') { if (c === '\r' && s[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
     else cur += c;
   }
   if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
   return rows.filter(r => r.some(c => String(c).trim() !== ''));
 }
-const findCol = (headers, ...names) => {
-  const H = headers.map(h => String(h || '').toLowerCase().trim());
-  for (const n of names) { const i = H.indexOf(n.toLowerCase()); if (i >= 0) return i; }
-  for (const n of names) { const i = H.findIndex(h => h.includes(n.toLowerCase())); if (i >= 0) return i; }
-  return -1;
+// คำที่ถือว่า "ว่าง" + ทำความสะอาดเซลล์ (NFC, ตัด zero-width/ช่องว่าง)
+const NULL_TOKENS = new Set(['-', '–', '—', 'n/a', '#n/a', 'na', 'null', 'none', 'nil', 'ไม่มี', 'ไม่ระบุ']);
+function cleanCell(v, collapseNull = true) {
+  let s = String(v ?? '');
+  if (s.normalize) s = s.normalize('NFC');
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim(); // ตัด zero-width + ยุบช่องว่าง
+  return (collapseNull && NULL_TOKENS.has(s.toLowerCase())) ? '' : s; // ชื่อ/รหัส/บาร์โค้ดไม่ยุบ placeholder (อาจเป็นค่าจริง)
+}
+// แตกหัวคอลัมน์เป็น "คำ" (token) เพื่อจับคู่แบบทั้งคำ ไม่ใช่ substring มั่ว
+const tokenize = (h) => String(h || '').toLowerCase().split(/[\s_\-/.,()[\]]+/).filter(Boolean);
+
+/* ====== Import: ฟิลด์เป้าหมาย + ตัวช่วยทำความสะอาดข้อมูล (เผื่ออนาคต) ====== */
+// ฟิลด์ที่นำเข้าได้ + ชื่อคอลัมน์ที่ยอมรับ (auto-map) — เพิ่มฟิลด์ใหม่ที่นี่ได้ในอนาคต
+const IMPORT_FIELDS = [
+  { key: 'name', label: 'ชื่อสินค้า', required: true, aliases: ['product_name', 'name', 'ชื่อสินค้า', 'ชื่อ', 'สินค้า', 'title', 'item', 'รายการ'] },
+  { key: 'price', label: 'ราคา', num: true, aliases: ['price', 'ราคา', 'ราคาขาย', 'sell_price', 'unit_price', 'sellprice', 'ราคา/ตัว'] },
+  { key: 'category', label: 'หมวด', aliases: ['type', 'category', 'หมวด', 'หมวดหมู่', 'ประเภท', 'cat', 'กลุ่ม'] },
+  { key: 'sku', label: 'รหัส/SKU', code: true, aliases: ['product_code', 'sku', 'รหัสสินค้า', 'รหัส', 'code', 'item_code', 'รหัสสินค้า'] },
+  { key: 'barcode', label: 'บาร์โค้ด', code: true, aliases: ['barcode', 'บาร์โค้ด', 'ean', 'upc', 'gtin', 'บาร์โคด'] },
+  { key: 'design', label: 'ลาย', aliases: ['design_key', 'design', 'ลาย', 'pattern', 'ลายผ้า', 'แบบ', 'รุ่น'] },
+  { key: 'supplier', label: 'ผู้ผลิต', aliases: ['supplier', 'ผู้ผลิต', 'ซัพพลายเออร์', 'vendor', 'โรงงาน', 'แหล่งซื้อ'] },
+  { key: 'cost', label: 'ต้นทุน', num: true, aliases: ['cost', 'ต้นทุน', 'ทุน', 'cost_price', 'ต้นทุน/ตัว', 'ราคาทุน'] },
+];
+const THAI_DIGITS = { '๐': '0', '๑': '1', '๒': '2', '๓': '3', '๔': '4', '๕': '5', '๖': '6', '๗': '7', '๘': '8', '๙': '9' };
+// แปลงเลขไทย + ตัดสัญลักษณ์เงิน/คอมมา → ตัวเลข (รองรับ "฿1,234.50", "๑๒๓", "1.234,50" แบบยุโรปไม่รองรับ—ใช้จุดทศนิยม)
+function parseNum(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  let s = String(v ?? '').trim();
+  if (!s) return 0;
+  s = s.replace(/[๐-๙]/g, d => THAI_DIGITS[d] || d);
+  s = s.replace(/[,\s ฿$€£]/g, '');     // ตัดคอมมา/ช่องว่าง/สัญลักษณ์เงิน
+  s = s.replace(/[^0-9.eE+\-]/g, '');   // เหลือตัวเลข จุด ลบ + เลขยกกำลัง (กัน Excel เซฟราคาเป็น 1.2E5)
+  const n = parseFloat(s);
+  return isFinite(n) ? n : 0;
+}
+// อ่านข้อความ CSV แบบรู้ encoding: ลอง UTF-8 ก่อน ถ้าเจอตัวอักษรเสีย (�) ลอง windows-874 (TIS-620 ภาษาไทย)
+function smartDecodeCSV(buf) {
+  const u8 = new TextDecoder('utf-8').decode(buf);
+  const bad = (u8.match(/�/g) || []).length;
+  if (bad === 0) return { text: u8, encoding: 'utf-8' };
+  try {
+    const th = new TextDecoder('windows-874').decode(buf);
+    const badTh = (th.match(/�/g) || []).length;
+    if (badTh < bad) return { text: th, encoding: 'windows-874', recovered: true };
+  } catch { /* เบราว์เซอร์ไม่รองรับ windows-874 */ }
+  return { text: u8, encoding: 'utf-8', mojibake: bad };
+}
+// หาแถวหัวคอลัมน์ (กันไฟล์ที่มีแถวว่าง/ชื่อรายงานนำหน้า) — แถวแรกที่มี ≥2 ช่องไม่ว่าง
+function detectHeader(grid) {
+  const lim = Math.min(grid.length, 12);
+  for (let i = 0; i < lim; i++) {
+    const filled = (grid[i] || []).filter(c => String(c ?? '').trim() !== '').length;
+    if (filled >= 2) return i;
+  }
+  return 0;
+}
+
+const IMPORT_STATUS = {
+  new:    { label: 'ใหม่',       cls: 'chip-good' },
+  update: { label: 'อัปเดต',     cls: 'chip-accent' },
+  dup:    { label: 'ซ้ำ (ข้าม)', cls: 'chip-warn' },
+  error:  { label: 'ผิดพลาด',    cls: 'chip-bad' },
 };
+const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+function downloadTextFile(filename, text) {
+  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' }); // BOM → Excel เปิดไทยถูก
+  const url = URL.createObjectURL(blob); const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
 
 export function ImportProductsModal({ onClose }) {
-  const [rows, setRows] = useState([]);
+  const [step, setStep] = useState('upload');   // upload → map → preview
+  const [files, setFiles] = useState([]);       // [{ id, name, kind, wb?, sheetNames?, sheetIdx, grid, headerRow, headers, encoding?, recovered? }]
+  const [mapping, setMapping] = useState({});   // { fieldKey: headerLabel|'' } — แมพด้วย "ชื่อหัวคอลัมน์" (ใช้ข้ามไฟล์ได้)
+  const [mode, setMode] = useState('add');      // add = เพิ่มใหม่อย่างเดียว · upsert = เพิ่ม+อัปเดตของเดิม(ตาม SKU/ชื่อ)
+  const [keepUnmapped, setKeepUnmapped] = useState(false); // เก็บคอลัมน์ที่ไม่ได้จับคู่ลงโน้ต (strategy)
+  const [statusFilter, setStatusFilter] = useState('all');
   const [busy, setBusy] = useState(false);
-  const [fileName, setFileName] = useState('');
+  const [loading, setLoading] = useState(false);
   const fileRef = useRef(null);
 
   const existing = MD.products || [];
-  const skuSet = new Set(existing.map(p => String(p.sku || '').toLowerCase().trim()).filter(Boolean));
-  const nameSet = new Set(existing.map(p => String(p.name || '').toLowerCase().trim()));
+  const bySku = {}; existing.forEach(p => { const k = String(p.sku || '').toLowerCase().trim(); if (k) bySku[k] = p; });
+  const byName = {}; existing.forEach(p => { const k = String(p.name || '').toLowerCase().trim(); if (k && !byName[k]) byName[k] = p; });
 
-  // parse จาก grid (array-of-arrays) — ใช้ได้ทั้ง CSV และ Excel
-  const parse = (grid) => {
-    if (!grid || grid.length < 2) { toast('ไฟล์ว่างหรือไม่มีข้อมูล', 'error'); return; }
-    const h = (grid[0] || []).map(x => String(x ?? ''));
-    const cell = (row, i) => String(row[i] ?? '').trim();
-    const ci = {
-      name: findCol(h, 'product_name', 'name', 'ชื่อสินค้า', 'ชื่อ'),
-      price: findCol(h, 'price', 'ราคา'),
-      cat: findCol(h, 'type', 'category', 'หมวด', 'ประเภท'),
-      sku: findCol(h, 'product_code', 'sku', 'รหัสสินค้า', 'รหัส'),
-      design: findCol(h, 'design_key', 'design', 'ลาย'),
-      sup: findCol(h, 'supplier', 'ผู้ผลิต', 'ซัพพลายเออร์'),
-      bar: findCol(h, 'barcode', 'บาร์โค้ด'),
-    };
-    if (ci.name < 0) { toast('ไม่พบคอลัมน์ชื่อสินค้า (product_name / name / ชื่อ)', 'error'); return; }
-    const out = [];
-    for (let r = 1; r < grid.length; r++) {
-      const row = grid[r] || [];
-      const name = cell(row, ci.name);
-      if (!name) continue;
-      out.push({
-        name,
-        price: ci.price >= 0 ? nn(row[ci.price]) : 0,
-        category: ci.cat >= 0 ? cell(row, ci.cat) : '',
-        sku: ci.sku >= 0 ? cell(row, ci.sku) : '',
-        design: ci.design >= 0 ? cell(row, ci.design) : '',
-        supplier: ci.sup >= 0 ? cell(row, ci.sup) : '',
-        barcode: ci.bar >= 0 ? cell(row, ci.bar) : '',
-      });
+  const sheetToGrid = (XLSX, wb, idx) => { const ws = wb.Sheets[wb.SheetNames[idx]]; return ws ? XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }) : []; };
+  const headerOf = (grid, hr) => (grid[hr] || []).map(x => String(x ?? '').trim());
+
+  const unionHeaders = (fs) => { const seen = new Set(), out = []; fs.forEach(f => (f.headers || []).forEach(h => { const k = h.toLowerCase(); if (h && !seen.has(k)) { seen.add(k); out.push(h); } })); return out; };
+  // auto-map: จับเป๊ะก่อน (จองคอลัมน์กันชนกัน) → แล้วจับแบบ "ทั้งคำ" เฉพาะที่ยังว่าง (กัน 'code'→'barcode', 'รหัส'→'รหัสรายการสั่งซื้อ')
+  const autoMap = (headers) => {
+    const norm = headers.map(h => String(h || '').toLowerCase().trim());
+    const m = {}; const claimed = new Set();
+    IMPORT_FIELDS.forEach(f => { for (const a of f.aliases) { const i = norm.indexOf(a.toLowerCase()); if (i >= 0 && !claimed.has(i)) { m[f.key] = headers[i]; claimed.add(i); break; } } });
+    IMPORT_FIELDS.forEach(f => { if (m[f.key]) return; for (const a of f.aliases) { const al = a.toLowerCase(); const i = norm.findIndex((h, idx) => !claimed.has(idx) && tokenize(h).includes(al)); if (i >= 0) { m[f.key] = headers[i]; claimed.add(i); break; } } });
+    IMPORT_FIELDS.forEach(f => { if (!m[f.key]) m[f.key] = ''; });
+    return m;
+  };
+  // ซ่อม mapping ทุกครั้งที่ชุดไฟล์/หัวคอลัมน์เปลี่ยน: เก็บที่ user เลือกไว้ถ้ายังมีอยู่ ที่เหลือเดาใหม่ (กัน mapping ค้างชี้คอลัมน์ที่หายไป)
+  const repairMapping = (nextFiles, cur) => {
+    const uh = unionHeaders(nextFiles);
+    if (!uh.length) return {};
+    const uset = new Set(uh.map(h => h.toLowerCase()));
+    const auto = autoMap(uh); const out = {};
+    IMPORT_FIELDS.forEach(f => { const c = (cur && cur[f.key]) || ''; out[f.key] = (c && uset.has(c.toLowerCase())) ? c : auto[f.key]; });
+    return out;
+  };
+
+  const onFiles = async (e) => {
+    const picked = Array.from(e.target.files || []); e.target.value = '';
+    if (!picked.length) return;
+    setLoading(true);
+    const added = [];
+    for (const f of picked) {
+      try {
+        if (/\.(xlsx|xls|xlsm|xlsb)$/i.test(f.name)) {
+          const buf = await f.arrayBuffer();
+          const XLSX = await import('xlsx'); // lazy-load เฉพาะตอนใช้
+          const wb = XLSX.read(buf, { type: 'array' });
+          const grid = sheetToGrid(XLSX, wb, 0);
+          const hr = detectHeader(grid);
+          added.push({ id: uid('f'), name: f.name, kind: 'xlsx', wb, sheetNames: wb.SheetNames || [], sheetIdx: 0, grid, headerRow: hr, headers: headerOf(grid, hr) });
+        } else {
+          const buf = await f.arrayBuffer();
+          const { text, encoding, recovered } = smartDecodeCSV(buf);
+          const grid = parseCSV(text);
+          const hr = detectHeader(grid);
+          added.push({ id: uid('f'), name: f.name, kind: 'csv', encoding, recovered, sheetIdx: 0, grid, headerRow: hr, headers: headerOf(grid, hr) });
+        }
+      } catch (err) { toast(`อ่าน ${f.name} ไม่สำเร็จ: ${err?.message || ''}`, 'error'); }
     }
-    setRows(out);
+    setLoading(false);
+    if (!added.length) return;
+    const next = [...files, ...added];
+    setFiles(next);
+    setMapping(m => repairMapping(next, m)); // auto-map ครั้งแรก + ซ่อมเมื่อหัวคอลัมน์เปลี่ยน
+    setStep('map');
   };
 
-  const onFile = async (e) => {
-    const f = e.target.files?.[0]; e.target.value = '';
-    if (!f) return;
-    setFileName(f.name);
-    try {
-      if (/\.(xlsx|xls|xlsm)$/i.test(f.name)) {
-        // Excel — lazy-load SheetJS เฉพาะตอนใช้ (ไม่บวม main bundle)
-        const buf = await f.arrayBuffer();
-        const XLSX = await import('xlsx');
-        const wb = XLSX.read(buf, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        parse(XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }));
-      } else {
-        parse(parseCSV(await f.text()));
+  const removeFile = (id) => { const next = files.filter(f => f.id !== id); setFiles(next); setMapping(m => repairMapping(next, m)); if (!next.length) setStep('upload'); };
+  const changeSheet = async (id, idx) => {
+    const XLSX = await import('xlsx');
+    const next = files.map(f => { if (f.id !== id || !f.wb) return f; const grid = sheetToGrid(XLSX, f.wb, idx); const hr = detectHeader(grid); return { ...f, sheetIdx: idx, grid, headerRow: hr, headers: headerOf(grid, hr) }; });
+    setFiles(next); setMapping(m => repairMapping(next, m));
+  };
+  const changeHeaderRow = (id, hr1) => {
+    const next = files.map(f => { if (f.id !== id) return f; const hr = Math.max(0, Math.min((f.grid.length || 1) - 1, (Number(hr1) || 1) - 1)); return { ...f, headerRow: hr, headers: headerOf(f.grid, hr) }; });
+    setFiles(next); setMapping(m => repairMapping(next, m));
+  };
+
+  const allHeaders = unionHeaders(files);
+
+  // ประกอบแถวจากทุกไฟล์ ตาม mapping (แมพด้วยชื่อหัวคอลัมน์ → หา index ในไฟล์นั้นๆ เอง)
+  const assembled = useMemo(() => {
+    const out = [];
+    const mapped = new Set(Object.values(mapping).filter(Boolean).map(h => String(h).toLowerCase()));
+    files.forEach(file => {
+      const idxMap = {}; IMPORT_FIELDS.forEach(f => { const lbl = (mapping[f.key] || '').toLowerCase(); idxMap[f.key] = lbl ? (file.headers || []).findIndex(h => h.toLowerCase() === lbl) : -1; });
+      const extraCols = (file.headers || []).map((h, i) => ({ h, i })).filter(x => x.h && !mapped.has(x.h.toLowerCase())); // คอลัมน์ที่ไม่ได้จับคู่
+      for (let r = file.headerRow + 1; r < file.grid.length; r++) {
+        const row = file.grid[r] || [];
+        if (!row.some(c => String(c ?? '').trim() !== '')) continue; // ข้ามแถวว่าง
+        const noNull = { name: 1, sku: 1, barcode: 1 }; // ฟิลด์ที่ค่า "-" / "NA" อาจเป็นค่าจริง → ไม่ยุบเป็นว่าง
+        const get = (k) => idxMap[k] >= 0 ? cleanCell(row[idxMap[k]], !noNull[k]) : '';
+        const extra = extraCols.map(x => { const v = cleanCell(row[x.i]); return v ? `${x.h}: ${v}` : ''; }).filter(Boolean).join(' · ');
+        out.push({ file: file.name, line: r + 1, name: get('name'), priceRaw: get('price'), price: parseNum(get('price')), costRaw: get('cost'), cost: parseNum(get('cost')), category: get('category'), sku: get('sku'), barcode: get('barcode'), design: get('design'), supplier: get('supplier'), extra });
       }
-    } catch (err) { toast('อ่านไฟล์ไม่สำเร็จ: ' + (err?.message || ''), 'error'); }
-  };
+    });
+    return out;
+  }, [files, mapping]);
 
-  const isDup = (p) => (p.sku && skuSet.has(p.sku.toLowerCase())) || (!p.sku && nameSet.has(p.name.toLowerCase()));
-  const fresh = rows.filter(p => !isDup(p));
-  const dup = rows.length - fresh.length;
+  // ตรวจสอบ + กำหนดสถานะแต่ละแถว
+  const analyzed = useMemo(() => {
+    const seenSku = new Set(), seenName = new Set(), seenBarcode = new Set(), seenMatchId = new Set();
+    const priceMapped = !!mapping.price;
+    // ค่ากลางราคา → ใช้จับราคาผิดปกติ (เช่น 35000 ที่ควรเป็น 350 เพราะลืมจุดทศนิยม)
+    const ps = assembled.map(r => r.price).filter(p => p > 0).sort((a, b) => a - b);
+    const medianPrice = ps.length ? ps[Math.floor(ps.length / 2)] : 0;
+    const rows = assembled.map(r => {
+      const issues = [];
+      const nm = r.name.trim();
+      if (!nm) issues.push({ sev: 'error', msg: 'ไม่มีชื่อสินค้า' });
+      if (priceMapped && r.priceRaw && r.price === 0 && !/^[0\s.]*$/.test(r.priceRaw.replace(/[฿$,]/g, ''))) issues.push({ sev: 'warn', msg: `อ่านราคาไม่ออก: "${r.priceRaw}"` });
+      if (r.price < 0) issues.push({ sev: 'warn', msg: 'ราคาติดลบ → ปรับเป็น 0' });
+      if (r.price > 1000000) issues.push({ sev: 'warn', msg: 'ราคาสูงผิดปกติ (>1,000,000)' });
+      if (medianPrice > 0 && r.price > 0 && (r.price > medianPrice * 100 || r.price < medianPrice / 100)) issues.push({ sev: 'warn', msg: `ราคาต่างจากค่ากลางมาก (กลาง ~${B(medianPrice)}) — เช็คจุดทศนิยม` });
+      if (/\d[eE][+\-]?\d/.test(r.sku) || /\d[eE][+\-]?\d/.test(r.barcode)) issues.push({ sev: 'warn', msg: 'รหัส/บาร์โค้ดเพี้ยนจาก Excel (สัญกรณ์วิทยาศาสตร์) — ตั้งคอลัมน์เป็น Text ก่อนเซฟ' });
+      if (r.barcode && !/^(\d{8}|\d{12,14})$/.test(r.barcode.replace(/\s/g, ''))) issues.push({ sev: 'info', msg: 'บาร์โค้ดไม่ใช่ 8/12/13/14 หลัก' });
+      const barK = r.barcode.replace(/\s/g, '');
+      if (barK) { if (seenBarcode.has(barK)) issues.push({ sev: 'warn', msg: 'บาร์โค้ดซ้ำกับแถวอื่น' }); else seenBarcode.add(barK); }
+      if (/�/.test(nm + r.category + r.design + r.supplier)) issues.push({ sev: 'warn', msg: 'ตัวอักษรเพี้ยน (encoding) — เซฟไฟล์เป็น UTF-8' });
+      if (nm.length > 120) issues.push({ sev: 'info', msg: 'ชื่อยาวมาก (>120 ตัวอักษร)' });
+      const skuK = r.sku.toLowerCase(), nameK = nm.toLowerCase();
+      let dupInFile = false;
+      if (skuK) { if (seenSku.has(skuK)) { dupInFile = true; issues.push({ sev: 'warn', msg: 'SKU ซ้ำในชุดนำเข้า' }); } else seenSku.add(skuK); }
+      else if (nameK) { if (seenName.has(nameK)) { dupInFile = true; issues.push({ sev: 'info', msg: 'ชื่อซ้ำในชุดนำเข้า' }); } else seenName.add(nameK); }
+      const match = skuK ? bySku[skuK] : (nameK ? byName[nameK] : null);
+      // กัน 2 แถวชี้สินค้าเดิมตัวเดียวกัน (ตัวนึงเจอด้วย SKU อีกตัวด้วยชื่อ) → upsert ก้อนเดียวจะ conflict id ซ้ำ
+      let dupMatch = false;
+      if (match) { if (seenMatchId.has(match.id)) dupMatch = true; else seenMatchId.add(match.id); }
+      let status;
+      if (!nm) status = 'error';
+      else if (dupInFile || dupMatch) status = 'dup';
+      else if (match) status = mode === 'upsert' ? 'update' : 'dup';
+      else status = 'new';
+      return { ...r, issues, status, matchId: match?.id || null, hasWarn: issues.some(x => x.sev === 'warn') };
+    });
+    const counts = { new: 0, update: 0, dup: 0, error: 0, warn: 0, total: rows.length };
+    rows.forEach(r => { counts[r.status]++; if (r.hasWarn) counts.warn++; });
+    return { rows, counts };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assembled, mode]);
+
+  const importable = analyzed.rows.filter(r => r.status === 'new' || r.status === 'update');
+  const filtered = analyzed.rows.filter(r => statusFilter === 'all' ? true : statusFilter === 'issues' ? (r.issues.length > 0) : r.status === statusFilter);
+
+  const downloadTemplate = () => {
+    const header = IMPORT_FIELDS.map(f => f.aliases[0]).join(',');
+    const sample = ['เสื้อโปโลลายสิริกานต์ สีกรม M', '390', 'เสื้อโปโล', 'JSK01-N-M', '0885000000017', 'JSK01', 'โรงงาน A', '250'].map(csvCell).join(',');
+    downloadTextFile('tmk-import-template.csv', header + '\n' + sample);
+  };
+  const downloadReport = () => {
+    const head = ['ไฟล์', 'แถว', 'สถานะ', 'ชื่อสินค้า', 'ราคา', 'หมวด', 'SKU', 'บาร์โค้ด', 'ลาย', 'ผู้ผลิต', 'ต้นทุน', 'หมายเหตุ'];
+    const lines = [head.join(',')].concat(analyzed.rows.map(r => [r.file, r.line, IMPORT_STATUS[r.status]?.label || r.status, r.name, r.price, r.category, r.sku, r.barcode, r.design, r.supplier, r.cost || '', r.issues.map(x => x.msg).join(' | ')].map(csvCell).join(',')));
+    downloadTextFile(`tmk-import-report-${todayISO()}.csv`, lines.join('\n'));
+  };
 
   const handleImport = async () => {
-    if (busy || !fresh.length) return;
+    if (busy || !importable.length) return;
     setBusy(true);
     try {
-      const payload = fresh.map(p => ({
-        id: uid('p'), name: p.name, price: nn(p.price),
-        target_units: 0, actual_units: 0, stock_on_hand: 0, reorder_point: 0,
-        category: p.category || '', supplier: p.supplier || '', sku: p.sku || '', barcode: p.barcode || '',
-        strategy: p.design ? `ลาย: ${p.design}` : '', image_url: null, lots: [],
-        updated_at: new Date().toISOString(),
-      }));
-      // upsert เป็นก้อน — ถ้าคอลัมน์เสริมยังไม่มีใน DB ตัดออกแล้วลองใหม่ (เหมือน saveProductRow)
-      let cols = ['strategy', 'reorder_point', 'category', 'supplier', 'sku', 'barcode', 'image_url', 'lots'];
-      let send = payload;
-      for (let attempt = 0; attempt <= cols.length; attempt++) {
+      const nowISO = new Date().toISOString();
+      const payload = importable.map(r => {
+        const strategy = [r.design ? `ลาย: ${r.design}` : '', keepUnmapped && r.extra ? r.extra : ''].filter(Boolean).join(' · ');
+        if (r.status === 'update' && r.matchId) {
+          // อัปเดตเฉพาะฟิลด์ที่มีค่า — ไม่ทับด้วยค่าว่าง, ไม่แตะ lots/stock/units
+          const u = { id: r.matchId, name: r.name, updated_at: nowISO };
+          if (mapping.price) u.price = nn(r.price);
+          if (r.category) u.category = r.category;
+          if (r.supplier) u.supplier = r.supplier;
+          if (r.sku) u.sku = r.sku;
+          if (r.barcode) u.barcode = r.barcode;
+          if (strategy) u.strategy = strategy;
+          return u;
+        }
+        return { id: uid('p'), name: r.name, price: nn(r.price), target_units: 0, actual_units: 0, stock_on_hand: 0, reorder_point: 0, category: r.category || '', supplier: r.supplier || '', sku: r.sku || '', barcode: r.barcode || '', strategy, image_url: null, lots: [], updated_at: nowISO };
+      });
+      // กัน id ชนกันในก้อนเดียว (uid สุ่มสั้น) — แถวที่ id ซ้ำให้สร้างใหม่ก่อนส่ง
+      { const seen = new Set(); payload.forEach(p => { while (p.id && seen.has(p.id)) p.id = uid('p'); seen.add(p.id); }); }
+      // upsert เป็นก้อน — ตัดคอลัมน์ที่ DB ยังไม่มีแล้วลองใหม่ (budget คงที่ + โยน error สุดท้ายถ้าไม่สำเร็จ กัน "success ปลอม")
+      let cols = ['strategy', 'reorder_point', 'category', 'supplier', 'sku', 'barcode', 'image_url', 'lots', 'target_units'];
+      let send = payload, ok = false, lastError = null;
+      const maxTries = cols.length;
+      for (let attempt = 0; attempt <= maxTries; attempt++) {
         const { error } = await supabase.from('tmk_products').upsert(send);
-        if (!error) break;
+        if (!error) { ok = true; break; }
+        lastError = error;
         const target = cols.find(c => (error.message || '').includes(c));
         if (/column|schema cache|PGRST204|does not exist/i.test(error.message || '') && target) {
-          send = send.map(r => { const x = { ...r }; delete x[target]; return x; }); cols = cols.filter(c => c !== target); continue;
+          send = send.map(x => { const y = { ...x }; delete y[target]; return y; }); cols = cols.filter(c => c !== target); continue;
         }
         throw error;
       }
-      logAudit({ action: 'create', entityType: 'product', entityName: `นำเข้า ${fresh.length} สินค้า`, summary: `นำเข้าสินค้าจาก CSV/Excel ${fresh.length} รายการ`, fields: [{ label: 'นำเข้า', value: `${N(fresh.length)} รายการ` }, ...(dup ? [{ label: 'ข้ามซ้ำ', value: `${N(dup)} รายการ` }] : [])] });
+      if (!ok) throw lastError || new Error('นำเข้าไม่สำเร็จ');
+      const nNew = importable.filter(r => r.status === 'new').length, nUpd = importable.length - nNew;
+      logAudit({ action: 'create', entityType: 'product', entityName: `นำเข้า ${importable.length} สินค้า`, summary: `นำเข้าสินค้าจาก ${files.length} ไฟล์ — เพิ่มใหม่ ${nNew}${nUpd ? ` · อัปเดต ${nUpd}` : ''}`, fields: [{ label: 'เพิ่มใหม่', value: `${N(nNew)} รายการ` }, ...(nUpd ? [{ label: 'อัปเดต', value: `${N(nUpd)} รายการ` }] : []), ...(analyzed.counts.dup ? [{ label: 'ข้ามซ้ำ', value: `${N(analyzed.counts.dup)} รายการ` }] : [])] });
       window.__reload?.();
-      toast(`นำเข้าสินค้า ${fresh.length} รายการเรียบร้อย${dup ? ` (ข้ามซ้ำ ${dup})` : ''}`, 'success');
+      toast(`นำเข้าเรียบร้อย — เพิ่ม ${nNew}${nUpd ? ` · อัปเดต ${nUpd}` : ''}${analyzed.counts.dup ? ` · ข้ามซ้ำ ${analyzed.counts.dup}` : ''}`, 'success');
       onClose();
     } catch (err) {
       toast('นำเข้าไม่สำเร็จ: ' + (err.message || ''), 'error');
     } finally { setBusy(false); }
   };
 
+  const STEPS = [['upload', '1. เลือกไฟล์'], ['map', '2. จับคู่คอลัมน์'], ['preview', '3. ตรวจ & นำเข้า']];
   const footer = (<>
     <button className="btn" onClick={onClose}>ยกเลิก</button>
-    <button className="btn btn-primary" disabled={busy || !fresh.length} onClick={handleImport}><Icon name="check" /> {busy ? 'กำลังนำเข้า…' : `นำเข้า ${N(fresh.length)} รายการ`}</button>
+    {step === 'map' && <button className="btn" onClick={() => setStep('upload')}><Icon name="chevronLeft" /> ย้อนกลับ</button>}
+    {step === 'preview' && <button className="btn" onClick={() => setStep('map')}><Icon name="chevronLeft" /> ย้อนกลับ</button>}
+    {step === 'upload' && <button className="btn btn-primary" disabled={!files.length} onClick={() => setStep('map')}>ถัดไป: จับคู่คอลัมน์ <Icon name="chevronRight" /></button>}
+    {step === 'map' && <button className="btn btn-primary" disabled={!mapping.name} onClick={() => setStep('preview')}>ถัดไป: ตรวจ & พรีวิว <Icon name="chevronRight" /></button>}
+    {step === 'preview' && <button className="btn btn-primary" disabled={busy || !importable.length} onClick={handleImport}><Icon name="check" /> {busy ? 'กำลังนำเข้า…' : `นำเข้า ${N(importable.length)} รายการ`}</button>}
   </>);
 
   return (
-    <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV / Excel" sub="เพิ่มสินค้าหลายรายการเข้าแคตตาล็อกครั้งเดียว" onClose={onClose} footer={footer}>
-      <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
-        เลือกไฟล์ <b>.csv</b> หรือ <b>.xlsx/.xls</b> ที่มีหัวคอลัมน์ เช่น <b>product_name, price, type, product_code, design_key</b> (หรือ ชื่อ / ราคา / หมวด / รหัส / ลาย) — ระบบจับคู่คอลัมน์ให้อัตโนมัติ · นำเข้าเฉพาะ "ข้อมูลสินค้า" (สต็อก/ล็อตเพิ่มทีหลังที่หน้าสต็อก)
+    <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV / Excel" sub="หลายไฟล์ในครั้งเดียว · จับคู่คอลัมน์เอง · ตรวจสอบข้อมูลก่อนนำเข้า" onClose={onClose} footer={footer}>
+      <div className="segbar" style={{ marginBottom: 14 }}>
+        {STEPS.map(([id, l]) => <button key={id} className={'seg' + (step === id ? ' active' : '')} onClick={() => { if (id === 'upload' || files.length) setStep(id); }} disabled={id !== 'upload' && !files.length}>{l}</button>)}
       </div>
-      <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> เลือกไฟล์ CSV / Excel</button>
-        {fileName && <span className="cap">{fileName} · พบ {N(rows.length)} รายการ</span>}
-        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display: 'none' }} onChange={onFile} />
-      </div>
-      {rows.length > 0 && (<>
-        <div className="row" style={{ gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-          <span className="chip chip-good">เพิ่มใหม่ {N(fresh.length)}</span>
-          {dup > 0 && <span className="chip chip-warn">ข้ามซ้ำ {N(dup)}</span>}
+
+      {/* ---------- STEP 1: UPLOAD ---------- */}
+      {step === 'upload' && (<>
+        <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
+          เลือกได้หลายไฟล์ <b>.csv</b> / <b>.xlsx</b> / <b>.xls</b> พร้อมกัน — ระบบรวมให้อัตโนมัติ · จับคู่คอลัมน์ให้เอง (แก้ได้) · นำเข้าเฉพาะ "ข้อมูลสินค้า" (สต็อก/ล็อตเพิ่มทีหลังที่หน้าสต็อก)
         </div>
-        <div className="table-wrap table-sticky-first" style={{ maxHeight: 340, overflow: 'auto' }}>
+        <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-sm btn-primary" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</button>
+          <button className="btn btn-sm btn-ghost" onClick={downloadTemplate}><Icon name="external" /> ดาวน์โหลดเทมเพลต</button>
+          <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,.xlsm,.xlsb,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display: 'none' }} onChange={onFiles} />
+        </div>
+        {files.length === 0
+          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)', border: '1px dashed var(--line)', borderRadius: 'var(--r-sm)' }}>ยังไม่ได้เลือกไฟล์</div>
+          : <div style={{ display: 'grid', gap: 8 }}>
+              {files.map(f => {
+                const dataRows = Math.max(0, f.grid.length - f.headerRow - 1);
+                return (
+                  <div key={f.id} style={{ padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+                    <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600, minWidth: 0, wordBreak: 'break-all' }}><Icon name="external" /> {f.name}</span>
+                      <button className="btn btn-sm btn-ghost" onClick={() => removeFile(f.id)} title="เอาออก"><Icon name="trash" /></button>
+                    </div>
+                    <div className="row" style={{ gap: 10, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span className="cap">{N(dataRows)} แถวข้อมูล · {N(f.headers.filter(Boolean).length)} คอลัมน์</span>
+                      {f.kind === 'xlsx' && f.sheetNames.length > 1 && (
+                        <label className="cap" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>ชีต:
+                          <select className="input" style={{ width: 'auto', padding: '2px 6px' }} value={f.sheetIdx} onChange={e => changeSheet(f.id, Number(e.target.value))}>
+                            {f.sheetNames.map((s, i) => <option key={i} value={i}>{s}</option>)}
+                          </select>
+                        </label>
+                      )}
+                      <label className="cap" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>แถวหัวคอลัมน์:
+                        <input type="number" min="1" className="input num" style={{ width: 60, padding: '2px 6px' }} value={f.headerRow + 1} onChange={e => changeHeaderRow(f.id, e.target.value)} />
+                      </label>
+                      {f.recovered && <span className="chip chip-warn">แปลง encoding เป็นไทย (windows-874)</span>}
+                    </div>
+                  </div>
+                );
+              })}
+              <button className="btn btn-sm btn-ghost" onClick={() => fileRef.current?.click()} style={{ justifySelf: 'start' }}><Icon name="plus" /> เพิ่มไฟล์อีก</button>
+            </div>}
+      </>)}
+
+      {/* ---------- STEP 2: MAP COLUMNS ---------- */}
+      {step === 'map' && (<>
+        <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
+          จับคู่ "คอลัมน์ในไฟล์" → "ฟิลด์ในระบบ" — ถ้าหัวคอลัมน์ไม่ตรง เลือกเองได้ที่นี่ (ระบบเดาให้แล้ว) · ใช้กับทุกไฟล์ที่เลือก
+        </div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {IMPORT_FIELDS.map(f => {
+            const sample = assembled.find(r => r[f.key])?.[f.key];
+            return (
+              <div key={f.key} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ flex: '0 0 110px', fontWeight: 600 }}>{f.label}{f.required && <span style={{ color: 'var(--bad)' }}> *</span>}</span>
+                <select className="input" style={{ flex: '1 1 180px' }} value={mapping[f.key] || ''} onChange={e => setMapping(m => ({ ...m, [f.key]: e.target.value }))}>
+                  <option value="">— ไม่ใช้ —</option>
+                  {allHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <span className="cap" style={{ flex: '1 1 140px', color: 'var(--ink-4)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapping[f.key] ? (sample != null ? `ตัวอย่าง: ${sample}` : '(ไม่พบค่าตัวอย่าง)') : ''}</span>
+              </div>
+            );
+          })}
+        </div>
+        {(() => {
+          const usedLc = new Set(Object.values(mapping).filter(Boolean).map(h => String(h).toLowerCase()));
+          const unmapped = allHeaders.filter(h => !usedLc.has(h.toLowerCase()));
+          if (!unmapped.length) return null;
+          return (
+            <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+              <div className="cap" style={{ marginBottom: 6 }}>คอลัมน์ที่ไม่ได้จับคู่ ({N(unmapped.length)}): <b style={{ color: 'var(--ink)' }}>{unmapped.join(' · ')}</b></div>
+              <label className="row" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="checkbox" checked={keepUnmapped} onChange={e => setKeepUnmapped(e.target.checked)} />
+                <span className="cap">เก็บคอลัมน์เหล่านี้ไว้ในโน้ตของสินค้า (เผื่อใช้ภายหลัง — ไม่ทิ้งข้อมูล)</span>
+              </label>
+            </div>
+          );
+        })()}
+        {!mapping.name && <div className="cap" style={{ color: 'var(--bad)', marginTop: 10 }}>⚠️ ต้องเลือกคอลัมน์ "ชื่อสินค้า" ก่อนจึงจะไปต่อได้</div>}
+        {mapping.name && <div className="cap" style={{ marginTop: 10, color: 'var(--ink-3)' }}>พบ {N(assembled.length)} แถวจาก {files.length} ไฟล์</div>}
+      </>)}
+
+      {/* ---------- STEP 3: VALIDATE & PREVIEW ---------- */}
+      {step === 'preview' && (<>
+        <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="segbar">
+            <button className={'seg' + (mode === 'add' ? ' active' : '')} onClick={() => setMode('add')}>เพิ่มใหม่อย่างเดียว</button>
+            <button className={'seg' + (mode === 'upsert' ? ' active' : '')} onClick={() => setMode('upsert')}>เพิ่ม + อัปเดตของเดิม</button>
+          </div>
+          <button className="btn btn-sm btn-ghost" disabled={!analyzed.rows.length} onClick={downloadReport}><Icon name="external" /> ดาวน์โหลดรายงาน</button>
+        </div>
+        <div className="cap" style={{ marginBottom: 10, color: 'var(--ink-4)' }}>
+          {mode === 'upsert' ? 'โหมดอัปเดต: ถ้า SKU/ชื่อ ตรงกับสินค้าเดิม จะอัปเดตข้อมูล (ไม่แตะสต็อก/ล็อต) ที่ไม่ตรงจะเพิ่มใหม่' : 'โหมดเพิ่มอย่างเดียว: ถ้า SKU/ชื่อ ซ้ำกับของเดิม จะข้าม'}
+        </div>
+        <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+          {[['all', `ทั้งหมด ${N(analyzed.counts.total)}`], ['new', `ใหม่ ${N(analyzed.counts.new)}`], ['update', `อัปเดต ${N(analyzed.counts.update)}`], ['dup', `ซ้ำ ${N(analyzed.counts.dup)}`], ['error', `ผิดพลาด ${N(analyzed.counts.error)}`], ['issues', `มีข้อสังเกต ${N(analyzed.rows.filter(r => r.issues.length).length)}`]]
+            .map(([id, l]) => <button key={id} className={'pick' + (statusFilter === id ? ' on' : '')} onClick={() => setStatusFilter(id)}>{l}</button>)}
+        </div>
+        {analyzed.counts.error > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 8 }}>⚠️ {N(analyzed.counts.error)} แถวไม่มีชื่อสินค้า — จะถูกข้าม</div>}
+        <div className="table-wrap table-sticky-first" style={{ maxHeight: 360, overflow: 'auto' }}>
           <table className="table">
-            <thead><tr><th>ชื่อสินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th>หมวด</th><th>รหัส</th><th>ลาย</th><th></th></tr></thead>
-            <tbody>{rows.slice(0, 200).map((p, i) => { const d = isDup(p); return (
-              <tr key={i} style={{ opacity: d ? 0.45 : 1 }}>
-                <td>{p.name}</td>
-                <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
-                <td className="cap">{p.category || '—'}</td>
-                <td className="cap">{p.sku || '—'}</td>
-                <td className="cap">{p.design || '—'}</td>
-                <td className="cap" style={{ color: d ? 'var(--warn)' : 'var(--good)' }}>{d ? 'ซ้ำ' : 'ใหม่'}</td>
-              </tr>); })}</tbody>
+            <thead><tr><th>สถานะ</th><th>ชื่อสินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th>หมวด</th><th>SKU</th><th>ลาย</th><th>ข้อสังเกต</th></tr></thead>
+            <tbody>{filtered.slice(0, 300).map((r, i) => (
+              <tr key={i} style={{ opacity: r.status === 'dup' || r.status === 'error' ? 0.5 : 1 }}>
+                <td><span className={`chip ${IMPORT_STATUS[r.status]?.cls || ''}`}>{IMPORT_STATUS[r.status]?.label}</span></td>
+                <td>{r.name || <span style={{ color: 'var(--bad)' }}>(ว่าง)</span>}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{mapping.price ? B(r.price) : '—'}</td>
+                <td className="cap">{r.category || '—'}</td>
+                <td className="cap">{r.sku || '—'}</td>
+                <td className="cap">{r.design || '—'}</td>
+                <td className="cap">{r.issues.length === 0 ? <span style={{ color: 'var(--good)' }}>✓</span> : <span style={{ color: r.issues.some(x => x.sev === 'error') ? 'var(--bad)' : r.hasWarn ? 'var(--warn)' : 'var(--ink-4)' }}>{r.issues.map(x => x.msg).join(' · ')}</span>}</td>
+              </tr>))}</tbody>
           </table>
         </div>
-        {rows.length > 200 && <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>แสดง 200 แถวแรก (นำเข้าทั้งหมด {N(rows.length)})</div>}
+        {filtered.length > 300 && <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>แสดง 300 แถวแรก (กรองได้ {N(filtered.length)} แถว) — นำเข้าจริงครบทุกแถวที่ "ใหม่/อัปเดต"</div>}
+        {filtered.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 16, color: 'var(--ink-4)' }}>ไม่มีแถวในหมวดนี้</div>}
       </>)}
     </Modal>
   );
