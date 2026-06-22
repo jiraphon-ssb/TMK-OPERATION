@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, P, N, Icon, stockMeta, Avatar, Ring, MiniArea, Bars, UserIcon, SIZES, ORDER_STATUSES, barcodeSVGString } from './components.jsx';
+import { B, P, N, Icon, stockMeta, Avatar, Ring, MiniArea, Bars, UserIcon, SIZES, ORDER_STATUSES, barcodeSVGString, lotTotal, lotValue } from './components.jsx';
 import { advanceOrderStatus, Modal, mutateProductReservations } from './modals.jsx';
 import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -532,17 +532,22 @@ export function CatalogView({ sub }) {
   return <ProductsView />;
 }
 
+// ดึง "ลาย" (design) จาก strategy ที่เก็บรูป "ลาย: X" (มาจากนำเข้า CSV/Excel) — ใช้จัดกลุ่มโดยไม่ต้องเพิ่มคอลัมน์ DB
+function productDesign(p) { const m = /ลาย\s*[:：]\s*([^·|,]+)/.exec(p?.strategy || ''); return m ? m[1].trim() : ''; }
+
 function ProductsView() {
   const products = DD.products || [];
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('rank');   // rank | sold | stock | value | name
   const [filter, setFilter] = useState('all'); // all | lots | low | out
   const [cat, setCat] = useState('');           // '' = ทุกหมวด
+  const [groupDesign, setGroupDesign] = useState(false); // จัดกลุ่มตามลาย
   const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+  const hasAnyDesign = products.some(p => productDesign(p));
 
   const ql = q.trim().toLowerCase();
   let list = products.filter(p => {
-    if (ql && !`${p.name} ${p.sku || ''} ${p.barcode || ''} ${p.category || ''} ${p.supplier || ''}`.toLowerCase().includes(ql)) return false;
+    if (ql && !`${p.name} ${p.sku || ''} ${p.barcode || ''} ${p.category || ''} ${p.supplier || ''} ${productDesign(p)}`.toLowerCase().includes(ql)) return false;
     if (cat && p.category !== cat) return false;
     if (filter === 'lots' && !p.hasLots) return false;
     if (filter === 'low' && p.stock !== 'low') return false;
@@ -558,10 +563,25 @@ function ProductsView() {
   };
   list = [...list].sort(sorters[sort] || sorters.rank);
 
+  // B1: จัดกลุ่มตามลาย (design) — รวมหลายล็อต/สีของลายเดียวกัน
+  const showGroups = groupDesign && hasAnyDesign;
+  const designGroups = showGroups ? (() => {
+    const map = new Map();
+    list.forEach(p => { const d = productDesign(p) || '— ไม่ระบุลาย —'; if (!map.has(d)) map.set(d, []); map.get(d).push(p); });
+    return [...map.entries()].map(([design, items]) => ({
+      design, items,
+      noDesign: design === '— ไม่ระบุลาย —',
+      count: items.length,
+      onHand: items.reduce((a, p) => a + (p.onHand || 0), 0),
+      value: items.reduce((a, p) => a + (p.stockValue || 0), 0),
+      sold: items.reduce((a, p) => a + (p.units || 0), 0),
+    })).sort((a, b) => (a.noDesign - b.noDesign) || (b.value - a.value));
+  })() : [];
+
   const exportProductsCSV = () => {
     downloadCSV(`tmk-products-${todayISO()}.csv`, [{
-      title: 'สินค้า', cols: ['ชื่อ', 'หมวดหมู่', 'SKU', 'บาร์โค้ด', 'ผู้ผลิต', 'ราคา', 'ขายแล้ว', 'รายได้', 'คงเหลือ', 'มูลค่าสต็อก', 'จุดสั่งซ้ำ'],
-      rows: list.map(p => [p.name, p.category || '', p.sku || '', p.barcode || '', p.supplier || '', Math.round(p.price), p.units, Math.round(p.rev), p.onHand, Math.round(p.stockValue || 0), p.reorder]),
+      title: 'สินค้า', cols: ['ชื่อ', 'หมวดหมู่', 'SKU', 'บาร์โค้ด', 'ผู้ผลิต', 'ราคา', 'ต้นทุนเฉลี่ย', 'กำไร/ตัว', 'มาร์จิ้น%', 'ขายแล้ว', 'รายได้', 'คงเหลือ', 'มูลค่าสต็อก', 'จุดสั่งซ้ำ'],
+      rows: list.map(p => { const avgCost = (p.onHand > 0 && p.stockValue > 0) ? p.stockValue / p.onHand : null; const up = avgCost != null ? p.price - avgCost : null; const mp = up != null && p.price > 0 ? (up / p.price) * 100 : null; return [p.name, p.category || '', p.sku || '', p.barcode || '', p.supplier || '', Math.round(p.price), avgCost == null ? '' : Math.round(avgCost), up == null ? '' : Math.round(up), mp == null ? '' : mp.toFixed(1), p.units, Math.round(p.rev), p.onHand, Math.round(p.stockValue || 0), p.reorder]; }),
     }]);
     logAudit({ action: 'export', entityType: 'data', entityName: 'สินค้า', summary: 'ส่งออกรายการสินค้าเป็น CSV' });
     if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
@@ -569,6 +589,38 @@ function ProductsView() {
 
   const filters = [['all', 'ทั้งหมด'], ['lots', 'มีล็อต'], ['low', 'ใกล้หมด'], ['out', 'หมด']];
   const sorts = [['rank', 'ลำดับ'], ['sold', 'ขายดี'], ['stock', 'คงเหลือมาก'], ['value', 'มูลค่าสูง'], ['name', 'ชื่อ ก-ฮ']];
+
+  const renderRow = (p, i) => {
+    const sm = stockMeta(p.stock);
+    // กำไร/ตัว จากต้นทุนเฉลี่ยถ่วงน้ำหนักของสต็อกคงเหลือ (stockValue ÷ คงเหลือ) — เฉพาะสินค้าที่มีล็อต/ต้นทุน
+    const avgCost = (p.onHand > 0 && p.stockValue > 0) ? p.stockValue / p.onHand : null;
+    const unitProfit = avgCost != null ? p.price - avgCost : null;
+    const marginPct = unitProfit != null && p.price > 0 ? (unitProfit / p.price) * 100 : null;
+    return (
+      <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
+        <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
+        <td>
+          <div className="row" style={{ gap: 10 }}>
+            <span style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>
+              {p.image
+                ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{p.name}{p.category && <span className="chip" style={{ marginLeft: 6, fontWeight: 400 }}>{p.category}</span>}</div>
+              <div className="cap">{p.hasLots ? `${p.lots.length} ล็อต · รวม ${N(p.lotTotal)} ตัว · มูลค่า ${B(p.stockValue)}${p.strategy ? ' · ' + p.strategy : ''}` : (p.sku ? `SKU ${p.sku}${p.strategy ? ' · ' + p.strategy : ''}` : p.strategy)}</div>
+            </div>
+          </div>
+        </td>
+        <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
+        <td className="num" style={{ textAlign: 'right' }}>{unitProfit == null ? <span style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ color: unitProfit >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{B(unitProfit)}<span className="cap" style={{ fontWeight: 400, marginLeft: 4 }}>{P(marginPct, 0)}</span></span>}</td>
+        <td className="num" style={{ textAlign: 'right' }}>{N(p.units)}</td>
+        <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(p.rev)}</td>
+        <td className="num" style={{ textAlign: 'right', color: sm.c, fontWeight: 600 }}>{p.onHand}</td>
+        <td style={{ textAlign: 'right' }}><span className={`chip ${sm.cls}`}>{sm.label}</span></td>
+      </tr>
+    );
+  };
 
   return (
     <div className="content-inner rise">
@@ -594,41 +646,31 @@ function ProductsView() {
               <button className={'pick' + (cat === '' ? ' on' : '')} onClick={() => setCat('')}>ทุกหมวด</button>
               {categories.map(c => <button key={c} className={'pick' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
             </div>}
+            {hasAnyDesign && <div className="chips-pick"><button className={'pick' + (groupDesign ? ' on' : '')} onClick={() => setGroupDesign(v => !v)} title="รวมหลายล็อต/สีของลายเดียวกัน"><Icon name="layers" /> จัดกลุ่มตามลาย</button></div>}
           </div>
         </>)}
 
         <div className="table-wrap"><table className="table">
-          <thead><tr><th style={{ width: 34 }}>#</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th style={{ textAlign: 'right' }}>ขายแล้ว</th><th style={{ textAlign: 'right' }}>รายได้</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>สถานะ</th></tr></thead>
+          <thead><tr><th style={{ width: 34 }}>#</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th style={{ textAlign: 'right' }}>กำไร/ตัว</th><th style={{ textAlign: 'right' }}>ขายแล้ว</th><th style={{ textAlign: 'right' }}>รายได้</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>สถานะ</th></tr></thead>
           <tbody>
             {list.length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">{products.length === 0 ? 'ยังไม่มีสินค้า — กด "เพิ่มสินค้า" เพื่อเริ่ม' : 'ไม่พบสินค้าที่ตรงกับเงื่อนไข'}</td></tr>
+              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">{products.length === 0 ? 'ยังไม่มีสินค้า — กด "เพิ่มสินค้า" เพื่อเริ่ม' : 'ไม่พบสินค้าที่ตรงกับเงื่อนไข'}</td></tr>
             )}
-            {list.map((p, i) => {
-              const sm = stockMeta(p.stock);
-              return (
-                <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-                  <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
-                  <td>
-                    <div className="row" style={{ gap: 10 }}>
-                      <span style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>
-                        {p.image
-                          ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}
-                      </span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 600 }}>{p.name}{p.category && <span className="chip" style={{ marginLeft: 6, fontWeight: 400 }}>{p.category}</span>}</div>
-                        <div className="cap">{p.hasLots ? `${p.lots.length} ล็อต · รวม ${N(p.lotTotal)} ตัว · มูลค่า ${B(p.stockValue)}${p.strategy ? ' · ' + p.strategy : ''}` : (p.sku ? `SKU ${p.sku}${p.strategy ? ' · ' + p.strategy : ''}` : p.strategy)}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>{N(p.units)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(p.rev)}</td>
-                  <td className="num" style={{ textAlign: 'right', color: sm.c, fontWeight: 600 }}>{p.onHand}</td>
-                  <td style={{ textAlign: 'right' }}><span className={`chip ${sm.cls}`}>{sm.label}</span></td>
-                </tr>
-              );
-            })}
+            {showGroups
+              ? designGroups.map(g => (
+                  <React.Fragment key={g.design}>
+                    <tr>
+                      <td colSpan={8} style={{ background: 'var(--surface-2)', borderTop: '2px solid var(--line)' }}>
+                        <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
+                          <span style={{ fontWeight: 700 }}><span style={{ color: g.noDesign ? 'var(--ink-4)' : 'var(--accent)' }}><Icon name="layers" /></span> {g.noDesign ? <span style={{ color: 'var(--ink-4)', fontWeight: 600 }}>{g.design}</span> : g.design} <span className="cap" style={{ fontWeight: 400 }}>· {N(g.count)} รายการ</span></span>
+                          <span className="cap" style={{ fontWeight: 400 }}>คงเหลือ <b style={{ color: 'var(--ink)' }}>{N(g.onHand)}</b> · มูลค่า <b style={{ color: 'var(--ink)' }}>{B(g.value)}</b> · ขายแล้ว <b style={{ color: 'var(--ink)' }}>{N(g.sold)}</b></span>
+                        </div>
+                      </td>
+                    </tr>
+                    {g.items.map((p, i) => renderRow(p, i))}
+                  </React.Fragment>
+                ))
+              : list.map((p, i) => renderRow(p, i))}
           </tbody>
         </table></div>
       </div>
@@ -872,7 +914,7 @@ function SalesReportView() {
         .select('*').order('sale_date', { ascending: false }).limit(5000);
       if (cancel) return;
       if (!se && Array.isArray(sd) && sd.length) {
-        setSales(sd.map(r => ({ productId: r.product_id, productName: r.product_name, category: r.category, price: Number(r.qty) ? Number(r.amount) / Number(r.qty) : 0, date: r.sale_date, day: r.sale_date, totalQty: Number(r.qty) || 0, totalAmount: Number(r.amount) || 0, totalCost: Number(r.cost) || 0, lines: Array.isArray(r.lines) ? r.lines : [] })));
+        setSales(sd.map(r => ({ productId: r.product_id, productName: r.product_name, category: r.category, channel: r.channel || '', price: Number(r.qty) ? Number(r.amount) / Number(r.qty) : 0, date: r.sale_date, day: r.sale_date, totalQty: Number(r.qty) || 0, totalAmount: Number(r.amount) || 0, totalCost: Number(r.cost) || 0, lines: Array.isArray(r.lines) ? r.lines : [] })));
         return;
       }
       // fallback: ข้อมูลเก่าที่เก็บใน audit log (action='sale') / ตาราง tmk_sales ยังไม่มี
@@ -904,8 +946,10 @@ function SalesReportView() {
   const agg = useMemo(() => {
     const prodById = {}; (DD.products || []).forEach(p => { prodById[p.id] = p; });
     const hexByColor = {}; (DD.products || []).forEach(p => (p.lots || []).forEach(l => (l.colors || []).forEach(c => { if (c?.name && !(c.name in hexByColor)) hexByColor[c.name] = c.hex; })));
+    // A1: lookup ช่องทาง (จับคู่ข้อความอิสระใน tmk_sales.channel กับช่องทางมาตรฐาน เพื่อใช้สี/ชื่อ)
+    const chLookup = {}; (DD.channels || []).forEach(c => { if (c?.name) chLookup[c.name.trim().toLowerCase()] = { name: c.name, hex: c.hex }; if (c?.id) chLookup[String(c.id).trim().toLowerCase()] = { name: c.name, hex: c.hex }; });
     const rows = (sales || []).filter(s => inRange(s.day));
-    const byProduct = {}, bySize = {}, byColor = {}, byCategory = {}, dailyMap = {};
+    const byProduct = {}, bySize = {}, byColor = {}, byCategory = {}, byChannel = {}, dailyMap = {};
     let totalQty = 0, totalAmount = 0, totalCost = 0;
     rows.forEach(s => {
       const pid = s.productId || s.productName;
@@ -918,6 +962,12 @@ function SalesReportView() {
       const cat = (s.category || prodById[pid]?.category || 'ไม่ระบุหมวด');
       const bc = byCategory[cat] || (byCategory[cat] = { name: cat, qty: 0, amount: 0, cost: 0 });
       bc.qty += sq; bc.amount += sa; bc.cost += sc;
+      // A1: สะสมตามช่องทาง — จับคู่ชื่อช่องมาตรฐาน, ที่ไม่ตรง/ว่าง รวมเป็นกลุ่มเดียว
+      const chRaw = String(s.channel || '').trim();
+      const chMatch = chRaw ? chLookup[chRaw.toLowerCase()] : null;
+      const chKey = chMatch ? chMatch.name : (chRaw || '__none__');
+      const ch = byChannel[chKey] || (byChannel[chKey] = { key: chKey, name: chMatch ? chMatch.name : (chRaw || 'ขายตรง / ไม่ระบุช่องทาง'), hex: chMatch?.hex || (chRaw ? 'var(--ink-3)' : 'var(--ink-4)'), known: !!chMatch, none: !chRaw, qty: 0, amount: 0, cost: 0 });
+      ch.qty += sq; ch.amount += sa; ch.cost += sc;
       const dm = dailyMap[s.day] || (dailyMap[s.day] = { qty: 0, amount: 0 });
       dm.qty += sq; dm.amount += sa;
       s.lines.forEach(l => { const q = Number(l.qty) || 0; if (l.size) bySize[l.size] = (bySize[l.size] || 0) + q; if (l.color) byColor[l.color] = (byColor[l.color] || 0) + q; });
@@ -928,6 +978,9 @@ function SalesReportView() {
     const sizeRank = SIZES.filter(s => bySize[s] > 0).map(s => ({ label: s, qty: bySize[s] }));
     const colorRank = Object.entries(byColor).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
     const catRank = Object.values(byCategory).sort((a, b) => b.amount - a.amount);
+    const channelRank = Object.values(byChannel).sort((a, b) => b.amount - a.amount);
+    const maxChannelAmt = Math.max(1, ...channelRank.map(x => x.amount));
+    const channelKnownCount = channelRank.filter(c => !c.none).length;
     const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
     const maxColor = Math.max(1, ...colorRank.map(x => x.qty));
     const dailyArr = Object.keys(dailyMap).sort().map(day => ({ day, ...dailyMap[day] }));
@@ -950,17 +1003,58 @@ function SalesReportView() {
     const abcCount = { A: abc.filter(x => x.cls === 'A').length, B: abc.filter(x => x.cls === 'B').length, C: abc.filter(x => x.cls === 'C').length };
     const _todayStr = todayISO();
     const daysSince = (iso) => { if (!iso) return null; const a = new Date(iso + 'T00:00:00'), b = new Date(_todayStr + 'T00:00:00'); return Math.max(0, Math.round((b - a) / 86400000)); };
+    // rank3: จำนวนวันในช่วงที่เลือก → ใช้หาร velocity (ขาย/วัน). 'all' = นับจากวันที่มีบิลแรกถึงวันนี้
+    // 'month' ใส่พื้นขั้นต่ำ 7 วัน กัน velocity พุ่งช่วงต้นเดือน (วันที่ 1–6) แล้วเตือน "ต้องสั่งด่วน" หลอก
+    const rangeDays = range === 'd90' ? 90
+      : range === 'month' ? Math.max(7, Number(_todayStr.slice(8, 10)))
+      : (() => { const ds = Object.keys(dailyMap).sort(); if (!ds.length) return 1; const a = new Date(ds[0] + 'T00:00:00'), b = new Date(_todayStr + 'T00:00:00'); return Math.max(1, Math.round((b - a) / 86400000) + 1); })();
     const aging = (DD.products || []).filter(p => (p.onHand || 0) > 0).map(p => {
       const sold = byProduct[p.id]?.qty || 0;
-      const turnover = (p.onHand || 0) > 0 ? sold / p.onHand : 0;
-      return { p, age: daysSince(p.oldestLotDate), onHand: p.onHand || 0, turnover };
-    }).sort((a, b) => (b.age || 0) - (a.age || 0));
+      const onHand = p.onHand || 0;
+      const turnover = onHand > 0 ? sold / onHand : 0;
+      const velocity = sold / rangeDays; // ตัว/วัน ในช่วงที่เลือก
+      const daysLeft = velocity > 0 ? onHand / velocity : null; // ขายหมดในกี่วัน (null = ไม่มีการขายในช่วงนี้)
+      const urgent = daysLeft != null && daysLeft <= 30; // ใกล้หมดก่อน lead time ผลิต
+      return { p, age: daysSince(p.oldestLotDate), onHand, turnover, velocity, daysLeft, urgent };
+    }).sort((a, b) => {
+      // เรียง: ต้องสั่งด่วนขึ้นก่อน (daysLeft น้อยสุด) → แล้วค่อยเรียงตามอายุ
+      if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
+      if (a.urgent && b.urgent) return (a.daysLeft || 0) - (b.daysLeft || 0);
+      return (b.age || 0) - (a.age || 0);
+    });
+    const urgentCount = aging.filter(a => a.urgent).length;
+    // rank5: Dead stock — แบ่งมูลค่าต้นทุนที่จม "ต่อล็อต" ตามอายุของล็อตนั้น (ไม่ยัดทั้งก้อนไปที่ล็อตเก่าสุด)
+    const ageBuckets = [
+      { label: '0–30 วัน', min: 0, max: 30, count: 0, value: 0, tone: 'var(--good)' },
+      { label: '31–90 วัน', min: 31, max: 90, count: 0, value: 0, tone: 'var(--ink)' },
+      { label: '91–180 วัน', min: 91, max: 180, count: 0, value: 0, tone: 'var(--warn)' },
+      { label: '180+ วัน', min: 181, max: Infinity, count: 0, value: 0, tone: 'var(--bad)' },
+    ];
+    let stuckValue = 0, unknownValue = 0, unknownCount = 0; // 91+ วัน / ล็อตไม่มีวันที่
+    (DD.products || []).filter(p => (p.onHand || 0) > 0).forEach(p => {
+      const lots = Array.isArray(p.lots) ? p.lots : [];
+      if (!lots.length) return; // ไม่มีล็อต = ไม่มีต้นทุน → ไม่นับมูลค่าจม
+      lots.forEach(l => {
+        if (lotTotal(l) <= 0) return; // ล็อตที่ขายหมดแล้ว ไม่มีของจม
+        const val = lotValue(l);
+        const age = daysSince(l.date);
+        if (age == null) { unknownValue += val; unknownCount++; return; }
+        const b = ageBuckets.find(x => age >= x.min && age <= x.max) || ageBuckets[3];
+        b.count++; b.value += val;
+        if (age >= 91) stuckValue += val;
+      });
+    });
+    const deadStock = (DD.products || []).filter(p => (p.onHand || 0) > 0 && (byProduct[p.id]?.qty || 0) === 0)
+      .map(p => ({ p, onHand: p.onHand || 0, value: p.stockValue || 0, age: daysSince(p.oldestLotDate) }))
+      .sort((a, b) => (b.value - a.value) || ((b.age || 0) - (a.age || 0)));
+    const deadValue = deadStock.reduce((a, d) => a + d.value, 0);
+    const totalStockCost = ageBuckets.reduce((a, b) => a + b.value, 0) + unknownValue;
     return { prodById, hexByColor, rows, byProduct, totalQty, totalAmount, totalCost, totalProfit, margin,
-             productRank, sizeRank, colorRank, catRank, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging };
+             productRank, sizeRank, colorRank, catRank, channelRank, maxChannelAmt, channelKnownCount, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging, urgentCount, ageBuckets, stuckValue, unknownValue, unknownCount, deadStock, deadValue, totalStockCost };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- DD.products เป็น mutable global → ใช้ version proxy
   }, [sales, range, version]);
   const { prodById, hexByColor, rows, totalQty, totalAmount, totalCost, totalProfit, margin,
-          productRank, sizeRank, colorRank, catRank, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging } = agg;
+          productRank, sizeRank, colorRank, catRank, channelRank, maxChannelAmt, channelKnownCount, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging, urgentCount, ageBuckets, stuckValue, unknownValue, unknownCount, deadStock, deadValue, totalStockCost } = agg;
   const dailyLabel = (day) => { const [, m, d] = day.split('-'); return `${Number(d)}/${Number(m)}`; };
   // กราฟมูลค่าคลังตามเวลา
   const snapVals = (snaps || []).map(s => Number(s.value) || 0);
@@ -977,9 +1071,12 @@ function SalesReportView() {
       { title: 'ไซส์ขายดี', cols: ['ไซส์', 'จำนวน'], rows: sizeRank.map(s => [s.label, s.qty]) },
       { title: 'สีขายดี', cols: ['สี', 'จำนวน'], rows: colorRank.map(c => [c.name, c.qty]) },
       { title: 'กำไรตามหมวดหมู่', cols: ['หมวดหมู่', 'ขายแล้ว', 'ยอดเงิน', 'กำไร'], rows: catRank.map(c => [c.name, c.qty, Math.round(c.amount), Math.round(c.amount - c.cost)]) },
+      { title: 'ยอดขายแยกช่องทาง', cols: ['ช่องทาง', 'ขายแล้ว', 'ยอดเงิน', 'สัดส่วน%', 'กำไร'], rows: channelRank.map(c => [c.name, c.qty, Math.round(c.amount), totalAmount > 0 ? ((c.amount / totalAmount) * 100).toFixed(1) : '0', Math.round(c.amount - c.cost)]) },
       { title: 'ยอดขายรายวัน', cols: ['วันที่', 'จำนวน', 'ยอดเงิน'], rows: dailyArr.map(d => [d.day, d.qty, Math.round(d.amount)]) },
       { title: 'ABC analysis', cols: ['กลุ่ม', 'สินค้า', 'ยอดเงิน', 'สะสม%'], rows: abc.map(p => [p.cls, p.name, Math.round(p.amount), p.cumPct.toFixed(1)]) },
-      { title: 'อายุสต็อก/หมุนเวียน', cols: ['สินค้า', 'คงเหลือ', 'อายุ(วัน)', 'turnover'], rows: aging.map(({ p, age, onHand, turnover }) => [p.name, onHand, age == null ? '' : age, turnover.toFixed(2)]) },
+      { title: 'อายุสต็อก/ความเร็วขาย', cols: ['สินค้า', 'คงเหลือ', 'ขาย/วัน', 'พออีก(วัน)', 'อายุ(วัน)', 'turnover', 'ต้องสั่งด่วน'], rows: aging.map(({ p, age, onHand, turnover, velocity, daysLeft, urgent }) => [p.name, onHand, velocity > 0 ? velocity.toFixed(2) : '0', daysLeft == null ? '' : Math.round(daysLeft), age == null ? '' : age, turnover.toFixed(2), urgent ? 'ใช่' : '']) },
+      { title: 'มูลค่าจมตามอายุสต็อก', cols: ['ช่วงอายุ', 'จำนวนล็อต', 'มูลค่าต้นทุน'], rows: [...ageBuckets.map(b => [b.label, b.count, Math.round(b.value)]), ...(unknownCount > 0 ? [['ไม่ทราบอายุ', unknownCount, Math.round(unknownValue)]] : [])] },
+      { title: 'สินค้าค้าง (ขาย 0 แต่มีสต็อก)', cols: ['สินค้า', 'คงเหลือ', 'อายุ(วัน)', 'มูลค่าจม'], rows: deadStock.map(({ p, onHand, value, age }) => [p.name, onHand, age == null ? '' : age, Math.round(value)]) },
       { title: 'มูลค่าคลังตามเวลา', cols: ['วันที่', 'จำนวน', 'มูลค่า'], rows: (snaps || []).map(s => [s.date, s.units, Math.round(Number(s.value) || 0)]) },
       { title: 'ประวัติการขาย', cols: ['วันที่', 'สินค้า', 'รายการ', 'จำนวน', 'ยอดเงิน', 'กำไร'], rows: rows.map(s => [s.day, s.productName, s.lines.map(l => `${l.color} ${l.size}x${l.qty}`).join('; '), Number(s.totalQty) || 0, Math.round(Number(s.totalAmount) || 0), Math.round((Number(s.totalAmount) || 0) - (Number(s.totalCost) || 0))]) },
     ];
@@ -1041,6 +1138,30 @@ function SalesReportView() {
             <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน (8 เดือนล่าสุด)</div>
             {monthlyArr.length ? <Bars data={monthlyArr} h={140} color="var(--accent-2)" labelKey="m" valueKey="rev" fmt={B} /> : <div className="cap" style={{ color: 'var(--ink-4)', padding: '30px 0', textAlign: 'center' }}>ยังไม่มีข้อมูล</div>}
           </div>
+        </div>
+
+        {/* A1: ยอดขายแยกช่องทาง */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row between" style={{ marginBottom: 14 }}>
+            <div className="eyebrow">ยอดขายแยกช่องทาง</div>
+            <div className="cap">{channelKnownCount > 0 ? `${channelKnownCount} ช่องทาง` : 'ยังไม่ได้ระบุช่องทาง'}</div>
+          </div>
+          {channelKnownCount === 0 ? (
+            <div className="cap" style={{ color: 'var(--ink-4)' }}>ออเดอร์ยังไม่ได้ระบุช่องทาง — เลือก/พิมพ์ช่องทางตอนเปิดออเดอร์ จะเห็นยอดแยก Shopee / Lazada / Facebook / LINE / TikTok / หน้าร้าน ฯลฯ</div>
+          ) : (
+            <div className="table-wrap"><table className="table">
+              <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ขาย</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ minWidth: 130 }}>สัดส่วน</th><th style={{ textAlign: 'right' }}>กำไร</th></tr></thead>
+              <tbody>{channelRank.map(c => { const share = totalAmount > 0 ? (c.amount / totalAmount) * 100 : 0; const pf = c.amount - c.cost; return (
+                <tr key={c.key}>
+                  <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><span style={{ width: 11, height: 11, borderRadius: 3, background: c.hex, border: '1px solid var(--line)', flexShrink: 0 }} /><span style={{ fontWeight: 600, color: c.none ? 'var(--ink-4)' : 'var(--ink)' }}>{c.name}</span></div></td>
+                  <td className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.amount)}</td>
+                  <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.amount / maxChannelAmt) * 100}%`, background: c.hex }} /></div><span className="num cap" style={{ width: 36, textAlign: 'right' }}>{P(share, 0)}</span></div></td>
+                  <td className="num" style={{ textAlign: 'right', color: pf >= 0 ? 'var(--good)' : 'var(--bad)' }}>{c.cost > 0 ? B(pf) : '—'}</td>
+                </tr>
+              ); })}</tbody>
+            </table></div>
+          )}
         </div>
 
         {/* สินค้าขายดี + กำไร */}
@@ -1143,21 +1264,60 @@ function SalesReportView() {
             )}
           </div>
           <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>อายุสต็อก / การหมุนเวียน</div>
+            <div className="row between" style={{ marginBottom: 14 }}>
+              <div className="eyebrow">อายุสต็อก / ความเร็วขาย</div>
+              {urgentCount > 0 && <span className="chip chip-bad" style={{ fontWeight: 700 }}>ต้องสั่งด่วน {N(urgentCount)}</span>}
+            </div>
             {aging.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีสินค้าคงเหลือ</div> : (
               <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
-                <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>เหลือ</th><th style={{ textAlign: 'right' }}>อายุ (วัน)</th><th style={{ textAlign: 'right' }}>turnover</th></tr></thead>
-                <tbody>{aging.slice(0, 30).map(({ p, age, onHand, turnover }) => (
+                <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>เหลือ</th><th style={{ textAlign: 'right' }}>ขาย/วัน</th><th style={{ textAlign: 'right' }}>พออีก</th><th style={{ textAlign: 'right' }}>อายุ</th></tr></thead>
+                <tbody>{aging.slice(0, 30).map(({ p, age, onHand, velocity, daysLeft, urgent }) => (
                   <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontWeight: 600 }}>{p.name}</td>
+                    <td><span style={{ fontWeight: 600 }}>{p.name}</span>{urgent && <span className="chip chip-bad" style={{ marginLeft: 6 }}>สั่งด่วน</span>}</td>
                     <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
-                    <td className="num" style={{ textAlign: 'right', color: age != null && age > 90 ? 'var(--bad)' : age != null && age > 60 ? 'var(--warn)' : 'var(--ink)', fontWeight: age != null && age > 60 ? 700 : 400 }}>{age == null ? '—' : age}</td>
-                    <td className="num" style={{ textAlign: 'right', color: turnover >= 1 ? 'var(--good)' : turnover > 0 ? 'var(--warn)' : 'var(--ink-4)' }}>{turnover ? turnover.toFixed(2) : '—'}</td>
+                    <td className="num" style={{ textAlign: 'right', color: velocity > 0 ? 'var(--ink)' : 'var(--ink-4)' }}>{velocity > 0 ? velocity.toFixed(velocity < 1 ? 2 : 1) : '—'}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: daysLeft != null && daysLeft <= 30 ? 700 : 400, color: daysLeft == null ? 'var(--ink-4)' : daysLeft <= 14 ? 'var(--bad)' : daysLeft <= 30 ? 'var(--warn)' : 'var(--good)' }}>{daysLeft == null ? '—' : daysLeft >= 999 ? '999+' : `${Math.round(daysLeft)} วัน`}</td>
+                    <td className="num" style={{ textAlign: 'right', color: age != null && age > 90 ? 'var(--bad)' : age != null && age > 60 ? 'var(--warn)' : 'var(--ink-3)' }}>{age == null ? '—' : `${age}d`}</td>
                   </tr>
                 ))}</tbody>
               </table></div>
             )}
           </div>
+        </div>
+
+        {/* rank5: Dead stock / มูลค่าจมตามอายุ */}
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <div className="eyebrow">สินค้าค้าง / มูลค่าจมตามอายุสต็อก</div>
+            <div className="cap">ต้นทุนในคลังรวม <b style={{ color: 'var(--ink)' }}>{B(totalStockCost)}</b> · เสี่ยงจม (91+ วัน) <b style={{ color: stuckValue > 0 ? 'var(--bad)' : 'var(--ink-3)' }}>{B(stuckValue)}</b>{unknownValue > 0 && <> · ไม่ทราบอายุ <b style={{ color: 'var(--ink-3)' }}>{B(unknownValue)}</b></>}</div>
+          </div>
+          <div className="grid g4" style={{ gap: 10, marginBottom: deadStock.length ? 14 : 0 }}>
+            {ageBuckets.map(b => (
+              <div key={b.label} style={{ padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+                <div className="cap" style={{ color: 'var(--ink-3)' }}>{b.label}</div>
+                <div className="num" style={{ fontSize: 17, fontWeight: 700, color: b.tone }}>{B(b.value)}</div>
+                <div className="cap" style={{ color: 'var(--ink-4)' }}>{N(b.count)} ล็อต</div>
+              </div>
+            ))}
+          </div>
+          {deadStock.length > 0 && (<>
+            <div className="row between" style={{ marginBottom: 8 }}>
+              <div className="cap" style={{ color: 'var(--ink-3)' }}>ขายไม่ออกในช่วงนี้ (ขาย 0) — มูลค่าจม {B(deadValue)}</div>
+              <span className="chip chip-bad">{N(deadStock.length)} รายการ</span>
+            </div>
+            <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}><table className="table">
+              <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>อายุ</th><th style={{ textAlign: 'right' }}>มูลค่าจม</th></tr></thead>
+              <tbody>{deadStock.slice(0, 30).map(({ p, onHand, value, age }) => (
+                <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
+                  <td style={{ fontWeight: 600 }}>{p.name}{p.category && <span className="chip" style={{ marginLeft: 6, fontWeight: 400 }}>{p.category}</span>}</td>
+                  <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
+                  <td className="num" style={{ textAlign: 'right', color: age != null && age > 90 ? 'var(--bad)' : 'var(--ink-3)' }}>{age == null ? '—' : `${age}d`}</td>
+                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--bad)' }}>{B(value)}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            {deadStock.length > 30 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>แสดง 30 รายการมูลค่าจมสูงสุด จากทั้งหมด {N(deadStock.length)} รายการ</div>}
+          </>)}
         </div>
 
         {/* ประวัติการขายล่าสุด */}

@@ -1211,6 +1211,7 @@ export function SellModal({ data, onClose }) {
   const [productId, setProductId] = useState(data?.id || (lotProducts.length === 1 ? lotProducts[0].id : ''));
   const [lines, setLines] = useState([emptySellLine()]);
   const [date, setDate] = useState(todayISO());
+  const [channel, setChannel] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
@@ -1301,7 +1302,7 @@ export function SellModal({ data, onClose }) {
     const { soldTotal, soldCost, clamped, auditFields, saleLines } = captured;
     try {
       // บันทึกการขายลงตารางจริง (tmk_sales) — รายงานอ่านจากตารางนี้ (ไม่พึ่ง audit log อย่างเดียว)
-      try { await supabase.from('tmk_sales').insert({ id: uid('sale-sell-' + product.id + '-'), sale_date: date || todayISO(), product_id: product.id, product_name: product.name, category: product.category || '', channel: '', qty: soldTotal, amount: soldTotal * (Number(product.price) || 0), cost: soldCost, source: 'sell', lines: saleLines }); } catch (e) { console.warn('tmk_sales:', e?.message); }
+      try { await supabase.from('tmk_sales').insert({ id: uid('sale-sell-' + product.id + '-'), sale_date: date || todayISO(), product_id: product.id, product_name: product.name, category: product.category || '', channel: channel.trim(), qty: soldTotal, amount: soldTotal * (Number(product.price) || 0), cost: soldCost, source: 'sell', lines: saleLines }); } catch (e) { console.warn('tmk_sales:', e?.message); }
       logAudit({
         action: 'sale', entityType: 'product', entityName: product.name,
         summary: `ขาย "${product.name}" ${soldTotal} ตัว (ตัดสต็อก)${note ? ' — ' + note : ''}`,
@@ -1311,8 +1312,8 @@ export function SellModal({ data, onClose }) {
           { label: 'วันที่', value: thaiDate(date) || date || '—' },
           ...auditFields,
         ],
-        // machine-readable สำหรับหน้า "รายงานขาย"
-        data: { productId: product.id, productName: product.name, category: product.category || '', price: Number(product.price) || 0, date: date || todayISO(), totalQty: soldTotal, totalAmount: soldTotal * (Number(product.price) || 0), totalCost: soldCost, lines: saleLines },
+        // machine-readable สำหรับหน้า "รายงานขาย" (fallback ถ้า insert tmk_sales ล้ม) — เก็บ channel ด้วย กันแยกช่องทางหาย
+        data: { productId: product.id, productName: product.name, category: product.category || '', channel: channel.trim(), price: Number(product.price) || 0, date: date || todayISO(), totalQty: soldTotal, totalAmount: soldTotal * (Number(product.price) || 0), totalCost: soldCost, lines: saleLines },
       });
       window.__reload?.();
       toast(`ตัดสต็อก ${soldTotal} ตัวเรียบร้อย${clamped ? ' (บางรายการปรับตามคงเหลือ)' : ''}`, clamped ? 'warn' : 'success');
@@ -1387,7 +1388,13 @@ export function SellModal({ data, onClose }) {
 
             <div className="field-row" style={{ marginTop: 4 }}>
               <div className="field" style={{ marginBottom: 0 }}><label>วันที่ขาย</label><input type="date" className="input" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ลูกค้า / ช่องทาง" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง (ไม่บังคับ)</label>
+                <select className="input" value={channel} onChange={e => { setTouched(true); setChannel(e.target.value); }}>
+                  <option value="">— ไม่ระบุ —</option>
+                  {(MD.channels || []).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ชื่อลูกค้า" /></div>
             </div>
 
             <div className="row between" style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
@@ -2396,7 +2403,10 @@ export function OrderModal({ data, onClose }) {
 
           <div className="field-row" style={{ marginTop: 4 }}>
             <div className="field" style={{ marginBottom: 0 }}><label>ส่วนลด (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={discount} onChange={e => _t(setDiscount)(e.target.value)} placeholder="0" /></div>
-            <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง</label><input className="input" value={channel} onChange={e => _t(setChannel)(e.target.value)} placeholder="เช่น LINE / Shopee / หน้าร้าน" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง</label>
+              <input className="input" list="order-channel-list" value={channel} onChange={e => _t(setChannel)(e.target.value)} placeholder="เช่น LINE / Shopee / หน้าร้าน" />
+              <datalist id="order-channel-list">{(MD.channels || []).map(c => <option key={c.id} value={c.name} />)}</datalist>
+            </div>
           </div>
           <div className="field-row">
             <div className="field" style={{ marginBottom: 0 }}><label>เลขแทร็กกิ้ง</label><input className="input" value={trackingNo} onChange={e => _t(setTrackingNo)(e.target.value)} placeholder="(ใส่ตอนส่ง)" /></div>
