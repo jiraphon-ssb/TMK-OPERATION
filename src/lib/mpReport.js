@@ -36,6 +36,11 @@ export function ymOf(d) {
   const m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(d || ''));
   return m ? `${m[3]}-${String(m[2]).padStart(2, '0')}` : '';
 }
+// วันที่ระดับวัน ISO yyyy-mm-dd (จาก dd/mm/yyyy) — day-grain ปลดล็อก cohort/forecast/pacing
+export function isoDate(d) {
+  const m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(d || ''));
+  return m ? `${m[3]}-${String(m[2]).padStart(2, '0')}-${String(m[1]).padStart(2, '0')}` : null;
+}
 
 // ---- ช่องทาง 7 ค่า (ตาม norm_channel ใน pipeline.py) ----
 export function normChannel(marketplace, contact, userCreated = '', province = '') {
@@ -159,14 +164,14 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       const o = shipnity[r] || [];
       const ono = String(o[c.order] ?? '').trim();
       if (!ono) continue;
-      if (String(o[c.cancel] ?? '').trim().toLowerCase() === 'true') continue; // ตัดยกเลิก
+      const cancelled = String(o[c.cancel] ?? '').trim().toLowerCase() === 'true';
       const om = ymOf(o[c.date]), cm = ymOf(o[c.custDate]);
       const q = mpNum(o[c.qty]); const user = String(o[c.user] ?? '').trim();
       rows.push({
-        order_no: ono, source: 'shipnity',
+        order_no: ono, source: 'shipnity', status: cancelled ? 'cancelled' : 'active',
         channel: normChannel(o[c.mkt], o[c.contact], o[c.user], o[c.prov]),
         marketplace_id: String(o[c.mid] ?? '').trim(),
-        order_month: om,
+        order_month: om, order_date: isoDate(o[c.date]),
         salesperson: (user && user !== '-') ? user : '(อัตโนมัติ/มาร์เก็ตเพลส)',
         province: String(o[c.prov] ?? '').trim(),
         payment_type: payShipnity(o[c.bank]),
@@ -190,15 +195,15 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       const row = tiktok[r] || [];
       const oid = String(row[c.oid] ?? '').trim();
       if (!oid) continue;
-      if (String(row[c.status] ?? '').trim() === 'ยกเลิกแล้ว') continue;
-      if (!byOrder.has(oid)) byOrder.set(oid, { qty: 0, sales: 0, created: row[c.created], pay: row[c.pay], prov: row[c.prov] });
+      const cancelled = String(row[c.status] ?? '').trim() === 'ยกเลิกแล้ว';
+      if (!byOrder.has(oid)) byOrder.set(oid, { qty: 0, sales: 0, created: row[c.created], pay: row[c.pay], prov: row[c.prov], cancelled });
       const g = byOrder.get(oid); g.qty += mpNum(row[c.qty]); g.sales += mpNum(row[c.sub]);
     }
     for (const [oid, g] of byOrder) {
       const om = ymOf(g.created);
       rows.push({
-        order_no: oid, source: 'tiktok', channel: 'TikTok', marketplace_id: oid,
-        order_month: om, salesperson: '(TikTok)', province: String(g.prov ?? '').trim(),
+        order_no: oid, source: 'tiktok', status: g.cancelled ? 'cancelled' : 'active', channel: 'TikTok', marketplace_id: oid,
+        order_month: om, order_date: isoDate(g.created), salesperson: '(TikTok)', province: String(g.prov ?? '').trim(),
         payment_type: payTiktok(g.pay), customer_type: 'ไม่ทราบ (TikTok)',
         customer_code: '', customer_name: '', customer_social: '', cust_total_orders: 0, cust_total_spent: 0,
         qty_band: qtyBand(g.qty), qty: g.qty, sales: g.sales, cost: 0,
@@ -289,11 +294,13 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
 
 /* ============================ สรุป/รวมยอด (สำหรับ preview reconciliation) ============================ */
 export function summarize(master, sku) {
-  const m = master || [], s = sku || [];
+  const all = master || [], s = sku || [];
+  const m = all.filter(x => x.status !== 'cancelled'); // ยอดขายนับเฉพาะ active
   const sum = (arr, k) => arr.reduce((a, x) => a + (Number(x[k]) || 0), 0);
   const matched = s.filter(x => x.design);
   return {
     orders: m.length,
+    cancelled: all.length - m.length,
     sales: Math.round(sum(m, 'sales')),
     qty: sum(m, 'qty'),
     profit: Math.round(sum(m, 'profit')),

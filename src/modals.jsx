@@ -1537,7 +1537,7 @@ export function MpImportModal({ onClose, onDone }) {
     try {
       const { master, sku } = result;
       const batch = 'imp-' + Date.now().toString(36);
-      const omByOrder = {}; master.forEach(m => { omByOrder[m.order_no] = m.order_month; });
+      const omByOrder = {}, odByOrder = {}; master.forEach(m => { omByOrder[m.order_no] = m.order_month; odByOrder[m.order_no] = m.order_date || null; });
       const months = master.map(m => m.order_month).filter(Boolean);
       const overall = months.sort((a, b) => months.filter(x => x === b).length - months.filter(x => x === a).length)[0] || '';
       // 1) upsert orders (id = source:order_no)
@@ -1546,13 +1546,18 @@ export function MpImportModal({ onClose, onDone }) {
       // 2) ลบ sku ของ order ที่จะนำเข้า (แยก source) แล้ว insert ใหม่ — กันบรรทัดเก่าค้าง
       const bySrc = {}; sku.forEach(s => { (bySrc[s.source] = bySrc[s.source] || new Set()).add(s.order_no); });
       for (const src in bySrc) { for (const ids of mpChunk([...bySrc[src]], 150)) { const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', src).in('order_no', ids); if (error) throw error; } }
-      const sRows = sku.map((s, i) => ({ id: `${s.source}:${s.order_no}:${i}`, ...s, order_month: omByOrder[s.order_no] || overall, import_batch: batch }));
+      const sRows = sku.map((s, i) => ({ id: `${s.source}:${s.order_no}:${i}`, ...s, order_month: omByOrder[s.order_no] || overall, order_date: odByOrder[s.order_no] || null, import_batch: batch }));
       for (const ch of mpChunk(sRows, 500)) { const { error } = await supabase.from('tmk_mp_skus').insert(ch); if (error) throw error; }
+      // 3) ledger การนำเข้า (ไม่บล็อกถ้าตารางยังไม่มี)
+      try {
+        const chans = [...new Set(master.map(m => m.channel))].join(', ');
+        await supabase.from('tmk_mp_import_batches').insert({ id: batch, source_files: files.map(f => f.name).join(', '), row_orders: master.length, row_skus: sku.length, sales_total: result.sum.sales, qty_total: result.sum.qty, channels: chans, month_span: overall, status: 'active' });
+      } catch { /* ledger optional */ }
       logAudit({ action: 'create', entityType: 'data', entityName: 'รายงานรวมข้ามช่อง', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }] });
       toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} รายการ SKU`, 'success');
       onDone?.(); onClose();
     } catch (err) {
-      const msg = /relation .* does not exist|tmk_mp_/i.test(err?.message || '') ? 'ยังไม่ได้สร้างตาราง — รัน migration 20260622-mp-report.sql ก่อน' : (err.message || '');
+      const msg = /relation .* does not exist|tmk_mp_|column .* does not exist|schema cache|PGRST204/i.test(err?.message || '') ? 'ตาราง/คอลัมน์ยังไม่ครบ — รัน migration ล่าสุด (20260623-mp-foundation.sql) ใน Supabase ก่อน' : (err.message || '');
       toast('บันทึกไม่สำเร็จ: ' + msg, 'error');
     } finally { setSaving(false); }
   };

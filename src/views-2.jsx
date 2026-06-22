@@ -528,6 +528,8 @@ function MpReportView() {
   const [skus, setSkus] = useState([]);
   const [err, setErr] = useState('');
   const [month, setMonth] = useState('all');
+  const [compare, setCompare] = useState('none'); // none | mom | yoy
+  const [chMode, setChMode] = useState('sales'); // sales | profit (M0.5 toggle)
   const [tab, setTab] = useState('overview'); // overview | customers
   const [importOpen, setImportOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -547,8 +549,15 @@ function MpReportView() {
   }, [reloadKey]);
 
   const months = useMemo(() => [...new Set((orders || []).map(o => o.order_month).filter(Boolean))].sort().reverse(), [orders]);
-  const fo = useMemo(() => (orders || []).filter(o => month === 'all' || o.order_month === month), [orders, month]);
+  const activeOrders = useMemo(() => (orders || []).filter(o => o.status !== 'cancelled'), [orders]);
+  const fo = useMemo(() => activeOrders.filter(o => month === 'all' || o.order_month === month), [activeOrders, month]);
   const fs = useMemo(() => (skus || []).filter(s => month === 'all' || s.order_month === month), [skus, month]);
+  // M0.2 เทียบงวด: KPI ของเดือนเทียบ (เดือนก่อน / ปีก่อน)
+  const prevMonthKey = (mk) => { const [y, m] = String(mk).split('-').map(Number); if (!y) return ''; const d = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; return d; };
+  const yoyMonthKey = (mk) => { const [y, m] = String(mk).split('-').map(Number); return y ? `${y - 1}-${String(m).padStart(2, '0')}` : ''; };
+  const kpisFor = (mk) => { const r = activeOrders.filter(o => o.order_month === mk); const s = r.reduce((a, x) => a + (Number(x.sales) || 0), 0); return { orders: r.length, sales: s, qty: r.reduce((a, x) => a + (Number(x.qty) || 0), 0), profit: r.reduce((a, x) => a + (Number(x.profit) || 0), 0), aov: r.length ? s / r.length : 0 }; };
+  const cmpKey = compare === 'mom' ? prevMonthKey(month) : compare === 'yoy' ? yoyMonthKey(month) : '';
+  const cmpKpis = (compare !== 'none' && month !== 'all' && cmpKey) ? kpisFor(cmpKey) : null;
 
   const agg = useMemo(() => {
     const sum = (arr, k) => arr.reduce((a, x) => a + (Number(x[k]) || 0), 0);
@@ -565,6 +574,12 @@ function MpReportView() {
       byDesign: grp(fs, 'design', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ').sort((a, b) => b.qty - a.qty),
       bySize: grp(fs, 'size', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ'),
       byColor: grp(fs, 'color', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ').sort((a, b) => b.qty - a.qty),
+      // M0.5 กำไรสุทธิต่อช่อง (หลังค่าธรรมเนียม)
+      byChannelFull: (() => {
+        const o = {};
+        fo.forEach(x => { const k = x.channel || 'ไม่ระบุ'; if (!o[k]) o[k] = { name: k, count: 0, sales: 0, cost: 0, fee: 0, net: 0, profit: 0, qty: 0 }; const c = o[k]; c.count++; c.sales += Number(x.sales) || 0; c.cost += Number(x.cost) || 0; c.fee += Number(x.mkt_commission) || 0; c.net += Number(x.mkt_net_income) || 0; c.profit += Number(x.profit) || 0; c.qty += Number(x.qty) || 0; });
+        return Object.values(o);
+      })(),
       cust: (() => {
         const map = {};
         fo.forEach(o => {
@@ -584,7 +599,6 @@ function MpReportView() {
   const sizeRank = SIZE_ORDER.map(s => agg.bySize.find(x => x.name === s)).filter(Boolean);
   const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
   const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
-  const maxCh = Math.max(1, ...agg.byChannel.map(x => x.value));
   const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
   // CRM
   const custs = agg.cust;
@@ -616,16 +630,19 @@ function MpReportView() {
                 {importBtn}
               </div>
             : (<>
-                <div className="row" style={{ gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button className={'pick' + (month === 'all' ? ' on' : '')} onClick={() => setMonth('all')}>ทุกเดือน</button>
                   {months.map(m => <button key={m} className={'pick' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>{m}</button>)}
+                  {month !== 'all' && <span className="cap" style={{ marginLeft: 6 }}>เทียบ:</span>}
+                  {month !== 'all' && <div className="segbar">{[['none', 'ปิด'], ['mom', 'เดือนก่อน'], ['yoy', 'ปีก่อน']].map(([id, l]) => <button key={id} className={'seg' + (compare === id ? ' active' : '')} onClick={() => setCompare(id)}>{l}</button>)}</div>}
                 </div>
+                {cmpKpis && <div className="cap" style={{ marginBottom: 8, color: 'var(--ink-4)' }}>เทียบกับ {cmpKey}{cmpKpis.orders === 0 ? ' (ไม่มีข้อมูลงวดนั้น)' : ''}</div>}
                 <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
-                  <div><div className="cap">ออเดอร์</div><div className="num kpi-value">{N(agg.orders)}</div></div>
-                  <div><div className="cap">ยอดขายรวม</div><div className="num kpi-value">{B(agg.sales)}</div></div>
-                  <div><div className="cap">จำนวนชิ้น</div><div className="num kpi-value">{N(agg.qty)}</div></div>
-                  <div><div className="cap">กำไรสุทธิ</div><div className="num kpi-value" style={{ color: 'var(--good)' }}>{B(agg.profit)}</div></div>
-                  <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num kpi-value">{B(agg.aov)}</div></div>
+                  <div><div className="cap">ออเดอร์</div><div className="num kpi-value">{N(agg.orders)} <DeltaPill cur={agg.orders} prev={cmpKpis?.orders} /></div></div>
+                  <div><div className="cap">ยอดขายรวม</div><div className="num kpi-value">{B(agg.sales)} <DeltaPill cur={agg.sales} prev={cmpKpis?.sales} /></div></div>
+                  <div><div className="cap">จำนวนชิ้น</div><div className="num kpi-value">{N(agg.qty)} <DeltaPill cur={agg.qty} prev={cmpKpis?.qty} /></div></div>
+                  <div><div className="cap">กำไรสุทธิ</div><div className="num kpi-value" style={{ color: 'var(--good)' }}>{B(agg.profit)} <DeltaPill cur={agg.profit} prev={cmpKpis?.profit} /></div></div>
+                  <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num kpi-value">{B(agg.aov)} <DeltaPill cur={agg.aov} prev={cmpKpis?.aov} /></div></div>
                 </div>
               </>)}
       </div>
@@ -645,20 +662,34 @@ function MpReportView() {
           </div>
         )}
 
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>ยอดขายแยกช่องทาง</div>
-          <div className="table-wrap"><table className="table">
-            <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th><th style={{ minWidth: 120 }}>สัดส่วน</th></tr></thead>
-            <tbody>{agg.byChannel.map(c => { const share = agg.sales > 0 ? (c.value / agg.sales) * 100 : 0; return (
-              <tr key={c.name}>
-                <td style={{ fontWeight: 600 }}>{c.name}</td>
-                <td className="num" style={{ textAlign: 'right' }}>{N(c.count)}</td>
-                <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.value)}</td>
-                <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.value / maxCh) * 100}%`, background: 'var(--accent)' }} /></div><span className="num cap" style={{ width: 36, textAlign: 'right' }}>{P(share, 0)}</span></div></td>
-              </tr>
-            ); })}</tbody>
-          </table></div>
-        </div>
+        {(() => {
+          const chs = [...agg.byChannelFull].sort((a, b) => chMode === 'profit' ? (b.profit - a.profit) : (b.sales - a.sales));
+          const maxV = Math.max(1, ...chs.map(c => chMode === 'profit' ? Math.max(0, c.profit) : c.sales));
+          const hasFee = chs.some(c => c.fee > 0 || c.cost > 0);
+          return (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                <div className="eyebrow">ยอดขาย & กำไรสุทธิแยกช่องทาง</div>
+                {hasFee && <div className="segbar"><button className={'seg' + (chMode === 'sales' ? ' active' : '')} onClick={() => setChMode('sales')}>เรียงยอดขาย</button><button className={'seg' + (chMode === 'profit' ? ' active' : '')} onClick={() => setChMode('profit')}>เรียงกำไรจริง</button></div>}
+              </div>
+              <div className="table-wrap"><table className="table">
+                <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th>{hasFee && <th style={{ textAlign: 'right' }}>ค่าธรรมเนียม</th>}{hasFee && <th style={{ textAlign: 'right' }}>กำไรจริง</th>}{hasFee && <th style={{ textAlign: 'right' }}>มาร์จิ้น</th>}<th style={{ minWidth: 90 }}>สัดส่วน</th></tr></thead>
+                <tbody>{chs.map(c => { const v = chMode === 'profit' ? c.profit : c.sales; const share = agg.sales > 0 ? (c.sales / agg.sales) * 100 : 0; const margin = c.sales > 0 ? (c.profit / c.sales) * 100 : 0; return (
+                  <tr key={c.name}>
+                    <td style={{ fontWeight: 600 }}>{c.name}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(c.count)}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.sales)}</td>
+                    {hasFee && <td className="num" style={{ textAlign: 'right', color: 'var(--ink-3)' }}>{c.fee > 0 ? '−' + B(c.fee) : '—'}</td>}
+                    {hasFee && <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: c.profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{c.cost > 0 || c.fee > 0 ? B(c.profit) : '—'}</td>}
+                    {hasFee && <td className="num" style={{ textAlign: 'right', color: margin >= 30 ? 'var(--good)' : margin >= 15 ? 'var(--warn)' : 'var(--bad)' }}>{c.cost > 0 ? P(margin, 0) : '—'}</td>}
+                    <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><div className="bar" style={{ flex: 1 }}><span style={{ width: `${(Math.max(0, v) / maxV) * 100}%`, background: chMode === 'profit' ? 'var(--good)' : 'var(--accent)' }} /></div><span className="num cap" style={{ width: 34, textAlign: 'right' }}>{P(share, 0)}</span></div></td>
+                  </tr>
+                ); })}</tbody>
+              </table></div>
+              {hasFee && <div className="cap" style={{ marginTop: 8, color: 'var(--ink-4)' }}>POS/โทร/หน้าร้าน ไม่มีค่าธรรมเนียม → กำไรจริงมักดีกว่ามาร์เก็ตเพลส แม้ยอดขายน้อยกว่า</div>}
+            </div>
+          );
+        })()}
 
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="eyebrow" style={{ marginBottom: 14 }}>ลายขายดี (Top 15)</div>
@@ -779,6 +810,13 @@ function MpReportView() {
 
 // ป้ายเดือนสำหรับหัวการ์ด CRM
 function rangeLabelMonth(m) { return m === 'all' ? 'ทุกเดือน' : m; }
+// M0.2 delta pill เทียบงวด
+function DeltaPill({ cur, prev }) {
+  if (prev == null) return null;
+  if (!prev) return cur > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--good)' }}>ใหม่</span> : null;
+  const d = ((cur - prev) / prev) * 100, up = d >= 0;
+  return <span style={{ fontSize: 11, fontWeight: 700, color: up ? 'var(--good)' : 'var(--bad)' }}>{up ? '▲' : '▼'}{Math.abs(d).toFixed(0)}%</span>;
+}
 
 function ReportHub() {
   const [mode, setMode] = useState('mp'); // mp = รวมข้ามช่อง · internal = กรอกมือ
