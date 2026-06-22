@@ -421,3 +421,38 @@ GIN index บน attrs เมื่อ key hot
 - `/Users/artist/Documents/TMK Operation/src/views-2.jsx` — `MpReportView` (บรรทัด 526, agg บรรทัด 553), `SalesReportView` (1164, sell-through 1265, aging 1282, deadStock 1318), `StockView` (954, suggestPO 969), `downloadCSV` (1145, มี formula-injection guard), `productDesign()` (807), `ReportHub`/`CatalogView` (787)
 - `/Users/artist/Documents/TMK Operation/supabase/migrations/20260622-mp-report.sql` + `20260622b-mp-customers.sql` — schema ปัจจุบัน (จุดเพิ่ม M1-M5)
 - `/Users/artist/Documents/TMK Operation/src/lib/audit.js` — `logAudit()` (reuse M3.6)
+
+---
+
+## 9. สถานะการสร้าง (อัปเดต 2026-06-23)
+
+> ระบบ **วิเคราะห์/รายงาน/CRM/ผลิต/เป้า** สร้างครบและทดสอบสดแล้ว (หัวใจของ "ระบบขายครบวงจร")
+> โมดูล **ปฏิบัติการ (operational)** ที่เหลือ = ตารางใน DB พร้อมแล้ว (รวมใน `MP-SALES-SYSTEM-ALL.sql`) แต่ UI เป็นงานเฉพาะชิ้นใหญ่ ทำต่อได้
+
+| โมดูล | สถานะ |
+|---|---|
+| Foundation (M0.1: order_date/status/attrs + 11 ตาราง) | ✅ เสร็จ |
+| M0.2 เทียบงวด MoM/YoY + KPI delta | ✅ เสร็จ |
+| M0.3 colorway matrix + size mix | ✅ เสร็จ |
+| M0.4 เชื่อมสต็อก → ควรผลิตลายไหน | ✅ เสร็จ |
+| M0.5 กำไรสุทธิต่อช่อง (หลังค่าธรรมเนียม) | ✅ เสร็จ |
+| M0.6 ประวัตินำเข้า + ย้อนกลับ (ledger/rollback) | ✅ เสร็จ |
+| M1.1 RFM/segment + LTV + win-back | ✅ เสร็จ |
+| M1.2 cohort retention | ✅ เสร็จ |
+| M1.3 lens ปลีก/ส่ง/OEM (กรองทั้งระบบ) | ✅ เสร็จ |
+| M1.4 เป้า + pacing + leaderboard เซลล์ | ✅ เสร็จ |
+| M1.5 drill-down ทุกตัวเลข | ✅ เสร็จ |
+| M1.7 Action Center "สิ่งที่ควรดู" | ✅ เสร็จ |
+| M1.8 geo concentration | ✅ เสร็จ (region map = ต่อยอด) |
+| M2.2 อัตรายกเลิก/คืน | ✅ KPI เสร็จ · RMA entry workflow = ต่อยอด |
+| M2.3 forecast (run-rate) | ✅ เสร็จ · seasonal index = ต่อยอด |
+| M2.5 export CSV | ✅ เสร็จ · saved-views/report-builder = ต่อยอด |
+| **M0.7** validation gate (import) | 🔶 มี reconciliation preview แล้ว · row-level validation = ต่อยอด |
+| **M1.6** settlement reconciliation | 🔶 ตารางพร้อม (`tmk_mp_settlements`) · UI = งานเฉพาะ |
+| **M2.1** OEM/ราชการ pipeline + AR + tiered pricing | 🔶 ตารางพร้อม (`tmk_oem_jobs/lines`) · lens กรองได้แล้ว · kanban/ใบเสนอ/ลูกหนี้ = งานใหญ่เฉพาะ |
+| **M2.2** returns/RMA (เต็ม) | 🔶 ตารางพร้อม (`tmk_mp_returns`) · workflow รับคืน = งานเฉพาะ |
+| **M2.4** promotions | 🔶 ต่อยอด (ผูก Campaigns + attrs promo) |
+| **M2.6** anomaly + pro datatable | 🔶 states/loading พื้นฐานมีแล้ว · datatable component + z-score = ต่อยอด |
+| **P3** roles / server rollups / digest LINE / identity merge | ⚪ เผื่ออนาคต (เมื่อข้อมูลโต/มีทีม) |
+
+**หน้าจอจริงตอนนี้:** รายงานขาย → toggle "รวมข้ามช่อง" → 4 แท็บ (ภาพรวม · ลูกค้า CRM · เซลล์ & เป้า · ประวัตินำเข้า) + lens ปลีก/ส่ง/OEM + drill-down + export — ทั้งหมดในหน้าแคตตาล็อก ไม่แตะระบบอื่น
