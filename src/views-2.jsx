@@ -613,6 +613,12 @@ function MpReportView() {
   const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
   const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
   const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
+  // M0.4 เชื่อมสต็อก: ยอดขายต่อลาย (sku) × ของคงเหลือ (products) → ควรผลิตลายไหน
+  const onHandByDesign = {}; (DD.products || []).forEach(p => { const d = productDesign(p); if (d) onHandByDesign[d] = (onHandByDesign[d] || 0) + (p.onHand || 0); });
+  const hasStockData = Object.keys(onHandByDesign).length > 0;
+  const periodDays = month === 'all' ? 90 : 30;
+  const production = agg.byDesign.map(d => { const onHand = onHandByDesign[d.name] || 0; const vel = d.qty / periodDays; const cover = vel > 0 ? onHand / vel : null; return { name: d.name, sold: d.qty, onHand, vel, cover, urgent: cover != null && cover <= 21, slow: d.qty === 0 && onHand > 0 }; });
+  const urgentProd = production.filter(p => p.urgent).sort((a, b) => (a.cover || 0) - (b.cover || 0));
   // M2.2 อัตรายกเลิก (ใช้ออเดอร์ status=cancelled ที่เก็บไว้)
   const cancelledCount = useMemo(() => (orders || []).filter(o => o.status === 'cancelled' && (month === 'all' || o.order_month === month) && (lens === 'all' || (o.job_type || 'ปลีก') === lens)).length, [orders, month, lens]);
   const cancelRate = (agg.orders + cancelledCount) > 0 ? (cancelledCount / (agg.orders + cancelledCount)) * 100 : 0;
@@ -853,6 +859,27 @@ function MpReportView() {
               ))}</tbody>
             </table></div>
           )}
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+            <div className="eyebrow">ควรผลิตซ้ำลายไหน (ขายดี × ของใกล้หมด)</div>
+            {urgentProd.length > 0 && <span className="chip chip-bad" style={{ fontWeight: 700 }}>รีบผลิต {N(urgentProd.length)}</span>}
+          </div>
+          {!hasStockData
+            ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '8px 0' }}>ยังไม่มีข้อมูลสต็อก — เพิ่มสินค้า + สต็อก (พร้อมระบุ "ลาย") ในหน้าสินค้า/สต็อก ระบบจะบอกว่าควรผลิตลายไหน กี่วันจะหมด</div>
+            : <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}><table className="table">
+                <thead><tr><th>ลาย</th><th style={{ textAlign: 'right' }}>ขาย (ช่วงนี้)</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>พออีก</th><th style={{ textAlign: 'right' }}>สถานะ</th></tr></thead>
+                <tbody>{production.filter(p => p.onHand > 0 || p.sold > 0).slice(0, 20).map(p => (
+                  <tr key={p.name} onClick={() => setDrill({ dim: 'design', value: p.name, label: `ลาย ${p.name}` })} style={{ cursor: 'pointer' }}>
+                    <td style={{ fontWeight: 600 }}>{p.name}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(p.sold)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(p.onHand)}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: p.urgent ? 700 : 400, color: p.cover == null ? 'var(--ink-4)' : p.cover <= 14 ? 'var(--bad)' : p.cover <= 21 ? 'var(--warn)' : 'var(--good)' }}>{p.cover == null ? '—' : `${Math.round(p.cover)} วัน`}</td>
+                    <td style={{ textAlign: 'right' }}>{p.urgent ? <span className="chip chip-bad">รีบผลิต</span> : p.slow ? <span className="chip chip-warn">ขายช้า</span> : <span className="chip chip-good">ปกติ</span>}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>}
         </div>
 
         <div className="grid g2" style={{ marginBottom: 16 }}>
