@@ -528,6 +528,7 @@ function MpReportView() {
   const [skus, setSkus] = useState([]);
   const [err, setErr] = useState('');
   const [month, setMonth] = useState('all');
+  const [lens, setLens] = useState('all'); // all | ปลีก | ส่ง | OEM (M1.3)
   const [compare, setCompare] = useState('none'); // none | mom | yoy
   const [chMode, setChMode] = useState('sales'); // sales | profit (M0.5 toggle)
   const [tab, setTab] = useState('overview'); // overview | customers
@@ -550,12 +551,16 @@ function MpReportView() {
 
   const months = useMemo(() => [...new Set((orders || []).map(o => o.order_month).filter(Boolean))].sort().reverse(), [orders]);
   const activeOrders = useMemo(() => (orders || []).filter(o => o.status !== 'cancelled'), [orders]);
-  const fo = useMemo(() => activeOrders.filter(o => month === 'all' || o.order_month === month), [activeOrders, month]);
-  const fs = useMemo(() => (skus || []).filter(s => month === 'all' || s.order_month === month), [skus, month]);
+  // M1.3 lens: กรองตามประเภทงาน (ปลีก/ส่ง/OEM) ทั้งระบบ
+  const lensOrders = useMemo(() => activeOrders.filter(o => lens === 'all' || (o.job_type || 'ปลีก') === lens), [activeOrders, lens]);
+  const lensOrderNos = useMemo(() => lens === 'all' ? null : new Set(lensOrders.map(o => o.order_no)), [lensOrders, lens]);
+  const jobTypes = useMemo(() => [...new Set(activeOrders.map(o => o.job_type).filter(Boolean))], [activeOrders]);
+  const fo = useMemo(() => lensOrders.filter(o => month === 'all' || o.order_month === month), [lensOrders, month]);
+  const fs = useMemo(() => (skus || []).filter(s => (month === 'all' || s.order_month === month) && (!lensOrderNos || lensOrderNos.has(s.order_no))), [skus, month, lensOrderNos]);
   // M0.2 เทียบงวด: KPI ของเดือนเทียบ (เดือนก่อน / ปีก่อน)
   const prevMonthKey = (mk) => { const [y, m] = String(mk).split('-').map(Number); if (!y) return ''; const d = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; return d; };
   const yoyMonthKey = (mk) => { const [y, m] = String(mk).split('-').map(Number); return y ? `${y - 1}-${String(m).padStart(2, '0')}` : ''; };
-  const kpisFor = (mk) => { const r = activeOrders.filter(o => o.order_month === mk); const s = r.reduce((a, x) => a + (Number(x.sales) || 0), 0); return { orders: r.length, sales: s, qty: r.reduce((a, x) => a + (Number(x.qty) || 0), 0), profit: r.reduce((a, x) => a + (Number(x.profit) || 0), 0), aov: r.length ? s / r.length : 0 }; };
+  const kpisFor = (mk) => { const r = lensOrders.filter(o => o.order_month === mk); const s = r.reduce((a, x) => a + (Number(x.sales) || 0), 0); return { orders: r.length, sales: s, qty: r.reduce((a, x) => a + (Number(x.qty) || 0), 0), profit: r.reduce((a, x) => a + (Number(x.profit) || 0), 0), aov: r.length ? s / r.length : 0 }; };
   const cmpKey = compare === 'mom' ? prevMonthKey(month) : compare === 'yoy' ? yoyMonthKey(month) : '';
   const cmpKpis = (compare !== 'none' && month !== 'all' && cmpKey) ? kpisFor(cmpKey) : null;
 
@@ -600,6 +605,15 @@ function MpReportView() {
   const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
   const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
   const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
+  // M0.3 colorway matrix (ลาย×สี) — top designs × top colors, qty heatmap
+  const matrix = useMemo(() => {
+    const dQ = {}, cQ = {}, cell = {};
+    fs.forEach(s => { if (!s.design || !s.color) return; const q = Number(s.qty) || 0; dQ[s.design] = (dQ[s.design] || 0) + q; cQ[s.color] = (cQ[s.color] || 0) + q; cell[s.design + '||' + s.color] = (cell[s.design + '||' + s.color] || 0) + q; });
+    const topD = Object.entries(dQ).sort((a, b) => b[1] - a[1]).slice(0, 10).map(x => x[0]);
+    const topC = Object.entries(cQ).sort((a, b) => b[1] - a[1]).slice(0, 8).map(x => x[0]);
+    const max = Math.max(1, ...topD.flatMap(d => topC.map(c => cell[d + '||' + c] || 0)));
+    return { topD, topC, cell, max, dQ, cQ };
+  }, [fs]);
   // CRM
   const custs = agg.cust;
   const repeatCust = custs.filter(c => c.lifeOrders >= 2).length;
@@ -630,6 +644,12 @@ function MpReportView() {
                 {importBtn}
               </div>
             : (<>
+                {jobTypes.length > 1 && (
+                  <div className="segbar" style={{ marginBottom: 10 }}>
+                    <button className={'seg' + (lens === 'all' ? ' active' : '')} onClick={() => setLens('all')}>ทั้งหมด</button>
+                    {['ปลีก', 'ส่ง', 'OEM'].filter(j => jobTypes.includes(j)).map(j => <button key={j} className={'seg' + (lens === j ? ' active' : '')} onClick={() => setLens(j)}>{j === 'OEM' ? 'OEM/ราชการ' : j}</button>)}
+                  </div>
+                )}
                 <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button className={'pick' + (month === 'all' ? ' on' : '')} onClick={() => setMonth('all')}>ทุกเดือน</button>
                   {months.map(m => <button key={m} className={'pick' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>{m}</button>)}
@@ -725,6 +745,24 @@ function MpReportView() {
             ))}
           </div>
         </div>
+
+        {matrix.topD.length > 0 && matrix.topC.length > 0 && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>ลาย × สี — จำนวนขาย (เข้ม = ขายเยอะ)</div>
+            <div className="table-wrap table-sticky-first"><table className="table">
+              <thead><tr><th>ลาย \ สี</th>{matrix.topC.map(c => <th key={c} style={{ textAlign: 'center', fontWeight: 600 }}>{c}</th>)}</tr></thead>
+              <tbody>{matrix.topD.map(d => (
+                <tr key={d}>
+                  <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{d}</td>
+                  {matrix.topC.map(c => { const v = matrix.cell[d + '||' + c] || 0; const a = v / matrix.max; return (
+                    <td key={c} className="num" style={{ textAlign: 'center', background: v ? `color-mix(in srgb, var(--accent) ${Math.round(a * 78 + 6)}%, transparent)` : 'transparent', color: a > 0.55 ? '#fff' : 'var(--ink)', fontWeight: v ? 600 : 400 }}>{v || '·'}</td>
+                  ); })}
+                </tr>
+              ))}</tbody>
+            </table></div>
+            <div className="cap" style={{ marginTop: 8, color: 'var(--ink-4)' }}>10 ลาย × 8 สี ที่ขายดีสุด — เห็นว่าแต่ละลายนิยมสีไหน (ใช้วางแผนตัด/สั่งผลิตตามสี)</div>
+          </div>
+        )}
 
         <div className="grid g2" style={{ marginBottom: 16 }}>
           <div className="card">

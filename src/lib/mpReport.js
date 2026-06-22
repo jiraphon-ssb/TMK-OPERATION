@@ -31,6 +31,15 @@ export function qtyBand(q) {
   return '51+';
 }
 
+// ---- ประเภทงาน (ปลีก/ส่ง/OEM) จากจำนวน+ช่องทาง — proxy ตาม blueprint M1.3 ----
+export function deriveJobType(channel, qty) {
+  const q = Number(qty) || 0;
+  const direct = ['Phone', 'Direct', 'POS', 'LINE', 'Facebook'].includes(String(channel));
+  if (q >= 51) return direct ? 'OEM' : 'ส่ง';
+  if (q >= 11) return 'ส่ง';
+  return 'ปลีก';
+}
+
 // ---- เดือน YYYY-MM จากวันที่ dd/mm/yyyy (Shipnity/TikTok ใช้รูปนี้) ----
 export function ymOf(d) {
   const m = /(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(String(d || ''));
@@ -167,9 +176,10 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       const cancelled = String(o[c.cancel] ?? '').trim().toLowerCase() === 'true';
       const om = ymOf(o[c.date]), cm = ymOf(o[c.custDate]);
       const q = mpNum(o[c.qty]); const user = String(o[c.user] ?? '').trim();
+      const ch = normChannel(o[c.mkt], o[c.contact], o[c.user], o[c.prov]);
       rows.push({
         order_no: ono, source: 'shipnity', status: cancelled ? 'cancelled' : 'active',
-        channel: normChannel(o[c.mkt], o[c.contact], o[c.user], o[c.prov]),
+        channel: ch, job_type: deriveJobType(ch, q),
         marketplace_id: String(o[c.mid] ?? '').trim(),
         order_month: om, order_date: isoDate(o[c.date]),
         salesperson: (user && user !== '-') ? user : '(อัตโนมัติ/มาร์เก็ตเพลส)',
@@ -202,7 +212,7 @@ export function buildMaster({ shipnity, tiktok } = {}) {
     for (const [oid, g] of byOrder) {
       const om = ymOf(g.created);
       rows.push({
-        order_no: oid, source: 'tiktok', status: g.cancelled ? 'cancelled' : 'active', channel: 'TikTok', marketplace_id: oid,
+        order_no: oid, source: 'tiktok', status: g.cancelled ? 'cancelled' : 'active', channel: 'TikTok', job_type: deriveJobType('TikTok', g.qty), marketplace_id: oid,
         order_month: om, order_date: isoDate(g.created), salesperson: '(TikTok)', province: String(g.prov ?? '').trim(),
         payment_type: payTiktok(g.pay), customer_type: 'ไม่ทราบ (TikTok)',
         customer_code: '', customer_name: '', customer_social: '', cust_total_orders: 0, cust_total_spent: 0,
