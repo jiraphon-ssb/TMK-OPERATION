@@ -528,6 +528,7 @@ function MpReportView() {
   const [skus, setSkus] = useState([]);
   const [err, setErr] = useState('');
   const [month, setMonth] = useState('all');
+  const [tab, setTab] = useState('overview'); // overview | customers
   const [importOpen, setImportOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -564,6 +565,18 @@ function MpReportView() {
       byDesign: grp(fs, 'design', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ').sort((a, b) => b.qty - a.qty),
       bySize: grp(fs, 'size', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ'),
       byColor: grp(fs, 'color', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ').sort((a, b) => b.qty - a.qty),
+      cust: (() => {
+        const map = {};
+        fo.forEach(o => {
+          const k = o.customer_code; if (!k) return;
+          if (!map[k]) map[k] = { code: k, name: o.customer_name || o.customer_social || k, social: o.customer_social || '', orders: 0, spend: 0, qty: 0, lifeOrders: 0, lifeSpent: 0, channels: new Set() };
+          const c = map[k]; c.orders++; c.spend += Number(o.sales) || 0; c.qty += Number(o.qty) || 0;
+          c.lifeOrders = Math.max(c.lifeOrders, Number(o.cust_total_orders) || 0);
+          c.lifeSpent = Math.max(c.lifeSpent, Number(o.cust_total_spent) || 0);
+          if (o.channel) c.channels.add(o.channel);
+        });
+        return Object.values(map);
+      })(),
     };
   }, [fo, fs, orders]);
 
@@ -573,6 +586,13 @@ function MpReportView() {
   const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
   const maxCh = Math.max(1, ...agg.byChannel.map(x => x.value));
   const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
+  // CRM
+  const custs = agg.cust;
+  const repeatCust = custs.filter(c => c.lifeOrders >= 2).length;
+  const newCount = agg.byCust.find(x => x.name === 'ลูกค้าใหม่')?.count || 0;
+  const oldCount = agg.byCust.find(x => x.name === 'ลูกค้าเก่า')?.count || 0;
+  const topSpend = [...custs].sort((a, b) => b.spend - a.spend);
+  const topLoyal = [...custs].sort((a, b) => b.lifeOrders - a.lifeOrders || b.lifeSpent - a.lifeSpent);
 
   const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
 
@@ -610,7 +630,14 @@ function MpReportView() {
               </>)}
       </div>
 
-      {orders.length > 0 && !err && (<>
+      {orders.length > 0 && !err && (
+        <div className="segbar" style={{ marginBottom: 16 }}>
+          <button className={'seg' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>ภาพรวม</button>
+          <button className={'seg' + (tab === 'customers' ? ' active' : '')} onClick={() => setTab('customers')}>ลูกค้า (CRM)</button>
+        </div>
+      )}
+
+      {orders.length > 0 && !err && tab === 'overview' && (<>
         {monthlyArr.length > 1 && (
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน</div>
@@ -696,9 +723,62 @@ function MpReportView() {
           </div>
         </div>
       </>)}
+
+      {orders.length > 0 && !err && tab === 'customers' && (<>
+        {custs.length === 0
+          ? <div className="card"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ไม่มีข้อมูลลูกค้าในช่วงนี้ (ออเดอร์ TikTok ไม่มีตัวตนลูกค้า · ถ้าเพิ่งอัปเดตให้รัน migration 20260622b แล้วนำเข้าใหม่)</div></div>
+          : (<>
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="eyebrow" style={{ marginBottom: 14 }}>ภาพรวมลูกค้า ({rangeLabelMonth(month)})</div>
+              <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
+                <div><div className="cap">ลูกค้า (ไม่ซ้ำ)</div><div className="num kpi-value">{N(custs.length)}</div></div>
+                <div><div className="cap">ลูกค้าใหม่</div><div className="num kpi-value" style={{ color: 'var(--good)' }}>{N(newCount)}</div></div>
+                <div><div className="cap">ลูกค้าเก่า</div><div className="num kpi-value">{N(oldCount)}</div></div>
+                <div><div className="cap">ลูกค้าประจำ (ซื้อ ≥2 ครั้ง)</div><div className="num kpi-value" style={{ color: 'var(--accent-2)' }}>{N(repeatCust)}</div></div>
+                <div><div className="cap">ยอด/ลูกค้า</div><div className="num kpi-value">{B(custs.length ? agg.sales / custs.length : 0)}</div></div>
+              </div>
+            </div>
+
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="eyebrow" style={{ marginBottom: 14 }}>ลูกค้าใช้จ่ายสูงสุด — ช่วงนี้ (Top 20)</div>
+              <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}><table className="table">
+                <thead><tr><th style={{ width: 34 }}>#</th><th>ลูกค้า</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดซื้อ</th><th>ช่องทาง</th></tr></thead>
+                <tbody>{topSpend.slice(0, 20).map((c, i) => (
+                  <tr key={c.code}>
+                    <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
+                    <td><div style={{ fontWeight: 600 }}>{c.name}</div>{c.lifeOrders >= 2 && <span className="chip chip-accent" style={{ marginTop: 2 }}>ประจำ · สะสม {N(c.lifeOrders)} ออเดอร์</span>}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(c.orders)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.spend)}</td>
+                    <td className="cap">{[...c.channels].join(', ')}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+
+            <div className="card">
+              <div className="eyebrow" style={{ marginBottom: 14 }}>ลูกค้าประจำ — ซื้อบ่อยสุด (ยอดสะสมตลอดอายุ, Top 20)</div>
+              <div className="table-wrap" style={{ maxHeight: 380, overflowY: 'auto' }}><table className="table">
+                <thead><tr><th style={{ width: 34 }}>#</th><th>ลูกค้า</th><th style={{ textAlign: 'right' }}>ออเดอร์สะสม</th><th style={{ textAlign: 'right' }}>ยอดสะสม</th><th style={{ textAlign: 'right' }}>ซื้อช่วงนี้</th></tr></thead>
+                <tbody>{topLoyal.slice(0, 20).map((c, i) => (
+                  <tr key={c.code}>
+                    <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
+                    <td style={{ fontWeight: 600 }}>{c.name}</td>
+                    <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: c.lifeOrders >= 5 ? 'var(--good)' : 'var(--ink)' }}>{N(c.lifeOrders)}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{c.lifeSpent > 0 ? B(c.lifeSpent) : '—'}</td>
+                    <td className="num" style={{ textAlign: 'right' }}>{B(c.spend)}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          </>)}
+      </>)}
     </div>
   );
 }
+
+// ป้ายเดือนสำหรับหัวการ์ด CRM
+function rangeLabelMonth(m) { return m === 'all' ? 'ทุกเดือน' : m; }
 
 function ReportHub() {
   const [mode, setMode] = useState('mp'); // mp = รวมข้ามช่อง · internal = กรอกมือ

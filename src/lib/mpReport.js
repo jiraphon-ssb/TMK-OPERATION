@@ -153,6 +153,7 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       comm: get('ค่าคอมมิชชั่นของ Marketplace'), net: get('รายรับจากคำสั่งซื้อ Shopee'), profit: get('กำไรสุทธิ'),
       cod: get('ยอด COD'), bank: get('ธนาคารที่รับเงิน'), prov: get('ชื่อจังหวัด (จังหวัด)'),
       custDate: get('วันที่สร้าง (ลูกค้า)'), custCum: get('จำนวนออเดอร์สะสม (ลูกค้า)'),
+      custCode: get('รหัสลูกค้า (ลูกค้า)'), custName: get('ชื่อ'), custSocial: get('ชื่อโซเชียล (ลูกค้า)', 'ชื่อในช่องทางติดต่อ'), custSpent: get('ยอดสั่งซื้อสะสม (ลูกค้า)'),
     };
     for (let r = 1; r < shipnity.length; r++) {
       const o = shipnity[r] || [];
@@ -170,7 +171,11 @@ export function buildMaster({ shipnity, tiktok } = {}) {
         province: String(o[c.prov] ?? '').trim(),
         payment_type: payShipnity(o[c.bank]),
         customer_type: (om && cm && om === cm) ? 'ลูกค้าใหม่' : 'ลูกค้าเก่า',
+        customer_code: String(o[c.custCode] ?? '').trim(),
+        customer_name: String(o[c.custName] ?? '').trim(),
+        customer_social: String(o[c.custSocial] ?? '').trim(),
         cust_total_orders: mpNum(o[c.custCum]),
+        cust_total_spent: mpNum(o[c.custSpent]),
         qty_band: qtyBand(q), qty: q, sales: mpNum(o[c.sales]), cost: mpNum(o[c.cost]),
         mkt_commission: mpNum(o[c.comm]), mkt_net_income: mpNum(o[c.net]),
         profit: mpNum(o[c.profit]), cod_amount: mpNum(o[c.cod]),
@@ -194,7 +199,8 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       rows.push({
         order_no: oid, source: 'tiktok', channel: 'TikTok', marketplace_id: oid,
         order_month: om, salesperson: '(TikTok)', province: String(g.prov ?? '').trim(),
-        payment_type: payTiktok(g.pay), customer_type: 'ไม่ทราบ (TikTok)', cust_total_orders: 0,
+        payment_type: payTiktok(g.pay), customer_type: 'ไม่ทราบ (TikTok)',
+        customer_code: '', customer_name: '', customer_social: '', cust_total_orders: 0, cust_total_spent: 0,
         qty_band: qtyBand(g.qty), qty: g.qty, sales: g.sales, cost: 0,
         mkt_commission: 0, mkt_net_income: 0, profit: 0, cod_amount: 0,
       });
