@@ -589,11 +589,14 @@ function MpReportView() {
         const map = {};
         fo.forEach(o => {
           const k = o.customer_code; if (!k) return;
-          if (!map[k]) map[k] = { code: k, name: o.customer_name || o.customer_social || k, social: o.customer_social || '', orders: 0, spend: 0, qty: 0, lifeOrders: 0, lifeSpent: 0, channels: new Set() };
+          if (!map[k]) map[k] = { code: k, name: o.customer_name || o.customer_social || k, social: o.customer_social || '', orders: 0, spend: 0, qty: 0, lifeOrders: 0, lifeSpent: 0, channels: new Set(), lastDate: '', firstDate: '' };
           const c = map[k]; c.orders++; c.spend += Number(o.sales) || 0; c.qty += Number(o.qty) || 0;
           c.lifeOrders = Math.max(c.lifeOrders, Number(o.cust_total_orders) || 0);
           c.lifeSpent = Math.max(c.lifeSpent, Number(o.cust_total_spent) || 0);
           if (o.channel) c.channels.add(o.channel);
+          const od = o.order_date || o.order_month || '';
+          if (od && (!c.lastDate || od > c.lastDate)) c.lastDate = od;
+          if (od && (!c.firstDate || od < c.firstDate)) c.firstDate = od;
         });
         return Object.values(map);
       })(),
@@ -621,6 +624,23 @@ function MpReportView() {
   const oldCount = agg.byCust.find(x => x.name === 'ลูกค้าเก่า')?.count || 0;
   const topSpend = [...custs].sort((a, b) => b.spend - a.spend);
   const topLoyal = [...custs].sort((a, b) => b.lifeOrders - a.lifeOrders || b.lifeSpent - a.lifeSpent);
+  // M1.1 RFM/segment + LTV + win-back
+  const maxDate = custs.reduce((a, c) => (c.lastDate > a ? c.lastDate : a), '');
+  const dayDiff = (a, b) => { if (!a || !b) return null; const da = new Date(a.length > 7 ? a : a + '-01'), db = new Date(b.length > 7 ? b : b + '-01'); return Math.round((db - da) / 86400000); };
+  const segOf = (c) => {
+    const r = dayDiff(c.lastDate, maxDate), f = c.lifeOrders || c.orders;
+    if (f >= 5 && (r == null || r <= 45)) return 'แชมป์';
+    if (f >= 5) return 'เคยภักดี (ห่างไป)';
+    if (f >= 2 && r != null && r > 60) return 'กำลังจะหาย';
+    if (f >= 2) return 'ลูกค้าประจำ';
+    if (r != null && r <= 30) return 'ลูกค้าใหม่';
+    return 'ทั่วไป';
+  };
+  const SEG_TONE = { 'แชมป์': 'var(--good)', 'ลูกค้าประจำ': 'var(--accent-2)', 'ลูกค้าใหม่': 'var(--accent)', 'กำลังจะหาย': 'var(--warn)', 'เคยภักดี (ห่างไป)': 'var(--bad)', 'ทั่วไป': 'var(--ink-3)' };
+  const custSeg = custs.map(c => ({ ...c, seg: segOf(c) }));
+  const segGroups = Object.values(custSeg.reduce((o, c) => { (o[c.seg] = o[c.seg] || { name: c.seg, count: 0, spend: 0 }); o[c.seg].count++; o[c.seg].spend += c.lifeSpent || c.spend; return o; }, {})).sort((a, b) => b.count - a.count);
+  const ltv = custs.length ? custs.reduce((a, c) => a + (c.lifeSpent || 0), 0) / custs.length : 0;
+  const winBack = custSeg.filter(c => (c.seg === 'กำลังจะหาย' || c.seg === 'เคยภักดี (ห่างไป)') && (c.lifeSpent > 0 || c.spend > 0)).sort((a, b) => (b.lifeSpent || b.spend) - (a.lifeSpent || a.spend));
 
   const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
 
@@ -805,6 +825,36 @@ function MpReportView() {
                 <div><div className="cap">ลูกค้าเก่า</div><div className="num kpi-value">{N(oldCount)}</div></div>
                 <div><div className="cap">ลูกค้าประจำ (ซื้อ ≥2 ครั้ง)</div><div className="num kpi-value" style={{ color: 'var(--accent-2)' }}>{N(repeatCust)}</div></div>
                 <div><div className="cap">ยอด/ลูกค้า</div><div className="num kpi-value">{B(custs.length ? agg.sales / custs.length : 0)}</div></div>
+                <div><div className="cap">มูลค่าลูกค้าเฉลี่ย (LTV)</div><div className="num kpi-value" style={{ color: 'var(--good)' }}>{B(ltv)}</div></div>
+              </div>
+            </div>
+
+            <div className="grid g2" style={{ marginBottom: 16 }}>
+              <div className="card">
+                <div className="eyebrow" style={{ marginBottom: 14 }}>กลุ่มลูกค้า (RFM)</div>
+                {segGroups.map(s => { const share = custs.length ? (s.count / custs.length) * 100 : 0; return (
+                  <div key={s.name} className="row" style={{ gap: 10, marginBottom: 9, alignItems: 'center' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: SEG_TONE[s.name] || 'var(--ink-3)', flexShrink: 0 }} />
+                    <span className="sm" style={{ flex: '0 0 130px', fontWeight: 600 }}>{s.name}</span>
+                    <div className="bar" style={{ flex: 1 }}><span style={{ width: `${share}%`, background: SEG_TONE[s.name] || 'var(--ink-3)' }} /></div>
+                    <span className="num sm" style={{ width: 90, textAlign: 'right', fontWeight: 700 }}>{N(s.count)} <span className="cap" style={{ fontWeight: 400 }}>คน</span></span>
+                  </div>
+                ); })}
+                {maxDate.length <= 7 && <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>* recency แม่นขึ้นเมื่อมีวันที่ระดับวัน (รัน migration foundation + นำเข้าใหม่)</div>}
+              </div>
+              <div className="card">
+                <div className="row between" style={{ marginBottom: 14 }}>
+                  <div className="eyebrow">ควรตามกลับ (win-back)</div>
+                  <span className="chip chip-warn">{N(winBack.length)} ราย</span>
+                </div>
+                {winBack.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มีลูกค้าที่เข้าเกณฑ์ตามกลับ</div> : (
+                  <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}><table className="table">
+                    <thead><tr><th>ลูกค้า</th><th>กลุ่ม</th><th style={{ textAlign: 'right' }}>ยอดสะสม</th></tr></thead>
+                    <tbody>{winBack.slice(0, 20).map(c => (
+                      <tr key={c.code}><td style={{ fontWeight: 600 }}>{c.name}{c.social && <div className="cap">{c.social}</div>}</td><td><span className="chip" style={{ color: SEG_TONE[c.seg] }}>{c.seg}</span></td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.lifeSpent || c.spend)}</td></tr>
+                    ))}</tbody>
+                  </table></div>
+                )}
               </div>
             </div>
 
