@@ -12,7 +12,7 @@ const PlannerView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.
 const CatalogView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.CatalogView  })));
 const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
-import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
+import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, ImportProductsModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -970,6 +970,7 @@ function AppInner() {
               }
             }} />
         : modal.type === 'product' ? <ProductModal data={modal.data} onClose={closeModal} />
+        : modal.type === 'import-products' ? <ImportProductsModal onClose={closeModal} />
         : modal.type === 'sell' ? <SellModal data={modal.data} onClose={closeModal} />
         : modal.type === 'adjust' ? <StockAdjustModal data={modal.data} onClose={closeModal} />
         : modal.type === 'receive' ? <ReceiveModal data={modal.data} onClose={closeModal} />

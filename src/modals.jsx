@@ -1042,6 +1042,156 @@ async function saveProductRow(row, isUpdate, audit, lockUpdatedAt) {
   }
 }
 
+/* ---------- Import products from CSV (เอาข้อมูลสินค้าเข้าแคตตาล็อกครั้งละหลายรายการ) ---------- */
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  const s = String(text || '').replace(/^﻿/, ''); // ตัด BOM
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === '"') { if (s[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && s[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(c => String(c).trim() !== ''));
+}
+const findCol = (headers, ...names) => {
+  const H = headers.map(h => String(h || '').toLowerCase().trim());
+  for (const n of names) { const i = H.indexOf(n.toLowerCase()); if (i >= 0) return i; }
+  for (const n of names) { const i = H.findIndex(h => h.includes(n.toLowerCase())); if (i >= 0) return i; }
+  return -1;
+};
+
+export function ImportProductsModal({ onClose }) {
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const fileRef = useRef(null);
+
+  const existing = MD.products || [];
+  const skuSet = new Set(existing.map(p => String(p.sku || '').toLowerCase().trim()).filter(Boolean));
+  const nameSet = new Set(existing.map(p => String(p.name || '').toLowerCase().trim()));
+
+  const parse = (text) => {
+    const grid = parseCSV(text);
+    if (grid.length < 2) { toast('ไฟล์ว่างหรือไม่มีข้อมูล', 'error'); return; }
+    const h = grid[0];
+    const ci = {
+      name: findCol(h, 'product_name', 'name', 'ชื่อสินค้า', 'ชื่อ'),
+      price: findCol(h, 'price', 'ราคา'),
+      cat: findCol(h, 'type', 'category', 'หมวด', 'ประเภท'),
+      sku: findCol(h, 'product_code', 'sku', 'รหัสสินค้า', 'รหัส'),
+      design: findCol(h, 'design_key', 'design', 'ลาย'),
+      sup: findCol(h, 'supplier', 'ผู้ผลิต', 'ซัพพลายเออร์'),
+      bar: findCol(h, 'barcode', 'บาร์โค้ด'),
+    };
+    if (ci.name < 0) { toast('ไม่พบคอลัมน์ชื่อสินค้า (product_name / name / ชื่อ)', 'error'); return; }
+    const out = [];
+    for (let r = 1; r < grid.length; r++) {
+      const row = grid[r];
+      const name = String(row[ci.name] || '').trim();
+      if (!name) continue;
+      out.push({
+        name,
+        price: ci.price >= 0 ? nn(row[ci.price]) : 0,
+        category: ci.cat >= 0 ? String(row[ci.cat] || '').trim() : '',
+        sku: ci.sku >= 0 ? String(row[ci.sku] || '').trim() : '',
+        design: ci.design >= 0 ? String(row[ci.design] || '').trim() : '',
+        supplier: ci.sup >= 0 ? String(row[ci.sup] || '').trim() : '',
+        barcode: ci.bar >= 0 ? String(row[ci.bar] || '').trim() : '',
+      });
+    }
+    setRows(out);
+  };
+
+  const onFile = (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => parse(reader.result);
+    reader.onerror = () => toast('อ่านไฟล์ไม่สำเร็จ', 'error');
+    reader.readAsText(f, 'utf-8');
+  };
+
+  const isDup = (p) => (p.sku && skuSet.has(p.sku.toLowerCase())) || (!p.sku && nameSet.has(p.name.toLowerCase()));
+  const fresh = rows.filter(p => !isDup(p));
+  const dup = rows.length - fresh.length;
+
+  const handleImport = async () => {
+    if (busy || !fresh.length) return;
+    setBusy(true);
+    try {
+      const payload = fresh.map(p => ({
+        id: uid('p'), name: p.name, price: nn(p.price),
+        target_units: 0, actual_units: 0, stock_on_hand: 0, reorder_point: 0,
+        category: p.category || '', supplier: p.supplier || '', sku: p.sku || '', barcode: p.barcode || '',
+        strategy: p.design ? `ลาย: ${p.design}` : '', image_url: null, lots: [],
+        updated_at: new Date().toISOString(),
+      }));
+      // upsert เป็นก้อน — ถ้าคอลัมน์เสริมยังไม่มีใน DB ตัดออกแล้วลองใหม่ (เหมือน saveProductRow)
+      let cols = ['strategy', 'reorder_point', 'category', 'supplier', 'sku', 'barcode', 'image_url', 'lots'];
+      let send = payload;
+      for (let attempt = 0; attempt <= cols.length; attempt++) {
+        const { error } = await supabase.from('tmk_products').upsert(send);
+        if (!error) break;
+        const target = cols.find(c => (error.message || '').includes(c));
+        if (/column|schema cache|PGRST204|does not exist/i.test(error.message || '') && target) {
+          send = send.map(r => { const x = { ...r }; delete x[target]; return x; }); cols = cols.filter(c => c !== target); continue;
+        }
+        throw error;
+      }
+      logAudit({ action: 'create', entityType: 'product', entityName: `นำเข้า ${fresh.length} สินค้า`, summary: `นำเข้าสินค้าจาก CSV ${fresh.length} รายการ`, fields: [{ label: 'นำเข้า', value: `${N(fresh.length)} รายการ` }, ...(dup ? [{ label: 'ข้ามซ้ำ', value: `${N(dup)} รายการ` }] : [])] });
+      window.__reload?.();
+      toast(`นำเข้าสินค้า ${fresh.length} รายการเรียบร้อย${dup ? ` (ข้ามซ้ำ ${dup})` : ''}`, 'success');
+      onClose();
+    } catch (err) {
+      toast('นำเข้าไม่สำเร็จ: ' + (err.message || ''), 'error');
+    } finally { setBusy(false); }
+  };
+
+  const footer = (<>
+    <button className="btn" onClick={onClose}>ยกเลิก</button>
+    <button className="btn btn-primary" disabled={busy || !fresh.length} onClick={handleImport}><Icon name="check" /> {busy ? 'กำลังนำเข้า…' : `นำเข้า ${N(fresh.length)} รายการ`}</button>
+  </>);
+
+  return (
+    <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV" sub="เพิ่มสินค้าหลายรายการเข้าแคตตาล็อกครั้งเดียว" onClose={onClose} footer={footer}>
+      <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
+        เลือกไฟล์ <b>.csv</b> ที่มีหัวคอลัมน์ เช่น <b>product_name, price, type, product_code, design_key</b> (หรือ ชื่อ / ราคา / หมวด / รหัส / ลาย) — ระบบจับคู่คอลัมน์ให้อัตโนมัติ · นำเข้าเฉพาะ "ข้อมูลสินค้า" (สต็อก/ล็อตเพิ่มทีหลังที่หน้าสต็อก)
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn btn-sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> เลือกไฟล์ CSV</button>
+        {fileName && <span className="cap">{fileName} · พบ {N(rows.length)} รายการ</span>}
+        <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" style={{ display: 'none' }} onChange={onFile} />
+      </div>
+      {rows.length > 0 && (<>
+        <div className="row" style={{ gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+          <span className="chip chip-good">เพิ่มใหม่ {N(fresh.length)}</span>
+          {dup > 0 && <span className="chip chip-warn">ข้ามซ้ำ {N(dup)}</span>}
+        </div>
+        <div className="table-wrap table-sticky-first" style={{ maxHeight: 340, overflow: 'auto' }}>
+          <table className="table">
+            <thead><tr><th>ชื่อสินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th>หมวด</th><th>รหัส</th><th>ลาย</th><th></th></tr></thead>
+            <tbody>{rows.slice(0, 200).map((p, i) => { const d = isDup(p); return (
+              <tr key={i} style={{ opacity: d ? 0.45 : 1 }}>
+                <td>{p.name}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
+                <td className="cap">{p.category || '—'}</td>
+                <td className="cap">{p.sku || '—'}</td>
+                <td className="cap">{p.design || '—'}</td>
+                <td className="cap" style={{ color: d ? 'var(--warn)' : 'var(--good)' }}>{d ? 'ซ้ำ' : 'ใหม่'}</td>
+              </tr>); })}</tbody>
+          </table>
+        </div>
+        {rows.length > 200 && <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>แสดง 200 แถวแรก (นำเข้าทั้งหมด {N(rows.length)})</div>}
+      </>)}
+    </Modal>
+  );
+}
+
 /* ---------- Sell / stock-out modal (ตัดสต็อกเมื่อขาย: เลือกล็อต→สี→ไซส์→จำนวน) ---------- */
 const emptySellLine = () => ({ id: uid('sl'), lotId: '', colorId: '', size: '', qty: '' });
 // คงเหลือของช่อง (ล็อต/สี/ไซส์)
