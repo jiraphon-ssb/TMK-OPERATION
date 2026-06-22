@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
 import { B, P, N, Icon, stockMeta, Avatar, Ring, MiniArea, Bars, UserIcon, SIZES, ORDER_STATUSES, barcodeSVGString, lotTotal, lotValue } from './components.jsx';
 import { advanceOrderStatus, Modal, mutateProductReservations, MpImportModal } from './modals.jsx';
+import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, MiniBars, channelColor } from './charts.jsx';
 import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
@@ -765,12 +766,11 @@ function MpReportView() {
                   {month !== 'all' && <div className="segbar">{[['none', 'ปิด'], ['mom', 'เดือนก่อน'], ['yoy', 'ปีก่อน']].map(([id, l]) => <button key={id} className={'seg' + (compare === id ? ' active' : '')} onClick={() => setCompare(id)}>{l}</button>)}</div>}
                 </div>
                 {cmpKpis && <div className="cap" style={{ marginBottom: 8, color: 'var(--ink-4)' }}>เทียบกับ {cmpKey}{cmpKpis.orders === 0 ? ' (ไม่มีข้อมูลงวดนั้น)' : ''}</div>}
-                <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
-                  <div><div className="cap">ออเดอร์</div><div className="num kpi-value">{N(agg.orders)} <DeltaPill cur={agg.orders} prev={cmpKpis?.orders} /></div></div>
-                  <div><div className="cap">ยอดขายรวม</div><div className="num kpi-value">{B(agg.sales)} <DeltaPill cur={agg.sales} prev={cmpKpis?.sales} /></div></div>
-                  <div><div className="cap">จำนวนชิ้น</div><div className="num kpi-value">{N(agg.qty)} <DeltaPill cur={agg.qty} prev={cmpKpis?.qty} /></div></div>
-                  <div><div className="cap">กำไรสุทธิ</div><div className="num kpi-value" style={{ color: 'var(--good)' }}>{B(agg.profit)} <DeltaPill cur={agg.profit} prev={cmpKpis?.profit} /></div></div>
-                  <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num kpi-value">{B(agg.aov)} <DeltaPill cur={agg.aov} prev={cmpKpis?.aov} /></div></div>
+                <div className="metric-grid">
+                  <MetricCard label="ยอดขายรวม" value={B(agg.sales)} icon="sales" tone="var(--accent)" {...deltaProps(agg.sales, cmpKpis?.sales)} sub={`${N(agg.qty)} ชิ้น`} />
+                  <MetricCard label="กำไรสุทธิ" value={B(agg.profit)} tone="var(--good)" {...deltaProps(agg.profit, cmpKpis?.profit)} sub={agg.sales > 0 ? `มาร์จิ้น ${Math.round(agg.profit / agg.sales * 100)}%` : ''} />
+                  <MetricCard label="ออเดอร์" value={N(agg.orders)} icon="listChecks" {...deltaProps(agg.orders, cmpKpis?.orders)} sub={cancelledCount ? `ยกเลิก ${N(cancelledCount)}` : ''} />
+                  <MetricCard label="เฉลี่ย/ออเดอร์" value={B(agg.aov)} {...deltaProps(agg.aov, cmpKpis?.aov)} sub={`${N(custs.length)} ลูกค้า`} />
                 </div>
               </>)}
       </div>
@@ -816,7 +816,7 @@ function MpReportView() {
               <div className="eyebrow">ยอดขายรายเดือน</div>
               {forecastNext > 0 && <span className="cap">คาดเดือนหน้า ~<b style={{ color: 'var(--accent-2)' }}>{B(forecastNext)}</b> (เฉลี่ย 3 เดือนล่าสุด)</span>}
             </div>
-            <Bars data={monthlyArr} h={140} color="var(--accent-2)" labelKey="m" valueKey="rev" fmt={B} />
+            {(() => { const labels = [...monthlyArr.map(m => m.m), forecastNext > 0 ? 'คาด' : null].filter(Boolean); const values = [...monthlyArr.map(m => m.rev), forecastNext > 0 ? null : undefined].filter(v => v !== undefined); const fc = monthlyArr.map(() => null); if (forecastNext > 0) { fc[monthlyArr.length - 1] = monthlyArr[monthlyArr.length - 1].rev; fc.push(forecastNext); } return <AreaTrend labels={labels} values={values} forecast={forecastNext > 0 ? fc : []} height={170} ariaLabel="ยอดขายรายเดือน" />; })()}
           </div>
         )}
 
@@ -829,6 +829,17 @@ function MpReportView() {
               <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
                 <div className="eyebrow">ยอดขาย & กำไรสุทธิแยกช่องทาง</div>
                 {hasFee && <div className="segbar"><button className={'seg' + (chMode === 'sales' ? ' active' : '')} onClick={() => setChMode('sales')}>เรียงยอดขาย</button><button className={'seg' + (chMode === 'profit' ? ' active' : '')} onClick={() => setChMode('profit')}>เรียงกำไรจริง</button></div>}
+              </div>
+              <div className="grid g2" style={{ gap: 16, marginBottom: 12, alignItems: 'center' }}>
+                <div style={{ maxWidth: 260, margin: '0 auto', width: '100%' }}><DonutChart data={chs.map(c => ({ label: c.name, value: c.sales, color: channelColor(c.name) }))} height={190} ariaLabel="สัดส่วนยอดขายแยกช่องทาง" /></div>
+                <div style={{ display: 'grid', gap: 6 }}>{chs.slice(0, 7).map(c => { const share = agg.sales > 0 ? (c.sales / agg.sales) * 100 : 0; return (
+                  <div key={c.name} className="row" style={{ gap: 8, alignItems: 'center' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: channelColor(c.name), flexShrink: 0 }} />
+                    <span className="sm" style={{ flex: 1, fontWeight: 600 }}>{c.name}</span>
+                    <span className="num sm" style={{ fontWeight: 700 }}>{B(c.sales)}</span>
+                    <span className="num cap" style={{ width: 34, textAlign: 'right' }}>{P(share, 0)}</span>
+                  </div>
+                ); })}</div>
               </div>
               <div className="table-wrap"><table className="table">
                 <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th>{hasFee && <th style={{ textAlign: 'right' }}>ค่าธรรมเนียม</th>}{hasFee && <th style={{ textAlign: 'right' }}>กำไรจริง</th>}{hasFee && <th style={{ textAlign: 'right' }}>มาร์จิ้น</th>}<th style={{ minWidth: 90 }}>สัดส่วน</th></tr></thead>
@@ -851,14 +862,15 @@ function MpReportView() {
 
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="eyebrow" style={{ marginBottom: 14 }}>ลายขายดี (Top 15)</div>
-          {agg.byDesign.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มีข้อมูล SKU</div> : (
-            <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}><table className="table">
+          {agg.byDesign.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มีข้อมูล SKU</div> : (<>
+            <HBars data={agg.byDesign.slice(0, 8).map(d => ({ label: d.name, value: d.qty }))} height={232} unit="ชิ้น" ariaLabel="ลายขายดี" />
+            <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto', marginTop: 12 }}><table className="table">
               <thead><tr><th style={{ width: 34 }}>#</th><th>ลาย</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
               <tbody>{agg.byDesign.slice(0, 15).map((d, i) => (
                 <tr key={d.name} onClick={() => setDrill({ dim: 'design', value: d.name, label: `ลาย ${d.name}` })} style={{ cursor: 'pointer' }}><td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td><td style={{ fontWeight: 600 }}>{d.name}</td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(d.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(d.value)}</td></tr>
               ))}</tbody>
             </table></div>
-          )}
+          </>)}
         </div>
 
         <div className="card" style={{ marginBottom: 16 }}>
@@ -1129,6 +1141,12 @@ function MpReportView() {
 
 // ป้ายเดือนสำหรับหัวการ์ด CRM
 function rangeLabelMonth(m) { return m === 'all' ? 'ทุกเดือน' : m; }
+// M0.2 delta props สำหรับ MetricCard
+function deltaProps(cur, prev) {
+  if (prev == null || !prev) return {};
+  const d = ((cur - prev) / prev) * 100;
+  return { delta: `${Math.abs(d).toFixed(0)}%`, deltaUp: d >= 0 };
+}
 // M0.2 delta pill เทียบงวด
 function DeltaPill({ cur, prev }) {
   if (prev == null) return null;
