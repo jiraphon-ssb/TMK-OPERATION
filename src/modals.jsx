@@ -1347,10 +1347,10 @@ export function ImportProductsModal({ onClose }) {
   const STEPS = [['upload', '1. เลือกไฟล์'], ['map', '2. จับคู่คอลัมน์'], ['preview', '3. ตรวจ & นำเข้า']];
   const footer = (<>
     <button className="btn" onClick={onClose}>ยกเลิก</button>
-    {step === 'map' && <button className="btn" onClick={() => setStep('upload')}><Icon name="chevronLeft" /> ย้อนกลับ</button>}
-    {step === 'preview' && <button className="btn" onClick={() => setStep('map')}><Icon name="chevronLeft" /> ย้อนกลับ</button>}
-    {step === 'upload' && <button className="btn btn-primary" disabled={!files.length} onClick={() => setStep('map')}>ถัดไป: จับคู่คอลัมน์ <Icon name="chevronRight" /></button>}
-    {step === 'map' && <button className="btn btn-primary" disabled={!mapping.name} onClick={() => setStep('preview')}>ถัดไป: ตรวจ & พรีวิว <Icon name="chevronRight" /></button>}
+    {step === 'map' && <button className="btn" onClick={() => setStep('upload')}>ย้อนกลับ</button>}
+    {step === 'preview' && <button className="btn" onClick={() => setStep('map')}>ย้อนกลับ</button>}
+    {step === 'upload' && <button className="btn btn-primary" disabled={!files.length} onClick={() => setStep('map')}>ถัดไป: จับคู่คอลัมน์</button>}
+    {step === 'map' && <button className="btn btn-primary" disabled={!mapping.name} onClick={() => setStep('preview')}>ถัดไป: ตรวจ & พรีวิว</button>}
     {step === 'preview' && <button className="btn btn-primary" disabled={busy || !importable.length} onClick={handleImport}><Icon name="check" /> {busy ? 'กำลังนำเข้า…' : `นำเข้า ${N(importable.length)} รายการ`}</button>}
   </>);
 

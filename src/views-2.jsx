@@ -672,6 +672,21 @@ function MpReportView() {
     await supabase.from('tmk_mp_import_batches').update({ status: 'rolled_back' }).eq('id', b.id);
     window.__toast?.('ย้อนกลับเรียบร้อย', 'success'); setReloadKey(k => k + 1);
   };
+  // M2.5 ส่งออกรายงาน (ตามที่กรอง lens/เดือนอยู่)
+  const exportReport = () => {
+    const tag = `${month === 'all' ? 'ทุกเดือน' : month}${lens !== 'all' ? ' · ' + lens : ''}`;
+    const blocks = [
+      { title: `รายงานรวมข้ามช่อง (${tag})`, cols: ['สรุป', 'ค่า'], rows: [['ออเดอร์', agg.orders], ['ยอดขาย', Math.round(agg.sales)], ['จำนวนชิ้น', agg.qty], ['กำไรสุทธิ', Math.round(agg.profit)], ['เฉลี่ย/ออเดอร์', Math.round(agg.aov)]] },
+      { title: 'แยกช่องทาง', cols: ['ช่องทาง', 'ออเดอร์', 'ยอดขาย', 'ค่าธรรมเนียม', 'กำไร'], rows: agg.byChannelFull.map(c => [c.name, c.count, Math.round(c.sales), Math.round(c.fee), Math.round(c.profit)]) },
+      { title: 'ลายขายดี', cols: ['ลาย', 'ชิ้น', 'ยอดขาย'], rows: agg.byDesign.map(d => [d.name, d.qty, Math.round(d.value)]) },
+      { title: 'ไซซ์', cols: ['ไซซ์', 'ชิ้น'], rows: agg.bySize.map(s => [s.name, s.qty]) },
+      { title: 'สี', cols: ['สี', 'ชิ้น'], rows: agg.byColor.map(s => [s.name, s.qty]) },
+      { title: 'เซลล์', cols: ['เซลล์', 'ออเดอร์', 'ยอดขาย'], rows: agg.bySales.map(s => [s.name, s.count, Math.round(s.value)]) },
+      { title: 'จังหวัด', cols: ['จังหวัด', 'ออเดอร์', 'ยอดขาย'], rows: agg.byProv.map(s => [s.name, s.count, Math.round(s.value)]) },
+    ];
+    downloadCSV(`tmk-mp-report-${todayISO()}.csv`, blocks);
+    window.__toast?.('ส่งออก CSV เรียบร้อย', 'success');
+  };
 
   const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
 
@@ -700,7 +715,7 @@ function MpReportView() {
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="card-head">
           <h3><span style={{ color: 'var(--accent)' }}><Icon name="sales" /></span> รายงานรวมข้ามช่องทาง</h3>
-          <div className="row" style={{ gap: 6 }}>{importBtn}</div>
+          <div className="row" style={{ gap: 6 }}>{orders.length > 0 && !err && <button className="btn btn-sm btn-ghost" onClick={exportReport}><Icon name="external" /> CSV</button>}{importBtn}</div>
         </div>
         {err
           ? <div style={{ textAlign: 'center', padding: 20 }}>
@@ -745,6 +760,30 @@ function MpReportView() {
       )}
 
       {orders.length > 0 && !err && tab === 'overview' && (<>
+        {(() => {
+          const ins = [];
+          if (cmpKpis && cmpKpis.sales > 0) { const d = ((agg.sales - cmpKpis.sales) / cmpKpis.sales) * 100; ins.push({ tone: d >= 0 ? 'var(--good)' : 'var(--bad)', icon: d >= 0 ? 'up' : 'down', text: `ยอดขายเดือนนี้ ${d >= 0 ? 'โต' : 'ลด'} ${Math.abs(d).toFixed(0)}% เทียบ ${cmpKey}`, act: null }); }
+          if (agg.byDesign[0]) ins.push({ tone: 'var(--accent)', icon: 'bag', text: `ลายขายดีสุด: ${agg.byDesign[0].name} (${N(agg.byDesign[0].qty)} ชิ้น)`, act: () => setDrill({ dim: 'design', value: agg.byDesign[0].name, label: `ลาย ${agg.byDesign[0].name}` }) });
+          const bestMargin = agg.byChannelFull.filter(c => c.cost > 0 && c.sales > 0).map(c => ({ name: c.name, m: c.profit / c.sales * 100 })).sort((a, b) => b.m - a.m)[0];
+          if (bestMargin) ins.push({ tone: 'var(--good)', icon: 'sales', text: `ช่องกำไรดีสุด: ${bestMargin.name} (มาร์จิ้น ${bestMargin.m.toFixed(0)}%)`, act: null });
+          if (winBack.length > 0) ins.push({ tone: 'var(--warn)', icon: 'users', text: `ลูกค้าควรตามกลับ ${N(winBack.length)} ราย`, act: () => setTab('customers') });
+          if (month !== 'all' && overallTarget > 0 && isCurMonth && agg.sales < overallTarget * (daysElapsed / daysInMonth)) ins.push({ tone: 'var(--bad)', icon: 'sales', text: `ยอดช้ากว่าเป้า — คาดสิ้นเดือน ${B(projectedSales)} / เป้า ${B(overallTarget)}`, act: () => setTab('sales') });
+          if (!ins.length) return null;
+          return (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="eyebrow" style={{ marginBottom: 12 }}>สิ่งที่ควรดู</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {ins.slice(0, 5).map((x, i) => (
+                  <div key={i} onClick={x.act || undefined} className="row" style={{ gap: 10, alignItems: 'center', padding: '9px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', borderLeft: `3px solid ${x.tone}`, cursor: x.act ? 'pointer' : 'default' }}>
+                    <span style={{ color: x.tone, flexShrink: 0 }}><Icon name={x.icon} /></span>
+                    <span style={{ fontWeight: 500, flex: 1 }}>{x.text}</span>
+                    {x.act && <span style={{ color: 'var(--ink-4)' }}><Icon name="arrowR" /></span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {monthlyArr.length > 1 && (
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน</div>
@@ -843,7 +882,10 @@ function MpReportView() {
             </table></div>
           </div>
           <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>จังหวัด (Top 10)</div>
+            <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 6 }}>
+              <div className="eyebrow">จังหวัด (Top 10)</div>
+              {agg.byProv.length > 0 && <span className="cap">5 จังหวัดแรก = {P(agg.sales > 0 ? agg.byProv.slice(0, 5).reduce((a, x) => a + x.value, 0) / agg.sales * 100 : 0, 0)} ของยอด</span>}
+            </div>
             <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}><table className="table">
               <thead><tr><th>จังหวัด</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
               <tbody>{agg.byProv.slice(0, 10).map(s => <tr key={s.name}><td>{s.name}</td><td className="num" style={{ textAlign: 'right' }}>{N(s.count)}</td><td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{B(s.value)}</td></tr>)}</tbody>
