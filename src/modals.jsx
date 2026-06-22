@@ -10,6 +10,7 @@ import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { parseTaskDate, getToday, todayISO, thaiDate } from './lib/dateUtils.js';
 import { ScanButton } from './ScanButton.jsx';
+import { buildMaster, buildSku, summarize, detectFileKind } from './lib/mpReport.js';
 import { logAudit } from './lib/audit.js';
 import { computeMonth } from './dataContext.jsx';
 
@@ -1473,6 +1474,132 @@ export function ImportProductsModal({ onClose }) {
         </div>
         {filtered.length > 300 && <div className="cap" style={{ marginTop: 6, color: 'var(--ink-4)' }}>แสดง 300 แถวแรก (กรองได้ {N(filtered.length)} แถว) — นำเข้าจริงครบทุกแถวที่ "ใหม่/อัปเดต"</div>}
         {filtered.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 16, color: 'var(--ink-4)' }}>ไม่มีแถวในหมวดนี้</div>}
+      </>)}
+    </Modal>
+  );
+}
+
+/* ---------- รายงานรวมข้ามช่อง: นำเข้าไฟล์ขาย (Shipnity base + Shopee/TikTok เสริม + catalog) ---------- */
+const MP_KIND_LABEL = { shipnity: 'Shipnity (ฐานหลัก)', shopee: 'Shopee (เสริม)', tiktok: 'TikTok (เสริม)', catalog: 'แคตตาล็อกลาย', unknown: 'ไม่รู้จัก' };
+async function mpFileToGrid(file) {
+  if (/\.(xlsx|xls|xlsm|xlsb)$/i.test(file.name)) {
+    const buf = await file.arrayBuffer();
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(buf, { type: 'array' });
+    const pick = wb.SheetNames.find(s => /ordersku|^orders$|sheet1/i.test(s)) || wb.SheetNames[0];
+    return XLSX.utils.sheet_to_json(wb.Sheets[pick], { header: 1, raw: false, defval: '' });
+  }
+  const buf = await file.arrayBuffer();
+  const { text } = smartDecodeCSV(buf);
+  return parseCSV(text);
+}
+const mpChunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
+
+export function MpImportModal({ onClose, onDone }) {
+  const [files, setFiles] = useState([]); // [{ id, name, kind, grid }]
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef(null);
+
+  const onFiles = async (e) => {
+    const picked = Array.from(e.target.files || []); e.target.value = '';
+    if (!picked.length) return;
+    setLoading(true);
+    const added = [];
+    for (const f of picked) {
+      try {
+        let grid = await mpFileToGrid(f);
+        let kind = detectFileKind(grid);
+        if (kind === 'tiktok' && grid.length > 2) grid = [grid[0], ...grid.slice(2)]; // ตัดแถวคำอธิบาย
+        added.push({ id: uid('f'), name: f.name, kind, grid, rows: Math.max(0, grid.length - 1) });
+      } catch (err) { toast(`อ่าน ${f.name} ไม่สำเร็จ: ${err?.message || ''}`, 'error'); }
+    }
+    setLoading(false);
+    // แทนที่ไฟล์ชนิดเดิม (อัปโหลดซ้ำ = ทับ)
+    setFiles(prev => { const map = {}; [...prev, ...added].forEach(f => { map[f.kind] = f; }); return Object.values(map); });
+  };
+  const removeFile = (id) => setFiles(prev => prev.filter(f => f.id !== id));
+  const byKind = (k) => files.find(f => f.kind === k);
+
+  const result = useMemo(() => {
+    const shipnity = byKind('shipnity')?.grid, shopee = byKind('shopee')?.grid, tiktok = byKind('tiktok')?.grid, catalog = byKind('catalog')?.grid;
+    if (!shipnity || !catalog) return null; // ต้องมีฐานหลัก + แคตตาล็อก
+    const master = buildMaster({ shipnity, tiktok });
+    const sku = buildSku({ shipnity, shopee, tiktok }, catalog);
+    return { master, sku, sum: summarize(master, sku) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files]);
+
+  const baht = n => '฿' + Math.round(n).toLocaleString();
+  const save = async () => {
+    if (!result || saving) return;
+    setSaving(true);
+    try {
+      const { master, sku } = result;
+      const batch = 'imp-' + Date.now().toString(36);
+      const omByOrder = {}; master.forEach(m => { omByOrder[m.order_no] = m.order_month; });
+      const months = master.map(m => m.order_month).filter(Boolean);
+      const overall = months.sort((a, b) => months.filter(x => x === b).length - months.filter(x => x === a).length)[0] || '';
+      // 1) upsert orders (id = source:order_no)
+      const oRows = master.map(m => ({ id: `${m.source}:${m.order_no}`, ...m, import_batch: batch }));
+      for (const ch of mpChunk(oRows, 500)) { const { error } = await supabase.from('tmk_mp_orders').upsert(ch, { onConflict: 'id' }); if (error) throw error; }
+      // 2) ลบ sku ของ order ที่จะนำเข้า (แยก source) แล้ว insert ใหม่ — กันบรรทัดเก่าค้าง
+      const bySrc = {}; sku.forEach(s => { (bySrc[s.source] = bySrc[s.source] || new Set()).add(s.order_no); });
+      for (const src in bySrc) { for (const ids of mpChunk([...bySrc[src]], 150)) { const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', src).in('order_no', ids); if (error) throw error; } }
+      const sRows = sku.map((s, i) => ({ id: `${s.source}:${s.order_no}:${i}`, ...s, order_month: omByOrder[s.order_no] || overall, import_batch: batch }));
+      for (const ch of mpChunk(sRows, 500)) { const { error } = await supabase.from('tmk_mp_skus').insert(ch); if (error) throw error; }
+      logAudit({ action: 'create', entityType: 'data', entityName: 'รายงานรวมข้ามช่อง', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }] });
+      toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} รายการ SKU`, 'success');
+      onDone?.(); onClose();
+    } catch (err) {
+      const msg = /relation .* does not exist|tmk_mp_/i.test(err?.message || '') ? 'ยังไม่ได้สร้างตาราง — รัน migration 20260622-mp-report.sql ก่อน' : (err.message || '');
+      toast('บันทึกไม่สำเร็จ: ' + msg, 'error');
+    } finally { setSaving(false); }
+  };
+
+  const footer = (<>
+    <button className="btn" onClick={onClose}>ปิด</button>
+    <button className="btn btn-primary" disabled={!result || saving} onClick={save}><Icon name="check" /> {saving ? 'กำลังบันทึก…' : result ? `บันทึกลงระบบ (${N(result.master.length)} ออเดอร์)` : 'ต้องมีไฟล์ฐาน + แคตตาล็อก'}</button>
+  </>);
+
+  const need = !byKind('shipnity') || !byKind('catalog');
+  return (
+    <Modal wide icon="external" title="นำเข้ารายงานรวมข้ามช่อง" sub="อัปโหลดไฟล์ขาย Shipnity (ฐาน) + แคตตาล็อก · Shopee/TikTok เสริม" onClose={onClose} footer={footer}>
+      <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
+        ลากไฟล์มาได้หลายไฟล์พร้อมกัน — ระบบรู้เองว่าไฟล์ไหนคืออะไร · <b>ต้องมี Shipnity (ฐานหลัก) + แคตตาล็อกลาย</b> · Shopee/TikTok ใส่เพิ่มเพื่อความแม่นระดับ SKU
+      </div>
+      <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button className="btn btn-sm btn-primary" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</button>
+        <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,.xlsm,.xlsb" style={{ display: 'none' }} onChange={onFiles} />
+      </div>
+      {files.length === 0
+        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)', border: '1px dashed var(--line)', borderRadius: 'var(--r-sm)' }}>ยังไม่ได้เลือกไฟล์</div>
+        : <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
+            {files.map(f => (
+              <div key={f.id} className="row between" style={{ gap: 8, padding: '8px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                <span style={{ minWidth: 0, wordBreak: 'break-all' }}><span className={'chip ' + (f.kind === 'unknown' ? 'chip-bad' : f.kind === 'shipnity' || f.kind === 'catalog' ? 'chip-good' : 'chip-accent')} style={{ marginRight: 8 }}>{MP_KIND_LABEL[f.kind]}</span>{f.name} <span className="cap">· {N(f.rows)} แถว</span></span>
+                <button className="btn btn-sm btn-ghost" onClick={() => removeFile(f.id)}><Icon name="trash" /></button>
+              </div>
+            ))}
+          </div>}
+      {need && files.length > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>⚠️ ยังขาด: {!byKind('shipnity') ? 'ไฟล์ Shipnity (ฐานหลัก) ' : ''}{!byKind('catalog') ? '· แคตตาล็อกลาย' : ''}</div>}
+      {result && (<>
+        <div className="eyebrow" style={{ margin: '6px 0 10px' }}>ตรวจก่อนบันทึก (reconciliation)</div>
+        <div className="row" style={{ gap: 22, flexWrap: 'wrap', marginBottom: 12 }}>
+          <div><div className="cap">ออเดอร์</div><div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{N(result.sum.orders)}</div></div>
+          <div><div className="cap">ยอดขายรวม</div><div className="num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-2)' }}>{baht(result.sum.sales)}</div></div>
+          <div><div className="cap">จำนวนชิ้น</div><div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{N(result.sum.qty)}</div></div>
+          <div><div className="cap">SKU บรรทัด</div><div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{N(result.sum.skuLines)}</div></div>
+          <div><div className="cap">จับคู่ลาย</div><div className="num" style={{ fontSize: 18, fontWeight: 700, color: result.sum.matchedPct >= 99 ? 'var(--good)' : 'var(--warn)' }}>{result.sum.matchedPct.toFixed(1)}%</div></div>
+          <div><div className="cap">SKU ชิ้น</div><div className="num" style={{ fontSize: 18, fontWeight: 700, color: result.sum.skuQty === result.sum.qty ? 'var(--good)' : 'var(--warn)' }}>{N(result.sum.skuQty)}</div></div>
+        </div>
+        <div className="table-wrap" style={{ maxHeight: 220, overflow: 'auto' }}><table className="table">
+          <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
+          <tbody>{Object.entries(result.sum.byChannel).sort((a, b) => b[1].value - a[1].value).map(([k, v]) => (
+            <tr key={k}><td>{k}</td><td className="num" style={{ textAlign: 'right' }}>{N(v.count)}</td><td className="num" style={{ textAlign: 'right' }}>{baht(v.value)}</td></tr>
+          ))}</tbody>
+        </table></div>
+        <div className="cap" style={{ marginTop: 8, color: 'var(--ink-4)' }}>บันทึกแล้วจะ "ทับ" ออเดอร์รหัสเดิม (อัปโหลดเดือนเดิมซ้ำได้ ไม่บวกซ้ำ)</div>
       </>)}
     </Modal>
   );

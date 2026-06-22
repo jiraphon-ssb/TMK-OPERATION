@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
 import { B, P, N, Icon, stockMeta, Avatar, Ring, MiniArea, Bars, UserIcon, SIZES, ORDER_STATUSES, barcodeSVGString, lotTotal, lotValue } from './components.jsx';
-import { advanceOrderStatus, Modal, mutateProductReservations } from './modals.jsx';
+import { advanceOrderStatus, Modal, mutateProductReservations, MpImportModal } from './modals.jsx';
 import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
@@ -522,11 +522,202 @@ function TimelineView({ filtered, fProps }) {
 }
 
 /* ====================  CATALOG  ==================== */
+/* ====================  รายงานรวมข้ามช่อง (marketplace multi-channel)  ==================== */
+function MpReportView() {
+  const [orders, setOrders] = useState(null); // null = loading
+  const [skus, setSkus] = useState([]);
+  const [err, setErr] = useState('');
+  const [month, setMonth] = useState('all');
+  const [importOpen, setImportOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      setOrders(null); setErr('');
+      const o = await supabase.from('tmk_mp_orders').select('*').order('order_month', { ascending: false }).limit(50000);
+      if (cancel) return;
+      if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
+      const s = await supabase.from('tmk_mp_skus').select('order_no,source,channel,design,color,size,qty,line_sales,order_month').limit(120000);
+      if (cancel) return;
+      setOrders(o.data || []); setSkus(s.error ? [] : (s.data || []));
+    })();
+    return () => { cancel = true; };
+  }, [reloadKey]);
+
+  const months = useMemo(() => [...new Set((orders || []).map(o => o.order_month).filter(Boolean))].sort().reverse(), [orders]);
+  const fo = useMemo(() => (orders || []).filter(o => month === 'all' || o.order_month === month), [orders, month]);
+  const fs = useMemo(() => (skus || []).filter(s => month === 'all' || s.order_month === month), [skus, month]);
+
+  const agg = useMemo(() => {
+    const sum = (arr, k) => arr.reduce((a, x) => a + (Number(x[k]) || 0), 0);
+    const grp = (arr, key, val) => { const o = {}; arr.forEach(x => { const k = x[key] || 'ไม่ระบุ'; if (!o[k]) o[k] = { name: k, count: 0, value: 0, qty: 0 }; o[k].count++; o[k].value += Number(x[val]) || 0; o[k].qty += Number(x.qty) || 0; }); return Object.values(o); };
+    const sales = sum(fo, 'sales');
+    return {
+      orders: fo.length, sales, qty: sum(fo, 'qty'), profit: sum(fo, 'profit'), aov: fo.length ? sales / fo.length : 0,
+      byChannel: grp(fo, 'channel', 'sales').sort((a, b) => b.value - a.value),
+      byPay: grp(fo, 'payment_type', 'sales').sort((a, b) => b.value - a.value),
+      byCust: grp(fo, 'customer_type', 'sales').sort((a, b) => b.value - a.value),
+      bySales: grp(fo, 'salesperson', 'sales').sort((a, b) => b.value - a.value),
+      byProv: grp(fo, 'province', 'sales').sort((a, b) => b.value - a.value).filter(x => x.name !== 'ไม่ระบุ' && x.name !== ''),
+      byMonth: grp(orders || [], 'order_month', 'sales').sort((a, b) => String(a.name).localeCompare(String(b.name))),
+      byDesign: grp(fs, 'design', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ').sort((a, b) => b.qty - a.qty),
+      bySize: grp(fs, 'size', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ'),
+      byColor: grp(fs, 'color', 'line_sales').filter(x => x.name && x.name !== 'ไม่ระบุ').sort((a, b) => b.qty - a.qty),
+    };
+  }, [fo, fs, orders]);
+
+  const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL', '8XL'];
+  const sizeRank = SIZE_ORDER.map(s => agg.bySize.find(x => x.name === s)).filter(Boolean);
+  const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
+  const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
+  const maxCh = Math.max(1, ...agg.byChannel.map(x => x.value));
+  const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
+
+  const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
+
+  if (orders === null) return <div className="content-inner rise"><div className="card"><div className="cap" style={{ textAlign: 'center', padding: 28, color: 'var(--ink-4)' }}>กำลังโหลดรายงาน…</div></div></div>;
+
+  return (
+    <div className="content-inner rise">
+      {importOpen && <MpImportModal onClose={() => setImportOpen(false)} onDone={() => setReloadKey(k => k + 1)} />}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-head">
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="sales" /></span> รายงานรวมข้ามช่องทาง</h3>
+          <div className="row" style={{ gap: 6 }}>{importBtn}</div>
+        </div>
+        {err
+          ? <div style={{ textAlign: 'center', padding: 20 }}>
+              <div className="cap" style={{ color: 'var(--bad)', marginBottom: 8 }}>{/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration 20260622-mp-report.sql ใน Supabase ก่อน' : 'โหลดไม่สำเร็จ: ' + err}</div>
+            </div>
+          : orders.length === 0
+            ? <div style={{ textAlign: 'center', padding: 24 }}>
+                <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>ยังไม่มีข้อมูล — อัปโหลดไฟล์ขาย Shipnity (ฐาน) + แคตตาล็อก เพื่อเริ่ม</div>
+                {importBtn}
+              </div>
+            : (<>
+                <div className="row" style={{ gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <button className={'pick' + (month === 'all' ? ' on' : '')} onClick={() => setMonth('all')}>ทุกเดือน</button>
+                  {months.map(m => <button key={m} className={'pick' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>{m}</button>)}
+                </div>
+                <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
+                  <div><div className="cap">ออเดอร์</div><div className="num kpi-value">{N(agg.orders)}</div></div>
+                  <div><div className="cap">ยอดขายรวม</div><div className="num kpi-value">{B(agg.sales)}</div></div>
+                  <div><div className="cap">จำนวนชิ้น</div><div className="num kpi-value">{N(agg.qty)}</div></div>
+                  <div><div className="cap">กำไรสุทธิ</div><div className="num kpi-value" style={{ color: 'var(--good)' }}>{B(agg.profit)}</div></div>
+                  <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num kpi-value">{B(agg.aov)}</div></div>
+                </div>
+              </>)}
+      </div>
+
+      {orders.length > 0 && !err && (<>
+        {monthlyArr.length > 1 && (
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน</div>
+            <Bars data={monthlyArr} h={140} color="var(--accent-2)" labelKey="m" valueKey="rev" fmt={B} />
+          </div>
+        )}
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>ยอดขายแยกช่องทาง</div>
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th><th style={{ minWidth: 120 }}>สัดส่วน</th></tr></thead>
+            <tbody>{agg.byChannel.map(c => { const share = agg.sales > 0 ? (c.value / agg.sales) * 100 : 0; return (
+              <tr key={c.name}>
+                <td style={{ fontWeight: 600 }}>{c.name}</td>
+                <td className="num" style={{ textAlign: 'right' }}>{N(c.count)}</td>
+                <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.value)}</td>
+                <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.value / maxCh) * 100}%`, background: 'var(--accent)' }} /></div><span className="num cap" style={{ width: 36, textAlign: 'right' }}>{P(share, 0)}</span></div></td>
+              </tr>
+            ); })}</tbody>
+          </table></div>
+        </div>
+
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>ลายขายดี (Top 15)</div>
+          {agg.byDesign.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มีข้อมูล SKU</div> : (
+            <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}><table className="table">
+              <thead><tr><th style={{ width: 34 }}>#</th><th>ลาย</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
+              <tbody>{agg.byDesign.slice(0, 15).map((d, i) => (
+                <tr key={d.name}><td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td><td style={{ fontWeight: 600 }}>{d.name}</td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(d.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(d.value)}</td></tr>
+              ))}</tbody>
+            </table></div>
+          )}
+        </div>
+
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>ไซซ์ขายดี</div>
+            {sizeRank.map(s => (
+              <div key={s.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
+                <span className="sm" style={{ width: 42, fontWeight: 700 }}>{s.name}</span>
+                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${(s.qty / maxSize) * 100}%`, background: 'var(--accent)' }} /></div>
+                <span className="num sm" style={{ width: 50, textAlign: 'right', fontWeight: 700 }}>{N(s.qty)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>สีขายดี (Top 10)</div>
+            {agg.byColor.slice(0, 10).map(c => (
+              <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
+                <span className="sm" style={{ flex: '0 0 70px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.qty / maxColor) * 100}%`, background: 'var(--accent-2)' }} /></div>
+                <span className="num sm" style={{ width: 50, textAlign: 'right', fontWeight: 700 }}>{N(c.qty)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>ยอดขายตามเซลล์</div>
+            <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}><table className="table">
+              <thead><tr><th>เซลล์</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
+              <tbody>{agg.bySales.map(s => <tr key={s.name}><td>{s.name}</td><td className="num" style={{ textAlign: 'right' }}>{N(s.count)}</td><td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{B(s.value)}</td></tr>)}</tbody>
+            </table></div>
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>จังหวัด (Top 10)</div>
+            <div className="table-wrap" style={{ maxHeight: 260, overflowY: 'auto' }}><table className="table">
+              <thead><tr><th>จังหวัด</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
+              <tbody>{agg.byProv.slice(0, 10).map(s => <tr key={s.name}><td>{s.name}</td><td className="num" style={{ textAlign: 'right' }}>{N(s.count)}</td><td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{B(s.value)}</td></tr>)}</tbody>
+            </table></div>
+          </div>
+        </div>
+
+        <div className="grid g2" style={{ marginBottom: 16 }}>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>การชำระเงิน</div>
+            {agg.byPay.map(p => <div key={p.name} className="row between" style={{ marginBottom: 8 }}><span>{p.name}</span><span className="num"><b>{N(p.count)}</b> ออเดอร์ · {B(p.value)}</span></div>)}
+          </div>
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>ลูกค้าใหม่ / เก่า</div>
+            {agg.byCust.map(p => <div key={p.name} className="row between" style={{ marginBottom: 8 }}><span>{p.name}</span><span className="num"><b>{N(p.count)}</b> ออเดอร์ · {B(p.value)}</span></div>)}
+          </div>
+        </div>
+      </>)}
+    </div>
+  );
+}
+
+function ReportHub() {
+  const [mode, setMode] = useState('mp'); // mp = รวมข้ามช่อง · internal = กรอกมือ
+  return (<>
+    <div className="content-inner" style={{ paddingBottom: 0 }}>
+      <div className="segbar" style={{ marginBottom: 0 }}>
+        <button className={'seg' + (mode === 'mp' ? ' active' : '')} onClick={() => setMode('mp')}>รายงานรวมข้ามช่อง</button>
+        <button className={'seg' + (mode === 'internal' ? ' active' : '')} onClick={() => setMode('internal')}>รายงานภายใน (กรอกมือ)</button>
+      </div>
+    </div>
+    {mode === 'mp' ? <MpReportView /> : <SalesReportView />}
+  </>);
+}
+
 export function CatalogView({ sub }) {
   if (sub === 'campaigns') return <CampaignsView />;
   if (sub === 'po') return <POView />;
   if (sub === 'stock') return <StockView />;
-  if (sub === 'report') return <SalesReportView />;
+  if (sub === 'report') return <ReportHub />;
   if (sub === 'orders') return <OrdersView />;
   if (sub === 'customers') return <CustomersView />;
   return <ProductsView />;
