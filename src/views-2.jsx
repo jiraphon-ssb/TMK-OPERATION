@@ -613,6 +613,25 @@ function MpReportView() {
   const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
   const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
   const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
+  // M2.2 อัตรายกเลิก (ใช้ออเดอร์ status=cancelled ที่เก็บไว้)
+  const cancelledCount = useMemo(() => (orders || []).filter(o => o.status === 'cancelled' && (month === 'all' || o.order_month === month) && (lens === 'all' || (o.job_type || 'ปลีก') === lens)).length, [orders, month, lens]);
+  const cancelRate = (agg.orders + cancelledCount) > 0 ? (cancelledCount / (agg.orders + cancelledCount)) * 100 : 0;
+  // M2.3 forecast: คาดเดือนหน้า = เฉลี่ย 3 เดือนล่าสุด (trailing) — ใช้ตอนดู "ทุกเดือน"
+  const forecastNext = (() => { const a = agg.byMonth.map(m => m.value); if (a.length < 2) return 0; const last3 = a.slice(-3); return last3.reduce((x, y) => x + y, 0) / last3.length; })();
+  // M1.2 cohort retention: group ลูกค้าตามเดือนแรกที่ซื้อ → % กลับมาเดือนถัดๆ
+  const cohort = useMemo(() => {
+    const firstMonth = {}, activity = {};
+    (orders || []).filter(o => o.status !== 'cancelled' && o.customer_code).forEach(o => {
+      const k = o.customer_code, m = o.order_month; if (!m) return;
+      if (!firstMonth[k] || m < firstMonth[k]) firstMonth[k] = m;
+      (activity[k] = activity[k] || new Set()).add(m);
+    });
+    const allMonths = [...new Set(Object.values(firstMonth))].sort();
+    const monthIdx = Object.fromEntries(allMonths.map((m, i) => [m, i]));
+    const cohorts = {};
+    Object.keys(firstMonth).forEach(k => { const fm = firstMonth[k]; (cohorts[fm] = cohorts[fm] || { size: 0, ret: {} }); cohorts[fm].size++; (activity[k] || new Set()).forEach(m => { const off = monthIdx[m] - monthIdx[fm]; if (off >= 0) cohorts[fm].ret[off] = (cohorts[fm].ret[off] || 0) + 1; }); });
+    return { allMonths, cohorts, maxOff: allMonths.length };
+  }, [orders]);
   // M0.3 colorway matrix (ลาย×สี) — top designs × top colors, qty heatmap
   const matrix = useMemo(() => {
     const dQ = {}, cQ = {}, cell = {};
@@ -767,6 +786,7 @@ function MpReportView() {
           const bestMargin = agg.byChannelFull.filter(c => c.cost > 0 && c.sales > 0).map(c => ({ name: c.name, m: c.profit / c.sales * 100 })).sort((a, b) => b.m - a.m)[0];
           if (bestMargin) ins.push({ tone: 'var(--good)', icon: 'sales', text: `ช่องกำไรดีสุด: ${bestMargin.name} (มาร์จิ้น ${bestMargin.m.toFixed(0)}%)`, act: null });
           if (winBack.length > 0) ins.push({ tone: 'var(--warn)', icon: 'users', text: `ลูกค้าควรตามกลับ ${N(winBack.length)} ราย`, act: () => setTab('customers') });
+          if (cancelRate > 5) ins.push({ tone: 'var(--bad)', icon: 'warn', text: `อัตรายกเลิก ${cancelRate.toFixed(0)}% (${N(cancelledCount)} ออเดอร์) — ตรวจสอบ`, act: null });
           if (month !== 'all' && overallTarget > 0 && isCurMonth && agg.sales < overallTarget * (daysElapsed / daysInMonth)) ins.push({ tone: 'var(--bad)', icon: 'sales', text: `ยอดช้ากว่าเป้า — คาดสิ้นเดือน ${B(projectedSales)} / เป้า ${B(overallTarget)}`, act: () => setTab('sales') });
           if (!ins.length) return null;
           return (
@@ -786,7 +806,10 @@ function MpReportView() {
         })()}
         {monthlyArr.length > 1 && (
           <div className="card" style={{ marginBottom: 16 }}>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน</div>
+            <div className="row between" style={{ marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+              <div className="eyebrow">ยอดขายรายเดือน</div>
+              {forecastNext > 0 && <span className="cap">คาดเดือนหน้า ~<b style={{ color: 'var(--accent-2)' }}>{B(forecastNext)}</b> (เฉลี่ย 3 เดือนล่าสุด)</span>}
+            </div>
             <Bars data={monthlyArr} h={140} color="var(--accent-2)" labelKey="m" valueKey="rev" fmt={B} />
           </div>
         )}
@@ -949,6 +972,25 @@ function MpReportView() {
                 )}
               </div>
             </div>
+
+            {cohort.allMonths.length > 1 && (
+              <div className="card" style={{ marginBottom: 16 }}>
+                <div className="eyebrow" style={{ marginBottom: 14 }}>การกลับมาซื้อ (cohort retention) — % ลูกค้าที่กลับมาในเดือนถัดๆ</div>
+                <div className="table-wrap table-sticky-first"><table className="table">
+                  <thead><tr><th>เริ่มซื้อเดือน</th><th style={{ textAlign: 'right' }}>ลูกค้า</th>{cohort.allMonths.map((_, off) => <th key={off} style={{ textAlign: 'center' }}>+{off}</th>)}</tr></thead>
+                  <tbody>{cohort.allMonths.map((cm, ci) => { const c = cohort.cohorts[cm] || { size: 0, ret: {} }; return (
+                    <tr key={cm}>
+                      <td style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{cm}</td>
+                      <td className="num" style={{ textAlign: 'right' }}>{N(c.size)}</td>
+                      {cohort.allMonths.map((_, off) => { if (ci + off >= cohort.allMonths.length) return <td key={off} />; const pct = c.size ? ((c.ret[off] || 0) / c.size) * 100 : 0; const a = pct / 100; return (
+                        <td key={off} className="num" style={{ textAlign: 'center', background: pct ? `color-mix(in srgb, var(--good) ${Math.round(a * 75 + 6)}%, transparent)` : 'transparent', color: a > 0.55 ? '#fff' : 'var(--ink)' }}>{pct ? P(pct, 0) : '·'}</td>
+                      ); })}
+                    </tr>
+                  ); })}</tbody>
+                </table></div>
+                <div className="cap" style={{ marginTop: 8, color: 'var(--ink-4)' }}>+0 = เดือนแรก (100%) · +1 = กลับมาซื้อเดือนถัดไป ฯลฯ — ยิ่งเข้มยิ่งรักษาลูกค้าได้ดี</div>
+              </div>
+            )}
 
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="eyebrow" style={{ marginBottom: 14 }}>ลูกค้าใช้จ่ายสูงสุด — ช่วงนี้ (Top 20)</div>
