@@ -1074,10 +1074,11 @@ export function ImportProductsModal({ onClose }) {
   const skuSet = new Set(existing.map(p => String(p.sku || '').toLowerCase().trim()).filter(Boolean));
   const nameSet = new Set(existing.map(p => String(p.name || '').toLowerCase().trim()));
 
-  const parse = (text) => {
-    const grid = parseCSV(text);
-    if (grid.length < 2) { toast('ไฟล์ว่างหรือไม่มีข้อมูล', 'error'); return; }
-    const h = grid[0];
+  // parse จาก grid (array-of-arrays) — ใช้ได้ทั้ง CSV และ Excel
+  const parse = (grid) => {
+    if (!grid || grid.length < 2) { toast('ไฟล์ว่างหรือไม่มีข้อมูล', 'error'); return; }
+    const h = (grid[0] || []).map(x => String(x ?? ''));
+    const cell = (row, i) => String(row[i] ?? '').trim();
     const ci = {
       name: findCol(h, 'product_name', 'name', 'ชื่อสินค้า', 'ชื่อ'),
       price: findCol(h, 'price', 'ราคา'),
@@ -1090,30 +1091,38 @@ export function ImportProductsModal({ onClose }) {
     if (ci.name < 0) { toast('ไม่พบคอลัมน์ชื่อสินค้า (product_name / name / ชื่อ)', 'error'); return; }
     const out = [];
     for (let r = 1; r < grid.length; r++) {
-      const row = grid[r];
-      const name = String(row[ci.name] || '').trim();
+      const row = grid[r] || [];
+      const name = cell(row, ci.name);
       if (!name) continue;
       out.push({
         name,
         price: ci.price >= 0 ? nn(row[ci.price]) : 0,
-        category: ci.cat >= 0 ? String(row[ci.cat] || '').trim() : '',
-        sku: ci.sku >= 0 ? String(row[ci.sku] || '').trim() : '',
-        design: ci.design >= 0 ? String(row[ci.design] || '').trim() : '',
-        supplier: ci.sup >= 0 ? String(row[ci.sup] || '').trim() : '',
-        barcode: ci.bar >= 0 ? String(row[ci.bar] || '').trim() : '',
+        category: ci.cat >= 0 ? cell(row, ci.cat) : '',
+        sku: ci.sku >= 0 ? cell(row, ci.sku) : '',
+        design: ci.design >= 0 ? cell(row, ci.design) : '',
+        supplier: ci.sup >= 0 ? cell(row, ci.sup) : '',
+        barcode: ci.bar >= 0 ? cell(row, ci.bar) : '',
       });
     }
     setRows(out);
   };
 
-  const onFile = (e) => {
+  const onFile = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
     if (!f) return;
     setFileName(f.name);
-    const reader = new FileReader();
-    reader.onload = () => parse(reader.result);
-    reader.onerror = () => toast('อ่านไฟล์ไม่สำเร็จ', 'error');
-    reader.readAsText(f, 'utf-8');
+    try {
+      if (/\.(xlsx|xls|xlsm)$/i.test(f.name)) {
+        // Excel — lazy-load SheetJS เฉพาะตอนใช้ (ไม่บวม main bundle)
+        const buf = await f.arrayBuffer();
+        const XLSX = await import('xlsx');
+        const wb = XLSX.read(buf, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        parse(XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }));
+      } else {
+        parse(parseCSV(await f.text()));
+      }
+    } catch (err) { toast('อ่านไฟล์ไม่สำเร็จ: ' + (err?.message || ''), 'error'); }
   };
 
   const isDup = (p) => (p.sku && skuSet.has(p.sku.toLowerCase())) || (!p.sku && nameSet.has(p.name.toLowerCase()));
@@ -1143,7 +1152,7 @@ export function ImportProductsModal({ onClose }) {
         }
         throw error;
       }
-      logAudit({ action: 'create', entityType: 'product', entityName: `นำเข้า ${fresh.length} สินค้า`, summary: `นำเข้าสินค้าจาก CSV ${fresh.length} รายการ`, fields: [{ label: 'นำเข้า', value: `${N(fresh.length)} รายการ` }, ...(dup ? [{ label: 'ข้ามซ้ำ', value: `${N(dup)} รายการ` }] : [])] });
+      logAudit({ action: 'create', entityType: 'product', entityName: `นำเข้า ${fresh.length} สินค้า`, summary: `นำเข้าสินค้าจาก CSV/Excel ${fresh.length} รายการ`, fields: [{ label: 'นำเข้า', value: `${N(fresh.length)} รายการ` }, ...(dup ? [{ label: 'ข้ามซ้ำ', value: `${N(dup)} รายการ` }] : [])] });
       window.__reload?.();
       toast(`นำเข้าสินค้า ${fresh.length} รายการเรียบร้อย${dup ? ` (ข้ามซ้ำ ${dup})` : ''}`, 'success');
       onClose();
@@ -1158,14 +1167,14 @@ export function ImportProductsModal({ onClose }) {
   </>);
 
   return (
-    <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV" sub="เพิ่มสินค้าหลายรายการเข้าแคตตาล็อกครั้งเดียว" onClose={onClose} footer={footer}>
+    <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV / Excel" sub="เพิ่มสินค้าหลายรายการเข้าแคตตาล็อกครั้งเดียว" onClose={onClose} footer={footer}>
       <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
-        เลือกไฟล์ <b>.csv</b> ที่มีหัวคอลัมน์ เช่น <b>product_name, price, type, product_code, design_key</b> (หรือ ชื่อ / ราคา / หมวด / รหัส / ลาย) — ระบบจับคู่คอลัมน์ให้อัตโนมัติ · นำเข้าเฉพาะ "ข้อมูลสินค้า" (สต็อก/ล็อตเพิ่มทีหลังที่หน้าสต็อก)
+        เลือกไฟล์ <b>.csv</b> หรือ <b>.xlsx/.xls</b> ที่มีหัวคอลัมน์ เช่น <b>product_name, price, type, product_code, design_key</b> (หรือ ชื่อ / ราคา / หมวด / รหัส / ลาย) — ระบบจับคู่คอลัมน์ให้อัตโนมัติ · นำเข้าเฉพาะ "ข้อมูลสินค้า" (สต็อก/ล็อตเพิ่มทีหลังที่หน้าสต็อก)
       </div>
       <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> เลือกไฟล์ CSV</button>
+        <button className="btn btn-sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> เลือกไฟล์ CSV / Excel</button>
         {fileName && <span className="cap">{fileName} · พบ {N(rows.length)} รายการ</span>}
-        <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" style={{ display: 'none' }} onChange={onFile} />
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display: 'none' }} onChange={onFile} />
       </div>
       {rows.length > 0 && (<>
         <div className="row" style={{ gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>

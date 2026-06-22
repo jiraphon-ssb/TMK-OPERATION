@@ -577,7 +577,7 @@ function ProductsView() {
           <h3><span style={{ color: 'var(--accent)' }}><Icon name="bag" /></span> สินค้า {products.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({list.length}/{products.length})</span>}</h3>
           <div className="row" style={{ gap: 6 }}>
             {products.length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('label')} title="พิมพ์ป้ายราคา/บาร์โค้ด"><Icon name="bag" /> ป้าย</button>}
-            <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('import-products')} title="นำเข้าสินค้าจากไฟล์ CSV"><Icon name="external" /> นำเข้า</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('import-products')} title="นำเข้าสินค้าจากไฟล์ CSV หรือ Excel"><Icon name="external" /> นำเข้า</button>
             <button className="btn btn-sm btn-ghost" disabled={!list.length} onClick={exportProductsCSV} title="ส่งออก CSV"><Icon name="external" /> CSV</button>
             <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
           </div>
