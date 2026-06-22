@@ -523,6 +523,22 @@ function TimelineView({ filtered, fProps }) {
 }
 
 /* ====================  CATALOG  ==================== */
+// ดึงทุกแถว — PostgREST จำกัด ~1000 แถว/request → ต้องวนดึงเป็นหน้าๆ (กันรายงานเห็นไม่ครบ)
+async function fetchAllRows(table, select, { eq, order, asc = true, pageSize = 1000 } = {}) {
+  const out = []; let from = 0;
+  for (let i = 0; i < 200; i++) {
+    let q = supabase.from(table).select(select).range(from, from + pageSize - 1);
+    if (eq) for (const k in eq) q = q.eq(k, eq[k]);
+    if (order) q = q.order(order, { ascending: asc, nullsFirst: false });
+    const { data, error } = await q;
+    if (error) return { error };
+    out.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: out };
+}
+
 /* ====================  รายงานรวมข้ามช่อง (marketplace multi-channel)  ==================== */
 function MpReportView() {
   const [orders, setOrders] = useState(null); // null = loading
@@ -543,10 +559,10 @@ function MpReportView() {
     let cancel = false;
     (async () => {
       setOrders(null); setErr('');
-      const o = await supabase.from('tmk_mp_orders').select('*').order('order_month', { ascending: false }).limit(50000);
+      const o = await fetchAllRows('tmk_mp_orders', '*', { order: 'order_month', asc: false });
       if (cancel) return;
       if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
-      const s = await supabase.from('tmk_mp_skus').select('order_no,source,channel,design,color,size,qty,line_sales,order_month').limit(120000);
+      const s = await fetchAllRows('tmk_mp_skus', 'order_no,source,channel,design,color,size,qty,line_sales,order_month');
       if (cancel) return;
       setOrders(o.data || []); setSkus(s.error ? [] : (s.data || []));
       const t = await supabase.from('tmk_targets').select('*'); if (!cancel && !t.error) setTargets(t.data || []);
@@ -668,6 +684,7 @@ function MpReportView() {
     return 'ทั่วไป';
   };
   const SEG_TONE = { 'แชมป์': 'var(--good)', 'ลูกค้าประจำ': 'var(--accent-2)', 'ลูกค้าใหม่': 'var(--accent)', 'กำลังจะหาย': 'var(--warn)', 'เคยภักดี (ห่างไป)': 'var(--bad)', 'ทั่วไป': 'var(--ink-3)' };
+  const SEG_HEX = { 'แชมป์': '#1faf6b', 'ลูกค้าประจำ': '#7c5cff', 'ลูกค้าใหม่': '#4c7dff', 'กำลังจะหาย': '#e39b2e', 'เคยภักดี (ห่างไป)': '#e0514a', 'ทั่วไป': '#8a909c' };
   const custSeg = custs.map(c => ({ ...c, seg: segOf(c) }));
   const segGroups = Object.values(custSeg.reduce((o, c) => { (o[c.seg] = o[c.seg] || { name: c.seg, count: 0, spend: 0 }); o[c.seg].count++; o[c.seg].spend += c.lifeSpent || c.spend; return o; }, {})).sort((a, b) => b.count - a.count);
   const ltv = custs.length ? custs.reduce((a, c) => a + (c.lifeSpent || 0), 0) / custs.length : 0;
@@ -986,6 +1003,7 @@ function MpReportView() {
             <div className="grid g2" style={{ marginBottom: 16 }}>
               <div className="card">
                 <div className="eyebrow" style={{ marginBottom: 14 }}>กลุ่มลูกค้า (RFM)</div>
+                {segGroups.length > 1 && <div style={{ maxWidth: 200, margin: '0 auto 12px' }}><DonutChart data={segGroups.map(s => ({ label: s.name, value: s.count, color: SEG_HEX[s.name] || '#8a909c' }))} height={160} ariaLabel="กลุ่มลูกค้า RFM" /></div>}
                 {segGroups.map(s => { const share = custs.length ? (s.count / custs.length) * 100 : 0; return (
                   <div key={s.name} className="row" style={{ gap: 10, marginBottom: 9, alignItems: 'center' }}>
                     <span style={{ width: 10, height: 10, borderRadius: 3, background: SEG_TONE[s.name] || 'var(--ink-3)', flexShrink: 0 }} />
@@ -1084,11 +1102,8 @@ function MpReportView() {
                     </div>
                   </div>
                   {overallTarget > 0 ? (<>
-                    <div className="row between" style={{ marginBottom: 6 }}>
-                      <span className="cap">ทำได้ <b style={{ color: 'var(--ink)' }}>{B(agg.sales)}</b> / เป้า {B(overallTarget)}</span>
-                      <span style={{ fontWeight: 700, color: attain >= 100 ? 'var(--good)' : attain >= 70 ? 'var(--warn)' : 'var(--bad)' }}>{P(attain, 0)}</span>
-                    </div>
-                    <div className="bar" style={{ height: 14, position: 'relative' }}>
+                    <div style={{ maxWidth: 240, margin: '0 auto 8px' }}><Gauge value={agg.sales} max={overallTarget} sub={`${B(agg.sales)} / ${B(overallTarget)}`} height={150} /></div>
+                    <div className="bar" style={{ height: 12, position: 'relative' }}>
                       <span style={{ width: `${Math.min(100, attain)}%`, background: attain >= 100 ? 'var(--good)' : 'var(--accent)' }} />
                       {paceTarget > 0 && isCurMonth && <span style={{ position: 'absolute', left: `${Math.min(100, (paceTarget / overallTarget) * 100)}%`, top: -3, bottom: -3, width: 2, background: 'var(--ink)', borderRadius: 1 }} title="ควรอยู่ตรงนี้ตามวัน" />}
                     </div>
@@ -2037,10 +2052,10 @@ function MpOrdersView() {
     let cancel = false;
     (async () => {
       setOrders(null); setErr('');
-      const o = await supabase.from('tmk_mp_orders').select('*').eq('status', 'active').order('order_date', { ascending: false, nullsFirst: false }).limit(50000);
+      const o = await fetchAllRows('tmk_mp_orders', '*', { eq: { status: 'active' }, order: 'order_date', asc: false });
       if (cancel) return;
       if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
-      const s = await supabase.from('tmk_mp_skus').select('order_no,design,color,size,qty,line_sales,channel').limit(120000);
+      const s = await fetchAllRows('tmk_mp_skus', 'order_no,design,color,size,qty,line_sales,channel');
       if (cancel) return;
       const byO = {}; (s.error ? [] : s.data || []).forEach(x => { (byO[x.order_no] = byO[x.order_no] || []).push(x); });
       setSkusByOrder(byO); setOrders(o.data || []);
