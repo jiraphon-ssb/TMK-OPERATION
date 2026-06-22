@@ -534,6 +534,7 @@ function MpReportView() {
   const [tab, setTab] = useState('overview'); // overview | customers | sales
   const [importOpen, setImportOpen] = useState(false);
   const [targets, setTargets] = useState([]);
+  const [batches, setBatches] = useState([]);
   const [drill, setDrill] = useState(null); // { dim, value, label } (M1.5)
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -548,6 +549,7 @@ function MpReportView() {
       if (cancel) return;
       setOrders(o.data || []); setSkus(s.error ? [] : (s.data || []));
       const t = await supabase.from('tmk_targets').select('*'); if (!cancel && !t.error) setTargets(t.data || []);
+      const b = await supabase.from('tmk_mp_import_batches').select('*').order('created_at', { ascending: false }).limit(100); if (!cancel && !b.error) setBatches(b.data || []);
     })();
     return () => { cancel = true; };
   }, [reloadKey]);
@@ -661,6 +663,15 @@ function MpReportView() {
   const daysElapsed = isCurMonth ? _today.getDate() : daysInMonth;
   const projectedSales = isCurMonth && daysElapsed > 0 ? agg.sales / daysElapsed * daysInMonth : agg.sales;
   const overallTarget = targetFor('overall', '')?.target_sales || 0;
+  // M0.6 ย้อนกลับการนำเข้า
+  const rollbackBatch = async (b) => {
+    if (!window.confirm(`ย้อนกลับการนำเข้าชุดนี้?\nจะลบ ${N(b.row_orders || 0)} ออเดอร์ + ${N(b.row_skus || 0)} SKU (${b.month_span || ''})`)) return;
+    const e1 = (await supabase.from('tmk_mp_skus').delete().eq('import_batch', b.id)).error;
+    const e2 = (await supabase.from('tmk_mp_orders').delete().eq('import_batch', b.id)).error;
+    if (e1 || e2) { window.__toast?.('ย้อนกลับไม่สำเร็จ', 'error'); return; }
+    await supabase.from('tmk_mp_import_batches').update({ status: 'rolled_back' }).eq('id', b.id);
+    window.__toast?.('ย้อนกลับเรียบร้อย', 'success'); setReloadKey(k => k + 1);
+  };
 
   const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
 
@@ -729,6 +740,7 @@ function MpReportView() {
           <button className={'seg' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>ภาพรวม</button>
           <button className={'seg' + (tab === 'customers' ? ' active' : '')} onClick={() => setTab('customers')}>ลูกค้า (CRM)</button>
           <button className={'seg' + (tab === 'sales' ? ' active' : '')} onClick={() => setTab('sales')}>เซลล์ & เป้า</button>
+          {batches.length > 0 && <button className={'seg' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>ประวัตินำเข้า</button>}
         </div>
       )}
 
@@ -982,6 +994,24 @@ function MpReportView() {
           </table></div>
         </div>
       </>)}
+
+      {orders.length > 0 && !err && tab === 'history' && (
+        <div className="card">
+          <div className="eyebrow" style={{ marginBottom: 14 }}>ประวัติการนำเข้า (ย้อนกลับได้)</div>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {batches.map(b => (
+              <div key={b.id} style={{ padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', opacity: b.status === 'rolled_back' ? 0.5 : 1 }}>
+                <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ minWidth: 0 }}><b>{b.month_span || '—'}</b> <span className="cap">· {thaiDate(String(b.created_at).slice(0, 10)) || String(b.created_at).slice(0, 10)}</span>{b.status === 'rolled_back' && <span className="chip chip-bad" style={{ marginLeft: 6 }}>ย้อนกลับแล้ว</span>}</span>
+                  {b.status !== 'rolled_back' && <button className="btn btn-sm btn-ghost" onClick={() => rollbackBatch(b)}><Icon name="trash" /> ย้อนกลับ</button>}
+                </div>
+                <div className="cap" style={{ marginTop: 4, color: 'var(--ink-3)' }}>{N(b.row_orders || 0)} ออเดอร์ · {N(b.row_skus || 0)} SKU · {B(b.sales_total || 0)} · {b.channels || ''}</div>
+                {b.source_files && <div className="cap" style={{ color: 'var(--ink-4)', wordBreak: 'break-all' }}>{b.source_files}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
