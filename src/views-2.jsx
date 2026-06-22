@@ -1184,13 +1184,8 @@ function ReportHub() {
 }
 
 export function CatalogView({ sub }) {
-  if (sub === 'campaigns') return <CampaignsView />;
-  if (sub === 'po') return <POView />;
-  if (sub === 'stock') return <StockView />;
-  if (sub === 'report') return <ReportHub />;
   if (sub === 'orders') return <OrdersHub />;
-  if (sub === 'customers') return <CustomersView />;
-  return <ProductsView />;
+  return <ReportHub />; // เน้น sale: หน้าอื่น (สินค้า/ลูกค้า/สต็อก/PO) ถูกตัดออก → รายงานขาย
 }
 
 // ดึง "ลาย" (design) จาก strategy ที่เก็บรูป "ลาย: X" (มาจากนำเข้า CSV/Excel) — ใช้จัดกลุ่มโดยไม่ต้องเพิ่มคอลัมน์ DB
@@ -2055,7 +2050,7 @@ function MpOrdersView() {
       const o = await fetchAllRows('tmk_mp_orders', '*', { eq: { status: 'active' }, order: 'order_date', asc: false });
       if (cancel) return;
       if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
-      const s = await fetchAllRows('tmk_mp_skus', 'order_no,design,color,size,qty,line_sales,channel');
+      const s = await fetchAllRows('tmk_mp_skus', 'order_no,design,color,size,qty,line_sales,channel,product_code,raw_sku_or_name,match_how');
       if (cancel) return;
       const byO = {}; (s.error ? [] : s.data || []).forEach(x => { (byO[x.order_no] = byO[x.order_no] || []).push(x); });
       setSkusByOrder(byO); setOrders(o.data || []);
@@ -2070,7 +2065,7 @@ function MpOrdersView() {
     (month === 'all' || o.order_month === month) &&
     (channel === 'all' || o.channel === channel) &&
     (job === 'all' || (o.job_type || 'ปลีก') === job) &&
-    (!ql || `${o.order_no} ${o.customer_name || ''} ${o.customer_code || ''} ${o.province || ''}`.toLowerCase().includes(ql))
+    (!ql || `${o.order_no} ${o.marketplace_id || ''} ${o.customer_name || ''} ${o.customer_code || ''} ${o.customer_social || ''} ${o.province || ''} ${o.salesperson || ''}`.toLowerCase().includes(ql) || (skusByOrder[o.order_no] || []).some(s => `${s.design || ''} ${s.color || ''} ${s.raw_sku_or_name || ''}`.toLowerCase().includes(ql)))
   );
   const tot = filtered.reduce((a, x) => a + (Number(x.sales) || 0), 0);
   const totQty = filtered.reduce((a, x) => a + (Number(x.qty) || 0), 0);
@@ -2088,15 +2083,11 @@ function MpOrdersView() {
   return (
     <div className="content-inner rise">
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> ออเดอร์จากไฟล์นำเข้า <span className="cap" style={{ fontWeight: 400 }}>({N(filtered.length)})</span></h3></div>
-        <div className="metric-grid" style={{ marginBottom: 14 }}>
-          <MetricCard label="ออเดอร์" value={N(filtered.length)} icon="listChecks" />
-          <MetricCard label="ยอดขายรวม" value={B(tot)} tone="var(--accent)" sub={`${N(totQty)} ชิ้น`} />
-          <MetricCard label="เฉลี่ย/ออเดอร์" value={B(filtered.length ? tot / filtered.length : 0)} />
-          <MetricCard label="ช่องทาง" value={N(Object.keys(byCh).length)} sub="ช่อง" />
+        <div className="card-head" style={{ marginBottom: 10 }}>
+          <h3><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> ออเดอร์จากไฟล์นำเข้า</h3>
+          <span className="cap"><b style={{ color: 'var(--ink)' }}>{N(filtered.length)}</b> ออเดอร์ · {B(tot)} · {N(totQty)} ชิ้น</span>
         </div>
-        {donutData.length > 1 && <div style={{ maxWidth: 230, margin: '0 auto 6px' }}><DonutChart data={donutData} height={170} ariaLabel="สัดส่วนออเดอร์ตามช่องทาง" /></div>}
-        <input className="input" value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา ออเดอร์ / ชื่อลูกค้า / รหัสลูกค้า / จังหวัด" style={{ marginBottom: 10 }} />
+        <input className="input" value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา ออเดอร์ / ชื่อลูกค้า / รหัสลูกค้า / เบอร์/โซเชียล / จังหวัด / ลาย" style={{ marginBottom: 10 }} />
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <div className="chips-pick"><button className={'pick' + (month === 'all' ? ' on' : '')} onClick={() => setMonth('all')}>ทุกเดือน</button>{months.map(m => <button key={m} className={'pick' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>{m}</button>)}</div>
           <div className="chips-pick"><button className={'pick' + (job === 'all' ? ' on' : '')} onClick={() => setJob('all')}>ทุกงาน</button>{['ปลีก', 'ส่ง', 'OEM'].map(j => <button key={j} className={'pick' + (job === j ? ' on' : '')} onClick={() => setJob(j)}>{j}</button>)}</div>
@@ -2119,20 +2110,43 @@ function MpOrdersView() {
                 <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(o.sales)}</td>
               </tr>
               {open && (
-                <tr><td colSpan={7} style={{ background: 'var(--surface-2)' }}>
-                  <div className="row" style={{ gap: 18, flexWrap: 'wrap', marginBottom: sk.length ? 10 : 0, fontSize: 'var(--fs-sm)' }}>
-                    <span className="cap">การชำระ: <b style={{ color: 'var(--ink)' }}>{o.payment_type || '—'}</b></span>
-                    <span className="cap">ลูกค้า: <b style={{ color: 'var(--ink)' }}>{o.customer_type || '—'}</b></span>
-                    <span className="cap">เซลล์: <b style={{ color: 'var(--ink)' }}>{o.salesperson || '—'}</b></span>
-                    {o.cost > 0 && <span className="cap">ต้นทุน: <b style={{ color: 'var(--ink)' }}>{B(o.cost)}</b></span>}
-                    {o.profit > 0 && <span className="cap">กำไร: <b style={{ color: 'var(--good)' }}>{B(o.profit)}</b></span>}
-                    {o.mkt_commission > 0 && <span className="cap">ค่าธรรมเนียม: <b style={{ color: 'var(--ink)' }}>{B(o.mkt_commission)}</b></span>}
-                    {o.marketplace_id && o.marketplace_id !== '-' && <span className="cap">MP: {o.marketplace_id}</span>}
+                <tr><td colSpan={7} style={{ background: 'var(--surface-2)', padding: '12px 14px' }}>
+                  <div className="cap" style={{ marginBottom: 8, fontWeight: 600, color: 'var(--ink-3)' }}>ข้อมูลออเดอร์</div>
+                  <div className="kv-grid">
+                    <div><span className="cap">เลขออเดอร์</span><b>{o.order_no}</b></div>
+                    {o.marketplace_id && o.marketplace_id !== '-' && <div><span className="cap">ID มาร์เก็ตเพลส</span><b>{o.marketplace_id}</b></div>}
+                    <div><span className="cap">วันที่</span><b>{o.order_date || o.order_month}</b></div>
+                    <div><span className="cap">ช่องทาง</span><b>{o.channel}</b></div>
+                    <div><span className="cap">ประเภทงาน</span><b>{o.job_type || 'ปลีก'}</b></div>
+                    <div><span className="cap">การชำระ</span><b>{o.payment_type || '—'}</b></div>
+                    {o.cod_amount > 0 && <div><span className="cap">ยอด COD</span><b>{B(o.cod_amount)}</b></div>}
+                    <div><span className="cap">เซลล์</span><b>{o.salesperson || '—'}</b></div>
+                    <div><span className="cap">ลูกค้า</span><b>{o.customer_name || '—'}</b></div>
+                    {o.customer_code && <div><span className="cap">รหัสลูกค้า</span><b>{o.customer_code}</b></div>}
+                    {o.customer_social && <div><span className="cap">โซเชียล</span><b>{o.customer_social}</b></div>}
+                    <div><span className="cap">สถานะลูกค้า</span><b>{o.customer_type || '—'}</b></div>
+                    {o.cust_total_orders > 0 && <div><span className="cap">ออเดอร์สะสม</span><b>{N(o.cust_total_orders)} ครั้ง</b></div>}
+                    {o.province && <div><span className="cap">จังหวัด</span><b>{o.province}</b></div>}
+                    <div><span className="cap">ยอดขาย</span><b>{B(o.sales)}</b></div>
+                    {o.cost > 0 && <div><span className="cap">ต้นทุน</span><b>{B(o.cost)}</b></div>}
+                    {o.mkt_commission > 0 && <div><span className="cap">ค่าธรรมเนียม</span><b>−{B(o.mkt_commission)}</b></div>}
+                    {o.profit > 0 && <div><span className="cap">กำไรสุทธิ</span><b style={{ color: 'var(--good)' }}>{B(o.profit)}</b></div>}
                   </div>
-                  {sk.length > 0 && <table className="table" style={{ background: 'var(--surface)' }}>
-                    <thead><tr><th>ลาย</th><th>สี</th><th>ไซซ์</th><th style={{ textAlign: 'right' }}>จำนวน</th><th style={{ textAlign: 'right' }}>ยอด</th></tr></thead>
-                    <tbody>{sk.map((s, i) => <tr key={i}><td style={{ fontWeight: 600 }}>{s.design || '—'}</td><td className="cap">{s.color || '—'}</td><td className="cap">{s.size || '—'}</td><td className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</td></tr>)}</tbody>
-                  </table>}
+                  {sk.length > 0 && <>
+                    <div className="cap" style={{ margin: '12px 0 6px', fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ชิ้น)</div>
+                    <table className="table" style={{ background: 'var(--surface)' }}>
+                      <thead><tr><th>ลาย</th><th>รหัส</th><th>สี</th><th>ไซซ์</th><th style={{ textAlign: 'right' }}>จำนวน</th><th style={{ textAlign: 'right' }}>ยอด</th><th>จับคู่</th></tr></thead>
+                      <tbody>{sk.map((s, i) => <tr key={i}>
+                        <td style={{ fontWeight: 600 }}>{s.design || <span style={{ color: 'var(--bad)' }}>จับคู่ไม่ได้</span>}{s.raw_sku_or_name && s.raw_sku_or_name !== s.design && <div className="cap" style={{ color: 'var(--ink-4)' }}>{s.raw_sku_or_name}</div>}</td>
+                        <td className="cap">{s.product_code || '—'}</td>
+                        <td className="cap">{s.color || '—'}</td>
+                        <td className="cap">{s.size || '—'}</td>
+                        <td className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</td>
+                        <td className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</td>
+                        <td><span className="cap" style={{ color: s.match_how ? 'var(--ink-3)' : 'var(--bad)' }}>{s.match_how || '—'}</span></td>
+                      </tr>)}</tbody>
+                    </table>
+                  </>}
                 </td></tr>
               )}
             </React.Fragment>

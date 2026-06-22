@@ -234,12 +234,8 @@ const NAV_DEF = [
     { id: 'timeline', labelKey: 'subTimeline', icon: 'route' },
   ]},
   { id: 'catalog', labelKey: 'navCatalog', icon: 'catalog', subs: [
-    { id: 'products', labelKey: 'subProducts', icon: 'bag' },
-    { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
-    { id: 'customers', labelKey: 'subCustomers2', icon: 'users' },
-    { id: 'stock', labelKey: 'subStock', icon: 'grid' },
     { id: 'report', labelKey: 'subReport', icon: 'sales' },
-    { id: 'po', labelKey: 'subPO', icon: 'box' },
+    { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
   ]},
 ];
 // Resolve labels from i18n at render time
@@ -250,7 +246,7 @@ function useNav() {
     subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
   }));
 }
-const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'products', settings: 'general' };
+const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
 const ACCENTS = { '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
 
 const accent = '#0a5aa0';
