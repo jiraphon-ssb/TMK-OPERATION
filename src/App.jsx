@@ -3,7 +3,16 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex } from './components.jsx';
+import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex, PageSkeleton, useMinSplash } from './components.jsx';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Loader2 } from 'lucide-react';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 // Heavy views — code-split เป็น chunk แยก ลด main bundle (~330 kB)
@@ -22,7 +31,6 @@ import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
 import { WhatsNew, UpdateBanner } from './WhatsNew.jsx';
 
-/* ---- Loading splash (โหลดข้อมูลครั้งแรก) ---- */
 function LoadingScreen() {
   const tips = [
     'กำลังเชื่อมต่อฐานข้อมูล TMK…',
@@ -34,15 +42,24 @@ function LoadingScreen() {
     const id = setInterval(() => setI(v => (v + 1) % tips.length), 1400);
     return () => clearInterval(id);
   }, []);
+  
   return (
-    <div className="tmk-splash">
-      <div className="splash-logo"><img src={tmkLogo} alt="TMK" /></div>
-      <div className="splash-ring" aria-hidden="true"></div>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>กำลังโหลดข้อมูล</div>
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 6, minHeight: 18 }}>{tips[i]}</div>
+    <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
+      <div className="flex flex-col items-center space-y-6">
+        <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-muted/30 shadow-sm border">
+          <img src={tmkLogo} alt="TMK" className="h-10 w-10 object-contain" />
+        </div>
+        
+        <div className="flex flex-col items-center space-y-2 text-center">
+          <div className="flex items-center space-x-2 text-lg font-semibold tracking-tight">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span>กำลังโหลดข้อมูล</span>
+          </div>
+          <p className="text-sm text-muted-foreground min-h-[20px] animate-pulse">
+            {tips[i]}
+          </p>
+        </div>
       </div>
-      <div className="splash-bar" aria-hidden="true"></div>
     </div>
   );
 }
@@ -76,23 +93,8 @@ function SyncIndicator() {
   return (
     <>
       <div className="tmk-syncbar" aria-hidden="true"></div>
-      <div className="tmk-syncchip-wrap"><div className="tmk-syncchip"><span className="splash-ring"></span>กำลังซิงค์ข้อมูล…</div></div>
+      <div className="tmk-syncchip-wrap"><div className="tmk-syncchip"><span className="sync-dot"></span>กำลังซิงค์ข้อมูล…</div></div>
     </>
-  );
-}
-
-/* ---- โหลดหน้า (lazy chunk) — แสดงชัดเจนว่ากำลังโหลด + ปุ่มรีเฟรชถ้าค้างนาน ---- */
-function PageLoading() {
-  const [slow, setSlow] = useState(false);
-  useEffect(() => { const id = setTimeout(() => setSlow(true), 8000); return () => clearTimeout(id); }, []);
-  return (
-    <div className="content-inner page-loading">
-      <div className="page-loading-ring" aria-hidden="true"></div>
-      <div className="page-loading-title">กำลังโหลดหน้า…</div>
-      <div className="page-loading-bar" aria-hidden="true"></div>
-      <div className="page-loading-sub">กำลังเตรียมข้อมูล รอสักครู่</div>
-      {slow && <button className="btn btn-sm" style={{ marginTop: 4 }} onClick={() => location.reload()}><Icon name="refresh" /> โหลดนานผิดปกติ — กดรีเฟรช</button>}
-    </div>
   );
 }
 
@@ -233,9 +235,13 @@ const NAV_DEF = [
     { id: 'kanban', labelKey: 'subKanban', icon: 'listChecks' },
     { id: 'timeline', labelKey: 'subTimeline', icon: 'route' },
   ]},
-  { id: 'catalog', labelKey: 'navCatalog', icon: 'catalog', subs: [
+  { id: 'catalog', labelKey: 'navCatalog', icon: 'sales', subs: [
     { id: 'report', labelKey: 'subReport', icon: 'sales' },
     { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
+    { id: 'entry', labelKey: 'subEntry', icon: 'pencil' },
+    { id: 'shirts', labelKey: 'subShirts', icon: 'bag' },
+    { id: 'crm', labelKey: 'subCrm', icon: 'users' },
+    { id: 'io', labelKey: 'subImport', icon: 'external' },
   ]},
 ];
 // Resolve labels from i18n at render time
@@ -699,7 +705,7 @@ function AppInner() {
     if (section === 'sales' && !['daily','monthly','status'].includes(sub)) return <SalesView sub={sub} />;
     // Heavy chunks — ห่อด้วย Suspense
     return (
-      <Suspense fallback={<PageLoading />}>
+      <Suspense fallback={<PageSkeleton />}>
         {section === 'sales' ? <EntryView sub={sub} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
           : section === 'catalog' ? <CatalogView sub={sub} />
@@ -715,79 +721,218 @@ function AppInner() {
   const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
 
+  const isMobile = useIsMobile();
   const Shell = () => (
-    <div className="app">
+    <SidebarProvider className="app">
       {spotlight && <Spotlight onClose={() => setSpotlight(false)} onGo={go} />}
-      {/* ---------- Icon Rail (desktop) ---------- */}
-      <nav className="rail desktop-only">
-        <div className="rail-brand"><img src={tmkLogo} alt="TMK" /></div>
-        <div className="rail-items">
-          {NAV.map(n => (
-            <button key={n.id} className={'rail-btn' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
-              <Icon name={n.icon} />
-              <span className="rail-btn-label">{n.label}</span>
-            </button>
-          ))}
-        </div>
-        <div className="rail-foot">
-          <div style={{ position: 'relative' }}>
-            <RailAvatar onClick={() => setMenu(m => !m)} />
-            {menu && <ProfileMenu go={go} dark={dark} setDark={setDark} close={() => setMenu(false)} onLogout={logout} />}
-          </div>
-        </div>
-      </nav>
+      {/* ---------- Desktop Sidebar ---------- */}
+      <Sidebar collapsible="icon">
+        <SidebarHeader>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-white text-sidebar-primary-foreground">
+                  <img src={tmkLogo} alt="TMK" className="size-6 object-contain" />
+                </div>
+                <div className="flex flex-col gap-0.5 leading-none">
+                  <span className="font-semibold text-[15px]">TMK Operation</span>
+                  <span className="text-xs text-muted-foreground font-medium">ศูนย์ปฏิบัติการ</span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup label="เมนู">
+            <SidebarMenu>
+              {NAV.map(n => (
+                n.subs ? (
+                  <Collapsible
+                    key={n.id}
+                    asChild
+                    defaultOpen={section === n.id}
+                    className="group/collapsible"
+                  >
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton tooltip={n.label} isActive={section === n.id && !sub} onClick={() => go(n.id)}>
+                          <Icon name={n.icon} />
+                          <span>{n.label}</span>
+                          <Icon name="chevR" className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {n.subs.map(s => (
+                            <SidebarMenuSubItem key={s.id}>
+                              <SidebarMenuSubButton asChild isActive={section === n.id && sub === s.id}>
+                                <button onClick={() => go(n.id, s.id)}>
+                                  <span>{s.label}</span>
+                                  {counts[s.id] != null && counts[s.id] > 0 && (
+                                    <span className="ml-auto bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full">{counts[s.id]}</span>
+                                  )}
+                                </button>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                ) : (
+                  <SidebarMenuItem key={n.id}>
+                    <SidebarMenuButton isActive={section === n.id} onClick={() => go(n.id)} tooltip={n.label}>
+                      <Icon name={n.icon} />
+                      <span>{n.label}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarFooter>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton
+                    size="lg"
+                    className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground outline-none"
+                  >
+                    <Avatar className="h-8 w-8 rounded-lg">
+                      <AvatarImage src={currentUserCtx?.avatar} alt={currentUserCtx?.name} />
+                      <AvatarFallback className="rounded-lg font-semibold" style={{ backgroundColor: currentUserCtx?.color || '#e2e8f0', color: currentUserCtx?.color ? '#fff' : '#334155' }}>
+                        {currentUserCtx?.name ? currentUserCtx.name.substring(0, 2).toUpperCase() : 'GR'}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex flex-col gap-0.5 leading-none flex-1 text-left">
+                      <span className="font-semibold text-sm">{currentUserCtx?.name || 'Graphic'}</span>
+                      <span className="text-xs text-muted-foreground">{currentUserCtx?.email || 'graphic@tmk.co'}</span>
+                    </div>
+                    <Icon name="chevD" className="ml-auto size-4" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg" side={isMobile ? "bottom" : "right"} align="end" sideOffset={4}>
+                  <DropdownMenuLabel className="p-0 font-normal">
+                    <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                      <Avatar className="h-8 w-8 rounded-lg">
+                        <AvatarImage src={currentUserCtx?.avatar} alt={currentUserCtx?.name} />
+                        <AvatarFallback className="rounded-lg font-semibold" style={{ backgroundColor: currentUserCtx?.color || '#e2e8f0', color: currentUserCtx?.color ? '#fff' : '#334155' }}>
+                          {currentUserCtx?.name ? currentUserCtx.name.substring(0, 2).toUpperCase() : 'GR'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex flex-col gap-0.5 leading-none flex-1 text-left">
+                        <span className="font-semibold text-sm">{currentUserCtx?.name || 'Graphic'}</span>
+                        <span className="text-xs text-muted-foreground">{currentUserCtx?.email || 'graphic@tmk.co'}</span>
+                      </div>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onClick={() => go('settings', 'general')} className="cursor-pointer">
+                      <Icon name="system" className="size-4 mr-2 text-muted-foreground" />
+                      ตั้งค่าทั่วไป
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => go('settings', 'roles')} className="cursor-pointer">
+                      <Icon name="users" className="size-4 mr-2 text-muted-foreground" />
+                      จัดการทีม
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => go('settings', 'campaigns')} className="cursor-pointer">
+                      <Icon name="megaphone" className="size-4 mr-2 text-muted-foreground" />
+                      จัดการแคมเปญ
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => go('settings', 'audit')} className="cursor-pointer">
+                      <Icon name="clock" className="size-4 mr-2 text-muted-foreground" />
+                      ประวัติระบบ
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
+                    <Icon name="external" className="size-4 mr-2" />
+                    ออกจากระบบ
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      </Sidebar>
 
-      {/* ---------- Main ---------- */}
-      <div className="main">
-        <header className="topbar">
-          <button className="icon-btn mobile-only" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
-          <div className="topbar-titles">
-            {nav?.subs && <div className="topbar-crumb desktop-only">{nav.label} <Icon name="chevR" /> {subLabel}</div>}
-            {/* มือถือ: รวม "หมวด · แท็บ" ใน title เพื่อบอกตำแหน่งชัดเจน (crumb ถูกซ่อน) */}
-            <div className="topbar-title">
-              {nav?.subs && subLabel ? (
-                <><span className="desktop-only">{subLabel}</span><span className="mobile-only">{subLabel}</span></>
-              ) : (subLabel || nav?.label || SPECIAL_LABELS[section] || '')}
+      {/* ---------- Main Inset ---------- */}
+      <SidebarInset>
+        <div className="main">
+          <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b bg-background px-4 lg:h-[60px] lg:px-6">
+            <SidebarTrigger className="-ml-1" />
+            <div className="flex flex-1 items-center gap-2 overflow-hidden">
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    {nav?.subs ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
+                          {nav.label}
+                          <Icon name="down" className="size-3 ml-1 opacity-50" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {nav.subs.map(sub => (
+                            <DropdownMenuItem key={sub.id} onClick={() => go(section, sub.id)} className="cursor-pointer">
+                              {sub.label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : (
+                      <BreadcrumbPage>{nav?.label || SPECIAL_LABELS[section] || ''}</BreadcrumbPage>
+                    )}
+                  </BreadcrumbItem>
+                  {nav?.subs && subLabel && (
+                    <>
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        <BreadcrumbPage>{subLabel}</BreadcrumbPage>
+                      </BreadcrumbItem>
+                    </>
+                  )}
+                </BreadcrumbList>
+              </Breadcrumb>
             </div>
-          </div>
-          <div className="topbar-spacer"></div>
-          <div className="topbar-actions">
-            {!canEdit && <button className="chip" onClick={() => { const admins = (TMK.roles || []).filter(r => r.role === 'admin').map(r => `${r.name} (${r.email})`); toast(admins.length ? `ขอสิทธิ์แก้ไขได้ที่แอดมิน: ${admins.join(', ')}` : 'ยังไม่มีแอดมินในระบบ', 'warn'); }} title="คลิกดูแอดมินที่ขอสิทธิ์ได้" style={{ background: 'var(--warn-soft)', color: 'var(--warn)', fontWeight: 600, border: 'none', cursor: 'pointer' }}><Icon name="eye" /><span className="desktop-only"> ดูอย่างเดียว</span></button>}
-            <button className="search desktop-only" onClick={() => setSpotlight(true)} style={{ cursor: 'pointer' }}>
-              <Icon name="search" /><span style={{ flex: 1, color: 'var(--ink-3)', fontSize: 'var(--fs-sm)' }}>{t('search')}...</span><kbd>{modKey}K</kbd>
-            </button>
-            <button className="icon-btn mobile-only" onClick={() => setSpotlight(true)} title={t('search')} aria-label={t('search')}><Icon name="search" /></button>
-            <button className="icon-btn" onClick={() => setNotif(n => !n)}>
-              <Icon name="bell" />{notifs.length > 0 && <span className="dot"></span>}
-            </button>
-          </div>
-        </header>
-
-        {/* sub tabs inside .content — แถบแนวนอนเดียว (สไตล์เดียวกับตั้งค่า) รองรับทุกหน้าจอ: wrap ลงบรรทัดใหม่เมื่อแคบ */}
-        <div className="content" ref={contentRef}>
-          {nav?.subs && (
-            <div className="content-inner" style={{ marginBottom: 16 }}>
-              <div className="segbar" style={{ display: 'inline-flex', maxWidth: '100%' }}>
-                {nav.subs.map(s => (
-                  <button key={s.id} className={'seg' + (sub === s.id ? ' active' : '')} onClick={() => go(nav.id, s.id)}>
-                    <Icon name={s.icon} />{s.label}
-                    {counts[s.id] != null && <span className="chip" style={{ marginLeft: 2 }}>{counts[s.id]}</span>}
-                  </button>
-                ))}
-              </div>
+            
+            <div className="flex items-center gap-2">
+              {!canEdit && (
+                <Badge variant="secondary" className="cursor-pointer bg-amber-100 text-amber-800 hover:bg-amber-200" onClick={() => { const admins = (TMK.roles || []).filter(r => r.role === 'admin').map(r => `${r.name} (${r.email})`); toast(admins.length ? `ขอสิทธิ์แก้ไขได้ที่แอดมิน: ${admins.join(', ')}` : 'ยังไม่มีแอดมินในระบบ', 'warn'); }} title="คลิกดูแอดมินที่ขอสิทธิ์ได้">
+                  <Icon name="eye" className="size-3 mr-1" /><span className="hidden sm:inline">ดูอย่างเดียว</span>
+                </Badge>
+              )}
+              
+              <Button variant="outline" className="relative h-9 w-9 p-0 xl:h-9 xl:w-60 xl:justify-start xl:px-3 xl:py-2 text-muted-foreground" onClick={() => setSpotlight(true)} title={t('search')}>
+                <Icon name="search" className="size-4 xl:mr-2" />
+                <span className="hidden xl:inline flex-1 text-left">{t('search')}...</span>
+                <kbd className="pointer-events-none hidden xl:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                  <span className="text-xs">⌘</span>K
+                </kbd>
+              </Button>
+              
+              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full" onClick={() => setNotif(n => !n)}>
+                <Icon name="bell" className="size-5" />
+                {notifs.length > 0 && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-600 border-2 border-background"></span>}
+              </Button>
             </div>
-          )}
-          {renderView()}
-        </div>
-      </div>
+          </header>
 
-      {/* notifications — click navigates to task */}
+          <div className={'content' + (section === 'catalog' ? ' sale-section' : '')} ref={contentRef}>
+            {renderView()}
+          </div>
+        </div>
+      </SidebarInset>
+
+      {/* notifications */}
       {notif && (
         <>
           <div className="scrim" style={{ background: 'transparent' }} onClick={() => setNotif(false)}></div>
           <div className="notif-pop">
             <div className="row between" style={{ padding: '6px 10px 10px' }}>
-              <span className="h3">{t('notifications')}</span><span className="chip chip-accent">{notifs.length}</span>
+              <span className="h3">{t('notifications')}</span><span className="badge badge-secondary">{notifs.length}</span>
             </div>
             {notifGroups.length === 0 && (
               <div className="cap" style={{ padding: '16px 10px', textAlign: 'center', color: 'var(--ink-4)' }}>ไม่มีการแจ้งเตือน</div>
@@ -860,20 +1005,20 @@ function AppInner() {
         </div>
       </nav>
       {canEdit && <button className="fab mobile-only" title="เพิ่มรายการ" onClick={() => {
-        // เปิด modal ที่เหมาะกับหน้าปัจจุบัน (เดิมเปิด "สร้างงาน" ทุกหน้า)
         if (section === 'catalog') {
           const m = { products: 'product', orders: 'order', customers: 'customer', po: 'po' }[sub] || 'product';
           window.__openModal(m); return;
         }
         if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }
-        go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100); // home/planner/อื่นๆ → สร้างงาน
+        go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100);
       }}><Icon name="plus" /></button>}
-    </div>
+    </SidebarProvider>
   );
 
   // สถานะโหลดข้อมูล: version===0 = ยังไม่เคยโหลดสำเร็จ (ครั้งแรก)
   const firstError = authed && dataVersion === 0 && !!dataError;
-  const firstLoading = authed && dataVersion === 0 && dataLoading && !dataError;
+  // จอโหลดแรก: arm ตอน login เสร็จ, done เมื่อโหลดข้อมูลครั้งแรกเสร็จ/พลาด, ค้างขั้นต่ำ ~5.5 วิ
+  const firstLoading = useMinSplash(authed, dataVersion >= 1 || firstError, 5500);
   const showShell = authed && !firstError && !firstLoading;
   const syncing = authed && dataVersion >= 1 && dataLoading; // realtime reload หลังโหลดครั้งแรก
 
@@ -881,7 +1026,7 @@ function AppInner() {
     <>
       {!authReady && <LoadingScreen />}
       {authReady && !authed && <LoginScreen onLogin={handleLogin} />}
-      {firstLoading && <LoadingScreen />}
+      {firstLoading && !firstError && <LoadingScreen />}
       {firstError && <DataErrorScreen error={dataError} onRetry={dataReload} />}
       {showShell && Shell()}
       {syncing && <SyncIndicator />}

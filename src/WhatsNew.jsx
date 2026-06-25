@@ -93,12 +93,12 @@ export function WhatsNew() {
     <div className="whatsnew">
       {open && (
         <div className="whatsnew-card" role="dialog" aria-label="มีอะไรใหม่">
-          <div className="whatsnew-head whatsnew-head-navy" style={{ background: 'var(--rail)' }}>
-            <span className="whatsnew-badge" style={{ background: 'rgba(255,255,255,0.15)' }}><Icon name="help" /></span>
+          <div className="whatsnew-head whatsnew-head-navy" style={{ background: 'var(--surface-2)' }}>
+            <span className="whatsnew-badge" style={{ background: 'var(--ink)', color: '#fff' }}><Icon name="help" /></span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="cap" style={{ color: 'rgba(255,255,255,0.6)', fontWeight: 700 }}>มีอะไรใหม่</div>
+              <div className="cap" style={{ color: 'var(--ink-3)', fontWeight: 700 }}>มีอะไรใหม่</div>
               <div className="row" style={{ gap: 7, alignItems: 'center' }}>
-                <span style={{ fontWeight: 800, fontSize: 16, color: '#fff' }}>เวอร์ชัน {latest.ver}</span>
+                <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--ink)' }}>เวอร์ชัน {latest.ver}</span>
                 <span className="whatsnew-chip" style={{ background: meta.c }}>{meta.l}</span>
               </div>
             </div>

@@ -3,15 +3,33 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, P, N, Icon, stockMeta, Avatar, Ring, MiniArea, Bars, UserIcon, SIZES, ORDER_STATUSES, barcodeSVGString, lotTotal, lotValue } from './components.jsx';
-import { advanceOrderStatus, Modal, mutateProductReservations, MpImportModal } from './modals.jsx';
-import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, MiniBars, channelColor } from './charts.jsx';
+import { B, P, N, Icon, Avatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat } from './components.jsx';
+import { Modal, MpImportModal, SideSheet } from './modals.jsx';
+import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, channelColor } from './charts.jsx';
+import { SaleDashboard } from './saleDashboard.jsx';
+import { ImportExportHub } from './saleImportHub.jsx';
+import { SaleEntryView } from './saleEntry.jsx';
+import { CrmView } from './saleCrm.jsx';
+import { ShirtCatalogView } from './saleCatalog.jsx';
+import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';
 import { useData, computeMonth } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
 import { logAudit } from './lib/audit.js';
 import { APP_VERSION } from './changelog.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
-
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Switch as ShadcnSwitch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
 const DD = TMK;
 
 // a11y: ให้ clickable div กดด้วยคีย์บอร์ดได้ (Enter/Space → trigger onClick)
@@ -100,6 +118,24 @@ function filterTasks(tasks, filterCamp, filterStatus, search, filterResp) {
   });
 }
 
+/* Skeleton วางแผน: แถบกรอง + บอร์ดคอลัมน์ (การ์ดงาน) */
+function PlannerSkeleton() {
+  const counts = [3, 2, 3, 1];
+  return (
+    <div className="content-inner rise">
+      <div className="row" style={{ gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>{Array.from({ length: 5 }).map((_, i) => <Skel key={i} w={i % 2 ? 90 : 64} h={28} r={8} />)}</div>
+      <div className="row" style={{ gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {counts.map((n, c) => (
+          <div key={c} style={{ flex: '1 1 160px', minWidth: 150 }}>
+            <div className="row" style={{ gap: 8, marginBottom: 12 }}><Skel w="45%" h={12} /><Skel w={22} h={16} r={8} /></div>
+            {Array.from({ length: n }).map((_, i) => <div key={i} className="card" style={{ marginBottom: 10, padding: 12 }}><Skel w="85%" h={12} /><Skel w="60%" h={9} style={{ marginTop: 9 }} /><div className="row" style={{ gap: 6, marginTop: 11 }}><Skel w={42} h={16} r={10} /><Skel w={42} h={16} r={10} /></div></div>)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function PlannerView({ sub, tasks, setTasks }) {
   const [filterCamp, setFilterCamp] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
@@ -109,6 +145,8 @@ export function PlannerView({ sub, tasks, setTasks }) {
   const respOptions = useMemo(() => [...new Set((tasks || []).flatMap(t => t.responsible || []))].filter(Boolean).sort(), [tasks]);
   const fProps = { filterCamp, setFilterCamp, filterStatus, setFilterStatus, filterResp, setFilterResp, search, setSearch, respOptions };
   const filtered = filterTasks(tasks, filterCamp, filterStatus, search, filterResp);
+  const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
+  if (beat) return <PlannerSkeleton />;
 
   if (sub === 'kanban') return <KanbanBoard tasks={tasks} setTasks={setTasks} filtered={filtered} fProps={fProps} />;
   if (sub === 'timeline') return <TimelineView filtered={filtered} fProps={fProps} />;
@@ -303,13 +341,13 @@ function CalendarView({ filtered, fProps }) {
                   {t.detail && <div className="cap" style={{ marginTop: 1, wordBreak: 'break-word' }}>{t.detail}</div>}
                 </div>
                 <div className="row wrap" style={{ gap: 10, marginBottom: 8 }}>
-                  <div style={{ minWidth: 0 }}><div className="cap">แคมเปญ</div><span className="chip" style={{ background: `color-mix(in srgb, ${c?.color || '#888'} 16%, transparent)`, color: `color-mix(in srgb, ${c?.color || '#888'} 72%, var(--ink))`, maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'bottom' }}>{c?.name || '-'}</span></div>
+                  <div style={{ minWidth: 0 }}><div className="cap">แคมเปญ</div><span className="badge badge-outline" style={{ background: `color-mix(in srgb, ${c?.color || '#888'} 16%, transparent)`, color: `color-mix(in srgb, ${c?.color || '#888'} 72%, var(--ink))`, maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'bottom' }}>{c?.name || '-'}</span></div>
                   <div><div className="cap">ช่องทาง</div><TaskChannels channel={t.channel} size={16} /></div>
                   <div><div className="cap">สถานะ</div><span className={`chip ${stCls[t.status] || ''}`} style={{ whiteSpace: 'nowrap' }}>{stLabel[t.status]}</span></div>
                 </div>
                 <div className="row wrap" style={{ gap: 6, alignItems: 'center' }}>
                   <span className="cap" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>ผู้รับผิดชอบ:</span>
-                  {(t.responsible || []).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <span key={r} className="chip" style={{ background: `color-mix(in srgb, ${s.color} 16%, transparent)`, color: `color-mix(in srgb, ${s.color} 72%, var(--ink))`, whiteSpace: 'nowrap' }}>{r}</span>; })}
+                  {(t.responsible || []).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <span key={r} className="badge badge-outline" style={{ background: `color-mix(in srgb, ${s.color} 16%, transparent)`, color: `color-mix(in srgb, ${s.color} 72%, var(--ink))`, whiteSpace: 'nowrap' }}>{r}</span>; })}
                 </div>
               </div>
             );
@@ -360,7 +398,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
               <div className="row between" style={{ padding: '2px 4px 12px' }}>
                 <span className="row" style={{ gap: 8, fontWeight: 700, fontSize: 'var(--fs-sm)' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: tone }}></span>{col.label}</span>
-                <span className="chip">{list.length}</span>
+                <span className="badge badge-default">{list.length}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
                 {list.map(t => {
@@ -378,7 +416,7 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                         </div>
                       </div>
                       <div className="row wrap" style={{ gap: 6 }}>
-                        <span className="chip" style={{ background: c.color+'22', color: c.color }}>{c.name}</span>
+                        <span className="badge badge-outline" style={{ background: c.color+'22', color: c.color }}>{c.name}</span>
                         <TaskChannels channel={t.channel} size={16} />
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
                           <span className="cap">{t.date}</span>
@@ -482,7 +520,7 @@ function TimelineView({ filtered, fProps }) {
                   </div>
                   <div>
                     <span className="num" style={{ fontSize: 'var(--fs-h3)', fontWeight: 700, color: isToday ? 'var(--accent-2)' : 'var(--ink)' }}>{thaiDate(dateKey) || dateKey}</span>
-                    {isToday && <span className="chip chip-accent" style={{ marginLeft: 8 }}>วันนี้</span>}
+                    {isToday && <span className="badge badge-secondary" style={{ marginLeft: 8 }}>วันนี้</span>}
                     {beYear && <span className="cap" style={{ marginLeft: 8 }}>{beYear}</span>}
                   </div>
                 </div>
@@ -502,7 +540,7 @@ function TimelineView({ filtered, fProps }) {
                           {isOverdue && <span className="chip chip-bad">เกินกำหนด</span>}
                         </div>
                         <div className="row wrap" style={{ gap: 8 }}>
-                          <span className="chip" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span>
+                          <span className="badge badge-outline" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</span>
                           <TaskChannels channel={t.channel} size={16} />
                           <span className={`chip ${stCls[t.status] || ''}`}>{stLabel[t.status]}</span>
                           <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
@@ -540,6 +578,7 @@ async function fetchAllRows(table, select, { eq, order, asc = true, pageSize = 1
 }
 
 /* ====================  รายงานรวมข้ามช่อง (marketplace multi-channel)  ==================== */
+// eslint-disable-next-line no-unused-vars
 function MpReportView() {
   const [orders, setOrders] = useState(null); // null = loading
   const [skus, setSkus] = useState([]);
@@ -630,12 +669,6 @@ function MpReportView() {
   const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
   const maxColor = Math.max(1, ...agg.byColor.slice(0, 10).map(x => x.qty));
   const monthlyArr = agg.byMonth.map(m => ({ m: m.name, rev: m.value }));
-  // M0.4 เชื่อมสต็อก: ยอดขายต่อลาย (sku) × ของคงเหลือ (products) → ควรผลิตลายไหน
-  const onHandByDesign = {}; (DD.products || []).forEach(p => { const d = productDesign(p); if (d) onHandByDesign[d] = (onHandByDesign[d] || 0) + (p.onHand || 0); });
-  const hasStockData = Object.keys(onHandByDesign).length > 0;
-  const periodDays = month === 'all' ? 90 : 30;
-  const production = agg.byDesign.map(d => { const onHand = onHandByDesign[d.name] || 0; const vel = d.qty / periodDays; const cover = vel > 0 ? onHand / vel : null; return { name: d.name, sold: d.qty, onHand, vel, cover, urgent: cover != null && cover <= 21, slow: d.qty === 0 && onHand > 0 }; });
-  const urgentProd = production.filter(p => p.urgent).sort((a, b) => (a.cover || 0) - (b.cover || 0));
   // M2.2 อัตรายกเลิก (ใช้ออเดอร์ status=cancelled ที่เก็บไว้)
   const cancelledCount = useMemo(() => (orders || []).filter(o => o.status === 'cancelled' && (month === 'all' || o.order_month === month) && (lens === 'all' || (o.job_type || 'ปลีก') === lens)).length, [orders, month, lens]);
   const cancelRate = (agg.orders + cancelledCount) > 0 ? (cancelledCount / (agg.orders + cancelledCount)) * 100 : 0;
@@ -733,7 +766,7 @@ function MpReportView() {
 
   const importBtn = <button className="btn btn-sm btn-primary" onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์ขาย</button>;
 
-  if (orders === null) return <div className="content-inner rise"><div className="card"><div className="cap" style={{ textAlign: 'center', padding: 28, color: 'var(--ink-4)' }}>กำลังโหลดรายงาน…</div></div></div>;
+  if (orders === null) return <PageSkeleton />;
 
   return (
     <div className="content-inner rise">
@@ -771,16 +804,16 @@ function MpReportView() {
               </div>
             : (<>
                 {jobTypes.length > 1 && (
-                  <div className="segbar" style={{ marginBottom: 10 }}>
-                    <button className={'seg' + (lens === 'all' ? ' active' : '')} onClick={() => setLens('all')}>ทั้งหมด</button>
-                    {['ปลีก', 'ส่ง', 'OEM'].filter(j => jobTypes.includes(j)).map(j => <button key={j} className={'seg' + (lens === j ? ' active' : '')} onClick={() => setLens(j)}>{j === 'OEM' ? 'OEM/ราชการ' : j}</button>)}
+                  <div className="tabs-list" style={{ marginBottom: 10 }}>
+                    <button className={'tabs-trigger' + (lens === 'all' ? ' active' : '')} onClick={() => setLens('all')}>ทั้งหมด</button>
+                    {['ปลีก', 'ส่ง', 'OEM'].filter(j => jobTypes.includes(j)).map(j => <button key={j} className={'tabs-trigger' + (lens === j ? ' active' : '')} onClick={() => setLens(j)}>{j === 'OEM' ? 'OEM/ราชการ' : j}</button>)}
                   </div>
                 )}
                 <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button className={'pick' + (month === 'all' ? ' on' : '')} onClick={() => setMonth('all')}>ทุกเดือน</button>
                   {months.map(m => <button key={m} className={'pick' + (month === m ? ' on' : '')} onClick={() => setMonth(m)}>{m}</button>)}
                   {month !== 'all' && <span className="cap" style={{ marginLeft: 6 }}>เทียบ:</span>}
-                  {month !== 'all' && <div className="segbar">{[['none', 'ปิด'], ['mom', 'เดือนก่อน'], ['yoy', 'ปีก่อน']].map(([id, l]) => <button key={id} className={'seg' + (compare === id ? ' active' : '')} onClick={() => setCompare(id)}>{l}</button>)}</div>}
+                  {month !== 'all' && <div className="tabs-list">{[['none', 'ปิด'], ['mom', 'เดือนก่อน'], ['yoy', 'ปีก่อน']].map(([id, l]) => <button key={id} className={'tabs-trigger' + (compare === id ? ' active' : '')} onClick={() => setCompare(id)}>{l}</button>)}</div>}
                 </div>
                 {cmpKpis && <div className="cap" style={{ marginBottom: 8, color: 'var(--ink-4)' }}>เทียบกับ {cmpKey}{cmpKpis.orders === 0 ? ' (ไม่มีข้อมูลงวดนั้น)' : ''}</div>}
                 <div className="metric-grid">
@@ -793,11 +826,11 @@ function MpReportView() {
       </div>
 
       {orders.length > 0 && !err && (
-        <div className="segbar" style={{ marginBottom: 16 }}>
-          <button className={'seg' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>ภาพรวม</button>
-          <button className={'seg' + (tab === 'customers' ? ' active' : '')} onClick={() => setTab('customers')}>ลูกค้า (CRM)</button>
-          <button className={'seg' + (tab === 'sales' ? ' active' : '')} onClick={() => setTab('sales')}>เซลล์ & เป้า</button>
-          {batches.length > 0 && <button className={'seg' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>ประวัตินำเข้า</button>}
+        <div className="tabs-list" style={{ marginBottom: 16 }}>
+          <button className={'tabs-trigger' + (tab === 'overview' ? ' active' : '')} onClick={() => setTab('overview')}>ภาพรวม</button>
+          <button className={'tabs-trigger' + (tab === 'customers' ? ' active' : '')} onClick={() => setTab('customers')}>ลูกค้า (CRM)</button>
+          <button className={'tabs-trigger' + (tab === 'sales' ? ' active' : '')} onClick={() => setTab('sales')}>เซลล์ & เป้า</button>
+          {batches.length > 0 && <button className={'tabs-trigger' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>ประวัตินำเข้า</button>}
         </div>
       )}
 
@@ -845,7 +878,7 @@ function MpReportView() {
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
                 <div className="eyebrow">ยอดขาย & กำไรสุทธิแยกช่องทาง</div>
-                {hasFee && <div className="segbar"><button className={'seg' + (chMode === 'sales' ? ' active' : '')} onClick={() => setChMode('sales')}>เรียงยอดขาย</button><button className={'seg' + (chMode === 'profit' ? ' active' : '')} onClick={() => setChMode('profit')}>เรียงกำไรจริง</button></div>}
+                {hasFee && <div className="tabs-list"><button className={'tabs-trigger' + (chMode === 'sales' ? ' active' : '')} onClick={() => setChMode('sales')}>เรียงยอดขาย</button><button className={'tabs-trigger' + (chMode === 'profit' ? ' active' : '')} onClick={() => setChMode('profit')}>เรียงกำไรจริง</button></div>}
               </div>
               <div className="grid g2" style={{ gap: 16, marginBottom: 12, alignItems: 'center' }}>
                 <div style={{ maxWidth: 260, margin: '0 auto', width: '100%' }}><DonutChart data={chs.map(c => ({ label: c.name, value: c.sales, color: channelColor(c.name) }))} height={190} ariaLabel="สัดส่วนยอดขายแยกช่องทาง" /></div>
@@ -888,27 +921,6 @@ function MpReportView() {
               ))}</tbody>
             </table></div>
           </>)}
-        </div>
-
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-            <div className="eyebrow">ควรผลิตซ้ำลายไหน (ขายดี × ของใกล้หมด)</div>
-            {urgentProd.length > 0 && <span className="chip chip-bad" style={{ fontWeight: 700 }}>รีบผลิต {N(urgentProd.length)}</span>}
-          </div>
-          {!hasStockData
-            ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '8px 0' }}>ยังไม่มีข้อมูลสต็อก — เพิ่มสินค้า + สต็อก (พร้อมระบุ "ลาย") ในหน้าสินค้า/สต็อก ระบบจะบอกว่าควรผลิตลายไหน กี่วันจะหมด</div>
-            : <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}><table className="table">
-                <thead><tr><th>ลาย</th><th style={{ textAlign: 'right' }}>ขาย (ช่วงนี้)</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>พออีก</th><th style={{ textAlign: 'right' }}>สถานะ</th></tr></thead>
-                <tbody>{production.filter(p => p.onHand > 0 || p.sold > 0).slice(0, 20).map(p => (
-                  <tr key={p.name} onClick={() => setDrill({ dim: 'design', value: p.name, label: `ลาย ${p.name}` })} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontWeight: 600 }}>{p.name}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{N(p.sold)}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{N(p.onHand)}</td>
-                    <td className="num" style={{ textAlign: 'right', fontWeight: p.urgent ? 700 : 400, color: p.cover == null ? 'var(--ink-4)' : p.cover <= 14 ? 'var(--bad)' : p.cover <= 21 ? 'var(--warn)' : 'var(--good)' }}>{p.cover == null ? '—' : `${Math.round(p.cover)} วัน`}</td>
-                    <td style={{ textAlign: 'right' }}>{p.urgent ? <span className="chip chip-bad">รีบผลิต</span> : p.slow ? <span className="chip chip-warn">ขายช้า</span> : <span className="chip chip-good">ปกติ</span>}</td>
-                  </tr>
-                ))}</tbody>
-              </table></div>}
         </div>
 
         <div className="grid g2" style={{ marginBottom: 16 }}>
@@ -1023,7 +1035,7 @@ function MpReportView() {
                   <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}><table className="table">
                     <thead><tr><th>ลูกค้า</th><th>กลุ่ม</th><th style={{ textAlign: 'right' }}>ยอดสะสม</th></tr></thead>
                     <tbody>{winBack.slice(0, 20).map(c => (
-                      <tr key={c.code}><td style={{ fontWeight: 600 }}>{c.name}{c.social && <div className="cap">{c.social}</div>}</td><td><span className="chip" style={{ color: SEG_TONE[c.seg] }}>{c.seg}</span></td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.lifeSpent || c.spend)}</td></tr>
+                      <tr key={c.code}><td style={{ fontWeight: 600 }}>{c.name}{c.social && <div className="cap">{c.social}</div>}</td><td><span className="badge badge-outline" style={{ color: SEG_TONE[c.seg] }}>{c.seg}</span></td><td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.lifeSpent || c.spend)}</td></tr>
                     ))}</tbody>
                   </table></div>
                 )}
@@ -1056,7 +1068,7 @@ function MpReportView() {
                 <tbody>{topSpend.slice(0, 20).map((c, i) => (
                   <tr key={c.code} onClick={() => setDrill({ dim: 'customer_code', value: c.code, label: c.name })} style={{ cursor: 'pointer' }}>
                     <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
-                    <td><div style={{ fontWeight: 600 }}>{c.name}</div>{c.lifeOrders >= 2 && <span className="chip chip-accent" style={{ marginTop: 2 }}>ประจำ · สะสม {N(c.lifeOrders)} ออเดอร์</span>}</td>
+                    <td><div style={{ fontWeight: 600 }}>{c.name}</div>{c.lifeOrders >= 2 && <span className="badge badge-secondary" style={{ marginTop: 2 }}>ประจำ · สะสม {N(c.lifeOrders)} ออเดอร์</span>}</td>
                     <td className="num" style={{ textAlign: 'right' }}>{N(c.orders)}</td>
                     <td className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</td>
                     <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.spend)}</td>
@@ -1163,6 +1175,7 @@ function deltaProps(cur, prev) {
   return { delta: `${Math.abs(d).toFixed(0)}%`, deltaUp: d >= 0 };
 }
 // M0.2 delta pill เทียบงวด
+// eslint-disable-next-line no-unused-vars
 function DeltaPill({ cur, prev }) {
   if (prev == null) return null;
   if (!prev) return cur > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--good)' }}>ใหม่</span> : null;
@@ -1171,358 +1184,194 @@ function DeltaPill({ cur, prev }) {
 }
 
 function ReportHub() {
-  const [mode, setMode] = useState('mp'); // mp = รวมข้ามช่อง · internal = กรอกมือ
-  return (<>
-    <div className="content-inner" style={{ paddingBottom: 0 }}>
-      <div className="segbar" style={{ marginBottom: 0 }}>
-        <button className={'seg' + (mode === 'mp' ? ' active' : '')} onClick={() => setMode('mp')}>รายงานรวมข้ามช่อง</button>
-        <button className={'seg' + (mode === 'internal' ? ' active' : '')} onClick={() => setMode('internal')}>รายงานภายใน (กรอกมือ)</button>
+  return <SaleDashboard />;
+}
+
+/* ==================== สุขภาพข้อมูล (Import Health) + จัดการ Alias ชื่อพ้อง ==================== */
+const flagOfAttrs = (a) => { if (!a) return ''; if (typeof a === 'string') { try { return JSON.parse(a).flag || ''; } catch { return ''; } } return a.flag || ''; };
+function groupAnoms(rows, keyf) {
+  const o = {};
+  rows.forEach(r => { const k = keyf(r); if (!k) return; (o[k] = o[k] || { key: k, count: 0, qty: 0, channels: new Set(), sample: '' }); o[k].count++; o[k].qty += Number(r.qty) || 0; if (r.channel) o[k].channels.add(r.channel); if (!o[k].sample) o[k].sample = r.raw_sku_or_name || ''; });
+  return Object.values(o).map(v => ({ ...v, channels: [...v.channels] })).sort((a, b) => b.count - a.count);
+}
+const Sec = ({ title, icon, tone, items, empty, action, onDetail }) => (
+  <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+    <div className="row between" style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)', background: 'var(--surface-2, var(--surface))' }}>
+      <span className="row" style={{ gap: 8, fontWeight: 700 }}><span style={{ color: tone }}><Icon name={icon} /></span> {title}</span>
+      <span className="badge badge-outline" style={{ background: items.length ? 'var(--warn-bg, rgba(227,155,46,.14))' : 'var(--good-bg, rgba(31,175,107,.14))', color: items.length ? 'var(--warn)' : 'var(--good)' }}>{items.length ? `${N(items.length)} รายการ` : 'ปกติ'}</span>
+    </div>
+    {items.length === 0
+      ? <div style={{ padding: '14px', color: 'var(--ink-4)', fontSize: 13 }}>{empty}</div>
+      : <div style={{ maxHeight: 320, overflow: 'auto' }}><table className="table" style={{ width: '100%' }}><tbody>
+        {items.map((d, i) => (
+          <tr key={i} style={{ borderTop: i ? '1px solid var(--line)' : 'none' }}>
+            <td style={{ padding: '8px 14px' }}><b>{d.key}</b>{d.sample && d.sample !== d.key ? <div className="cap" style={{ color: 'var(--ink-4)' }}>{String(d.sample).slice(0, 38)}</div> : null}</td>
+            <td className="num" style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{N(d.count)} แถว · {N(d.qty)} ชิ้น</td>
+            <td className="cap" style={{ padding: '8px 10px', color: 'var(--ink-3)' }}>{d.channels.join(', ')}</td>
+            <td style={{ padding: '6px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+              <button className="btn btn-sm" onClick={() => onDetail({ title, icon, tone, item: d })}><Icon name="search" /> ดู</button>
+              {action && <button className="btn btn-sm" style={{ marginLeft: 6 }} onClick={() => action(d.key)}><Icon name="plus" /> {action.label}</button>}
+            </td>
+          </tr>
+        ))}
+      </tbody></table></div>}
+  </div>
+);
+
+function HealthHub() {
+  const [skus, setSkus] = useState(null);
+  const [aliases, setAliases] = useState([]);
+  const [noTable, setNoTable] = useState(false);
+  const [err, setErr] = useState('');
+  const [form, setForm] = useState(null); // { kind, term, code, design }
+  const [detail, setDetail] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    const s = await fetchAllRows('tmk_mp_skus', 'source,channel,design,color,product_code,qty,raw_sku_or_name,attrs,match_how');
+    if (s.error) { setErr(s.error.message); return; }
+    setSkus(s.data);
+    const a = await supabase.from('tmk_mp_aliases').select('*').order('created_at', { ascending: false });
+    if (a.error) { setNoTable(true); setAliases([]); } else { setNoTable(false); setAliases(a.data || []); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const A = useMemo(() => {
+    const rows = skus || [];
+    const newDesigns = groupAnoms(rows.filter(r => r.design && !String(r.product_code || '').trim()), r => r.design);
+    const newColors = groupAnoms(rows.filter(r => flagOfAttrs(r.attrs) === 'color_new'), r => r.color);
+    const unmatched = groupAnoms(rows.filter(r => !r.design), r => `${r.channel || '?'} · ${r.color || '—'}`);
+    const matched = rows.filter(r => r.design).length;
+    const withCode = rows.filter(r => String(r.product_code || '').trim()).length;
+    return { newDesigns, newColors, unmatched, total: rows.length, matched, withCode };
+  }, [skus]);
+
+  // เปิดฟอร์ม alias — ถ้าเป็นลาย ลองให้ resolver แนะนำลาย golden + รหัสให้อัตโนมัติ
+  const openAlias = (kind, term) => {
+    if (kind === 'design') { const g = resolveDesign(term); setForm({ kind, term: term || '', code: g ? g.code : '', design: g ? g.name : '' }); }
+    else setForm({ kind, term: term || '', code: '', design: '' });
+  };
+  const saveAlias = async () => {
+    if (!form || !form.term.trim()) return;
+    setBusy(true);
+    const term = form.term.trim();
+    const id = `${form.kind}:${term.toLowerCase()}`;
+    const row = { id, kind: form.kind, term, code: (form.code || '').trim(), design: (form.design || '').trim(), updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('tmk_mp_aliases').upsert(row, { onConflict: 'id' });
+    setBusy(false);
+    if (error) { window.__toast && window.__toast(noTable ? 'ต้องรัน migration tmk_mp_aliases ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
+    window.__toast && window.__toast('ตั้ง alias แล้ว — จะมีผลรอบนำเข้าถัดไป', 'success');
+    logAudit({ action: 'create', entityType: 'data', entityName: 'alias', summary: `ตั้ง alias ${form.kind} "${term}"${row.code ? ' → ' + row.code : ''}` });
+    setForm(null); load();
+  };
+  const delAlias = async (id) => { const { error } = await supabase.from('tmk_mp_aliases').delete().eq('id', id); if (error) { window.__toast && window.__toast('ลบไม่สำเร็จ', 'error'); return; } load(); };
+
+  if (skus === null && !err) return <PageSkeleton />;
+  if (err) return <div className="content-inner"><div className="card" style={{ padding: 20, color: 'var(--bad)' }}>โหลดข้อมูลไม่ได้: {err}</div></div>;
+
+  const matchPct = A.total ? Math.round(A.matched / A.total * 100) : 0;
+
+  return (
+    <div className="content-inner" style={{ display: 'grid', gap: 14 }}>
+      {noTable && <div className="card" style={{ padding: '12px 14px', color: 'var(--warn)', borderLeft: '3px solid var(--warn)' }}>⚠️ ยังไม่ได้สร้างตาราง <code>tmk_mp_aliases</code> — รันไฟล์ <code>supabase/migrations/20260623-mp-aliases.sql</code> ใน Supabase ก่อน จึงจะตั้ง alias ได้ (ส่วนอื่นยังดูได้ปกติ)</div>}
+
+      <div className="metric-grid">
+        <MetricCard label="SKU ทั้งหมด" value={N(A.total)} icon="box" />
+        <MetricCard label="จับคู่ลายได้" value={`${matchPct}%`} sub={`${N(A.matched)} แถว`} icon="check" tone={matchPct >= 98 ? 'var(--good)' : 'var(--warn)'} />
+        <MetricCard label="มีรหัสลาย" value={N(A.withCode)} sub={`${A.total ? Math.round(A.withCode / A.total * 100) : 0}%`} icon="bag" />
+        <MetricCard label="ต้องตรวจ" value={N(A.newDesigns.length + A.newColors.length + A.unmatched.length)} sub="ลายใหม่+สีใหม่+จับคู่ไม่ได้" icon="shield" tone={(A.newDesigns.length + A.newColors.length + A.unmatched.length) ? 'var(--warn)' : 'var(--good)'} />
+      </div>
+
+      {form && (
+        <SideSheet size="md" icon={form.kind === 'color' ? 'sparkle' : 'shield'}
+          title={form.kind === 'color' ? 'เพิ่มสีที่ระบบรู้จัก' : 'ผูกลายเข้ากับ catalog'}
+          sub={form.kind === 'color' ? 'ลงทะเบียนคำสีใหม่ กันระบบเข้าใจผิดว่าเป็นลาย' : 'แมปชื่อที่สะกดต่าง/ลายใหม่ ไปยังรหัส catalog'}
+          onClose={() => setForm(null)}
+          footer={<>
+            <button className="btn" onClick={() => setForm(null)}>ยกเลิก</button>
+            <button className="btn btn-primary" disabled={busy || !form.term.trim()} onClick={saveAlias}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก alias'}</button>
+          </>}>
+          <div className="field"><label>คำที่เจอในไฟล์</label><input className="input" value={form.term} onChange={e => setForm({ ...form, term: e.target.value })} placeholder={form.kind === 'color' ? 'เช่น ส้มอิฐ' : 'เช่น ราษภักดี'} autoFocus /></div>
+          {form.kind === 'design' && <>
+            <div className="field"><label>ชื่อลายมาตรฐาน (เลือกจากแคตตาล็อก 47 ลาย)</label>
+              <input className="input" list="golden-designs" value={form.design} onChange={e => { const v = e.target.value; const g = GOLDEN_DESIGNS.find(d => d.name === v); setForm({ ...form, design: v, code: g ? g.code : form.code }); }} placeholder="พิมพ์/เลือกชื่อลาย เช่น ราษฎร์ภักดี" />
+              <datalist id="golden-designs">{GOLDEN_DESIGNS.map(d => <option key={d.code + d.name} value={d.name}>{d.code} · {d.type}</option>)}</datalist>
+            </div>
+            <div className="field"><label>รหัส catalog (เติมให้อัตโนมัติเมื่อเลือกลาย)</label><input className="input" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="เช่น JRP111" /></div>
+            {(() => { const exact = resolveDesign(form.term); const g = exact || suggestDesign(form.term); return g && g.name !== form.design ? <div className="cap" style={{ color: 'var(--accent)' }}>💡 {exact ? 'แนะนำ' : 'ใกล้เคียง (สะกดต่าง?)'}: {g.name} ({g.code}) — <button className="btn btn-sm" style={{ padding: '1px 8px' }} onClick={() => setForm({ ...form, design: g.name, code: g.code })}>ใช้</button></div> : null; })()}
+          </>}
+          <div className="cap" style={{ color: 'var(--ink-4)' }}>* มีผลกับการนำเข้าครั้งถัดไป — ตั้งแล้วนำเข้าไฟล์ใหม่/รี-ซิงก์เพื่อใช้</div>
+        </SideSheet>
+      )}
+
+      {detail && (
+        <SideSheet size="md" icon={detail.icon} title={detail.title} sub={detail.item.key} onClose={() => setDetail(null)} footer={<button className="btn" onClick={() => setDetail(null)}>ปิด</button>}>
+          <div className="metric-grid">
+            <MetricCard label="จำนวนแถว" value={N(detail.item.count)} tone={detail.tone} />
+            <MetricCard label="จำนวนชิ้น" value={N(detail.item.qty)} />
+          </div>
+          <div className="card" style={{ padding: 14, boxShadow: 'none' }}>
+            <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>ตัวอย่างที่เจอ</div>
+            <div style={{ wordBreak: 'break-word' }}>{detail.item.sample || detail.item.key}</div>
+          </div>
+          <div>
+            <div className="card-title" style={{ fontSize: 14, marginBottom: 8 }}>ช่องทางที่พบ</div>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {(detail.item.channels || []).length ? detail.item.channels.map(c => <span key={c} className="badge badge-default">{c}</span>) : <span className="cap" style={{ color: 'var(--ink-4)' }}>ไม่ระบุช่องทาง</span>}
+            </div>
+          </div>
+          <div className="cap" style={{ color: 'var(--ink-4)' }}>ถ้าเป็นคำสะกดต่างหรือสีใหม่ ให้ตั้ง alias แล้วนำเข้าไฟล์ใหม่อีกครั้งเพื่อให้รายงานจับคู่ถูกต้อง</div>
+        </SideSheet>
+      )}
+
+      <Sec title="ลายที่ยังไม่มีรหัส (ลายใหม่/สะกดต่าง)" icon="sparkle" tone="var(--warn)" items={A.newDesigns} empty="ทุกลายมีรหัส catalog ครบ ✓" action={Object.assign((k) => openAlias('design', k), { label: 'ผูก catalog' })} onDetail={setDetail} />
+      <Sec title="สีที่ระบบยังไม่รู้จัก (กันสลับ)" icon="shield" tone="var(--bad)" items={A.newColors} empty="ไม่มีสีแปลกใหม่ ✓" action={Object.assign((k) => openAlias('color', k), { label: 'เพิ่มเป็นสี' })} onDetail={setDetail} />
+      <Sec title="จับคู่ลายไม่ได้เลย" icon="search" tone="var(--ink-3)" items={A.unmatched} empty="จับคู่ได้ทุกแถว ✓" onDetail={setDetail} />
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="row between" style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)' }}>
+          <span className="row" style={{ gap: 8, fontWeight: 700 }}><Icon name="listChecks" /> Alias ที่ตั้งไว้</span>
+          <button className="btn btn-sm" onClick={() => openAlias('design', '')}><Icon name="plus" /> เพิ่มเอง</button>
+        </div>
+        {aliases.length === 0
+          ? <div style={{ padding: 14, color: 'var(--ink-4)', fontSize: 13 }}>ยังไม่มี alias — ผูกลาย/เพิ่มสีจากส่วนด้านบนได้</div>
+          : <table className="table" style={{ width: '100%' }}><tbody>{aliases.map(a => (
+            <tr key={a.id} style={{ borderTop: '1px solid var(--line)' }}>
+              <td style={{ padding: '8px 14px' }}><span className="badge badge-default" style={{ marginRight: 8 }}>{a.kind === 'color' ? 'สี' : 'ลาย'}</span><b>{a.term}</b>{a.kind === 'design' && <span className="cap" style={{ color: 'var(--ink-3)' }}> → {a.design || '—'} {a.code ? `(${a.code})` : ''}</span>}</td>
+              <td style={{ padding: '6px 12px', textAlign: 'right' }}><button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => delAlias(a.id)}><Icon name="trash" /></button></td>
+            </tr>
+          ))}</tbody></table>}
       </div>
     </div>
-    {mode === 'mp' ? <MpReportView /> : <SalesReportView />}
-  </>);
+  );
+}
+
+// รวม "นำเข้า/ส่งออก" + "สุขภาพข้อมูล" เป็นหน้าเดียว (workflow เดียวกัน: อัปโหลด→ตรวจ→ตั้ง alias→อัปโหลดใหม่)
+function DataHub({ initial = 'io' }) {
+  const [tab, setTab] = useState(initial === 'health' ? 'health' : 'io');
+  return (
+    <>
+      <div className="content-inner" style={{ paddingBottom: 0 }}>
+        <div className="tabs-list" style={{ margin: 0 }}>
+          <button className={'tabs-trigger' + (tab === 'io' ? ' active' : '')} onClick={() => setTab('io')}>นำเข้า / ส่งออก</button>
+          <button className={'tabs-trigger' + (tab === 'health' ? ' active' : '')} onClick={() => setTab('health')}>สุขภาพข้อมูล + ชื่อพ้อง</button>
+        </div>
+      </div>
+      {tab === 'io' ? <ImportExportHub /> : <HealthHub />}
+    </>
+  );
 }
 
 export function CatalogView({ sub }) {
   if (sub === 'orders') return <OrdersHub />;
+  if (sub === 'entry') return <SaleEntryView />;
+  if (sub === 'shirts') return <ShirtCatalogView />;
+  if (sub === 'crm') return <CrmView />;
+  if (sub === 'health') return <DataHub initial="health" />;
+  if (sub === 'io') return <DataHub initial="io" />;
   return <ReportHub />; // เน้น sale: หน้าอื่น (สินค้า/ลูกค้า/สต็อก/PO) ถูกตัดออก → รายงานขาย
 }
 
-// ดึง "ลาย" (design) จาก strategy ที่เก็บรูป "ลาย: X" (มาจากนำเข้า CSV/Excel) — ใช้จัดกลุ่มโดยไม่ต้องเพิ่มคอลัมน์ DB
-function productDesign(p) { const m = /ลาย\s*[:：]\s*([^·|,]+)/.exec(p?.strategy || ''); return m ? m[1].trim() : ''; }
-
-function ProductsView() {
-  const products = DD.products || [];
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState('rank');   // rank | sold | stock | value | name
-  const [filter, setFilter] = useState('all'); // all | lots | low | out
-  const [cat, setCat] = useState('');           // '' = ทุกหมวด
-  const [groupDesign, setGroupDesign] = useState(false); // จัดกลุ่มตามลาย
-  const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
-  const hasAnyDesign = products.some(p => productDesign(p));
-
-  const ql = q.trim().toLowerCase();
-  let list = products.filter(p => {
-    if (ql && !`${p.name} ${p.sku || ''} ${p.barcode || ''} ${p.category || ''} ${p.supplier || ''} ${productDesign(p)}`.toLowerCase().includes(ql)) return false;
-    if (cat && p.category !== cat) return false;
-    if (filter === 'lots' && !p.hasLots) return false;
-    if (filter === 'low' && p.stock !== 'low') return false;
-    if (filter === 'out' && p.stock !== 'out') return false;
-    return true;
-  });
-  const sorters = {
-    rank: (a, b) => a.rank - b.rank,
-    sold: (a, b) => b.units - a.units,
-    stock: (a, b) => b.onHand - a.onHand,
-    value: (a, b) => (b.stockValue || 0) - (a.stockValue || 0),
-    name: (a, b) => String(a.name).localeCompare(String(b.name), 'th'),
-  };
-  list = [...list].sort(sorters[sort] || sorters.rank);
-
-  // B1: จัดกลุ่มตามลาย (design) — รวมหลายล็อต/สีของลายเดียวกัน
-  const showGroups = groupDesign && hasAnyDesign;
-  const designGroups = showGroups ? (() => {
-    const map = new Map();
-    list.forEach(p => { const d = productDesign(p) || '— ไม่ระบุลาย —'; if (!map.has(d)) map.set(d, []); map.get(d).push(p); });
-    return [...map.entries()].map(([design, items]) => ({
-      design, items,
-      noDesign: design === '— ไม่ระบุลาย —',
-      count: items.length,
-      onHand: items.reduce((a, p) => a + (p.onHand || 0), 0),
-      value: items.reduce((a, p) => a + (p.stockValue || 0), 0),
-      sold: items.reduce((a, p) => a + (p.units || 0), 0),
-    })).sort((a, b) => (a.noDesign - b.noDesign) || (b.value - a.value));
-  })() : [];
-
-  const exportProductsCSV = () => {
-    downloadCSV(`tmk-products-${todayISO()}.csv`, [{
-      title: 'สินค้า', cols: ['ชื่อ', 'หมวดหมู่', 'SKU', 'บาร์โค้ด', 'ผู้ผลิต', 'ราคา', 'ต้นทุนเฉลี่ย', 'กำไร/ตัว', 'มาร์จิ้น%', 'ขายแล้ว', 'รายได้', 'คงเหลือ', 'มูลค่าสต็อก', 'จุดสั่งซ้ำ'],
-      rows: list.map(p => { const avgCost = (p.onHand > 0 && p.stockValue > 0) ? p.stockValue / p.onHand : null; const up = avgCost != null ? p.price - avgCost : null; const mp = up != null && p.price > 0 ? (up / p.price) * 100 : null; return [p.name, p.category || '', p.sku || '', p.barcode || '', p.supplier || '', Math.round(p.price), avgCost == null ? '' : Math.round(avgCost), up == null ? '' : Math.round(up), mp == null ? '' : mp.toFixed(1), p.units, Math.round(p.rev), p.onHand, Math.round(p.stockValue || 0), p.reorder]; }),
-    }]);
-    logAudit({ action: 'export', entityType: 'data', entityName: 'สินค้า', summary: 'ส่งออกรายการสินค้าเป็น CSV' });
-    if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
-  };
-
-  const filters = [['all', 'ทั้งหมด'], ['lots', 'มีล็อต'], ['low', 'ใกล้หมด'], ['out', 'หมด']];
-  const sorts = [['rank', 'ลำดับ'], ['sold', 'ขายดี'], ['stock', 'คงเหลือมาก'], ['value', 'มูลค่าสูง'], ['name', 'ชื่อ ก-ฮ']];
-
-  const renderRow = (p, i) => {
-    const sm = stockMeta(p.stock);
-    // กำไร/ตัว จากต้นทุนเฉลี่ยถ่วงน้ำหนักของสต็อกคงเหลือ (stockValue ÷ คงเหลือ) — เฉพาะสินค้าที่มีล็อต/ต้นทุน
-    const avgCost = (p.onHand > 0 && p.stockValue > 0) ? p.stockValue / p.onHand : null;
-    const unitProfit = avgCost != null ? p.price - avgCost : null;
-    const marginPct = unitProfit != null && p.price > 0 ? (unitProfit / p.price) * 100 : null;
-    return (
-      <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-        <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
-        <td>
-          <div className="row" style={{ gap: 10 }}>
-            <span style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>
-              {p.image
-                ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}
-            </span>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 600 }}>{p.name}{p.category && <span className="chip" style={{ marginLeft: 6, fontWeight: 400 }}>{p.category}</span>}</div>
-              <div className="cap">{p.hasLots ? `${p.lots.length} ล็อต · รวม ${N(p.lotTotal)} ตัว · มูลค่า ${B(p.stockValue)}${p.strategy ? ' · ' + p.strategy : ''}` : (p.sku ? `SKU ${p.sku}${p.strategy ? ' · ' + p.strategy : ''}` : p.strategy)}</div>
-            </div>
-          </div>
-        </td>
-        <td className="num" style={{ textAlign: 'right' }}>{B(p.price)}</td>
-        <td className="num" style={{ textAlign: 'right' }}>{unitProfit == null ? <span style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ color: unitProfit >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{B(unitProfit)}<span className="cap" style={{ fontWeight: 400, marginLeft: 4 }}>{P(marginPct, 0)}</span></span>}</td>
-        <td className="num" style={{ textAlign: 'right' }}>{N(p.units)}</td>
-        <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(p.rev)}</td>
-        <td className="num" style={{ textAlign: 'right', color: sm.c, fontWeight: 600 }}>{p.onHand}</td>
-        <td style={{ textAlign: 'right' }}><span className={`chip ${sm.cls}`}>{sm.label}</span></td>
-      </tr>
-    );
-  };
-
-  return (
-    <div className="content-inner rise">
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head">
-          <h3><span style={{ color: 'var(--accent)' }}><Icon name="bag" /></span> สินค้า {products.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({list.length}/{products.length})</span>}</h3>
-          <div className="row" style={{ gap: 6 }}>
-            {products.length > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('label')} title="พิมพ์ป้ายราคา/บาร์โค้ด"><Icon name="bag" /> ป้าย</button>}
-            <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('import-products')} title="นำเข้าสินค้าจากไฟล์ CSV หรือ Excel"><Icon name="external" /> นำเข้า</button>
-            <button className="btn btn-sm btn-ghost" disabled={!list.length} onClick={exportProductsCSV} title="ส่งออก CSV"><Icon name="external" /> CSV</button>
-            <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
-          </div>
-        </div>
-
-        {products.length > 0 && (<>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            <input className="input" style={{ flex: '1 1 220px' }} value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา ชื่อ / SKU / บาร์โค้ด / หมวด" />
-            <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={sort} onChange={e => setSort(e.target.value)}>{sorts.map(([id, l]) => <option key={id} value={id}>เรียง: {l}</option>)}</select>
-          </div>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-            <div className="chips-pick">{filters.map(([id, l]) => <button key={id} className={'pick' + (filter === id ? ' on' : '')} onClick={() => setFilter(id)}>{l}</button>)}</div>
-            {categories.length > 0 && <div className="chips-pick">
-              <button className={'pick' + (cat === '' ? ' on' : '')} onClick={() => setCat('')}>ทุกหมวด</button>
-              {categories.map(c => <button key={c} className={'pick' + (cat === c ? ' on' : '')} onClick={() => setCat(c)}>{c}</button>)}
-            </div>}
-            {hasAnyDesign && <div className="chips-pick"><button className={'pick' + (groupDesign ? ' on' : '')} onClick={() => setGroupDesign(v => !v)} title="รวมหลายล็อต/สีของลายเดียวกัน"><Icon name="layers" /> จัดกลุ่มตามลาย</button></div>}
-          </div>
-        </>)}
-
-        <div className="table-wrap"><table className="table">
-          <thead><tr><th style={{ width: 34 }}>#</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ราคา</th><th style={{ textAlign: 'right' }}>กำไร/ตัว</th><th style={{ textAlign: 'right' }}>ขายแล้ว</th><th style={{ textAlign: 'right' }}>รายได้</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>สถานะ</th></tr></thead>
-          <tbody>
-            {list.length === 0 && (
-              <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">{products.length === 0 ? 'ยังไม่มีสินค้า — กด "เพิ่มสินค้า" เพื่อเริ่ม' : 'ไม่พบสินค้าที่ตรงกับเงื่อนไข'}</td></tr>
-            )}
-            {showGroups
-              ? designGroups.map(g => (
-                  <React.Fragment key={g.design}>
-                    <tr>
-                      <td colSpan={8} style={{ background: 'var(--surface-2)', borderTop: '2px solid var(--line)' }}>
-                        <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
-                          <span style={{ fontWeight: 700 }}><span style={{ color: g.noDesign ? 'var(--ink-4)' : 'var(--accent)' }}><Icon name="layers" /></span> {g.noDesign ? <span style={{ color: 'var(--ink-4)', fontWeight: 600 }}>{g.design}</span> : g.design} <span className="cap" style={{ fontWeight: 400 }}>· {N(g.count)} รายการ</span></span>
-                          <span className="cap" style={{ fontWeight: 400 }}>คงเหลือ <b style={{ color: 'var(--ink)' }}>{N(g.onHand)}</b> · มูลค่า <b style={{ color: 'var(--ink)' }}>{B(g.value)}</b> · ขายแล้ว <b style={{ color: 'var(--ink)' }}>{N(g.sold)}</b></span>
-                        </div>
-                      </td>
-                    </tr>
-                    {g.items.map((p, i) => renderRow(p, i))}
-                  </React.Fragment>
-                ))
-              : list.map((p, i) => renderRow(p, i))}
-          </tbody>
-        </table></div>
-      </div>
-    </div>
-  );
-}
-
-/* ====================  STOCK / INVENTORY VIEW  ==================== */
-// ภาพรวมสต็อกแยก ไซส์ × สี ของทุกสินค้า (รวมจากล็อต) + มูลค่าต้นทุนคงคลัง + ไฮไลต์ใกล้หมด/หมด
-function StockView() {
-  const products = DD.products || [];
-  const [openId, setOpenId] = useState(null);
-  // คอลัมน์ไซส์ = เฉพาะไซส์ที่มีของจริงอย่างน้อย 1 ตัว (ทั้งร้าน)
-  const activeSizes = SIZES.filter(s => products.some(p => (p.sizeStock?.[s] || 0) > 0));
-  const shopUnits = products.reduce((a, p) => a + (p.onHand || 0), 0);
-  const shopValue = products.reduce((a, p) => a + (p.stockValue || 0), 0);
-  const shopReserved = products.reduce((a, p) => a + (p.reservedTotal || 0), 0);
-  const lotCount = products.filter(p => p.hasLots).length;
-  // ใกล้หมด/หมด: หมด (out) ก่อน แล้วใกล้หมด (low) — ใช้สถานะที่คิด reorder แล้ว
-  const alerts = products.filter(p => p.stock === 'out' || p.stock === 'low').sort((a, b) => (a.stock === 'out' ? 0 : 1) - (b.stock === 'out' ? 0 : 1));
-  // รายการจองทั้งหมด (flatten ทุกสินค้า)
-  const allReservations = products.flatMap(p => (p.reservations || []).map(r => ({ ...r, product: p })));
-
-  // จำนวนแนะนำสำหรับ PO = ทำให้กลับเหนือจุดสั่งซ้ำ (อย่างน้อย = reorder)
-  const suggestPO = (p) => Math.max(p.reorder || 0, (p.reorder || 0) * 2 - (p.onHand || 0), 1);
-  const orderPO = (p) => window.__openModal('po', { product: p.name, quantity: suggestPO(p) });
-
-  const releaseReservation = async (p, rsvId, alsoSell) => {
-    if (!guardEdit()) return;
-    try {
-      const { ok, error } = await mutateProductReservations(p.id, (cur) => cur.filter(r => r.id !== rsvId));
-      if (!ok) throw error || new Error('ปล่อยจองไม่สำเร็จ');
-      logAudit({ action: 'release', entityType: 'product', entityName: p.name, summary: `ปล่อยจองสต็อก "${p.name}"` });
-      if (window.__reload) await window.__reload();
-      if (window.__toast) window.__toast(alsoSell ? 'ปล่อยจองแล้ว — บันทึกการขายต่อได้เลย' : 'ปล่อยจองเรียบร้อย', 'success');
-      if (alsoSell) window.__openModal('sell', p);
-    } catch (err) { if (window.__toast) window.__toast('ปล่อยจองไม่สำเร็จ: ' + err.message, 'error'); }
-  };
-
-  return (
-    <div className="content-inner rise">
-      <div className="card">
-        <div className="card-head">
-          <h3><span style={{ color: 'var(--accent)' }}><Icon name="grid" /></span> สต็อก / คลังสินค้า</h3>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            {lotCount > 0 && <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('sell')}><Icon name="wallet" /> บันทึกการขาย</button>}
-            {lotCount > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('quickfind')}><Icon name="search" /> ขายเร็ว/สแกน</button>}
-            {lotCount > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('reserve')}><Icon name="clock" /> จองสต็อก</button>}
-            {lotCount > 0 && <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('adjust')}><Icon name="box" /> ปรับสต็อก</button>}
-            <button className="btn btn-sm btn-ghost" onClick={() => window.__openModal('product')}><Icon name="plus" /> เพิ่มสินค้า</button>
-          </div>
-        </div>
-
-        {/* แจ้งเตือน ต้องสั่งผลิต / ใกล้หมด → สั่ง PO ได้เลย */}
-        {alerts.length > 0 && (
-          <div style={{ border: '1px solid var(--warn-soft)', background: 'var(--warn-soft)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 14 }}>
-            <div className="row" style={{ gap: 8, marginBottom: 8 }}><span style={{ color: 'var(--warn)' }}><Icon name="bell" /></span><b>ต้องสั่งผลิต / ใกล้หมด ({alerts.length})</b></div>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-              {alerts.map(p => { const sm = stockMeta(p.stock); return (
-                <span key={p.id} className="chip" style={{ background: 'var(--surface)', border: `1px solid ${sm.c}`, color: 'var(--ink)', gap: 4 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sm.c, display: 'inline-block', marginRight: 3 }}></span>
-                  <span style={{ cursor: 'pointer' }} onClick={() => window.__openModal('product', p)}>{p.name} <span className="cap">เหลือ {p.onHand}</span></span>
-                  <button className="btn btn-sm" style={{ padding: '1px 6px', marginLeft: 4 }} title={`สร้าง PO สั่งผลิต ~${suggestPO(p)} ตัว`} onClick={() => orderPO(p)}><Icon name="box" /> สั่ง</button>
-                </span>
-              ); })}
-            </div>
-          </div>
-        )}
-
-        {/* สรุปทั้งร้าน */}
-        <div className="row" style={{ gap: 28, flexWrap: 'wrap', marginBottom: 16 }}>
-          <div><div className="cap">รวมสต็อกทั้งร้าน</div><div className="num kpi-value">{N(shopUnits)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></div></div>
-          <div><div className="cap">มูลค่าต้นทุนคงคลัง</div><div className="num kpi-value">{B(shopValue)}</div></div>
-          {shopReserved > 0 && <div><div className="cap">จองรวม / พร้อมขาย</div><div className="num kpi-value">{N(shopReserved)} <span className="cap" style={{ fontWeight: 400 }}>/ {N(shopUnits - shopReserved)}</span></div></div>}
-          <div><div className="cap">สินค้าที่มีล็อต</div><div className="num kpi-value">{lotCount}/{products.length}</div></div>
-        </div>
-
-        {/* รายการจอง */}
-        {allReservations.length > 0 && (
-          <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 16 }}>
-            <div className="row" style={{ gap: 8, marginBottom: 8 }}><span style={{ color: 'var(--accent)' }}><Icon name="clock" /></span><b>รายการจอง ({allReservations.length})</b></div>
-            <div className="table-wrap"><table className="table">
-              <tbody>
-                {allReservations.map(r => (
-                  <tr key={r.id}>
-                    <td><span style={{ fontWeight: 600 }}>{r.product.name}</span>{r.customer && <span className="cap"> · {r.customer}</span>}<div className="cap">{(r.items || []).map(it => `${it.color} ${it.size}×${it.qty}`).join(', ')}{r.note ? ' · ' + r.note : ''}</div></td>
-                    <td className="cap" style={{ whiteSpace: 'nowrap' }}>{thaiDate(r.date) || r.date}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="btn btn-sm btn-ghost" onClick={() => releaseReservation(r.product, r.id, true)} title="ปล่อยจอง + บันทึกขาย"><Icon name="wallet" /> ขาย</button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => releaseReservation(r.product, r.id, false)} style={{ color: 'var(--bad)' }} title="ปล่อยจอง (ยกเลิก)"><Icon name="x" /></button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-          </div>
-        )}
-
-        {products.length === 0
-          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้า — ไปหน้า "สินค้า" เพื่อเพิ่ม + ใส่ล็อต (ไซส์ × สี)</div>
-          : (
-            <div className="table-wrap table-sticky-first" style={{ overflowX: 'auto' }}>
-              <table className="table" style={{ minWidth: 'max-content' }}>
-                <thead><tr>
-                  <th>สินค้า</th>
-                  {activeSizes.map(s => <th key={s} style={{ textAlign: 'center', minWidth: 44 }}>{s}</th>)}
-                  <th style={{ textAlign: 'right' }}>รวม</th>
-                  <th style={{ textAlign: 'right' }}>มูลค่า</th>
-                  <th style={{ textAlign: 'right' }}>สถานะ</th>
-                  <th style={{ textAlign: 'right' }}></th>
-                </tr></thead>
-                <tbody>
-                  {products.map(p => {
-                    const sm = stockMeta(p.stock);
-                    const isOpen = openId === p.id;
-                    return (
-                      <React.Fragment key={p.id}>
-                        <tr onClick={() => setOpenId(isOpen ? null : p.id)} style={{ cursor: 'pointer' }}>
-                          <td>
-                            <div className="row" style={{ gap: 10 }}>
-                              <span style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--ink-4)', flexShrink: 0 }}><Icon name="chevR" /></span>
-                              <span onClick={(e) => { e.stopPropagation(); window.__openModal('product', p); }} title="แก้ไขสินค้า" style={{ width: 32, height: 32, borderRadius: 7, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>
-                                {p.image ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}
-                              </span>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 600 }}>{p.name}</div>
-                                <div className="cap">{p.hasLots ? `${p.lots.length} ล็อต` : 'ไม่มีล็อต'}</div>
-                              </div>
-                            </div>
-                          </td>
-                          {activeSizes.map(s => { const q = p.sizeStock?.[s] || 0; return <td key={s} className="num" style={{ textAlign: 'center', color: q ? 'var(--ink)' : 'var(--ink-4)' }}>{q ? N(q) : '—'}</td>; })}
-                          <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: sm.c }}>{N(p.onHand)}{p.reservedTotal > 0 && <div className="cap" style={{ fontWeight: 400, color: 'var(--accent)' }}>จอง {N(p.reservedTotal)} · ว่าง {N(p.available)}</div>}</td>
-                          <td className="num" style={{ textAlign: 'right' }}>{p.stockValue ? B(p.stockValue) : '—'}</td>
-                          <td style={{ textAlign: 'right' }}><span className={`chip ${sm.cls}`}>{sm.label}</span></td>
-                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <button className="icon-btn" title="ประวัติเข้า-ออก" onClick={(e) => { e.stopPropagation(); window.__openModal('ledger', p); }}><Icon name="route" /></button>
-                            {p.hasLots && p.onHand > 0 && <button className="btn btn-sm btn-ghost" title="บันทึกการขาย / ตัดสต็อก" onClick={(e) => { e.stopPropagation(); window.__openModal('sell', p); }}><Icon name="wallet" /> ขาย</button>}
-                          </td>
-                        </tr>
-                        {isOpen && (
-                          <tr><td colSpan={activeSizes.length + 5} style={{ background: 'var(--surface-2)', padding: 12 }}>
-                            <ProductVariantMatrix p={p} />
-                          </td></tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        {activeSizes.length === 0 && products.length > 0 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 10 }}>ยังไม่มีข้อมูลไซส์ในล็อต — เปิดสินค้าแล้วเพิ่มล็อต (ไซส์ × สี) เพื่อดูภาพรวมที่นี่</div>}
-      </div>
-    </div>
-  );
-}
-
-// ตารางสี × ไซส์ ของสินค้า 1 ตัว (รวมทุกล็อต) — อ่านอย่างเดียว สำหรับ drill-down หน้าสต็อก
-function ProductVariantMatrix({ p }) {
-  const variants = p.variants || {};
-  const colorNames = Object.keys(variants);
-  const sizes = SIZES.filter(s => (p.sizeStock?.[s] || 0) > 0);
-  if (!colorNames.length || !sizes.length) return <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีข้อมูลล็อต (ไซส์ × สี) — สินค้านี้กรอกสต็อกรวมแบบไม่แยกไซส์/สี</div>;
-  // ดึง hex ของแต่ละสีจากล็อต (variants เก็บแค่ชื่อ+จำนวน)
-  const hexByName = {};
-  (p.lots || []).forEach(l => (l.colors || []).forEach(c => { if (c?.name && !hexByName[c.name]) hexByName[c.name] = c.hex; }));
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table className="table" style={{ margin: 0, minWidth: 'max-content', background: 'var(--surface)' }}>
-        <thead><tr>
-          <th style={{ textAlign: 'left' }}>สี \ ไซส์</th>
-          {sizes.map(s => <th key={s} style={{ textAlign: 'center', minWidth: 44 }}>{s}</th>)}
-          <th style={{ textAlign: 'center' }}>รวม</th>
-        </tr></thead>
-        <tbody>
-          {colorNames.map(name => {
-            const row = variants[name] || {};
-            const rt = sizes.reduce((a, s) => a + (row[s] || 0), 0);
-            return (
-              <tr key={name}>
-                <td><span className="row" style={{ gap: 6 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: hexByName[name] || '#ccc', border: '1px solid var(--line)', display: 'inline-block', flexShrink: 0 }}></span>{name}</span></td>
-                {sizes.map(s => { const q = row[s] || 0; const col = q === 0 ? 'var(--ink-4)' : q <= 2 ? 'var(--warn)' : 'var(--good)'; return <td key={s} className="num" style={{ textAlign: 'center', color: col, fontWeight: q > 0 && q <= 2 ? 700 : 400 }}>{q ? N(q) : '—'}</td>; })}
-                <td className="num" style={{ textAlign: 'center', fontWeight: 700 }}>{N(rt)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot><tr style={{ fontWeight: 700 }}>
-          <td>รวมต่อไซส์</td>
-          {sizes.map(s => <td key={s} className="num" style={{ textAlign: 'center' }}>{N(p.sizeStock?.[s] || 0)}</td>)}
-          <td className="num" style={{ textAlign: 'center', fontWeight: 800, color: 'var(--accent-2)' }}>{N(p.onHand)}</td>
-        </tr></tfoot>
-      </table>
-    </div>
-  );
-}
 
 /* ---------- CSV download helper (Blob + UTF-8 BOM, กัน formula-injection) ---------- */
 // กัน CSV formula-injection (Excel) แต่ "ยกเว้นเลขล้วน" — เลขติดลบ (-1234.56) ต้องคงเป็นตัวเลข ไม่งั้น SUM ใน Excel ข้าม
@@ -1543,522 +1392,62 @@ function downloadCSV(filename, blocks) {
   URL.revokeObjectURL(a.href);
 }
 
-/* ====================  SALES REPORT VIEW  ==================== */
-// รายงานการขาย — สรุปจากประวัติการขาย (tmk_audit_logs action='sale') อ่านอย่างเดียว
-// ⚠️ ไม่แตะ หน้าหลัก / ยอดขาย (Sales) / วางแผน (Planner) — อ่าน audit log มาสรุปเท่านั้น
-function SalesReportView() {
-  const { version } = useData() || {};
-  const [sales, setSales] = useState(null); // null = กำลังโหลด
-  const [range, setRange] = useState('month'); // month | d90 | all
-  const [snaps, setSnaps] = useState([]); // snapshot มูลค่าคลังตามเวลา
-
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      const { data, error } = await supabase.from('tmk_inventory_snapshots')
-        .select('date,units,value').order('date', { ascending: true }).limit(120);
-      if (!cancel && !error) setSnaps(data || []);
-    })();
-    return () => { cancel = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      // อ่านจากตารางการขายจริงก่อน (tmk_sales)
-      const { data: sd, error: se } = await supabase.from('tmk_sales')
-        .select('*').order('sale_date', { ascending: false }).limit(5000);
-      if (cancel) return;
-      if (!se && Array.isArray(sd) && sd.length) {
-        setSales(sd.map(r => ({ productId: r.product_id, productName: r.product_name, category: r.category, channel: r.channel || '', price: Number(r.qty) ? Number(r.amount) / Number(r.qty) : 0, date: r.sale_date, day: r.sale_date, totalQty: Number(r.qty) || 0, totalAmount: Number(r.amount) || 0, totalCost: Number(r.cost) || 0, lines: Array.isArray(r.lines) ? r.lines : [] })));
-        return;
-      }
-      // fallback: ข้อมูลเก่าที่เก็บใน audit log (action='sale') / ตาราง tmk_sales ยังไม่มี
-      const { data, error } = await supabase.from('tmk_audit_logs')
-        .select('created_at,details').eq('action', 'sale')
-        .order('created_at', { ascending: false }).limit(2000);
-      if (cancel) return;
-      if (error) { setSales([]); return; }
-      const parsed = (data || []).map(r => {
-        let d = {};
-        try { d = typeof r.details === 'string' ? JSON.parse(r.details) : (r.details || {}); } catch { /* ข้าม log ผิดรูป */ }
-        const s = d.data;
-        if (!s || !Array.isArray(s.lines)) return null; // log เก่าที่ไม่มี structured → ข้าม
-        return { ...s, day: s.date || String(r.created_at).slice(0, 10) };
-      }).filter(Boolean);
-      setSales(parsed);
-    })();
-    return () => { cancel = true; };
-  }, []);
-
-  const ranges = [['month', 'เดือนนี้'], ['d90', '90 วัน'], ['all', 'ทั้งหมด']];
-  const rangeLabel = (ranges.find(r => r[0] === range) || [])[1] || '';
-  const curYM = todayISO().slice(0, 7);
-  const cutoff90 = (() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); })();
-  const inRange = (day) => range === 'all' ? true : !day ? false : range === 'month' ? day.slice(0, 7) === curYM : day >= cutoff90;
-
-  // Pipeline aggregation — memo เพื่อเลี่ยงรัน forEach 5000 บิล + sort หลายรอบทุก render
-  // dep: sales (lazy fetch), range (เปลี่ยนช่วง), version (catalog อัปเดต)
-  const agg = useMemo(() => {
-    const prodById = {}; (DD.products || []).forEach(p => { prodById[p.id] = p; });
-    const hexByColor = {}; (DD.products || []).forEach(p => (p.lots || []).forEach(l => (l.colors || []).forEach(c => { if (c?.name && !(c.name in hexByColor)) hexByColor[c.name] = c.hex; })));
-    // A1: lookup ช่องทาง (จับคู่ข้อความอิสระใน tmk_sales.channel กับช่องทางมาตรฐาน เพื่อใช้สี/ชื่อ)
-    const chLookup = {}; (DD.channels || []).forEach(c => { if (c?.name) chLookup[c.name.trim().toLowerCase()] = { name: c.name, hex: c.hex }; if (c?.id) chLookup[String(c.id).trim().toLowerCase()] = { name: c.name, hex: c.hex }; });
-    const rows = (sales || []).filter(s => inRange(s.day));
-    const byProduct = {}, bySize = {}, byColor = {}, byCategory = {}, byChannel = {}, dailyMap = {};
-    let totalQty = 0, totalAmount = 0, totalCost = 0;
-    rows.forEach(s => {
-      const pid = s.productId || s.productName;
-      const sq = Number(s.totalQty) || s.lines.reduce((a, l) => a + (Number(l.qty) || 0), 0);
-      const sa = Number(s.totalAmount) || sq * (Number(s.price) || 0);
-      const sc = Number(s.totalCost) || 0;
-      const bp = byProduct[pid] || (byProduct[pid] = { id: s.productId, name: s.productName, qty: 0, amount: 0, cost: 0 });
-      bp.qty += sq; bp.amount += sa; bp.cost += sc;
-      totalQty += sq; totalAmount += sa; totalCost += sc;
-      const cat = (s.category || prodById[pid]?.category || 'ไม่ระบุหมวด');
-      const bc = byCategory[cat] || (byCategory[cat] = { name: cat, qty: 0, amount: 0, cost: 0 });
-      bc.qty += sq; bc.amount += sa; bc.cost += sc;
-      // A1: สะสมตามช่องทาง — จับคู่ชื่อช่องมาตรฐาน, ที่ไม่ตรง/ว่าง รวมเป็นกลุ่มเดียว
-      const chRaw = String(s.channel || '').trim();
-      const chMatch = chRaw ? chLookup[chRaw.toLowerCase()] : null;
-      const chKey = chMatch ? chMatch.name : (chRaw || '__none__');
-      const ch = byChannel[chKey] || (byChannel[chKey] = { key: chKey, name: chMatch ? chMatch.name : (chRaw || 'ขายตรง / ไม่ระบุช่องทาง'), hex: chMatch?.hex || (chRaw ? 'var(--ink-3)' : 'var(--ink-4)'), known: !!chMatch, none: !chRaw, qty: 0, amount: 0, cost: 0 });
-      ch.qty += sq; ch.amount += sa; ch.cost += sc;
-      const dm = dailyMap[s.day] || (dailyMap[s.day] = { qty: 0, amount: 0 });
-      dm.qty += sq; dm.amount += sa;
-      s.lines.forEach(l => { const q = Number(l.qty) || 0; if (l.size) bySize[l.size] = (bySize[l.size] || 0) + q; if (l.color) byColor[l.color] = (byColor[l.color] || 0) + q; });
-    });
-    const totalProfit = totalAmount - totalCost;
-    const margin = totalAmount > 0 ? (totalProfit / totalAmount) * 100 : 0;
-    const productRank = Object.values(byProduct).sort((a, b) => b.qty - a.qty);
-    const sizeRank = SIZES.filter(s => bySize[s] > 0).map(s => ({ label: s, qty: bySize[s] }));
-    const colorRank = Object.entries(byColor).map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
-    const catRank = Object.values(byCategory).sort((a, b) => b.amount - a.amount);
-    const channelRank = Object.values(byChannel).sort((a, b) => b.amount - a.amount);
-    const maxChannelAmt = Math.max(1, ...channelRank.map(x => x.amount));
-    const channelKnownCount = channelRank.filter(c => !c.none).length;
-    const maxSize = Math.max(1, ...sizeRank.map(x => x.qty));
-    const maxColor = Math.max(1, ...colorRank.map(x => x.qty));
-    const dailyArr = Object.keys(dailyMap).sort().map(day => ({ day, ...dailyMap[day] }));
-    // กราฟรายเดือน 8 เดือนล่าสุด
-    const monthMap = {};
-    (sales || []).forEach(s => { const ym = (s.day || '').slice(0, 7); if (ym) monthMap[ym] = (monthMap[ym] || 0) + (Number(s.totalAmount) || 0); });
-    const monthlyArr = Object.keys(monthMap).sort().slice(-8).map(ym => {
-      const [y, m] = ym.split('-').map(Number);
-      return { m: `${MONTHS_TH_SHORT[m - 1] || m} ${String((y + 543) % 100).padStart(2, '0')}`, rev: monthMap[ym] };
-    });
-    const sellThrough = (DD.products || []).filter(p => (p.onHand || 0) > 0).map(p => {
-      const sold = byProduct[p.id]?.qty || 0;
-      const base = sold + (p.onHand || 0);
-      return { p, sold, onHand: p.onHand || 0, pct: base > 0 ? (sold / base) * 100 : 0 };
-    }).sort((a, b) => a.pct - b.pct);
-    const abcSorted = productRank.filter(p => p.amount > 0).slice().sort((a, b) => b.amount - a.amount);
-    const abcTotal = abcSorted.reduce((a, p) => a + p.amount, 0) || 1;
-    let _cum = 0;
-    const abc = abcSorted.map(p => { _cum += p.amount; const cumPct = (_cum / abcTotal) * 100; return { ...p, cumPct, cls: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' }; });
-    const abcCount = { A: abc.filter(x => x.cls === 'A').length, B: abc.filter(x => x.cls === 'B').length, C: abc.filter(x => x.cls === 'C').length };
-    const _todayStr = todayISO();
-    const daysSince = (iso) => { if (!iso) return null; const a = new Date(iso + 'T00:00:00'), b = new Date(_todayStr + 'T00:00:00'); return Math.max(0, Math.round((b - a) / 86400000)); };
-    // rank3: จำนวนวันในช่วงที่เลือก → ใช้หาร velocity (ขาย/วัน). 'all' = นับจากวันที่มีบิลแรกถึงวันนี้
-    // 'month' ใส่พื้นขั้นต่ำ 7 วัน กัน velocity พุ่งช่วงต้นเดือน (วันที่ 1–6) แล้วเตือน "ต้องสั่งด่วน" หลอก
-    const rangeDays = range === 'd90' ? 90
-      : range === 'month' ? Math.max(7, Number(_todayStr.slice(8, 10)))
-      : (() => { const ds = Object.keys(dailyMap).sort(); if (!ds.length) return 1; const a = new Date(ds[0] + 'T00:00:00'), b = new Date(_todayStr + 'T00:00:00'); return Math.max(1, Math.round((b - a) / 86400000) + 1); })();
-    const aging = (DD.products || []).filter(p => (p.onHand || 0) > 0).map(p => {
-      const sold = byProduct[p.id]?.qty || 0;
-      const onHand = p.onHand || 0;
-      const turnover = onHand > 0 ? sold / onHand : 0;
-      const velocity = sold / rangeDays; // ตัว/วัน ในช่วงที่เลือก
-      const daysLeft = velocity > 0 ? onHand / velocity : null; // ขายหมดในกี่วัน (null = ไม่มีการขายในช่วงนี้)
-      const urgent = daysLeft != null && daysLeft <= 30; // ใกล้หมดก่อน lead time ผลิต
-      return { p, age: daysSince(p.oldestLotDate), onHand, turnover, velocity, daysLeft, urgent };
-    }).sort((a, b) => {
-      // เรียง: ต้องสั่งด่วนขึ้นก่อน (daysLeft น้อยสุด) → แล้วค่อยเรียงตามอายุ
-      if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
-      if (a.urgent && b.urgent) return (a.daysLeft || 0) - (b.daysLeft || 0);
-      return (b.age || 0) - (a.age || 0);
-    });
-    const urgentCount = aging.filter(a => a.urgent).length;
-    // rank5: Dead stock — แบ่งมูลค่าต้นทุนที่จม "ต่อล็อต" ตามอายุของล็อตนั้น (ไม่ยัดทั้งก้อนไปที่ล็อตเก่าสุด)
-    const ageBuckets = [
-      { label: '0–30 วัน', min: 0, max: 30, count: 0, value: 0, tone: 'var(--good)' },
-      { label: '31–90 วัน', min: 31, max: 90, count: 0, value: 0, tone: 'var(--ink)' },
-      { label: '91–180 วัน', min: 91, max: 180, count: 0, value: 0, tone: 'var(--warn)' },
-      { label: '180+ วัน', min: 181, max: Infinity, count: 0, value: 0, tone: 'var(--bad)' },
-    ];
-    let stuckValue = 0, unknownValue = 0, unknownCount = 0; // 91+ วัน / ล็อตไม่มีวันที่
-    (DD.products || []).filter(p => (p.onHand || 0) > 0).forEach(p => {
-      const lots = Array.isArray(p.lots) ? p.lots : [];
-      if (!lots.length) return; // ไม่มีล็อต = ไม่มีต้นทุน → ไม่นับมูลค่าจม
-      lots.forEach(l => {
-        if (lotTotal(l) <= 0) return; // ล็อตที่ขายหมดแล้ว ไม่มีของจม
-        const val = lotValue(l);
-        const age = daysSince(l.date);
-        if (age == null) { unknownValue += val; unknownCount++; return; }
-        const b = ageBuckets.find(x => age >= x.min && age <= x.max) || ageBuckets[3];
-        b.count++; b.value += val;
-        if (age >= 91) stuckValue += val;
-      });
-    });
-    const deadStock = (DD.products || []).filter(p => (p.onHand || 0) > 0 && (byProduct[p.id]?.qty || 0) === 0)
-      .map(p => ({ p, onHand: p.onHand || 0, value: p.stockValue || 0, age: daysSince(p.oldestLotDate) }))
-      .sort((a, b) => (b.value - a.value) || ((b.age || 0) - (a.age || 0)));
-    const deadValue = deadStock.reduce((a, d) => a + d.value, 0);
-    const totalStockCost = ageBuckets.reduce((a, b) => a + b.value, 0) + unknownValue;
-    return { prodById, hexByColor, rows, byProduct, totalQty, totalAmount, totalCost, totalProfit, margin,
-             productRank, sizeRank, colorRank, catRank, channelRank, maxChannelAmt, channelKnownCount, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging, urgentCount, ageBuckets, stuckValue, unknownValue, unknownCount, deadStock, deadValue, totalStockCost };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- DD.products เป็น mutable global → ใช้ version proxy
-  }, [sales, range, version]);
-  const { prodById, hexByColor, rows, totalQty, totalAmount, totalCost, totalProfit, margin,
-          productRank, sizeRank, colorRank, catRank, channelRank, maxChannelAmt, channelKnownCount, maxSize, maxColor, dailyArr, monthlyArr, sellThrough, abc, abcCount, aging, urgentCount, ageBuckets, stuckValue, unknownValue, unknownCount, deadStock, deadValue, totalStockCost } = agg;
-  const dailyLabel = (day) => { const [, m, d] = day.split('-'); return `${Number(d)}/${Number(m)}`; };
-  // กราฟมูลค่าคลังตามเวลา
-  const snapVals = (snaps || []).map(s => Number(s.value) || 0);
-  const snapLabels = (snaps || []).map(s => { const [, m, d] = String(s.date).split('-'); return `${Number(d)}/${Number(m)}`; });
-  const abcChip = { A: 'chip-good', B: 'chip-accent', C: '' };
-
-  const exportCSV = () => {
-    const blocks = [
-      { title: `รายงานการขาย (${rangeLabel})`, cols: ['สรุป', 'ค่า'], rows: [
-        ['รวมขาย (ตัว)', totalQty], ['ยอดเงิน', Math.round(totalAmount)], ['ต้นทุน', Math.round(totalCost)],
-        ['กำไร', Math.round(totalProfit)], ['มาร์จิ้น %', margin.toFixed(1)], ['จำนวนบิล', rows.length],
-      ] },
-      { title: 'สินค้าขายดี', cols: ['อันดับ', 'สินค้า', 'หมวดหมู่', 'ขายแล้ว', 'ยอดเงิน', 'ต้นทุน', 'กำไร'], rows: productRank.map((p, i) => [i + 1, p.name, prodById[p.id]?.category || '', p.qty, Math.round(p.amount), Math.round(p.cost), Math.round(p.amount - p.cost)]) },
-      { title: 'ไซส์ขายดี', cols: ['ไซส์', 'จำนวน'], rows: sizeRank.map(s => [s.label, s.qty]) },
-      { title: 'สีขายดี', cols: ['สี', 'จำนวน'], rows: colorRank.map(c => [c.name, c.qty]) },
-      { title: 'กำไรตามหมวดหมู่', cols: ['หมวดหมู่', 'ขายแล้ว', 'ยอดเงิน', 'กำไร'], rows: catRank.map(c => [c.name, c.qty, Math.round(c.amount), Math.round(c.amount - c.cost)]) },
-      { title: 'ยอดขายแยกช่องทาง', cols: ['ช่องทาง', 'ขายแล้ว', 'ยอดเงิน', 'สัดส่วน%', 'กำไร'], rows: channelRank.map(c => [c.name, c.qty, Math.round(c.amount), totalAmount > 0 ? ((c.amount / totalAmount) * 100).toFixed(1) : '0', Math.round(c.amount - c.cost)]) },
-      { title: 'ยอดขายรายวัน', cols: ['วันที่', 'จำนวน', 'ยอดเงิน'], rows: dailyArr.map(d => [d.day, d.qty, Math.round(d.amount)]) },
-      { title: 'ABC analysis', cols: ['กลุ่ม', 'สินค้า', 'ยอดเงิน', 'สะสม%'], rows: abc.map(p => [p.cls, p.name, Math.round(p.amount), p.cumPct.toFixed(1)]) },
-      { title: 'อายุสต็อก/ความเร็วขาย', cols: ['สินค้า', 'คงเหลือ', 'ขาย/วัน', 'พออีก(วัน)', 'อายุ(วัน)', 'turnover', 'ต้องสั่งด่วน'], rows: aging.map(({ p, age, onHand, turnover, velocity, daysLeft, urgent }) => [p.name, onHand, velocity > 0 ? velocity.toFixed(2) : '0', daysLeft == null ? '' : Math.round(daysLeft), age == null ? '' : age, turnover.toFixed(2), urgent ? 'ใช่' : '']) },
-      { title: 'มูลค่าจมตามอายุสต็อก', cols: ['ช่วงอายุ', 'จำนวนล็อต', 'มูลค่าต้นทุน'], rows: [...ageBuckets.map(b => [b.label, b.count, Math.round(b.value)]), ...(unknownCount > 0 ? [['ไม่ทราบอายุ', unknownCount, Math.round(unknownValue)]] : [])] },
-      { title: 'สินค้าค้าง (ขาย 0 แต่มีสต็อก)', cols: ['สินค้า', 'คงเหลือ', 'อายุ(วัน)', 'มูลค่าจม'], rows: deadStock.map(({ p, onHand, value, age }) => [p.name, onHand, age == null ? '' : age, Math.round(value)]) },
-      { title: 'มูลค่าคลังตามเวลา', cols: ['วันที่', 'จำนวน', 'มูลค่า'], rows: (snaps || []).map(s => [s.date, s.units, Math.round(Number(s.value) || 0)]) },
-      { title: 'ประวัติการขาย', cols: ['วันที่', 'สินค้า', 'รายการ', 'จำนวน', 'ยอดเงิน', 'กำไร'], rows: rows.map(s => [s.day, s.productName, s.lines.map(l => `${l.color} ${l.size}x${l.qty}`).join('; '), Number(s.totalQty) || 0, Math.round(Number(s.totalAmount) || 0), Math.round((Number(s.totalAmount) || 0) - (Number(s.totalCost) || 0))]) },
-    ];
-    downloadCSV(`tmk-sales-report-${todayISO()}.csv`, blocks);
-    logAudit({ action: 'export', entityType: 'data', entityName: 'รายงานการขาย', summary: `ส่งออกรายงานการขาย (${rangeLabel}) เป็น CSV` });
-    if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
-  };
-
-  const KPI = ({ label, value, color }) => <div><div className="cap">{label}</div><div className="num kpi-value" style={{ color }}>{value}</div></div>;
-
+/* ====================  ออเดอร์จากไฟล์นำเข้า (รายละเอียด)  ==================== */
+/* Skeleton ตรง layout ออเดอร์: การ์ดหัว (ค้นหา + ชิปกรอง) + ตาราง 8 คอลัมน์ */
+function OrdersSkeleton() {
   return (
     <div className="content-inner rise">
       <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head">
-          <h3><span style={{ color: 'var(--accent)' }}><Icon name="sales" /></span> รายงานการขาย</h3>
-          <div className="row" style={{ gap: 6 }}>
-            <div className="segbar">{ranges.map(([id, l]) => <button key={id} className={'seg' + (range === id ? ' active' : '')} onClick={() => setRange(id)}>{l}</button>)}</div>
-            <button className="btn btn-sm btn-ghost" disabled={!rows.length} onClick={exportCSV} title="ส่งออกรายงานเป็น CSV"><Icon name="external" /> CSV</button>
-          </div>
-        </div>
-        {sales === null
-          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>กำลังโหลดประวัติการขาย…</div>
-          : rows.length === 0
-            ? <div style={{ textAlign: 'center', padding: 24 }}>
-                <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีประวัติการขายในช่วงนี้</div>
-                <button className="btn btn-sm" onClick={() => window.__goSection?.('catalog', 'stock')}><Icon name="grid" /> ไปหน้าสต็อก/คลัง เพื่อบันทึกการขาย</button>
-              </div>
-            : (
-              <div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>
-                <KPI label="รวมขาย" value={<>{N(totalQty)} <span className="cap" style={{ fontWeight: 400 }}>ตัว</span></>} />
-                <KPI label="ยอดเงิน" value={B(totalAmount)} />
-                <KPI label="ต้นทุน" value={B(totalCost)} color="var(--ink-3)" />
-                <KPI label="กำไร" value={B(totalProfit)} color={totalProfit >= 0 ? 'var(--good)' : 'var(--bad)'} />
-                <KPI label="มาร์จิ้น" value={P(margin)} color={totalProfit >= 0 ? 'var(--good)' : 'var(--bad)'} />
-                <KPI label="จำนวนบิล" value={N(rows.length)} />
-              </div>
-            )}
+        <div className="row between" style={{ marginBottom: 12 }}><Skel w={190} h={15} /><Skel w={170} h={11} /></div>
+        <Skel w="100%" h={36} r={9} style={{ marginBottom: 12 }} />
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Array.from({ length: 11 }).map((_, i) => <Skel key={i} w={i % 3 === 0 ? 72 : 52} h={26} r={8} />)}</div>
       </div>
-
-      {/* กราฟมูลค่าคลังตามเวลา (ไม่ขึ้นกับยอดขาย — โชว์เมื่อมี snapshot) */}
-      {snaps.length > 1 && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="row between" style={{ marginBottom: 10 }}>
-            <div className="eyebrow">มูลค่าคลังตามเวลา</div>
-            <div className="cap">ล่าสุด <b style={{ color: 'var(--ink)' }}>{B(snapVals[snapVals.length - 1])}</b></div>
-          </div>
-          <MiniArea data={snapVals} labels={snapLabels} h={120} color="var(--good)" id="rep-invval" fmt={B} metricLabel="มูลค่าคลัง" />
-        </div>
-      )}
-
-      {sales !== null && rows.length > 0 && (<>
-        {/* กราฟยอดขายรายวัน + รายเดือน */}
-        <div className="grid g2" style={{ marginBottom: 16 }}>
-          <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายวัน ({rangeLabel})</div>
-            <MiniArea data={dailyArr.map(d => d.amount)} labels={dailyArr.map(d => dailyLabel(d.day))} h={120} color="var(--accent)" id="rep-daily" fmt={B} metricLabel="ยอดขาย" />
-          </div>
-          <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 10 }}>ยอดขายรายเดือน (8 เดือนล่าสุด)</div>
-            {monthlyArr.length ? <Bars data={monthlyArr} h={140} color="var(--accent-2)" labelKey="m" valueKey="rev" fmt={B} /> : <div className="cap" style={{ color: 'var(--ink-4)', padding: '30px 0', textAlign: 'center' }}>ยังไม่มีข้อมูล</div>}
-          </div>
-        </div>
-
-        {/* A1: ยอดขายแยกช่องทาง */}
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="row between" style={{ marginBottom: 14 }}>
-            <div className="eyebrow">ยอดขายแยกช่องทาง</div>
-            <div className="cap">{channelKnownCount > 0 ? `${channelKnownCount} ช่องทาง` : 'ยังไม่ได้ระบุช่องทาง'}</div>
-          </div>
-          {channelKnownCount === 0 ? (
-            <div className="cap" style={{ color: 'var(--ink-4)' }}>ออเดอร์ยังไม่ได้ระบุช่องทาง — เลือก/พิมพ์ช่องทางตอนเปิดออเดอร์ จะเห็นยอดแยก Shopee / Lazada / Facebook / LINE / TikTok / หน้าร้าน ฯลฯ</div>
-          ) : (
-            <div className="table-wrap"><table className="table">
-              <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ขาย</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ minWidth: 130 }}>สัดส่วน</th><th style={{ textAlign: 'right' }}>กำไร</th></tr></thead>
-              <tbody>{channelRank.map(c => { const share = totalAmount > 0 ? (c.amount / totalAmount) * 100 : 0; const pf = c.amount - c.cost; return (
-                <tr key={c.key}>
-                  <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><span style={{ width: 11, height: 11, borderRadius: 3, background: c.hex, border: '1px solid var(--line)', flexShrink: 0 }} /><span style={{ fontWeight: 600, color: c.none ? 'var(--ink-4)' : 'var(--ink)' }}>{c.name}</span></div></td>
-                  <td className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.amount)}</td>
-                  <td><div className="row" style={{ gap: 8, alignItems: 'center' }}><div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.amount / maxChannelAmt) * 100}%`, background: c.hex }} /></div><span className="num cap" style={{ width: 36, textAlign: 'right' }}>{P(share, 0)}</span></div></td>
-                  <td className="num" style={{ textAlign: 'right', color: pf >= 0 ? 'var(--good)' : 'var(--bad)' }}>{c.cost > 0 ? B(pf) : '—'}</td>
-                </tr>
-              ); })}</tbody>
-            </table></div>
-          )}
-        </div>
-
-        {/* สินค้าขายดี + กำไร */}
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>สินค้าขายดี</div>
-          <div className="table-wrap"><table className="table">
-            <thead><tr><th style={{ width: 34 }}>#</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ขายแล้ว</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ textAlign: 'right' }}>กำไร</th></tr></thead>
-            <tbody>
-              {productRank.map((p, i) => { const prod = prodById[p.id]; const profit = p.amount - p.cost; return (
-                <tr key={p.id || p.name} onClick={() => prod && window.__openModal('product', prod)} style={{ cursor: prod ? 'pointer' : 'default' }}>
-                  <td className="num faint" style={{ fontWeight: 700 }}>{i + 1}</td>
-                  <td><div className="row" style={{ gap: 10 }}>
-                    <span style={{ width: 30, height: 30, borderRadius: 7, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>{prod?.image ? <img src={prod.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: 'var(--ink-4)' }}><Icon name="bag" /></span>}</span>
-                    <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{p.name}</div>{prod?.category && <div className="cap">{prod.category}</div>}</div>
-                  </div></td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(p.qty)}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>{B(p.amount)}</td>
-                  <td className="num" style={{ textAlign: 'right', color: profit >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{p.cost > 0 ? B(profit) : '—'}</td>
-                </tr>
-              ); })}
-            </tbody>
-          </table></div>
-        </div>
-
-        {/* ไซส์ + สี ขายดี */}
-        <div className="grid g2" style={{ marginBottom: 16 }}>
-          <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>ไซส์ขายดี</div>
-            {sizeRank.map(s => (
-              <div key={s.label} className="row" style={{ gap: 10, marginBottom: 9 }}>
-                <span className="sm" style={{ width: 42, fontWeight: 700 }}>{s.label}</span>
-                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${(s.qty / maxSize) * 100}%`, background: 'var(--accent)' }}></span></div>
-                <span className="num sm" style={{ width: 46, textAlign: 'right', fontWeight: 700 }}>{N(s.qty)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>สีขายดี</div>
-            {colorRank.map(c => (
-              <div key={c.name} className="row" style={{ gap: 10, marginBottom: 9 }}>
-                <span style={{ width: 16, height: 16, borderRadius: 4, background: hexByColor[c.name] || '#ccc', border: '1px solid var(--line)', flexShrink: 0 }}></span>
-                <span className="sm" style={{ flex: '0 0 64px' }}>{c.name}</span>
-                <div className="bar" style={{ flex: 1 }}><span style={{ width: `${(c.qty / maxColor) * 100}%`, background: 'var(--accent)' }}></span></div>
-                <span className="num sm" style={{ width: 46, textAlign: 'right', fontWeight: 700 }}>{N(c.qty)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* กำไรตามหมวดหมู่ + สินค้าค้าง/ขายช้า */}
-        <div className="grid g2" style={{ marginBottom: 16 }}>
-          <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>กำไรตามหมวดหมู่</div>
-            {catRank.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>—</div> : (
-              <div className="table-wrap"><table className="table">
-                <thead><tr><th>หมวดหมู่</th><th style={{ textAlign: 'right' }}>ขาย</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ textAlign: 'right' }}>กำไร</th></tr></thead>
-                <tbody>{catRank.map(c => { const pf = c.amount - c.cost; return (
-                  <tr key={c.name}><td>{c.name}</td><td className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</td><td className="num" style={{ textAlign: 'right' }}>{B(c.amount)}</td><td className="num" style={{ textAlign: 'right', color: pf >= 0 ? 'var(--good)' : 'var(--bad)' }}>{c.cost > 0 ? B(pf) : '—'}</td></tr>
-                ); })}</tbody>
-              </table></div>
-            )}
-          </div>
-          <div className="card">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>สินค้าค้าง / ขายช้า <span className="cap" style={{ fontWeight: 400 }}>(sell-through)</span></div>
-            {sellThrough.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีสินค้าคงเหลือ</div> : (
-              <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
-                <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>ขาย</th><th style={{ textAlign: 'right' }}>เหลือ</th><th style={{ textAlign: 'right' }}>sell-through</th></tr></thead>
-                <tbody>{sellThrough.slice(0, 30).map(({ p, sold, onHand, pct }) => (
-                  <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-                    <td><span style={{ fontWeight: 600 }}>{p.name}</span>{sold === 0 && <span className="chip chip-bad" style={{ marginLeft: 6 }}>ค้าง</span>}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{N(sold)}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
-                    <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: pct >= 50 ? 'var(--good)' : pct > 0 ? 'var(--warn)' : 'var(--bad)' }}>{P(pct, 0)}</td>
-                  </tr>
-                ))}</tbody>
-              </table></div>
-            )}
-          </div>
-        </div>
-
-        {/* ABC analysis + อายุสต็อก/หมุนเวียน */}
-        <div className="grid g2" style={{ marginBottom: 16 }}>
-          <div className="card">
-            <div className="row between" style={{ marginBottom: 14 }}>
-              <div className="eyebrow">ABC analysis <span className="cap" style={{ fontWeight: 400 }}>(80/20)</span></div>
-              <div className="cap">A:{abcCount.A} · B:{abcCount.B} · C:{abcCount.C}</div>
-            </div>
-            {abc.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มียอดขาย</div> : (
-              <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
-                <thead><tr><th>กลุ่ม</th><th>สินค้า</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th><th style={{ textAlign: 'right' }}>สะสม%</th></tr></thead>
-                <tbody>{abc.map(p => (
-                  <tr key={p.id || p.name}>
-                    <td><span className={`chip ${abcChip[p.cls]}`} style={{ fontWeight: 700 }}>{p.cls}</span></td>
-                    <td style={{ fontWeight: 600 }}>{p.name}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{B(p.amount)}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{P(p.cumPct, 0)}</td>
-                  </tr>
-                ))}</tbody>
-              </table></div>
-            )}
-          </div>
-          <div className="card">
-            <div className="row between" style={{ marginBottom: 14 }}>
-              <div className="eyebrow">อายุสต็อก / ความเร็วขาย</div>
-              {urgentCount > 0 && <span className="chip chip-bad" style={{ fontWeight: 700 }}>ต้องสั่งด่วน {N(urgentCount)}</span>}
-            </div>
-            {aging.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ไม่มีสินค้าคงเหลือ</div> : (
-              <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto' }}><table className="table">
-                <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>เหลือ</th><th style={{ textAlign: 'right' }}>ขาย/วัน</th><th style={{ textAlign: 'right' }}>พออีก</th><th style={{ textAlign: 'right' }}>อายุ</th></tr></thead>
-                <tbody>{aging.slice(0, 30).map(({ p, age, onHand, velocity, daysLeft, urgent }) => (
-                  <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-                    <td><span style={{ fontWeight: 600 }}>{p.name}</span>{urgent && <span className="chip chip-bad" style={{ marginLeft: 6 }}>สั่งด่วน</span>}</td>
-                    <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
-                    <td className="num" style={{ textAlign: 'right', color: velocity > 0 ? 'var(--ink)' : 'var(--ink-4)' }}>{velocity > 0 ? velocity.toFixed(velocity < 1 ? 2 : 1) : '—'}</td>
-                    <td className="num" style={{ textAlign: 'right', fontWeight: daysLeft != null && daysLeft <= 30 ? 700 : 400, color: daysLeft == null ? 'var(--ink-4)' : daysLeft <= 14 ? 'var(--bad)' : daysLeft <= 30 ? 'var(--warn)' : 'var(--good)' }}>{daysLeft == null ? '—' : daysLeft >= 999 ? '999+' : `${Math.round(daysLeft)} วัน`}</td>
-                    <td className="num" style={{ textAlign: 'right', color: age != null && age > 90 ? 'var(--bad)' : age != null && age > 60 ? 'var(--warn)' : 'var(--ink-3)' }}>{age == null ? '—' : `${age}d`}</td>
-                  </tr>
-                ))}</tbody>
-              </table></div>
-            )}
-          </div>
-        </div>
-
-        {/* rank5: Dead stock / มูลค่าจมตามอายุ */}
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-            <div className="eyebrow">สินค้าค้าง / มูลค่าจมตามอายุสต็อก</div>
-            <div className="cap">ต้นทุนในคลังรวม <b style={{ color: 'var(--ink)' }}>{B(totalStockCost)}</b> · เสี่ยงจม (91+ วัน) <b style={{ color: stuckValue > 0 ? 'var(--bad)' : 'var(--ink-3)' }}>{B(stuckValue)}</b>{unknownValue > 0 && <> · ไม่ทราบอายุ <b style={{ color: 'var(--ink-3)' }}>{B(unknownValue)}</b></>}</div>
-          </div>
-          <div className="grid g4" style={{ gap: 10, marginBottom: deadStock.length ? 14 : 0 }}>
-            {ageBuckets.map(b => (
-              <div key={b.label} style={{ padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
-                <div className="cap" style={{ color: 'var(--ink-3)' }}>{b.label}</div>
-                <div className="num" style={{ fontSize: 17, fontWeight: 700, color: b.tone }}>{B(b.value)}</div>
-                <div className="cap" style={{ color: 'var(--ink-4)' }}>{N(b.count)} ล็อต</div>
-              </div>
-            ))}
-          </div>
-          {deadStock.length > 0 && (<>
-            <div className="row between" style={{ marginBottom: 8 }}>
-              <div className="cap" style={{ color: 'var(--ink-3)' }}>ขายไม่ออกในช่วงนี้ (ขาย 0) — มูลค่าจม {B(deadValue)}</div>
-              <span className="chip chip-bad">{N(deadStock.length)} รายการ</span>
-            </div>
-            <div className="table-wrap" style={{ maxHeight: 240, overflowY: 'auto' }}><table className="table">
-              <thead><tr><th>สินค้า</th><th style={{ textAlign: 'right' }}>คงเหลือ</th><th style={{ textAlign: 'right' }}>อายุ</th><th style={{ textAlign: 'right' }}>มูลค่าจม</th></tr></thead>
-              <tbody>{deadStock.slice(0, 30).map(({ p, onHand, value, age }) => (
-                <tr key={p.id} onClick={() => window.__openModal('product', p)} style={{ cursor: 'pointer' }}>
-                  <td style={{ fontWeight: 600 }}>{p.name}{p.category && <span className="chip" style={{ marginLeft: 6, fontWeight: 400 }}>{p.category}</span>}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>{N(onHand)}</td>
-                  <td className="num" style={{ textAlign: 'right', color: age != null && age > 90 ? 'var(--bad)' : 'var(--ink-3)' }}>{age == null ? '—' : `${age}d`}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--bad)' }}>{B(value)}</td>
-                </tr>
-              ))}</tbody>
-            </table></div>
-            {deadStock.length > 30 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>แสดง 30 รายการมูลค่าจมสูงสุด จากทั้งหมด {N(deadStock.length)} รายการ</div>}
-          </>)}
-        </div>
-
-        {/* ประวัติการขายล่าสุด */}
-        <div className="card">
-          <div className="eyebrow" style={{ marginBottom: 14 }}>ประวัติการขายล่าสุด</div>
-          <div className="table-wrap" style={{ maxHeight: 360, overflowY: 'auto' }}><table className="table">
-            <thead><tr><th>วันที่</th><th>สินค้า</th><th>รายการ</th><th style={{ textAlign: 'right' }}>จำนวน</th><th style={{ textAlign: 'right' }}>ยอดเงิน</th></tr></thead>
-            <tbody>
-              {rows.slice(0, 50).map((s, i) => (
-                <tr key={i}>
-                  <td className="cap" style={{ whiteSpace: 'nowrap' }}>{thaiDate(s.day) || s.day}</td>
-                  <td style={{ fontWeight: 600 }}>{s.productName}</td>
-                  <td className="cap">{s.lines.map(l => `${l.color} ${l.size}×${l.qty}`).join(', ')}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(Number(s.totalQty) || 0)}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>{B(Number(s.totalAmount) || 0)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-          {rows.length > 50 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>แสดง 50 รายการล่าสุด จากทั้งหมด {N(rows.length)} บิล</div>}
-        </div>
-      </>)}
+      <div className="card"><SkelTable cols={8} rows={10} /></div>
     </div>
   );
 }
 
-/* ====================  ORDERS (Kanban) + CUSTOMERS  ==================== */
-// พิมพ์ใบเสร็จ/ใบส่งของ (iframe print + บาร์โค้ดโค้ดออเดอร์)
-function printReceipt(order) {
-  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const rows = (order.items || []).map(it => `<tr><td>${esc(it.name)} · ${esc(it.color)} ${esc(it.size)}</td><td style="text-align:center">${it.qty}</td><td style="text-align:right">${B(it.price)}</td><td style="text-align:right">${B((it.qty || 0) * (it.price || 0))}</td></tr>`).join('');
-  const bc = barcodeSVGString(order.code, { height: 38, module: 1.3 });
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(order.code)}</title><style>
-    *{font-family:'Sarabun','Noto Sans Thai',system-ui,sans-serif;box-sizing:border-box}
-    body{margin:0;padding:14px;max-width:340px} h2{margin:0;font-size:18px;text-align:center}
-    .sub{text-align:center;font-size:11px;color:#555;margin-bottom:8px}
-    table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0} td,th{padding:3px 2px;border-bottom:1px solid #eee;text-align:left}
-    .tot{display:flex;justify-content:space-between;font-size:13px;margin-top:3px} .tot.big{font-weight:800;font-size:16px;border-top:1px solid #333;padding-top:4px;margin-top:4px}
-    .cust{font-size:12px;margin:6px 0} .bc{text-align:center;margin-top:10px} .bc svg{max-width:100%}
-    @media print{@page{margin:6mm}}
-  </style></head><body>
-    <h2>TMK — ใบเสร็จ / ใบส่งของ</h2><div class="sub">${esc(order.code)} · ${new Date(order.createdAt || Date.now()).toLocaleDateString('th-TH')}</div>
-    <div class="cust"><b>ลูกค้า:</b> ${esc(order.customerName || '-')}</div>
-    <table><thead><tr><th>รายการ</th><th style="text-align:center">จำนวน</th><th style="text-align:right">ราคา</th><th style="text-align:right">รวม</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="tot"><span>รวม</span><span>${B(order.subtotal)}</span></div>
-    ${order.discount ? `<div class="tot"><span>ส่วนลด</span><span>-${B(order.discount)}</span></div>` : ''}
-    <div class="tot big"><span>ยอดสุทธิ</span><span>${B(order.total)}</span></div>
-    ${order.note ? `<div class="cust" style="margin-top:8px;color:#555">โน้ต: ${esc(order.note)}</div>` : ''}
-    <div class="bc">${bc}<div style="font-family:monospace;font-size:10px">${esc(order.code)}</div></div>
-  </body></html>`;
-  const iframe = document.createElement('iframe');
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-  document.body.appendChild(iframe);
-  const doc = iframe.contentWindow.document; doc.open(); doc.write(html); doc.close();
-  setTimeout(() => { try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch { /* ignore */ } setTimeout(() => iframe.remove(), 1500); }, 350);
-}
-
-/* ====================  ออเดอร์จากไฟล์นำเข้า (รายละเอียด)  ==================== */
 function MpOrdersView() {
   const [orders, setOrders] = useState(null);
   const [skusByOrder, setSkusByOrder] = useState({});
   const [err, setErr] = useState('');
-  const [month, setMonth] = useState('all');
+  const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+  const [month, setMonth] = useState(thisMonth());   // default = เดือนนี้ (โหลดเฉพาะเดือน → เร็ว)
+  const [months, setMonths] = useState([]);
   const [channel, setChannel] = useState('all');
   const [job, setJob] = useState('all');
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState(null);
   const [limit, setLimit] = useState(120);
 
+  // รายชื่อเดือนที่มีข้อมูล (จากขอบวันที่ — เบามาก)
+  useEffect(() => { (async () => {
+    const b = await getDateBounds('tmk_mp_orders');
+    if (!b.min || !b.max) return;
+    const out = []; let y = +b.max.slice(0, 4), m = +b.max.slice(5, 7);
+    const minY = +b.min.slice(0, 4), minM = +b.min.slice(5, 7);
+    while (y > minY || (y === minY && m >= minM)) { out.push(`${y}-${String(m).padStart(2, '0')}`); m--; if (m < 1) { m = 12; y--; } }
+    setMonths(out);
+  })(); }, []);
+
+  // โหลดออเดอร์ตามเดือนที่เลือก (server-side) — เปลี่ยนเดือนค่อยโหลดเฉพาะส่วน · มีแคช
   useEffect(() => {
     let cancel = false;
     (async () => {
       setOrders(null); setErr('');
-      const o = await fetchAllRows('tmk_mp_orders', '*', { eq: { status: 'active' }, order: 'order_date', asc: false });
+      const lastDay = (ym) => { const [y, mm] = ym.split('-').map(Number); return new Date(y, mm, 0).getDate(); };
+      const from = month === 'all' ? null : `${month}-01`, to = month === 'all' ? null : `${month}-${String(lastDay(month)).padStart(2, '0')}`;
+      const o = month === 'all' ? await cachedFetchAll('tmk_mp_orders', ORDERS_SEL) : await cachedFetchRange('tmk_mp_orders', ORDERS_SEL, from, to);
       if (cancel) return;
       if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
-      const s = await fetchAllRows('tmk_mp_skus', 'order_no,design,color,size,qty,line_sales,channel,product_code,raw_sku_or_name,match_how');
+      const s = month === 'all' ? await cachedFetchAll('tmk_mp_skus', SKUS_SEL) : await cachedFetchRange('tmk_mp_skus', SKUS_SEL, from, to);
       if (cancel) return;
       const byO = {}; (s.error ? [] : s.data || []).forEach(x => { (byO[x.order_no] = byO[x.order_no] || []).push(x); });
-      setSkusByOrder(byO); setOrders(o.data || []);
+      setSkusByOrder(byO);
+      setOrders((o.data || []).filter(x => x.status !== 'cancelled').sort((a, b) => (b.order_date || '').localeCompare(a.order_date || '')));
     })();
     return () => { cancel = true; };
-  }, []);
-
-  const months = useMemo(() => [...new Set((orders || []).map(o => o.order_month).filter(Boolean))].sort().reverse(), [orders]);
+  }, [month]);
   const channels = useMemo(() => [...new Set((orders || []).map(o => o.channel).filter(Boolean))], [orders]);
   const ql = q.trim().toLowerCase();
   const filtered = (orders || []).filter(o =>
@@ -2070,16 +1459,27 @@ function MpOrdersView() {
   const tot = filtered.reduce((a, x) => a + (Number(x.sales) || 0), 0);
   const totQty = filtered.reduce((a, x) => a + (Number(x.qty) || 0), 0);
   const byCh = {}; filtered.forEach(o => { byCh[o.channel] = (byCh[o.channel] || 0) + (Number(o.sales) || 0); });
-  const donutData = Object.entries(byCh).map(([k, v]) => ({ label: k, value: v, color: channelColor(k) })).sort((a, b) => b.value - a.value);
+  const _donutData = Object.entries(byCh).map(([k, v]) => ({ label: k, value: v, color: channelColor(k) })).sort((a, b) => b.value - a.value);
 
-  if (orders === null) return <div className="content-inner rise"><div className="card"><div className="cap" style={{ textAlign: 'center', padding: 28, color: 'var(--ink-4)' }}>กำลังโหลดออเดอร์…</div></div></div>;
-  if (err || orders.length === 0) return (
+  const showSkel = useDelayedFlag(orders === null, 120); // โผล่หลัง 120ms · อยู่อย่างน้อย 300ms · cache ไว → เด้งทันที
+  if (showSkel) return <OrdersSkeleton />;
+  if (orders === null) return null;
+  // ไม่มีข้อมูลเลยทั้งระบบ (ไม่มีเดือนใดเลย) → แนะนำนำเข้า · ถ้าแค่เดือนนี้ว่าง ยังให้เลือกเดือนอื่นได้
+  if (err || (orders.length === 0 && months.length === 0)) return (
     <div className="content-inner rise"><div className="card"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>
-      {/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration ก่อน' : 'ยังไม่มีออเดอร์จากไฟล์ — ไปที่ "รายงานขาย → นำเข้าไฟล์ขาย" เพื่อนำเข้า'}
+      {/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration ก่อน' : 'ยังไม่มีออเดอร์จากไฟล์ — ไปที่ "ข้อมูล → นำเข้าไฟล์มาร์เก็ตเพลส" เพื่อนำเข้า'}
     </div></div></div>
   );
 
   const jobChip = (j) => ({ 'ปลีก': '', 'ส่ง': 'chip-accent', 'OEM': 'chip-warn' }[j] || '');
+  const statusChip = (s) => {
+    if (!s || s === 'completed' || s === 'delivered') return 'chip-delivered';
+    if (s === 'cancelled') return 'chip-cancelled';
+    if (s === 'pending' || s === 'processing') return 'chip-pending';
+    if (s === 'shipped') return 'chip-shipped';
+    return '';
+  };
+  const statusLabel = (s) => ({ 'completed': 'สำเร็จ', 'delivered': 'ส่งแล้ว', 'cancelled': 'ยกเลิก', 'pending': 'รอดำเนินการ', 'processing': 'กำลังทำ', 'shipped': 'จัดส่งแล้ว' }[s] || s || '');
   return (
     <div className="content-inner rise">
       <div className="card" style={{ marginBottom: 16 }}>
@@ -2097,21 +1497,31 @@ function MpOrdersView() {
 
       <div className="card">
         <div className="table-wrap table-sticky-first"><table className="table">
-          <thead><tr><th>ออเดอร์</th><th>วันที่</th><th>ช่องทาง</th><th>ลูกค้า</th><th>งาน</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
-          <tbody>{filtered.slice(0, limit).map(o => { const sk = skusByOrder[o.order_no] || []; const open = openId === o.id; return (
-            <React.Fragment key={o.id}>
-              <tr onClick={() => setOpenId(open ? null : o.id)} style={{ cursor: 'pointer' }}>
+          <thead><tr><th>ออเดอร์</th><th>วันที่</th><th>ช่องทาง</th><th>ลูกค้า</th><th>ลายเสื้อ</th><th>งาน</th><th>สถานะ</th><th style={{ textAlign: 'right' }}>ชิ้น</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
+          <tbody>{filtered.slice(0, limit).map(o => { const sk = skusByOrder[o.order_no] || []; const open = openId === o.order_no;
+            const dmap = {}; sk.forEach(s => { const d = s.design || '(จับคู่ไม่ได้)'; if (!dmap[d]) dmap[d] = { design: d, codes: new Set(), qty: 0, sales: 0 }; const g = dmap[d]; if (s.product_code) g.codes.add(s.product_code); g.qty += Number(s.qty) || 0; g.sales += Number(s.line_sales) || 0; }); const designs = Object.values(dmap).sort((a, b) => b.qty - a.qty);
+            return (
+            <React.Fragment key={o.order_no}>
+              <tr className={`mp-order-row ${open ? 'is-open' : ''}`} onClick={() => setOpenId(open ? null : o.order_no)} style={{ cursor: 'pointer' }}>
                 <td><span style={{ fontWeight: 600 }}>{o.order_no}</span></td>
                 <td className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</td>
-                <td><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: channelColor(o.channel) }} />{o.channel}</span></td>
-                <td>{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}</td>
+                <td><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span></td>
+                <td>{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}{!o.customer_name && !o.customer_code && <span className="quality-badge warn">ไม่มีลูกค้า</span>}</td>
+                <td>{designs.length === 0 ? <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ fontWeight: 600 }}>{designs.slice(0, 2).map(d => d.design).join(', ')}{designs.length > 2 ? ` +${designs.length - 2}` : ''}</span>}</td>
                 <td>{(o.job_type && o.job_type !== 'ปลีก') ? <span className={'chip ' + jobChip(o.job_type)}>{o.job_type}</span> : <span className="cap">ปลีก</span>}</td>
+                <td>{o.status && o.status !== 'completed' ? <span className={'chip ' + statusChip(o.status)}>{statusLabel(o.status)}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</td>
                 <td className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</td>
                 <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(o.sales)}</td>
               </tr>
               {open && (
-                <tr><td colSpan={7} style={{ background: 'var(--surface-2)', padding: '12px 14px' }}>
+                <tr><td colSpan={9} style={{ background: 'var(--surface-2)', padding: '12px 14px' }}>
                   <div className="cap" style={{ marginBottom: 8, fontWeight: 600, color: 'var(--ink-3)' }}>ข้อมูลออเดอร์</div>
+                  <div className="quality-row" style={{ marginBottom: 10 }}>
+                    {sk.length === 0 && <span className="quality-badge warn">ไม่มี SKU</span>}
+                    {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <span className="quality-badge warn">มีลายจับคู่ไม่ได้</span>}
+                    {o.profit > 0 && <span className="quality-badge good">มีต้นทุน/กำไร</span>}
+                    {o.customer_code && <span className="quality-badge good">มีรหัสลูกค้า</span>}
+                  </div>
                   <div className="kv-grid">
                     <div><span className="cap">เลขออเดอร์</span><b>{o.order_no}</b></div>
                     {o.marketplace_id && o.marketplace_id !== '-' && <div><span className="cap">ID มาร์เก็ตเพลส</span><b>{o.marketplace_id}</b></div>}
@@ -2132,6 +1542,15 @@ function MpOrdersView() {
                     {o.mkt_commission > 0 && <div><span className="cap">ค่าธรรมเนียม</span><b>−{B(o.mkt_commission)}</b></div>}
                     {o.profit > 0 && <div><span className="cap">กำไรสุทธิ</span><b style={{ color: 'var(--good)' }}>{B(o.profit)}</b></div>}
                   </div>
+                  {designs.length > 0 && <>
+                    <div className="cap" style={{ margin: '12px 0 6px', fontWeight: 600, color: 'var(--accent)' }}><Icon name="bag" /> ลายเสื้อในออเดอร์นี้ ({N(designs.length)} ลาย)</div>
+                    <div style={{ display: 'grid', gap: 6, marginBottom: 4 }}>{designs.map((d, i) => (
+                      <div key={i} className="row between" style={{ gap: 8, padding: '7px 11px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                        <span style={{ minWidth: 0 }}><b style={{ color: d.design === '(จับคู่ไม่ได้)' ? 'var(--bad)' : 'var(--ink)' }}>{d.design}</b>{d.codes.size > 0 && <span className="badge badge-default" style={{ marginLeft: 8 }}>รหัส {[...d.codes].join(', ')}</span>}</span>
+                        <span className="num cap"><b style={{ color: 'var(--ink)' }}>{N(d.qty)}</b> ชิ้น · {B(d.sales)}</span>
+                      </div>
+                    ))}</div>
+                  </>}
                   {sk.length > 0 && <>
                     <div className="cap" style={{ margin: '12px 0 6px', fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ชิ้น)</div>
                     <table className="table" style={{ background: 'var(--surface)' }}>
@@ -2159,213 +1578,7 @@ function MpOrdersView() {
 }
 
 function OrdersHub() {
-  const [mode, setMode] = useState('mp');
-  return (<>
-    <div className="content-inner" style={{ paddingBottom: 0 }}>
-      <div className="segbar" style={{ marginBottom: 0 }}>
-        <button className={'seg' + (mode === 'mp' ? ' active' : '')} onClick={() => setMode('mp')}>ออเดอร์จากไฟล์ (นำเข้า)</button>
-        <button className={'seg' + (mode === 'internal' ? ' active' : '')} onClick={() => setMode('internal')}>ออเดอร์ภายใน (Kanban)</button>
-      </div>
-    </div>
-    {mode === 'mp' ? <MpOrdersView /> : <OrdersView />}
-  </>);
-}
-
-function OrdersView() {
-  const orders = DD.orders || [];
-  const [dragId, setDragId] = useState(null);
-  const [showCancelled, setShowCancelled] = useState(false);
-  const [showShippedAll, setShowShippedAll] = useState(false); // โชว์ "ส่งแล้ว" เก่ากว่า 7 วันหรือไม่
-  const [q, setQ] = useState('');
-  const ql = q.trim().toLowerCase();
-
-  // จำกัด "ส่งแล้ว" ให้เหลือ 7 วันล่าสุด — กันคอลัมน์ยาวหลายร้อยใบ + ออเดอร์ active หายเมื่อทะลุ 500
-  const cutoff = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
-  const matchSearch = (o) => !ql || `${o.code || ''} ${o.customerName || ''} ${o.trackingNo || ''}`.toLowerCase().includes(ql);
-  // วันที่ส่งจริงจาก status log (ไม่มี field shippedDate) — fallback เป็นวันที่สร้างถ้าไม่มี log
-  const shipDate = (o) => ((o.statusLog || []).filter(x => x.status === 'shipped').map(x => x.at).sort().pop() || o.createdAt || '');
-  const isRecentShipped = (o) => shipDate(o).slice(0, 10) >= cutoff;
-  const visible = orders.filter(o =>
-    o.status !== 'cancelled' &&
-    matchSearch(o) &&
-    (o.status !== 'shipped' || showShippedAll || isRecentShipped(o))
-  );
-  const active = visible;
-  const shippedHidden = orders.filter(o => o.status === 'shipped' && !isRecentShipped(o) && matchSearch(o)).length;
-  const cancelled = orders.filter(o => o.status === 'cancelled' && matchSearch(o));
-  const copyTrack = (o) => { try { navigator.clipboard.writeText(`${location.origin}${location.pathname}?track=${o.code}`); window.__toast?.('คัดลอกลิงก์ติดตามแล้ว — ส่งให้ลูกค้าได้เลย', 'success'); } catch { window.__toast?.('คัดลอกไม่ได้', 'error'); } };
-  // เปลี่ยนสถานะออเดอร์ — เช็คสิทธิ์ + ยืนยันก่อน action ที่กู้ไม่ได้ (ส่งแล้ว=ตัดสต็อก, ยกเลิก=คืนจอง)
-  const changeStatus = (o, status) => {
-    if (!o || o.status === status) return;
-    if (!guardEdit()) return;
-    // กันสต็อกหาย: ออเดอร์ที่ "ส่งแล้ว" ตัดสต็อกไปแล้ว — ย้อนสถานะกลับไม่ได้ (ระบบไม่คืนสต็อกอัตโนมัติ)
-    if (o.status === 'shipped') { window.alert(`ออเดอร์ ${o.code} "ส่งแล้ว" — เปลี่ยนสถานะไม่ได้\nสต็อกถูกตัดไปแล้ว ถ้าต้องการคืนสต็อกให้ใช้ "ปรับสต็อก" ที่สินค้า`); return; }
-    if (status === 'shipped' && !window.confirm(`ยืนยัน "ส่งแล้ว" ออเดอร์ ${o.code}?\nระบบจะตัดสต็อกจริงตามออเดอร์นี้ (กู้คืนไม่ได้)`)) return;
-    if (status === 'cancelled' && !window.confirm(`ยกเลิกออเดอร์ ${o.code}?\nระบบจะปล่อยสต็อกที่จองคืน`)) return;
-    advanceOrderStatus(o, status);
-  };
-  const onDrop = (status) => { const o = orders.find(x => x.id === dragId); setDragId(null); changeStatus(o, status); };
-
-  return (
-    <div className="content-inner rise">
-      <div className="row between" style={{ marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
-        <h3 style={{ margin: 0 }}><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> ออเดอร์ {active.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({active.length})</span>}</h3>
-        <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('order')}><Icon name="plus" /> สร้างออเดอร์</button>
-      </div>
-      {orders.length > 0 && (
-        <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <input className="input" value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นหา รหัสออเดอร์ / ลูกค้า / tracking" style={{ flex: '1 1 220px' }} />
-          {shippedHidden > 0 && (
-            <button className="btn btn-sm" onClick={() => setShowShippedAll(s => !s)} style={{ flex: '0 0 auto' }}>
-              <Icon name="eye" /> {showShippedAll ? 'ซ่อน' : 'ดู'}ส่งแล้วทั้งหมด ({shippedHidden})
-            </button>
-          )}
-        </div>
-      )}
-      {orders.length === 0
-        ? <div className="card"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีออเดอร์ — กด "สร้างออเดอร์" เพื่อเริ่ม (จองสต็อกอัตโนมัติ + ลูกค้าติดตามสถานะได้)</div></div>
-        : (
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 8 }}>
-            {ORDER_STATUSES.map(col => {
-              const list = active.filter(o => o.status === col.id);
-              return (
-                <div key={col.id} onDragOver={e => e.preventDefault()} onDrop={() => onDrop(col.id)} style={{ flex: '0 0 240px', minWidth: 240, background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: 8 }}>
-                  <div className="row between" style={{ marginBottom: 8, padding: '2px 4px' }}><span style={{ fontWeight: 700, color: col.color }}>{col.label}</span><span className="cap">{list.length}</span></div>
-                  {list.map(o => (
-                    <div key={o.id} draggable onDragStart={() => setDragId(o.id)} onDragEnd={() => setDragId(null)} style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', padding: '8px 10px', marginBottom: 7, cursor: 'grab', borderLeft: `3px solid ${col.color}` }}>
-                      <div className="row between"><span style={{ fontWeight: 700, fontSize: 'var(--fs-sm)', cursor: 'pointer' }} onClick={() => window.__openModal('order', o)}>{o.code}</span><span className="num" style={{ fontWeight: 700 }}>{B(o.total)}</span></div>
-                      <div className="cap" style={{ margin: '2px 0' }}>{o.customerName || '-'} · {N(o.qty)} ตัว</div>
-                      <div className="cap" style={{ color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(o.items || []).slice(0, 2).map(it => `${it.color} ${it.size}×${it.qty}`).join(', ')}{(o.items || []).length > 2 ? '…' : ''}{o.trackingNo ? ` · 📦${o.trackingNo}` : ''}</div>
-                      <div className="row" style={{ gap: 4, marginTop: 6, alignItems: 'stretch' }}>
-                        <select className="input" style={{ flex: 1, padding: '3px 4px', fontSize: 'var(--fs-cap)', height: 'auto' }} value={o.status} onChange={e => changeStatus(o, e.target.value)} title="เปลี่ยนสถานะ">
-                          {ORDER_STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                          <option value="cancelled">ยกเลิก</option>
-                        </select>
-                        <button className="btn btn-sm btn-ghost" style={{ padding: '2px 7px' }} onClick={() => copyTrack(o)} title="คัดลอกลิงก์ติดตามให้ลูกค้า"><Icon name="route" /></button>
-                        <button className="btn btn-sm btn-ghost" style={{ padding: '2px 7px' }} onClick={() => printReceipt(o)} title="พิมพ์ใบเสร็จ/ใบส่งของ"><Icon name="external" /></button>
-                      </div>
-                    </div>
-                  ))}
-                  {list.length === 0 && <div className="cap" style={{ textAlign: 'center', color: 'var(--ink-5,var(--ink-4))', padding: '14px 0' }}>ลากการ์ดมาที่นี่</div>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      {cancelled.length > 0 && (
-        <div className="card" style={{ marginTop: 14 }}>
-          <div className="row between" style={{ cursor: 'pointer' }} onClick={() => setShowCancelled(s => !s)}><span className="eyebrow">ยกเลิก ({cancelled.length})</span><Icon name={showCancelled ? 'chevD' : 'chevR'} /></div>
-          {showCancelled && cancelled.map(o => (
-            <div key={o.id} className="row between" style={{ padding: '6px 0', borderTop: '1px solid var(--line)' }}>
-              <span className="cap"><b>{o.code}</b> · {o.customerName} · {N(o.qty)} ตัว</span><span className="cap">{B(o.total)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CustomersView() {
-  const customers = DD.customers || []; // 150 รายล่าสุดที่โหลดอยู่ (เกินกว่านั้นใช้ค้นหา)
-  const [q, setQ] = useState('');
-  const [remote, setRemote] = useState(null); // ผลค้นหาจาก server (ครอบคลุมลูกค้านอกชุดล่าสุด)
-  const [searching, setSearching] = useState(false);
-  const [sort, setSort] = useState('spent'); // spent | orders | recent
-  const [pageLimit, setPageLimit] = useState(50); // pagination ฝั่ง UI
-  const ql = q.trim();
-
-  // ค้นหาฝั่ง server (debounce 250ms) — กรณีลูกค้าจริงเกิน 150 ราย จะหาเจอนอกชุด
-  React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading/clear flag ก่อน async fetch (จำเป็น)
-    if (!ql) { setRemote(null); setSearching(false); return; }
-    setSearching(true);
-    let alive = true; // กันผลค้นหาเก่ามาทับผลใหม่ (out-of-order async)
-    const id = setTimeout(async () => {
-      try {
-        // sanitize: comma/วงเล็บ ทำ grammar ของ PostgREST .or() พัง → 400 (เคยคืน [] เงียบ). ตัดทิ้งก่อน interpolate
-        const safe = ql.replace(/[,()]/g, ' ').trim();
-        if (!safe) { if (alive) setRemote([]); return; }
-        const { data, error } = await supabase.from('tmk_customers')
-          .select('id,code,name,phone,line,address,note,created_at')
-          .or(`name.ilike.%${safe}%,phone.ilike.%${safe}%,line.ilike.%${safe}%`)
-          .limit(100);
-        if (error) { if (alive) setRemote([]); return; } // อย่ากลืน 400 เป็น "ไม่พบ" เงียบ
-        const rows = data || [];
-        // enrich ยอดสะสมจาก view เดียวกับ dataContext → ลูกค้านอกชุดล่าสุดจะได้ยอดจริง ไม่ใช่ ฿0/0 ออเดอร์ + normalize createdAt (กัน sort recent พัง)
-        const totals = {};
-        if (rows.length) {
-          const { data: ct } = await supabase.from('tmk_customer_totals')
-            .select('customer_id,order_count,total_spent').in('customer_id', rows.map(r => r.id));
-          (ct || []).forEach(t => { if (t.customer_id) totals[t.customer_id] = { orderCount: Number(t.order_count || 0), totalSpent: Number(t.total_spent || 0) }; });
-        }
-        const enriched = rows.map(c => ({ ...c, createdAt: c.created_at, orderCount: totals[c.id]?.orderCount || 0, totalSpent: totals[c.id]?.totalSpent || 0 }));
-        if (alive) setRemote(enriched);
-      } catch { if (alive) setRemote([]); }
-      finally { if (alive) setSearching(false); }
-    }, 250);
-    return () => { alive = false; clearTimeout(id); };
-  }, [ql]);
-
-  // สร้างลิสต์: ถ้ามีคำค้น → รวม local+remote dedup; ไม่มีคำค้น → ใช้ local อย่างเดียว
-  const baseList = useMemo(() => {
-    if (!ql) return customers;
-    const byId = new Map();
-    // remote ก่อน, local ทับทีหลัง → ลูกค้าที่อยู่ในชุด local (มียอดซื้อ/ออเดอร์จริง) ชนะ
-    // กัน remote raw row (ไม่มี totalSpent/orderCount) มาทับให้โชว์ ฿0
-    [...(remote || []), ...customers].forEach(c => byId.set(c.id, c));
-    const qLower = ql.toLowerCase();
-    return [...byId.values()].filter(c => `${c.name || ''} ${c.phone || ''} ${c.line || ''}`.toLowerCase().includes(qLower));
-  }, [customers, remote, ql]);
-  const sorters = {
-    spent:  (a, b) => (b.totalSpent || 0) - (a.totalSpent || 0),
-    orders: (a, b) => (b.orderCount || 0) - (a.orderCount || 0),
-    recent: (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')),
-  };
-  const sorted = useMemo(() => [...baseList].sort(sorters[sort]), [baseList, sort]);
-  const shown = sorted.slice(0, pageLimit);
-
-  return (
-    <div className="content-inner rise">
-      <div className="card">
-        <div className="card-head">
-          <h3><span style={{ color: 'var(--accent)' }}><Icon name="users" /></span> ลูกค้า {baseList.length > 0 && <span className="cap" style={{ fontWeight: 400 }}>({N(baseList.length)}{!ql && customers.length >= 150 ? '+' : ''})</span>}</h3>
-          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('customer')}><Icon name="userPlus" /> เพิ่มลูกค้า</button>
-        </div>
-        {(customers.length > 0 || ql) && (
-          <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-            <input className="input" value={q} onChange={e => { setQ(e.target.value); setPageLimit(50); }} placeholder="🔍 ค้นหา ชื่อ / เบอร์ / LINE" style={{ flex: '1 1 200px' }} />
-            <select className="input" value={sort} onChange={e => setSort(e.target.value)} style={{ flex: '0 0 auto', minWidth: 120 }}>
-              <option value="spent">ยอดซื้อสูง</option>
-              <option value="orders">ออเดอร์เยอะ</option>
-              <option value="recent">เพิ่มล่าสุด</option>
-            </select>
-            {searching && <span className="cap" style={{ color: 'var(--ink-4)', alignSelf: 'center' }}>กำลังค้นหา…</span>}
-          </div>
-        )}
-        {baseList.length === 0
-          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>{ql ? `ไม่พบลูกค้า "${ql}"` : 'ยังไม่มีลูกค้า — เพิ่มเอง หรือระบบสร้างให้ตอนทำออเดอร์'}</div>
-          : <>
-            <div className="table-wrap table-sticky-first"><table className="table">
-              <thead><tr><th>ลูกค้า</th><th>ติดต่อ</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดซื้อรวม</th></tr></thead>
-              <tbody>{shown.map(c => (
-                <tr key={c.id} onClick={() => window.__openModal('customer', c)} style={{ cursor: 'pointer' }}>
-                  <td><div style={{ fontWeight: 600 }}>{c.name}</div>{c.address && <div className="cap">{c.address}</div>}</td>
-                  <td className="cap">{[c.phone, c.line && ('LINE ' + c.line)].filter(Boolean).join(' · ') || '—'}</td>
-                  <td className="num" style={{ textAlign: 'right' }}>{N(c.orderCount || 0)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{B(c.totalSpent || 0)}</td>
-                </tr>
-              ))}</tbody>
-            </table></div>
-            {sorted.length > pageLimit && (
-              <div className="row" style={{ justifyContent: 'center', padding: '12px 0' }}>
-                <button className="btn btn-sm" onClick={() => setPageLimit(l => l + 50)}>แสดงเพิ่ม ({N(sorted.length - pageLimit)} คน)</button>
-              </div>
-            )}
-          </>}
-      </div>
-    </div>
-  );
+  return <MpOrdersView />;
 }
 
 function CampaignsView() {
@@ -2435,112 +1648,108 @@ function CampaignsView() {
   };
 
   return (
-    <div className="content-inner rise">
-      <div className="row between" style={{ marginBottom: 16 }}>
-        <div className="eyebrow">{campaigns.length} แคมเปญ · เรียงลำดับได้ (ลากบนคอม / ปุ่ม ▲▼ บนมือถือ)</div>
-        <button className="btn btn-primary" onClick={() => window.__openModal('campaign')}><Icon name="plus" /> สร้างแคมเปญ</button>
+    <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="text-sm text-muted-foreground font-medium">
+          {campaigns.length} แคมเปญ · เรียงลำดับได้ (ลากบนคอม / ปุ่ม ▲▼ บนมือถือ)
+        </div>
+        <Button onClick={() => window.__openModal('campaign')}>
+          <Icon name="plus" className="size-4 mr-2" /> สร้างแคมเปญ
+        </Button>
       </div>
-      <div className="grid g2">
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {campaigns.length === 0 && (
+          <div className="col-span-full py-16 text-center text-muted-foreground border-2 border-dashed rounded-lg bg-muted/10">
+            <p className="text-sm">ยังไม่มีแคมเปญ — กด "+ สร้างแคมเปญ" เพื่อเริ่ม</p>
+          </div>
+        )}
         {campaigns.map((c, idx) => {
           const isOver = dragOver === c.id;
+          const statusMeta = stMeta[c.status] || stMeta.done;
+          
           return (
-            <div key={c.id}
+            <Card key={c.id}
               draggable
               onDragStart={() => setDragId(c.id)}
               onDragEnd={() => { setDragId(null); setDragOver(null); }}
               onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== c.id) setDragOver(c.id); }}
               onDragLeave={() => setDragOver(o => o === c.id ? null : o)}
               onDrop={() => { if (dragId) reorderCampaign(dragId, c.id); setDragId(null); setDragOver(null); }}
-              className="card"
+              className="flex flex-col transition-all overflow-hidden"
               style={{
-                borderLeft: `4px solid ${c.color}`,
-                cursor: busy ? 'wait' : 'move',
-                transition: 'all 0.15s',
+                borderLeftWidth: '4px',
+                borderLeftColor: c.color || 'var(--border)',
+                cursor: busy ? 'wait' : 'grab',
                 transform: isOver ? 'scale(1.02)' : 'scale(1)',
-                boxShadow: isOver ? '0 4px 16px rgba(10,90,160,0.2)' : 'var(--sh-sm)',
-                background: isOver ? 'var(--accent-soft)' : undefined,
+                boxShadow: isOver ? '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)' : undefined,
+                background: isOver ? 'hsl(var(--accent)/0.1)' : undefined,
                 opacity: dragId === c.id ? 0.4 : 1,
               }}>
-              <div className="row between" style={{ marginBottom: 12 }}>
-                <div className="row" style={{ gap: 8, flex: 1, minWidth: 0 }}>
-                  <span className="desktop-only" title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', cursor: 'grab', flexShrink: 0 }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
-                      <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
-                    </svg>
-                  </span>
-                  {/* มือถือลากไม่ได้ → stepper ▲▼ แนวตั้ง (กะทัดรัด ไม่กินความกว้างชื่อ) */}
-                  <span className="mobile-only reorder-stepper" style={{ flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                    <button disabled={idx === 0 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx - 1].id)} aria-label="เลื่อนขึ้น">▲</button>
-                    <button disabled={idx === campaigns.length - 1 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx + 1].id)} aria-label="เลื่อนลง">▼</button>
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <h3 style={{ cursor: 'pointer' }} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>{c.name}</h3>
-                    <div className="cap num" style={{ marginTop: 3 }}>{c.start} – {c.end}</div>
+              <CardContent className="p-4 flex-1 flex flex-col">
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div className="flex gap-2 min-w-0 flex-1">
+                    <div className="hidden sm:flex shrink-0 text-muted-foreground/50 mt-1" title="ลากเพื่อเรียงลำดับ">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
+                        <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
+                      </svg>
+                    </div>
+                    {/* สำหรับมือถือ */}
+                    <div className="flex sm:hidden flex-col gap-1 shrink-0 px-1 mt-1" onClick={e => e.stopPropagation()}>
+                      <button className="text-muted-foreground disabled:opacity-30 p-1 text-[10px]" disabled={idx === 0 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx - 1].id)}>▲</button>
+                      <button className="text-muted-foreground disabled:opacity-30 p-1 text-[10px]" disabled={idx === campaigns.length - 1 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx + 1].id)}>▼</button>
+                    </div>
+                    
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-base truncate hover:underline cursor-pointer" onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>
+                        {c.name}
+                      </h3>
+                      <div className="text-xs text-muted-foreground mt-1 tabular-nums">
+                        {c.start} – {c.end}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <Badge variant="outline" className={`shrink-0 ${statusMeta.cls === 'chip-good' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : statusMeta.cls === 'chip-accent' ? 'bg-primary/10 text-primary border-primary/20' : statusMeta.cls === 'chip-warn' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : ''}`}>
+                    {statusMeta.l}
+                  </Badge>
+                </div>
+                
+                <div className="mt-auto flex items-center justify-between pt-3 border-t border-border/50">
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(c.channels || []).map(id => { 
+                      const ch = DD.channels.find(x=>x.id===id); 
+                      return ch ? <div key={id} className="size-3 rounded-sm" style={{ background: ch.hex }} title={ch.name}></div> : null; 
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Icon name="listChecks" className="size-3.5" />
+                    <span>{c.tasks} งาน</span>
                   </div>
                 </div>
-                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
-                  <span className={`chip ${(stMeta[c.status] || stMeta.done).cls}`}>{(stMeta[c.status] || stMeta.done).l}</span>
-                  <button className="btn btn-sm btn-ghost" title="แก้ไข" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
-                    <Icon name="pencil" />
-                  </button>
-                  <button className="btn btn-sm btn-ghost" title="ลบ" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy} style={{ color: 'var(--bad)' }}>
-                    <Icon name="trash" />
-                  </button>
-                </div>
+              </CardContent>
+              <div className="absolute top-2 right-2 flex opacity-0 group-hover:opacity-100 transition-opacity">
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
+                  <Icon name="pencil" className="size-3" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy}>
+                  <Icon name="trash" className="size-3" />
+                </Button>
               </div>
-              <div className="row between">
-                <div className="row" style={{ gap: 6 }}>
-                  {(c.channels || []).map(id => { const ch = DD.channels.find(x=>x.id===id); return ch ? <span key={id} style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }} title={ch.name}></span> : null; })}
-                </div>
-                <span className="cap row" style={{ gap: 5 }}><Icon name="listChecks" /> {c.tasks} งาน</span>
+              
+              {/* always show buttons on mobile */}
+              <div className="flex sm:hidden absolute top-2 right-2">
+                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
+                  <Icon name="pencil" className="size-3" />
+                </Button>
+                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy}>
+                  <Icon name="trash" className="size-3" />
+                </Button>
               </div>
-            </div>
+            </Card>
           );
         })}
-        {campaigns.length === 0 && (
-          <div style={{ gridColumn: '1 / -1', padding: 40, textAlign: 'center', color: 'var(--ink-3)' }}>
-            <div className="cap">ยังไม่มีแคมเปญ — กด "+ สร้างแคมเปญ" เพื่อเริ่ม</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function POView() {
-  return (
-    <div className="content-inner rise">
-      <div className="card">
-        <div className="card-head">
-          <h3><span style={{color:'var(--accent)'}}><Icon name="box" /></span> ใบสั่งผลิต & PO โรงงาน</h3>
-          <button className="btn btn-sm btn-primary" onClick={() => window.__openModal('po')}><Icon name="plus" /> เปิด PO ใหม่</button>
-        </div>
-        <div className="table-wrap"><table className="table">
-          <thead><tr><th>สินค้า</th><th style={{textAlign:'right'}}>จำนวน</th><th>วันสั่ง</th><th>กำหนดเข้า</th><th style={{textAlign:'right'}}>สถานะ</th><th style={{textAlign:'right'}}></th></tr></thead>
-          <tbody>
-            {DD.poTracker.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }} className="cap">ยังไม่มี PO — กด "เปิด PO ใหม่" เพื่อเริ่ม</td></tr>
-            )}
-            {DD.poTracker.map(po => {
-              const matched = (DD.products || []).some(p => p.name === po.product);
-              return (
-              <tr key={po.id}>
-                <td style={{ fontWeight: 600, cursor: 'pointer' }} onClick={() => window.__openModal('po', po)}>{po.product}</td>
-                <td className="num" style={{ textAlign: 'right' }}>{N(po.quantity)} ตัว</td>
-                <td className="num cap">{po.orderDate}</td>
-                <td className="num cap">{po.arrivalDate}</td>
-                <td style={{ textAlign: 'right' }}>
-                  <span className={`chip ${po.status==='Completed'?'chip-good':'chip-warn'}`}>{po.status==='Completed'?'ของเข้าแล้ว':'กำลังผลิต'}</span>
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  {po.status !== 'Completed' && matched && <button className="btn btn-sm btn-ghost" title="รับเข้าสต็อก (สร้างล็อต)" onClick={() => window.__openModal('receive', po)}><Icon name="box" /> รับเข้า</button>}
-                  {po.status !== 'Completed' && !matched && <span className="cap" style={{ color: 'var(--ink-4)' }} title="ชื่อ PO ไม่ตรงกับสินค้าในแคตตาล็อก">— ไม่พบสินค้า —</span>}
-                </td>
-              </tr>
-            ); })}
-          </tbody>
-        </table></div>
       </div>
     </div>
   );
@@ -2562,40 +1771,67 @@ export function SettingsView({ sub, dark, setDark }) {
   // ใช้ sub prop โดยตรง — ถ้า sub ไม่ถูกต้อง fallback เป็น 'general' (กันหน้าว่าง)
   const active = TABS.some(t => t.id === sub) ? sub : 'general';
   const setActive = (id) => window.__goSection?.('settings', id);
+
   return (
-    <div className="content-inner rise">
-      <div className="segbar" style={{ marginBottom: 16, display: 'inline-flex', maxWidth: '100%' }}>
-        {TABS.map(t => (
-          <button key={t.id} className={'seg' + (active === t.id ? ' active' : '')}
-            onClick={() => setActive(t.id)}>
-            <Icon name={t.icon} />{t.label}
-          </button>
-        ))}
+    <div className="p-4 md:p-8 max-w-[1200px] mx-auto w-full rise">
+      <div className="mb-6 space-y-1">
+        <h2 className="text-2xl font-bold tracking-tight">การตั้งค่า</h2>
+        <p className="text-muted-foreground">จัดการระบบผู้ใช้งาน ช่องทางขาย และการแสดงผล</p>
       </div>
-      {active === 'general' && <GeneralSettings dark={dark} setDark={setDark} />}
-      {active === 'channels' && <ChannelsView />}
-      {active === 'campaigns' && <CampaignsView />}
-      {active === 'duties' && <DutiesView />}
-      {active === 'roles' && _isAdmin && <RolesView />}
-      {active === 'audit' && <AuditView />}
-      {active === 'trash' && _canEdit && <TrashView />}
+      <div className="h-[1px] w-full bg-border mb-8" />
+      
+      <Tabs value={active} onValueChange={setActive} className="flex flex-col lg:flex-row gap-8 w-full">
+        <aside className="lg:w-1/4 xl:w-1/5 shrink-0">
+          <TabsList className="flex flex-col h-auto bg-transparent p-0 space-y-1 w-full items-start">
+            {TABS.map(t => (
+              <TabsTrigger 
+                key={t.id} 
+                value={t.id} 
+                className="w-full justify-start gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 data-[state=active]:bg-muted data-[state=active]:shadow-none data-[state=active]:font-medium transition-colors"
+              >
+                <Icon name={t.icon} className="size-4" />
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </aside>
+
+        <div className="flex-1 min-w-0">
+        <TabsContent value="general" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          <GeneralSettings dark={dark} setDark={setDark} />
+        </TabsContent>
+        <TabsContent value="channels" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          <ChannelsView />
+        </TabsContent>
+        <TabsContent value="campaigns" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          <CampaignsView />
+        </TabsContent>
+        <TabsContent value="duties" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          <DutiesView />
+        </TabsContent>
+        <TabsContent value="roles" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          {_isAdmin && <RolesView />}
+        </TabsContent>
+        <TabsContent value="audit" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          <AuditView />
+        </TabsContent>
+        <TabsContent value="trash" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          {_canEdit && <TrashView />}
+        </TabsContent>
+        </div>
+      </Tabs>
     </div>
   );
 }
 
-// Toggle pill ที่ persist ลง localStorage
-// Toggle switch มาตรฐาน (เลื่อน/กด เปิด-ปิด)
-function Switch({ on, onClick, label, color }) {
-  return (
-    <button type="button" role="switch" aria-checked={on} aria-label={label} onClick={onClick}
-      className={'switch' + (on ? ' on' : '')} style={color ? { '--sw-on': color } : undefined} />
-  );
-}
-
-function NotifToggle({ storeKey }) {
+function NotifToggle({ storeKey, label }) {
   const [on, setOn] = useState(() => { try { return localStorage.getItem(storeKey) !== 'false'; } catch { return true; } });
-  const flip = () => setOn(v => { const nv = !v; try { localStorage.setItem(storeKey, nv ? 'true' : 'false'); } catch { /* ignore */ } try { window.dispatchEvent(new Event('tmk-prefs')); } catch { /* ignore */ } return nv; }); // แจ้ง App ให้รีเฟรชกระดิ่งทันที
-  return <Switch on={on} onClick={flip} label="เปิด/ปิดการแจ้งเตือน" />;
+  const flip = (checked) => {
+    setOn(checked);
+    try { localStorage.setItem(storeKey, checked ? 'true' : 'false'); } catch { /* ignore */ }
+    try { window.dispatchEvent(new Event('tmk-prefs')); } catch { /* ignore */ }
+  };
+  return <ShadcnSwitch checked={on} onCheckedChange={flip} aria-label={label || "เปิด/ปิดการแจ้งเตือน"} />;
 }
 
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
@@ -2695,99 +1931,167 @@ function GeneralSettings({ dark, setDark }) {
   const [reportMonth, setReportMonth] = useState(_t.month);
   const [reportYear, setReportYear] = useState(_t.yearBE);
   const yearOptions = [0, 1, 2, 3, 4, 5].map(d => _t.yearBE - d);
+  
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
       {/* Appearance */}
-      <div className="card">
-        <div className="card-head"><h3><Icon name={dark ? 'moon' : 'sun'} /> ธีมและการแสดงผล</h3></div>
-        <div className="row between" style={{ padding: '12px 0' }}>
-          <div>
-            <div className="sm" style={{ fontWeight: 600 }}>โหมดมืด</div>
-            <div className="cap">เปลี่ยนธีมสีของระบบ</div>
+      <Card>
+        <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name={dark ? 'moon' : 'sun'} className="size-5 text-muted-foreground" /> ธีมและการแสดงผล
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-semibold text-sm">โหมดมืด</div>
+              <div className="text-sm text-muted-foreground mt-1">เปลี่ยนธีมสีของระบบ</div>
+            </div>
+            <ShadcnSwitch checked={dark} onCheckedChange={setDark} aria-label="โหมดมืด" />
           </div>
-          <Switch on={dark} onClick={() => setDark(d => !d)} label="โหมดมืด" color="var(--accent)" />
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Notification settings */}
-      <div className="card">
-        <div className="card-head"><h3><Icon name="bell" /> การแจ้งเตือน</h3></div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนงาน &amp; สรุปเดือน</div><div className="cap">เตือนงานวันนี้/เกินกำหนด/ใกล้ถึง และเตือนสรุปยอดเดือนที่แล้ว</div></div>
-          <NotifToggle storeKey="tmk-notif-overdue" />
-        </div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>แจ้งเตือนสต็อกใกล้หมด</div><div className="cap">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div></div>
-          <NotifToggle storeKey="tmk-notif-stock" />
-        </div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนกรอกยอดขายวันนี้</div><div className="cap">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div></div>
-          <NotifToggle storeKey="tmk-notif-daily" />
-        </div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนยอดขาย &amp; ค่าแอด</div><div className="cap">เตือนเมื่อ ACOS เกินเพดาน, ใช้งบแอดเกินที่ตั้ง, ยอดช้ากว่าแผน หรือ pace ลูกค้าใหม่ช้า</div></div>
-          <NotifToggle storeKey="tmk-notif-sales" />
-        </div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>เตือนออเดอร์ค้าง</div><div className="cap">เตือนเมื่อออเดอร์สถานะ "รอ/กำลังเตรียม" นานเกิน 2 วัน (กันลืมส่ง)</div></div>
-          <NotifToggle storeKey="tmk-notif-orders" />
-        </div>
-        <div className="row between" style={{ padding: '12px 0' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>เตือน PO ถึงกำหนด</div><div className="cap">เตือนเมื่อ PO ถึงวันรับเข้าหรือเลยกำหนดแล้วยังไม่ได้รับเข้า</div></div>
-          <NotifToggle storeKey="tmk-notif-po" />
-        </div>
-      </div>
+      <Card>
+        <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name="bell" className="size-5 text-muted-foreground" /> การแจ้งเตือน
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border/50">
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">แจ้งเตือนงาน &amp; สรุปเดือน</div>
+              <div className="text-sm text-muted-foreground mt-1">เตือนงานวันนี้/เกินกำหนด/ใกล้ถึง และเตือนสรุปยอดเดือนที่แล้ว</div>
+            </div>
+            <NotifToggle storeKey="tmk-notif-overdue" label="เปิด/ปิดแจ้งเตือนงาน" />
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">แจ้งเตือนสต็อกใกล้หมด</div>
+              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div>
+            </div>
+            <NotifToggle storeKey="tmk-notif-stock" label="เปิด/ปิดแจ้งเตือนสต็อก" />
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">เตือนกรอกยอดขายวันนี้</div>
+              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div>
+            </div>
+            <NotifToggle storeKey="tmk-notif-daily" label="เปิด/ปิดเตือนกรอกยอดขาย" />
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">เตือนยอดขาย &amp; ค่าแอด</div>
+              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อ ACOS เกินเพดาน, ใช้งบแอดเกินที่ตั้ง, ยอดช้ากว่าแผน หรือ pace ลูกค้าใหม่ช้า</div>
+            </div>
+            <NotifToggle storeKey="tmk-notif-sales" label="เปิด/ปิดเตือนยอดขาย" />
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">เตือนออเดอร์ค้าง</div>
+              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อออเดอร์สถานะ "รอ/กำลังเตรียม" นานเกิน 2 วัน (กันลืมส่ง)</div>
+            </div>
+            <NotifToggle storeKey="tmk-notif-orders" label="เปิด/ปิดเตือนออเดอร์" />
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">เตือน PO ถึงกำหนด</div>
+              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อ PO ถึงวันรับเข้าหรือเลยกำหนดแล้วยังไม่ได้รับเข้า</div>
+            </div>
+            <NotifToggle storeKey="tmk-notif-po" label="เปิด/ปิดเตือน PO" />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Data */}
-      <div className="card">
-        <div className="card-head"><h3><Icon name="layers" /> ข้อมูลและการซิงค์</h3></div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>ซิงค์ข้อมูลอัตโนมัติ</div><div className="cap">ซิงค์อัตโนมัติผ่าน Supabase Realtime</div></div>
-          <span className="chip chip-good">เปิด</span>
-        </div>
-        <div className="row between" style={{ padding: '12px 0' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>Export ข้อมูล</div><div className="cap">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV (รองรับภาษาไทยใน Excel)</div></div>
-          <button className="btn btn-sm btn-outline" onClick={exportAllCSV}>
-            <Icon name="external" /> Export
-          </button>
-        </div>
-        <div style={{ padding: '12px 0' }}>
-          <div className="row between" style={{ marginBottom: 10 }}>
+      <Card>
+        <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name="layers" className="size-5 text-muted-foreground" /> ข้อมูลและการซิงค์
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border/50">
+          <div className="flex items-center justify-between py-4">
             <div>
-              <div className="sm" style={{ fontWeight: 600 }}>รายงานยอดขายรายเดือน</div>
-              <div className="cap">สรุปต่อช่องทาง (เป้า/ยอด/ROAS) + ยอดรายวันต่อช่องทาง — เลือกเดือนย้อนหลังได้</div>
+              <div className="font-semibold text-sm">ซิงค์ข้อมูลอัตโนมัติ</div>
+              <div className="text-sm text-muted-foreground mt-1">ซิงค์อัตโนมัติผ่าน Supabase Realtime</div>
+            </div>
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">เปิด</Badge>
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">Export ข้อมูล</div>
+              <div className="text-sm text-muted-foreground mt-1">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV (รองรับภาษาไทยใน Excel)</div>
+            </div>
+            <Button variant="outline" size="sm" onClick={exportAllCSV}>
+              <Icon name="external" className="mr-2 size-4" /> Export
+            </Button>
+          </div>
+          <div className="py-4">
+            <div className="mb-4">
+              <div className="font-semibold text-sm">รายงานยอดขายรายเดือน</div>
+              <div className="text-sm text-muted-foreground mt-1">สรุปต่อช่องทาง (เป้า/ยอด/ROAS) + ยอดรายวันต่อช่องทาง — เลือกเดือนย้อนหลังได้</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Select value={String(reportMonth)} onValueChange={(val) => setReportMonth(Number(val))}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue placeholder="เลือกเดือน" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONTHS_TH_SHORT.map((m, i) => <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              
+              <Select value={String(reportYear)} onValueChange={(val) => setReportYear(Number(val))}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue placeholder="เลือกปี" />
+                </SelectTrigger>
+                <SelectContent>
+                  {yearOptions.map(y => <SelectItem key={y} value={String(y)}>{y}{y === _t.yearBE ? ' (ปีนี้)' : ''}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              
+              <Button onClick={() => exportMonthlyReportCSV(reportMonth, reportYear)}>
+                <Icon name="external" className="mr-2 size-4" /> ดาวน์โหลด CSV
+              </Button>
             </div>
           </div>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <select className="input" value={reportMonth} onChange={e => setReportMonth(+e.target.value)} style={{ minWidth: 110, flex: '0 0 auto' }}>
-              {MONTHS_TH_SHORT.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
-            </select>
-            <select className="input" value={reportYear} onChange={e => setReportYear(+e.target.value)} style={{ minWidth: 90, flex: '0 0 auto' }}>
-              {yearOptions.map(y => <option key={y} value={y}>{y}{y === _t.yearBE ? ' (ปีนี้)' : ''}</option>)}
-            </select>
-            <button className="btn btn-sm btn-primary" onClick={() => exportMonthlyReportCSV(reportMonth, reportYear)} style={{ flex: '0 0 auto' }}>
-              <Icon name="external" /> ดาวน์โหลด CSV
-            </button>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* About */}
-      <div className="card">
-        <div className="card-head"><h3><Icon name="sparkle" /> เกี่ยวกับระบบ</h3></div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>เวอร์ชัน</div><div className="cap">ดูอัปเดตที่ป้าย "มีอะไรใหม่" มุมขวาล่าง</div></div>
-          <span className="chip chip-accent">v{APP_VERSION}</span>
-        </div>
-        <div className="row between" style={{ padding: '12px 0', borderBottom: '1px solid var(--line)' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>แหล่งข้อมูล</div><div className="cap">ทุกหน้าดึงข้อมูลจริงจาก Supabase แบบเรียลไทม์ ไม่มีข้อมูลจำลอง</div></div>
-          <span className="chip chip-good">Supabase</span>
-        </div>
-        <div className="row between" style={{ padding: '12px 0' }}>
-          <div><div className="sm" style={{ fontWeight: 600 }}>ข้อมูลแยกตามเดือน</div><div className="cap">ทุกหน้าที่มีตัวเลือกเดือนแสดงข้อมูลของเดือนที่เลือก (อดีต/ปัจจุบัน/อนาคต)</div></div>
-          <span className="chip chip-good">เปิด</span>
-        </div>
-      </div>
+      <Card>
+        <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name="sparkle" className="size-5 text-muted-foreground" /> เกี่ยวกับระบบ
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 divide-y divide-border/50">
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">เวอร์ชัน</div>
+              <div className="text-sm text-muted-foreground mt-1">ดูอัปเดตที่ป้าย "มีอะไรใหม่" มุมขวาล่าง</div>
+            </div>
+            <Badge variant="secondary">v{APP_VERSION}</Badge>
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">แหล่งข้อมูล</div>
+              <div className="text-sm text-muted-foreground mt-1">ทุกหน้าดึงข้อมูลจริงจาก Supabase แบบเรียลไทม์ ไม่มีข้อมูลจำลอง</div>
+            </div>
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Supabase</Badge>
+          </div>
+          <div className="flex items-center justify-between py-4">
+            <div>
+              <div className="font-semibold text-sm">ข้อมูลแยกตามเดือน</div>
+              <div className="text-sm text-muted-foreground mt-1">ทุกหน้าที่มีตัวเลือกเดือนแสดงข้อมูลของเดือนที่เลือก (อดีต/ปัจจุบัน/อนาคต)</div>
+            </div>
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">เปิด</Badge>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -2884,76 +2188,140 @@ function AuditView() {
   const activePreset = datePresets.find(p => p.from === dateFrom && p.to === dateTo)?.label;
 
   return (
-    <div className="content-inner rise">
-      <div className="card">
-        <div className="card-head" style={{ flexWrap: 'wrap', gap: 8 }}>
-          <h3><span style={{color:'var(--accent)'}}><Icon name="clock" /></span> ประวัติการใช้งาน <span className="cap" style={{ fontWeight: 500 }}>({N(total)})</span></h3>
-          <div className="segbar" style={{ background: 'var(--surface-2)', flexWrap: 'wrap' }}>
-            {types.map(t => <button key={t[0]} className={`seg ${filter===t[0]?'active':''}`} onClick={()=>{ setFilter(t[0]); setPage(0); }}>{t[1]}</button>)}
+    <div className="flex flex-col gap-6 max-w-5xl mx-auto w-full">
+      <Card>
+        <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2 whitespace-nowrap">
+            <Icon name="clock" className="size-5 text-primary" /> ประวัติการใช้งาน <span className="text-sm text-muted-foreground font-normal">({N(total)})</span>
+          </CardTitle>
+          <div className="flex flex-wrap gap-1 p-1 bg-muted/50 rounded-lg">
+            {types.map(t => (
+              <button 
+                key={t[0]} 
+                onClick={() => { setFilter(t[0]); setPage(0); }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${filter === t[0] ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:bg-muted/80 hover:text-foreground'}`}
+              >
+                {t[1]}
+              </button>
+            ))}
           </div>
-        </div>
-        {/* ค้นหา + ช่วงวันที่ + ปุ่มลัด */}
-        <div className="row wrap" style={{ gap: 10, marginBottom: 14, alignItems: 'center' }}>
-          <div className="search" style={{ flex: '1 1 230px', minWidth: 180 }}>
-            <Icon name="search" />
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา (สรุป / ชื่อ)" />
-          </div>
-          <div className="audit-range">
-            <input type="date" value={dateFrom} onChange={e => setRange(e.target.value, dateTo)} title="ตั้งแต่" />
-            <span className="audit-range-sep">→</span>
-            <input type="date" value={dateTo} onChange={e => setRange(dateFrom, e.target.value)} title="ถึง" />
-          </div>
-          <div className="row wrap" style={{ gap: 6 }}>
-            {datePresets.map(p => <button key={p.label} className={`audit-preset ${activePreset === p.label ? 'on' : ''}`} onClick={() => setRange(p.from, p.to)}>{p.label}</button>)}
-            {(dateFrom || dateTo) && <button className="audit-preset audit-preset-clear" onClick={() => setRange('', '')}>ล้าง ✕</button>}
-          </div>
-        </div>
-        <div>
-          {loading && <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>กำลังโหลด…</div>}
-          {!loading && mapped.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ไม่พบประวัติตามเงื่อนไข</div>}
-          {!loading && mapped.map((a, i) => {
-            const s = DD.staff.find(x => x.name === a.user || x.email === a.user) || { color: '#888' };
-            const m = actionMeta(a);
-            return (
-              <div key={i} className="row" style={{ gap: 13, padding: '13px 4px', borderBottom: '1px solid var(--line-2)' }}>
-                <Avatar name={a.user} color={s.color} size={34} />
-                <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>
-                  <div className="sm"><strong>{a.user}</strong> · <span className="faint">{ENTITY_TH[a.entity] || a.entity}</span></div>
-                  <div className="cap" style={{ marginTop: 2 }}>{a.summary}</div>
-                  {a.changes && a.changes.length > 0 && (
-                    <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {a.changes.map((c, j) => (
-                        <span key={j} className="chip" style={{ fontSize: 10, background: 'var(--surface-2)' }}>
-                          {c.label}: <span style={{ color: 'var(--ink-4)', textDecoration: 'line-through' }}>{c.from}</span> → <span style={{ color: 'var(--accent-2)', fontWeight: 700 }}>{c.to}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {a.fields && a.fields.length > 0 && (
-                    <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {a.fields.map((fld, j) => (
-                        <span key={j} className="chip" style={{ fontSize: 10, background: 'var(--surface-2)' }}>
-                          {fld.label}: <span style={{ fontWeight: 700 }}>{fld.value}</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <span className="chip" style={{ background: m.c+'1c', color: m.c, flexShrink: 0, alignSelf: 'flex-start' }}>{m.l}</span>
-                <span className="cap" style={{ width: 78, textAlign: 'right', flexShrink: 0, alignSelf: 'flex-start' }}>{a.time}</span>
+        </CardHeader>
+        <CardContent className="p-0">
+          {/* ค้นหา + ช่วงวันที่ + ปุ่มลัด */}
+          <div className="flex flex-col md:flex-row gap-4 p-4 border-b border-border/50 bg-background/50">
+            <div className="relative flex-1 min-w-[200px]">
+              <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input className="pl-9 bg-background" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา (สรุป / ชื่อ)" />
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-background border rounded-md p-1 h-10">
+                <Input type="date" className="h-8 border-0 bg-transparent py-0 px-2 w-[130px] shadow-none focus-visible:ring-0 text-sm" value={dateFrom} onChange={e => setRange(e.target.value, dateTo)} title="ตั้งแต่" />
+                <span className="text-muted-foreground text-sm">→</span>
+                <Input type="date" className="h-8 border-0 bg-transparent py-0 px-2 w-[130px] shadow-none focus-visible:ring-0 text-sm" value={dateTo} onChange={e => setRange(dateFrom, e.target.value)} title="ถึง" />
               </div>
-            );
-          })}
-        </div>
-        {/* Pagination */}
-        {total > PAGE && (
-          <div className="row" style={{ gap: 8, justifyContent: 'center', padding: '14px 0 4px' }}>
-            <button className="btn btn-sm" disabled={page <= 0 || loading} onClick={() => setPage(p => Math.max(0, p - 1))}>← ก่อนหน้า</button>
-            <span className="cap" style={{ alignSelf: 'center' }}>หน้า {page + 1} / {totalPages}</span>
-            <button className="btn btn-sm" disabled={page >= totalPages - 1 || loading} onClick={() => setPage(p => p + 1)}>ถัดไป →</button>
+            </div>
+            
+            <div className="flex flex-wrap items-center gap-2">
+              {datePresets.map(p => (
+                <Button 
+                  key={p.label} 
+                  variant={activePreset === p.label ? 'secondary' : 'outline'} 
+                  size="sm"
+                  onClick={() => setRange(p.from, p.to)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+              {(dateFrom || dateTo) && (
+                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setRange('', '')}>ล้าง ✕</Button>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+          
+          <div className="flex flex-col divide-y divide-border/50">
+            {loading && (
+              <div className="py-12 flex flex-col items-center justify-center text-muted-foreground gap-3">
+                <Icon name="loader" className="size-6 animate-spin opacity-50" />
+                <p className="text-sm">กำลังโหลด…</p>
+              </div>
+            )}
+            
+            {!loading && mapped.length === 0 && (
+              <div className="py-16 flex flex-col items-center justify-center text-muted-foreground border-2 border-dashed m-4 rounded-lg bg-muted/10">
+                <Icon name="clock" className="size-8 opacity-20 mb-3" />
+                <p className="text-sm">ไม่พบประวัติตามเงื่อนไข</p>
+              </div>
+            )}
+            
+            {!loading && mapped.map((a, i) => {
+              const s = DD.staff.find(x => x.name === a.user || x.email === a.user) || { color: '#888' };
+              const m = actionMeta(a);
+              
+              return (
+                <div key={i} className="flex gap-4 p-4 hover:bg-muted/20 transition-colors">
+                  <div className="shrink-0 mt-1">
+                    <Avatar name={a.user} color={s.color} size={36} />
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-foreground text-sm">{a.user}</span>
+                      <span className="text-muted-foreground text-xs font-medium">· {ENTITY_TH[a.entity] || a.entity}</span>
+                    </div>
+                    <div className="text-sm text-foreground/90">{a.summary}</div>
+                    
+                    {a.changes && a.changes.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {a.changes.map((c, j) => (
+                          <Badge key={j} variant="secondary" className="text-xs font-normal bg-muted/50 text-foreground">
+                            <span className="opacity-70 mr-1">{c.label}:</span> 
+                            <span className="line-through opacity-50 mr-1">{c.from}</span> 
+                            <span className="text-muted-foreground text-[10px] mx-0.5">→</span> 
+                            <span className="text-primary font-semibold ml-1">{c.to}</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {a.fields && a.fields.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {a.fields.map((fld, j) => (
+                          <Badge key={j} variant="secondary" className="text-xs font-normal bg-muted/50 text-foreground">
+                            <span className="opacity-70 mr-1">{fld.label}:</span> 
+                            <span className="font-semibold text-foreground/90">{fld.value}</span>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="flex flex-col items-end gap-2 shrink-0">
+                    <Badge variant="outline" className="font-medium shrink-0" style={{ background: m.c+'15', color: m.c, borderColor: m.c+'30' }}>
+                      {m.l}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">{a.time}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          {/* Pagination */}
+          {total > PAGE && (
+            <div className="flex items-center justify-center gap-4 p-4 border-t border-border/50 bg-muted/10">
+              <Button variant="outline" size="sm" disabled={page <= 0 || loading} onClick={() => setPage(p => Math.max(0, p - 1))}>
+                <Icon name="arrowLeft" className="size-4 mr-2" /> ก่อนหน้า
+              </Button>
+              <span className="text-sm text-muted-foreground font-medium tabular-nums">
+                หน้า {page + 1} <span className="opacity-50">/</span> {totalPages}
+              </span>
+              <Button variant="outline" size="sm" disabled={page >= totalPages - 1 || loading} onClick={() => setPage(p => p + 1)}>
+                ถัดไป <Icon name="arrowRight" className="size-4 ml-2" />
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -3116,227 +2484,263 @@ function ChannelsView() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
-        <div className="row" style={{ gap: 10 }}>
-          <Icon name="layers" />
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+      <Card className="bg-primary/5 border-l-4 border-l-primary shadow-none">
+        <CardContent className="p-5 flex gap-4 items-start">
+          <Icon name="layers" className="size-6 text-primary mt-1" />
           <div>
-            <div className="h3" style={{ marginBottom: 4 }}>ช่องทางการขาย</div>
-            <div className="sm" style={{ color: 'var(--ink-2)' }}>
+            <h3 className="text-lg font-bold mb-1 text-foreground">ช่องทางการขาย</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
               จัดการรายการช่องทางที่ใช้บันทึกยอดขาย — เพิ่ม/ลบ/แก้ไอคอน/สี/เป้าหมาย และจัดเรียงลำดับได้ ข้อมูลเก็บใน Supabase
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name="layers" className="size-5 text-muted-foreground" /> ช่องทางทั้งหมด ({channels.length})
+          </CardTitle>
+          <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Icon name="plus" className="size-4 mr-2" /> เพิ่มช่องทางใหม่
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="flex flex-col">
+            {channels.length === 0 && (
+              <div className="p-10 text-center text-muted-foreground">
+                <p className="text-sm">ยังไม่มีช่องทาง — กด "เพิ่มช่องทางใหม่" เพื่อเริ่ม</p>
+              </div>
+            )}
+            {channels.map((c, idx) => {
+              const isOver = dragOver === c.id;
+              return (
+                <div key={c.id}
+                  draggable
+                  onDragStart={() => setDragId(c.id)}
+                  onDragEnd={() => { setDragId(null); setDragOver(null); }}
+                  onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== c.id) setDragOver(c.id); }}
+                  onDragLeave={() => setDragOver(o => o === c.id ? null : o)}
+                  onDrop={() => { if (dragId) reorderChannel(dragId, c.id); setDragId(null); setDragOver(null); }}
+                  className="flex items-center gap-3 p-4 border-b border-border/50 cursor-move transition-colors"
+                  style={{
+                    background: isOver ? 'hsl(var(--accent)/0.1)' : 'transparent',
+                    opacity: dragId === c.id ? 0.4 : 1,
+                  }}>
+                  <div className="hidden sm:flex shrink-0 text-muted-foreground/50" title="ลากเพื่อเรียงลำดับ">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
+                      <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
+                    </svg>
+                  </div>
+                  {/* สำหรับมือถือ */}
+                  <div className="flex sm:hidden flex-col gap-1 shrink-0 px-1" onClick={e => e.stopPropagation()}>
+                    <button className="text-muted-foreground disabled:opacity-30 p-1" disabled={idx === 0 || busy} onClick={() => reorderChannel(c.id, channels[idx - 1].id)}>▲</button>
+                    <button className="text-muted-foreground disabled:opacity-30 p-1" disabled={idx === channels.length - 1 || busy} onClick={() => reorderChannel(c.id, channels[idx + 1].id)}>▼</button>
+                  </div>
+                  
+                  {c.logoUrl ? (
+                    <img src={c.logoUrl} alt={c.name} className="w-10 h-10 rounded-lg object-contain shrink-0 border" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold shrink-0" 
+                      style={{ background: (c.hex || c.color || '#666') + '18', color: c.hex || c.color || '#666' }}>
+                      {c.icon || c.name?.[0] || '?'}
+                    </div>
+                  )}
+                  
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-foreground text-base truncate">{c.name}</div>
+                  </div>
+                  
+                  <Button variant="ghost" size="icon" onClick={() => startEdit(c)} title="แก้ไข">
+                    <Icon name="pencil" className="size-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* เพิ่มช่องทางใหม่ Dialog */}
+      <Dialog open={showAdd} onOpenChange={(open) => {
+        if (!open) {
+          setShowAdd(false); setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewHasAd(false);
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Icon name="layers" className="size-5" /> เพิ่มช่องทางใหม่
+            </DialogTitle>
+            <DialogDescription>
+              ช่องทางที่ใช้บันทึกยอดขายและค่าโฆษณา
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-6 py-4">
+            <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+              {newLogo ? (
+                <img src={newLogo} alt="" className="size-10 rounded object-contain bg-white" />
+              ) : (
+                <div className="size-10 rounded flex items-center justify-center shrink-0" style={{ background: newColor }}></div>
+              )}
+              <div className="font-semibold text-lg flex-1 truncate">{newName.trim() || 'ชื่อช่องทาง'}</div>
+              {newHasAd && <Badge variant="secondary">มีโฆษณา</Badge>}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>ชื่อช่องทาง <span className="text-destructive">*</span></Label>
+              <Input placeholder="เช่น Shopee, Instagram, TikTok" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addChannel(); }} />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>โลโก้ (PNG/SVG)</Label>
+              <div className="flex items-start gap-4">
+                <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 overflow-hidden relative" style={newLogo ? { background: '#fff' } : {}}>
+                  {newLogo ? (
+                    <img src={newLogo} alt="" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6 text-muted-foreground">
+                      <Icon name="image" className="size-6 mb-1 opacity-50" />
+                      <span className="text-[10px] uppercase font-semibold">Upload</span>
+                    </div>
+                  )}
+                  <input type="file" accept="image/*" className="hidden" onChange={async e => {
+                    try { setNewLogo(await readFileAsBase64(e.target.files?.[0])); }
+                    catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
+                  }} />
+                </label>
+                {newLogo && (
+                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setNewLogo('')}>ลบรูป</Button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>สีประจำช่องทาง</Label>
+              <div className="flex flex-wrap gap-2">
+                {PALETTE.map(c => (
+                  <button key={c} type="button" className={`size-8 rounded-full flex items-center justify-center transition-all ${newColor === c ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`} 
+                    onClick={() => setNewColor(c)} style={{ background: c }}>
+                    {newColor === c && <Icon name="check" className="size-4 text-white" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <ShadcnCheckbox id="newHasAd" checked={newHasAd} onCheckedChange={setNewHasAd} />
+              <Label htmlFor="newHasAd" className="font-normal text-muted-foreground">มีโฆษณา — เปิดช่องกรอกค่าแอด &amp; แสดงในตารางโฆษณา</Label>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="card-head">
-          <h3><Icon name="layers" /> ช่องทางทั้งหมด ({channels.length})</h3>
-          <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}>
-            <Icon name="plus" /> เพิ่มช่องทางใหม่
-          </button>
-        </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</Button>
+            <Button onClick={addChannel} disabled={!newName.trim() || busy}>
+              {busy ? <Icon name="loader" className="mr-2 size-4 animate-spin" /> : <Icon name="check" className="mr-2 size-4" />}
+              {busy ? 'กำลังบันทึก…' : 'บันทึก'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {showAdd && (() => {
-          const closeAdd = () => { setShowAdd(false); setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewHasAd(false); };
-          return (
-            <Modal
-              icon="layers"
-              title="เพิ่มช่องทางใหม่"
-              sub="ช่องทางที่ใช้บันทึกยอดขายและค่าโฆษณา"
-              onClose={closeAdd}
-              confirmOnClose={!!(newName.trim() || newLogo)}
-              footer={<>
-                <button className="btn btn-sm" onClick={closeAdd} disabled={busy}>ยกเลิก</button>
-                <button className="btn btn-sm btn-primary" onClick={addChannel} disabled={!newName.trim() || busy}>
-                  <Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}
-                </button>
-              </>}
-            >
-              {/* พรีวิวสด */}
-              <div className="duty-preview">
-                {newLogo
-                  ? <img className="duty-preview-logo" src={newLogo} alt="" />
-                  : <span className="duty-dot" style={{ background: newColor }} />}
-                <span className={'duty-preview-name' + (newName.trim() ? '' : ' duty-preview-muted')}>{newName.trim() || 'ชื่อช่องทาง'}</span>
-                {newHasAd && <span className="duty-preview-badge">มีโฆษณา</span>}
-              </div>
-              <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ flexShrink: 0 }}>
-                  <div className="cap" style={{ marginBottom: 6 }}>โลโก้ (PNG/SVG)</div>
-                  <label className="logo-drop" style={newLogo ? { background: '#fff' } : null}>
-                    {newLogo
-                      ? <img src={newLogo} alt="" />
-                      : <span className="logo-drop-hint"><Icon name="image" /><span className="cap" style={{ fontSize: 10 }}>คลิกอัปโหลด</span></span>}
-                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
-                      try { setNewLogo(await readFileAsBase64(e.target.files?.[0])); }
-                      catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
-                    }} />
-                  </label>
-                  {newLogo && (
-                    <button className="btn btn-sm" style={{ marginTop: 6, fontSize: 11, color: 'var(--bad)' }} onClick={() => setNewLogo('')}>
-                      ลบรูป
-                    </button>
-                  )}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="cap" style={{ marginBottom: 6 }}>ชื่อ *</div>
-                  <input className="input" autoFocus placeholder="เช่น Shopee, Instagram, TikTok" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addChannel(); }} />
-                </div>
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>สีประจำช่องทาง</div>
-                <div className="swatch-row">
-                  {PALETTE.map(c => (
-                    <button key={c} className={'swatch' + (newColor === c ? ' on' : '')} onClick={() => setNewColor(c)} title={c} style={{ '--sw': c }} aria-label={`เลือกสี ${c}`} aria-pressed={newColor === c}>
-                      {newColor === c && <Icon name="check" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="row" style={{ gap: 9, cursor: 'pointer', alignItems: 'center' }}>
-                <input type="checkbox" checked={newHasAd} onChange={e => setNewHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }} />
-                <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด &amp; แสดงในตารางโฆษณา</span>
-              </label>
-            </Modal>
-          );
-        })()}
+      {/* แก้ไขช่องทาง Dialog */}
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          {editing && (() => {
+            const c = channels.find(x => x.id === editing);
+            if (!c) return null;
+            const hasLogo = editLogo && editLogo.startsWith('data:');
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Icon name="layers" className="size-5" /> แก้ไขช่องทาง: {c.name}
+                  </DialogTitle>
+                </DialogHeader>
+                
+                <div className="grid gap-6 py-4">
+                  <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+                    {hasLogo ? (
+                      <img src={editLogo} alt="" className="size-10 rounded object-contain bg-white" />
+                    ) : (
+                      <div className="size-10 rounded flex items-center justify-center shrink-0" style={{ background: editColor }}></div>
+                    )}
+                    <div className="font-semibold text-lg flex-1 truncate">{editName.trim() || 'ชื่อช่องทาง'}</div>
+                    {editHasAd && <Badge variant="secondary">มีโฆษณา</Badge>}
+                  </div>
 
-        {/* แก้ไขช่องทาง — popup */}
-        {editing && (() => {
-          const c = channels.find(x => x.id === editing);
-          if (!c) return null;
-          const hasLogo = editLogo && editLogo.startsWith('data:');
-          return (
-            <Modal
-              icon="layers"
-              title="แก้ไขช่องทาง"
-              sub={c.name}
-              onClose={() => setEditing(null)}
-              confirmOnClose={editName !== c.name || editLogo !== (c.logoUrl || c.icon || '') || editColor !== (c.hex || c.color || PALETTE[0]) || String(editFee) !== String(c.platformFeePct || 0) || editHasAd !== !!c.hasAd}
-              footer={
-                <div className="row" style={{ width: '100%', justifyContent: 'space-between' }}>
-                  <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteChannel(c)} disabled={busy}><Icon name="trash" /> ลบ</button>
-                  <div className="row" style={{ gap: 8 }}>
-                    <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
-                    <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+                  <div className="grid gap-2">
+                    <Label>ชื่อช่องทาง <span className="text-destructive">*</span></Label>
+                    <Input value={editName} onChange={e => setEditName(e.target.value)} />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>โลโก้ (PNG/SVG)</Label>
+                    <div className="flex items-start gap-4">
+                      <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 overflow-hidden relative" style={hasLogo ? { background: '#fff' } : {}}>
+                        {hasLogo ? (
+                          <img src={editLogo} alt="" className="w-full h-full object-contain" />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6 text-muted-foreground">
+                            <Icon name="image" className="size-6 mb-1 opacity-50" />
+                            <span className="text-[10px] uppercase font-semibold">Upload</span>
+                          </div>
+                        )}
+                        <input type="file" accept="image/*" className="hidden" onChange={async e => {
+                          try { setEditLogo(await readFileAsBase64(e.target.files?.[0])); }
+                          catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
+                        }} />
+                      </label>
+                      {editLogo && (
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setEditLogo('')}>ลบรูป</Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>สีประจำช่องทาง</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PALETTE.map(col => (
+                        <button key={col} type="button" className={`size-8 rounded-full flex items-center justify-center transition-all ${editColor === col ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`} 
+                          onClick={() => setEditColor(col)} style={{ background: col }}>
+                          {editColor === col && <Icon name="check" className="size-4 text-white" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>ค่าธรรมเนียมแพลตฟอร์ม (%)</Label>
+                    <Input type="number" min="0" max="100" step="0.01" value={editFee} onChange={e => setEditFee(e.target.value)} placeholder="0" className="w-1/2" />
+                    <p className="text-xs text-muted-foreground mt-1">เช่น Shopee ~5–10%, ช่องทางตัวเอง (CRM) = 0</p>
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <ShadcnCheckbox id="editHasAd" checked={editHasAd} onCheckedChange={setEditHasAd} />
+                    <Label htmlFor="editHasAd" className="font-normal text-muted-foreground">มีโฆษณา — เปิดช่องกรอกค่าแอด &amp; แสดงในตารางโฆษณา</Label>
                   </div>
                 </div>
-              }
-            >
-              {/* พรีวิวสด */}
-              <div className="duty-preview">
-                {hasLogo
-                  ? <img className="duty-preview-logo" src={editLogo} alt="" />
-                  : <span className="duty-dot" style={{ background: editColor }} />}
-                <span className={'duty-preview-name' + (editName.trim() ? '' : ' duty-preview-muted')}>{editName.trim() || 'ชื่อช่องทาง'}</span>
-                {editHasAd && <span className="duty-preview-badge">มีโฆษณา</span>}
-              </div>
-              <div className="row" style={{ gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ flexShrink: 0 }}>
-                  <div className="cap" style={{ marginBottom: 6 }}>โลโก้</div>
-                  <label className="logo-drop" style={hasLogo ? { background: '#fff' } : null}>
-                    {hasLogo
-                      ? <img src={editLogo} alt="" />
-                      : <span className="logo-drop-hint"><Icon name="image" /><span className="cap" style={{ fontSize: 10 }}>คลิกอัปโหลด</span></span>}
-                    <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
-                      try { setEditLogo(await readFileAsBase64(e.target.files?.[0])); }
-                      catch (err) { if (window.__toast) window.__toast(String(err), 'error'); }
-                    }} />
-                  </label>
-                  {editLogo && (
-                    <button className="btn btn-sm" style={{ marginTop: 6, fontSize: 11, color: 'var(--bad)' }} onClick={() => setEditLogo('')}>ลบรูป</button>
-                  )}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="cap" style={{ marginBottom: 6 }}>ชื่อ</div>
-                  <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
-                </div>
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>สีประจำช่องทาง</div>
-                <div className="swatch-row">
-                  {PALETTE.map(col => (
-                    <button key={col} className={'swatch' + (editColor === col ? ' on' : '')} onClick={() => setEditColor(col)} title={col} style={{ '--sw': col }} aria-label={`เลือกสี ${col}`} aria-pressed={editColor === col}>
-                      {editColor === col && <Icon name="check" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>ค่าธรรมเนียมแพลตฟอร์ม (%) — ใช้คำนวณกำไร/มาร์จิ้นจริง</div>
-                <input className="input" type="number" min="0" max="100" step="0.01" style={{ maxWidth: 160 }} value={editFee} onChange={e => setEditFee(e.target.value)} placeholder="0" />
-                <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>เช่น Shopee ~5–10%, ช่องทางตัวเอง (CRM) = 0</div>
-              </div>
-              <label className="row" style={{ gap: 9, cursor: 'pointer', alignItems: 'center' }}>
-                <input type="checkbox" checked={editHasAd} onChange={e => setEditHasAd(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer', accentColor: 'var(--accent)' }} />
-                <span className="sm">มีโฆษณา — เปิดช่องกรอกค่าแอด &amp; แสดงในตารางโฆษณา</span>
-              </label>
-            </Modal>
-          );
-        })()}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {channels.length === 0 && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-3)' }}>
-              <div className="cap">ยังไม่มีช่องทาง — กด "เพิ่มช่องทางใหม่" เพื่อเริ่ม</div>
-            </div>
-          )}
-          {channels.map((c, idx) => {
-            const isOver = dragOver === c.id;
-
-            return (
-              <div key={c.id}
-                draggable
-                onDragStart={() => setDragId(c.id)}
-                onDragEnd={() => { setDragId(null); setDragOver(null); }}
-                onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== c.id) setDragOver(c.id); }}
-                onDragLeave={() => setDragOver(o => o === c.id ? null : o)}
-                onDrop={() => { if (dragId) reorderChannel(dragId, c.id); setDragId(null); setDragOver(null); }}
-                className="row" style={{
-                  gap: 12, padding: '14px 12px',
-                  borderBottom: '1px solid var(--line-2)',
-                  cursor: 'move',
-                  background: isOver ? 'var(--accent-soft)' : 'transparent',
-                  opacity: dragId === c.id ? 0.4 : 1,
-                  transition: 'all 0.15s',
-                }}>
-                <span className="desktop-only" title="ลากเพื่อเรียงลำดับ" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
-                    <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
-                  </svg>
-                </span>
-                {/* มือถือลากไม่ได้ → stepper ▲▼ แนวตั้ง */}
-                <span className="mobile-only reorder-stepper" style={{ flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                  <button disabled={idx === 0 || busy} onClick={() => reorderChannel(c.id, channels[idx - 1].id)} aria-label="เลื่อนขึ้น">▲</button>
-                  <button disabled={idx === channels.length - 1 || busy} onClick={() => reorderChannel(c.id, channels[idx + 1].id)} aria-label="เลื่อนลง">▼</button>
-                </span>
-                {c.logoUrl ? (
-                  <img src={c.logoUrl} alt={c.name} style={{
-                    width: 42, height: 42, borderRadius: 10,
-                    objectFit: 'contain', flexShrink: 0,
-                  }} />
-                ) : (
-                  <span style={{
-                    width: 42, height: 42, borderRadius: 10,
-                    background: (c.hex || c.color || '#666') + '18',
-                    color: c.hex || c.color || '#666',
-                    display: 'grid', placeItems: 'center',
-                    fontSize: 20, fontWeight: 700, flexShrink: 0,
-                  }}>{c.icon || c.name?.[0] || '?'}</span>
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sm" style={{ fontWeight: 700, fontSize: 'var(--fs-base)' }}>{c.name}</div>
-                </div>
-                <button className="btn btn-sm btn-ghost" onClick={() => startEdit(c)} title="แก้ไข">
-                  <Icon name="pencil" />
-                </button>
-              </div>
+                <DialogFooter className="flex-row sm:justify-between">
+                  <Button variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => deleteChannel(c)} disabled={busy}>
+                    <Icon name="trash" className="mr-2 size-4" /> ลบ
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</Button>
+                    <Button onClick={saveEdit} disabled={!editName.trim() || busy}>
+                      {busy ? <Icon name="loader" className="mr-2 size-4 animate-spin" /> : <Icon name="check" className="mr-2 size-4" />}
+                      {busy ? 'กำลังบันทึก…' : 'บันทึก'}
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </>
             );
-          })}
-        </div>
-      </div>
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3441,150 +2845,180 @@ function DutiesView() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div className="card" style={{ padding: 20, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
-        <div className="row" style={{ gap: 10 }}>
-          <Icon name="sparkle" />
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+      <Card className="bg-primary/5 border-l-4 border-l-primary shadow-none">
+        <CardContent className="p-5 flex gap-4 items-start">
+          <Icon name="sparkle" className="size-6 text-primary mt-1" />
           <div>
-            <div className="h3" style={{ marginBottom: 4 }}>หน้าที่ / ตำแหน่ง</div>
-            <div className="sm" style={{ color: 'var(--ink-2)' }}>
+            <h3 className="text-lg font-bold mb-1 text-foreground">หน้าที่ / ตำแหน่ง</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
               จัดการรายการหน้าที่ที่ใช้มอบหมายงาน — แต่ละผู้ใช้จะมี 1 หน้าที่ และในการสร้าง task คุณเลือก "ผู้รับผิดชอบ" จากหน้าที่เหล่านี้
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name="shield" className="size-5 text-muted-foreground" /> หน้าที่ทั้งหมด ({duties.length})
+          </CardTitle>
+          <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Icon name="plus" className="size-4 mr-2" /> เพิ่มหน้าที่ใหม่
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="flex flex-col">
+            {duties.length === 0 && (
+              <div className="p-10 text-center text-muted-foreground">
+                <p className="text-sm">ยังไม่มีหน้าที่ — กด "เพิ่มหน้าที่ใหม่" เพื่อเริ่ม</p>
+              </div>
+            )}
+            {duties.map(d => {
+              const count = userCount(d.id);
+
+              return (
+                <div key={d.id} className="flex items-center gap-3 p-4 border-b border-border/50 hover:bg-muted/30 transition-colors">
+                  <div className="size-4 rounded-sm shrink-0" style={{ background: d.color }}></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-foreground text-sm">{d.name}</div>
+                    {d.description && <div className="text-xs text-muted-foreground mt-0.5 truncate">{d.description}</div>}
+                  </div>
+                  <Badge variant="outline" className="font-semibold" style={{ background: d.color + '10', color: d.color, borderColor: d.color + '30' }}>
+                    {count} คน
+                  </Badge>
+                  <Button variant="ghost" size="icon" onClick={() => startEdit(d)} title="แก้ไข">
+                    <Icon name="pencil" className="size-4" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* เพิ่มหน้าที่ใหม่ Dialog */}
+      <Dialog open={showAdd} onOpenChange={(open) => {
+        if (!open) {
+          setShowAdd(false); setNewName(''); setNewColor(PALETTE[0]); setNewDesc('');
+        }
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Icon name="shield" className="size-5" /> เพิ่มหน้าที่ใหม่
+            </DialogTitle>
+            <DialogDescription>
+              ใช้มอบหมายงานและจัดกลุ่มผู้รับผิดชอบ
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-6 py-4">
+            <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+              <div className="size-4 rounded-full shrink-0" style={{ background: newColor }}></div>
+              <div className="font-semibold text-lg truncate flex-1">
+                {newName.trim() || 'ชื่อหน้าที่'}
+                {newDesc.trim() && <span className="text-sm font-normal text-muted-foreground ml-2">· {newDesc.trim()}</span>}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>ชื่อหน้าที่ <span className="text-destructive">*</span></Label>
+              <Input autoFocus placeholder="เช่น Logistics, Customer Service" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addDuty(); }} />
+            </div>
+
+            <div className="grid gap-2">
+              <Label>สีประจำหน้าที่</Label>
+              <div className="flex flex-wrap gap-2">
+                {PALETTE.map(c => (
+                  <button key={c} type="button" className={`size-8 rounded-full flex items-center justify-center transition-all ${newColor === c ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`} 
+                    onClick={() => setNewColor(c)} style={{ background: c }}>
+                    {newColor === c && <Icon name="check" className="size-4 text-white" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>คำอธิบาย</Label>
+              <Input placeholder="เช่น ทีมจัดส่งสินค้า / แพ็คของ" value={newDesc} onChange={e => setNewDesc(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addDuty(); }} />
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="card-head">
-          <h3><Icon name="shield" /> หน้าที่ทั้งหมด ({duties.length})</h3>
-          <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}>
-            <Icon name="plus" /> เพิ่มหน้าที่ใหม่
-          </button>
-        </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</Button>
+            <Button onClick={addDuty} disabled={!newName.trim() || busy}>
+              {busy ? <Icon name="loader" className="mr-2 size-4 animate-spin" /> : <Icon name="check" className="mr-2 size-4" />}
+              {busy ? 'กำลังบันทึก…' : 'บันทึก'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {/* Add new duty — popup modal */}
-        {showAdd && (() => {
-          const closeAdd = () => { setShowAdd(false); setNewName(''); setNewColor(PALETTE[0]); setNewDesc(''); };
-          return (
-            <Modal
-              icon="shield"
-              title="เพิ่มหน้าที่ใหม่"
-              sub="ใช้มอบหมายงานและจัดกลุ่มผู้รับผิดชอบ"
-              onClose={closeAdd}
-              confirmOnClose={!!(newName.trim() || newDesc.trim())}
-              footer={<>
-                <button className="btn btn-sm" onClick={closeAdd} disabled={busy}>ยกเลิก</button>
-                <button className="btn btn-sm btn-primary" onClick={addDuty} disabled={!newName.trim() || busy}>
-                  <Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}
-                </button>
-              </>}
-            >
-              {/* พรีวิวสด */}
-              <div className="duty-preview">
-                <span className="duty-dot" style={{ background: newColor }} />
-                <span className={'duty-preview-name' + (newName.trim() ? '' : ' duty-preview-muted')}>{newName.trim() || 'ชื่อหน้าที่'}</span>
-                {newDesc.trim() && <span className="duty-preview-desc">· {newDesc.trim()}</span>}
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>ชื่อหน้าที่ *</div>
-                <input className="input" autoFocus placeholder="เช่น Logistics, Customer Service" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addDuty(); }} />
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>สีประจำหน้าที่</div>
-                <div className="swatch-row">
-                  {PALETTE.map(c => (
-                    <button key={c} className={'swatch' + (newColor === c ? ' on' : '')} onClick={() => setNewColor(c)} title={c} style={{ '--sw': c }} aria-label={`เลือกสี ${c}`} aria-pressed={newColor === c}>
-                      {newColor === c && <Icon name="check" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>คำอธิบาย</div>
-                <input className="input" placeholder="เช่น ทีมจัดส่งสินค้า / แพ็คของ" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
-              </div>
-            </Modal>
-          );
-        })()}
+      {/* แก้ไขหน้าที่ Dialog */}
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          {editing && (() => {
+            const d = duties.find(x => x.id === editing);
+            if (!d) return null;
+            const count = userCount(d.id);
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Icon name="shield" className="size-5" /> แก้ไขหน้าที่: {d.name}
+                  </DialogTitle>
+                </DialogHeader>
+                
+                <div className="grid gap-6 py-4">
+                  <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+                    <div className="size-4 rounded-full shrink-0" style={{ background: editColor }}></div>
+                    <div className="font-semibold text-lg truncate flex-1">
+                      {editName.trim() || 'ชื่อหน้าที่'}
+                      {editDesc.trim() && <span className="text-sm font-normal text-muted-foreground ml-2">· {editDesc.trim()}</span>}
+                    </div>
+                  </div>
 
-        {/* แก้ไขหน้าที่ — popup */}
-        {editing && (() => {
-          const d = duties.find(x => x.id === editing);
-          if (!d) return null;
-          const count = userCount(d.id);
-          return (
-            <Modal
-              icon="shield"
-              title="แก้ไขหน้าที่"
-              sub={d.name}
-              onClose={() => setEditing(null)}
-              confirmOnClose={editName !== d.name || editColor !== d.color || editDesc !== (d.description || '')}
-              footer={
-                <div className="row" style={{ width: '100%', justifyContent: 'space-between' }}>
-                  <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteDuty(d)} disabled={busy}><Icon name="trash" /> ลบ {count > 0 && `(มี ${count} คน)`}</button>
-                  <div className="row" style={{ gap: 8 }}>
-                    <button className="btn btn-sm" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</button>
-                    <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+                  <div className="grid gap-2">
+                    <Label>ชื่อหน้าที่ <span className="text-destructive">*</span></Label>
+                    <Input value={editName} onChange={e => setEditName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && editName.trim() && !busy) saveEdit(); }} />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>สีประจำหน้าที่</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PALETTE.map(c => (
+                        <button key={c} type="button" className={`size-8 rounded-full flex items-center justify-center transition-all ${editColor === c ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`} 
+                          onClick={() => setEditColor(c)} style={{ background: c }}>
+                          {editColor === c && <Icon name="check" className="size-4 text-white" />}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>คำอธิบาย</Label>
+                    <Input value={editDesc} onChange={e => setEditDesc(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && editName.trim() && !busy) saveEdit(); }} />
                   </div>
                 </div>
-              }
-            >
-              {/* พรีวิวสด */}
-              <div className="duty-preview">
-                <span className="duty-dot" style={{ background: editColor }} />
-                <span className={'duty-preview-name' + (editName.trim() ? '' : ' duty-preview-muted')}>{editName.trim() || 'ชื่อหน้าที่'}</span>
-                {editDesc.trim() && <span className="duty-preview-desc">· {editDesc.trim()}</span>}
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>ชื่อหน้าที่ *</div>
-                <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>สีประจำหน้าที่</div>
-                <div className="swatch-row">
-                  {PALETTE.map(c => (
-                    <button key={c} className={'swatch' + (editColor === c ? ' on' : '')} onClick={() => setEditColor(c)} title={c} style={{ '--sw': c }} aria-label={`เลือกสี ${c}`} aria-pressed={editColor === c}>
-                      {editColor === c && <Icon name="check" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <div className="cap" style={{ marginBottom: 6 }}>คำอธิบาย</div>
-                <input className="input" value={editDesc} onChange={e => setEditDesc(e.target.value)} />
-              </div>
-            </Modal>
-          );
-        })()}
 
-        {/* Duties list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {duties.length === 0 && (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--ink-3)' }}>
-              <div className="cap">ยังไม่มีหน้าที่ — กด "เพิ่มหน้าที่ใหม่" เพื่อเริ่ม</div>
-            </div>
-          )}
-          {duties.map(d => {
-            const count = userCount(d.id);
-
-            return (
-              <div key={d.id} className="row" style={{ gap: 12, padding: '14px 12px', borderBottom: '1px solid var(--line-2)' }}>
-                <span style={{ width: 14, height: 14, borderRadius: 4, background: d.color, flexShrink: 0 }}></span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="sm" style={{ fontWeight: 700 }}>{d.name}</div>
-                  {d.description && <div className="cap">{d.description}</div>}
-                </div>
-                <span className="chip" style={{ background: d.color + '18', color: d.color, fontWeight: 600 }}>
-                  {count} คน
-                </span>
-                <button className="btn btn-sm btn-ghost" onClick={() => startEdit(d)} title="แก้ไข">
-                  <Icon name="pencil" />
-                </button>
-              </div>
+                <DialogFooter className="flex-row sm:justify-between">
+                  <Button variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => deleteDuty(d)} disabled={busy}>
+                    <Icon name="trash" className="mr-2 size-4" /> ลบ {count > 0 && `(${count} คน)`}
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</Button>
+                    <Button onClick={saveEdit} disabled={!editName.trim() || busy}>
+                      {busy ? <Icon name="loader" className="mr-2 size-4 animate-spin" /> : <Icon name="check" className="mr-2 size-4" />}
+                      {busy ? 'กำลังบันทึก…' : 'บันทึก'}
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </>
             );
-          })}
-        </div>
-      </div>
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3810,205 +3244,250 @@ function RolesView() {
   const closeAdd = () => { setShowAdd(false); setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); };
 
   return (
-    <div className="content-inner rise">
-      <div className="card">
-          <div className="card-head">
-            <h3><span style={{color:'var(--accent)'}}><Icon name="shield" /></span> สิทธิ์ผู้ใช้ <span className="cap" style={{ fontWeight: 500 }}>({users.length})</span></h3>
-            <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(true)}><Icon name="userPlus" /> เพิ่มผู้ใช้ใหม่</button>
-          </div>
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/50 bg-muted/20">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Icon name="shield" className="size-5 text-primary" /> สิทธิ์ผู้ใช้ ({users.length})
+          </CardTitle>
+          <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Icon name="userPlus" className="size-4 mr-2" /> เพิ่มผู้ใช้ใหม่
+          </Button>
+        </CardHeader>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        <CardContent className="p-0">
+          <div className="flex flex-col">
             {users.map(u => {
               const tasks = taskCount(u.name, u.department);
+              const meta = roleMeta[u.role] || { l: u.role, cls: '' };
+              
               return (
-                <div key={u.email} className="row" style={{ gap: 12, padding: '12px 14px', borderBottom: '1px solid var(--line-2)', flexWrap: 'wrap' }}>
-                  <UserIcon size={34} />
-                  <div style={{ flex: '1 1 150px', minWidth: 0 }}>
-                    <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
-                    <div className="cap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
+                <div key={u.email} className="flex flex-wrap items-center gap-4 p-4 border-b border-border/50 hover:bg-muted/30 transition-colors">
+                  <Avatar name={u.name} color={u.color || '#888'} size={40} />
+                  <div className="flex-1 min-w-[150px]">
+                    <div className="font-bold text-foreground text-sm truncate">{u.name}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5 truncate">{u.email}</div>
                   </div>
-                  {/* meta + แก้ไข — กลุ่มเดียว: จอแคบจะ wrap ลงบรรทัดใหม่ทั้งกลุ่ม (ปุ่มแก้ไขไม่หลุดจอ) */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+                  
+                  <div className="flex items-center justify-end gap-3 flex-wrap ml-auto">
                     {u.department && (
-                      <span className="chip" style={{ background: (u.color || '#666') + '18', color: u.color || '#666', fontWeight: 600 }}>{u.department}</span>
+                      <Badge variant="outline" className="font-semibold" style={{ background: (u.color || '#666') + '10', color: u.color || '#666', borderColor: (u.color || '#666') + '30' }}>
+                        {u.department}
+                      </Badge>
                     )}
                     {tasks > 0 && (
-                      <span className="cap" style={{ color: 'var(--ink-3)', flexShrink: 0 }}>{tasks} งาน</span>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">{tasks} งาน</span>
                     )}
-                    <span className={`chip ${roleMeta[u.role]?.cls || ''}`}>{roleMeta[u.role]?.l || u.role}</span>
-                    <button className="btn btn-sm btn-ghost" onClick={() => startEdit(u)} title="แก้ไข" style={{ flexShrink: 0 }}>
-                      <Icon name="pencil" />
-                    </button>
+                    <Badge variant="outline" className={`whitespace-nowrap ${meta.cls === 'chip-good' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : meta.cls === 'chip-accent' ? 'bg-primary/10 text-primary border-primary/20' : ''}`}>
+                      {meta.l}
+                    </Badge>
+                    <Button variant="ghost" size="icon" onClick={() => startEdit(u)} title="แก้ไข" className="shrink-0">
+                      <Icon name="pencil" className="size-4" />
+                    </Button>
                   </div>
                 </div>
               );
             })}
           </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      {/* เพิ่มผู้ใช้ใหม่ — popup */}
-      {showAdd && (
-        <Modal icon="userPlus" title="เพิ่มผู้ใช้ใหม่" sub="กรอกข้อมูลเพื่อเพิ่มสมาชิกเข้าทีม" onClose={closeAdd}
-          confirmOnClose={!!(newEmail.trim() || newName.trim())}
-          footer={
-            <div className="row" style={{ width: '100%', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="btn btn-sm" onClick={closeAdd} disabled={busy}>ยกเลิก</button>
-              <button className="btn btn-sm btn-primary" onClick={addUser} disabled={!newEmail.trim() || busy}><Icon name="userPlus" /> {busy ? 'กำลังบันทึก…' : 'เพิ่มผู้ใช้'}</button>
-            </div>
-          }>
-          <div className="col" style={{ gap: 16 }}>
-            {/* อีเมล */}
-            <div className="col" style={{ gap: 6 }}>
-              <label className="sm" style={{ fontWeight: 600 }}>อีเมล <span style={{ color: 'var(--bad)' }}>*</span></label>
-              <input className="input" type="email" placeholder="name@tmk.co" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
-              <div className="cap" style={{ color: 'var(--ink-4)' }}>ใช้สำหรับเข้าสู่ระบบ</div>
-            </div>
-
-            {/* ชื่อ */}
-            <div className="col" style={{ gap: 6 }}>
-              <label className="sm" style={{ fontWeight: 600 }}>ชื่อที่แสดง</label>
-              <input className="input" placeholder="เช่น คุณ A หรือชื่อทีม" value={newName} onChange={e => setNewName(e.target.value)} />
-              <div className="cap" style={{ color: 'var(--ink-4)' }}>เว้นว่างได้ — ระบบจะใช้ชื่อหน้าอีเมลแทน</div>
+      {/* เพิ่มผู้ใช้ใหม่ Dialog */}
+      <Dialog open={showAdd} onOpenChange={(open) => { if (!open) closeAdd(); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Icon name="userPlus" className="size-5" /> เพิ่มผู้ใช้ใหม่
+            </DialogTitle>
+            <DialogDescription>
+              กรอกข้อมูลเพื่อเพิ่มสมาชิกเข้าทีม บันทึกลง Supabase อัตโนมัติ
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto px-1">
+            <div className="grid gap-2">
+              <Label>อีเมล <span className="text-destructive">*</span></Label>
+              <Input type="email" placeholder="name@tmk.co" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+              <p className="text-xs text-muted-foreground">ใช้สำหรับเข้าสู่ระบบ</p>
             </div>
 
-            {/* หน้าที่ */}
-            <div className="col" style={{ gap: 6 }}>
-              <label className="sm" style={{ fontWeight: 600 }}>หน้าที่ / แผนก</label>
+            <div className="grid gap-2">
+              <Label>ชื่อที่แสดง</Label>
+              <Input placeholder="เช่น คุณ A หรือชื่อทีม" value={newName} onChange={e => setNewName(e.target.value)} />
+              <p className="text-xs text-muted-foreground">เว้นว่างได้ — ระบบจะใช้ชื่อหน้าอีเมลแทน</p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>หน้าที่ / แผนก</Label>
               {DUTIES.length === 0 ? (
-                <div className="cap" style={{ color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <Icon name="flame" /> ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน
+                <div className="text-sm text-amber-600 flex items-center gap-2 bg-amber-50 p-2 rounded">
+                  <Icon name="flame" className="size-4" /> ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน
                 </div>
               ) : (
                 <>
-                  <div className="chips-pick">
-                    <button className={'pick' + (!newDutyId ? ' on' : '')} onClick={() => setNewDutyId('')}>— ไม่ระบุ —</button>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${!newDutyId ? 'bg-primary text-primary-foreground border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setNewDutyId('')}>
+                      — ไม่ระบุ —
+                    </button>
                     {DUTIES.map(d => (
-                      <button key={d.id} className={'pick' + (newDutyId === d.id ? ' on' : '')} onClick={() => setNewDutyId(d.id)}>
-                        <span className="dot-c" style={{ background: d.color }}></span>{d.name}
+                      <button key={d.id} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${newDutyId === d.id ? 'bg-primary/10 border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setNewDutyId(d.id)}>
+                        <span className="size-2 rounded-full" style={{ background: d.color }}></span>
+                        {d.name}
                       </button>
                     ))}
                   </div>
-                  <div className="cap" style={{ color: 'var(--ink-4)' }}>ใช้มอบหมายงานใน task · kanban · ปฏิทิน</div>
+                  <p className="text-xs text-muted-foreground mt-1">ใช้มอบหมายงานใน task · kanban · ปฏิทิน</p>
                 </>
               )}
             </div>
 
-            {/* สิทธิ์ — การ์ดเลือกพร้อมคำอธิบายในตัว */}
-            <div className="col" style={{ gap: 8 }}>
-              <label className="sm" style={{ fontWeight: 600 }}>สิทธิ์การเข้าถึง</label>
-              {Object.entries(roleMeta).map(([k, v]) => {
-                const on = newRole === k;
-                return (
-                  <button key={k} type="button" onClick={() => setNewRole(k)}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'all 0.12s',
-                      border: on ? '1.5px solid var(--accent)' : '1px solid var(--line)', background: on ? 'var(--accent-soft)' : 'var(--surface)' }}>
-                    <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 1, display: 'grid', placeItems: 'center', fontSize: 11,
-                      border: on ? 'none' : '2px solid var(--line)', background: on ? 'var(--accent)' : 'transparent', color: '#fff' }}>{on && <Icon name="check" />}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="sm" style={{ fontWeight: 600, color: on ? 'var(--accent)' : 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Icon name={v.icon} /> {v.l}
-                      </div>
-                      <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 1 }}>{v.d}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="cap" style={{ display: 'flex', alignItems: 'flex-start', gap: 6, color: 'var(--ink-4)', lineHeight: 1.5 }}>
-              <span style={{ color: 'var(--accent)', flexShrink: 0 }}><Icon name="sparkle" /></span>
-              บันทึกลง Supabase อัตโนมัติ · ตั้งรหัสเข้าระบบให้ได้ภายหลังที่ปุ่มแก้ไข (ดินสอ)
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* แก้ไขผู้ใช้ — popup */}
-      {editing && (() => {
-        const u = users.find(x => x.email === editing);
-        if (!u) return null;
-        const tasks = taskCount(u.name, u.department);
-        return (
-          <Modal icon="pencil" title="แก้ไขผู้ใช้" sub={u.email} onClose={cancelEdit}
-            footer={
-              <div className="row" style={{ width: '100%', justifyContent: 'space-between' }}>
-                <button className="btn btn-sm" style={{ color: 'var(--bad)' }} onClick={() => deleteUser(u.email)} disabled={busy}><Icon name="trash" /> ลบ</button>
-                <div className="row" style={{ gap: 8 }}>
-                  <button className="btn btn-sm" onClick={cancelEdit} disabled={busy}>ยกเลิก</button>
-                  <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={!editName.trim() || busy}><Icon name="check" /> {busy ? 'กำลังบันทึก...' : 'บันทึก'}</button>
-                </div>
-              </div>
-            }>
-            <div className="col" style={{ gap: 16 }}>
-              {/* ชื่อ */}
-              <div className="row" style={{ gap: 14, alignItems: 'flex-end' }}>
-                <UserIcon size={52} radius={14} />
-                <div className="col" style={{ gap: 6, flex: 1 }}>
-                  <label className="sm" style={{ fontWeight: 600 }}>ชื่อที่แสดง <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 400 }}>(ลิงก์กับงาน)</span></label>
-                  <input className="input" value={editName} onChange={e => setEditName(e.target.value)} placeholder="ชื่อที่ใช้แสดงในระบบ" style={{ fontWeight: 600 }} />
-                </div>
-              </div>
-
-              {/* หน้าที่ */}
-              <div className="col" style={{ gap: 6 }}>
-                <label className="sm" style={{ fontWeight: 600 }}>หน้าที่ / แผนก</label>
-                {DUTIES.length === 0 ? (
-                  <div className="cap" style={{ color: 'var(--warn)' }}>ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน</div>
-                ) : (
-                  <div className="chips-pick">
-                    <button className={'pick' + (!editDutyId ? ' on' : '')} onClick={() => setEditDutyId('')}>— ไม่ระบุ —</button>
-                    {DUTIES.map(d => (
-                      <button key={d.id} className={'pick' + (editDutyId === d.id ? ' on' : '')} onClick={() => setEditDutyId(d.id)}>
-                        <span className="dot-c" style={{ background: d.color }}></span>{d.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* สิทธิ์ — การ์ดเลือกพร้อมคำอธิบาย */}
-              <div className="col" style={{ gap: 8 }}>
-                <label className="sm" style={{ fontWeight: 600 }}>สิทธิ์การเข้าถึง</label>
+            <div className="grid gap-3">
+              <Label>สิทธิ์การเข้าถึง</Label>
+              <div className="grid gap-2">
                 {Object.entries(roleMeta).map(([k, v]) => {
-                  const on = editRole === k;
+                  const on = newRole === k;
                   return (
-                    <button key={k} type="button" onClick={() => setEditRole(k)}
-                      style={{ display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'all 0.12s',
-                        border: on ? '1.5px solid var(--accent)' : '1px solid var(--line)', background: on ? 'var(--accent-soft)' : 'var(--surface)' }}>
-                      <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 1, display: 'grid', placeItems: 'center', fontSize: 11,
-                        border: on ? 'none' : '2px solid var(--line)', background: on ? 'var(--accent)' : 'transparent', color: '#fff' }}>{on && <Icon name="check" />}</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="sm" style={{ fontWeight: 600, color: on ? 'var(--accent)' : 'var(--ink)', display: 'flex', alignItems: 'center', gap: 5 }}><Icon name={v.icon} /> {v.l}</div>
-                        <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 1 }}>{v.d}</div>
+                    <button key={k} type="button" onClick={() => setNewRole(k)}
+                      className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/50'}`}>
+                      <div className={`mt-0.5 size-4 rounded-full border flex items-center justify-center shrink-0 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
+                        {on && <Icon name="check" className="size-3" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-sm font-semibold flex items-center gap-2 ${on ? 'text-primary' : 'text-foreground'}`}>
+                          <Icon name={v.icon} className="size-4" /> {v.l}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">{v.d}</div>
                       </div>
                     </button>
                   );
                 })}
               </div>
-
-              {tasks > 0 && (
-                <div className="cap" style={{ color: 'var(--info)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <Icon name="listChecks" /> เปลี่ยนชื่อจะอัปเดตอัตโนมัติใน {tasks} งานที่เกี่ยวข้อง
-                </div>
-              )}
-
-              {/* รหัสผ่านเข้าระบบ */}
-              <div className="col" style={{ gap: 6, borderTop: '1px dashed var(--line)', paddingTop: 14 }}>
-                <label className="sm" style={{ fontWeight: 600 }}>รหัสผ่านเข้าระบบ</label>
-                <div className="row" style={{ gap: 6 }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <input className="input" type={pwShow ? 'text' : 'password'} value={pwInput} onChange={e => setPwInput(e.target.value)} placeholder="ตั้งรหัสใหม่ (อย่างน้อย 6 ตัว)" autoComplete="new-password" style={{ width: '100%', paddingRight: 36 }} />
-                    <button type="button" onClick={() => setPwShow(v => !v)} title={pwShow ? 'ซ่อน' : 'แสดง'} style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: pwShow ? 'var(--accent)' : 'var(--ink-3)', width: 28, height: 28, display: 'grid', placeItems: 'center', padding: 0 }}><Icon name="eye" /></button>
-                  </div>
-                  <button className="btn btn-sm" type="button" onClick={genPassword} title="สุ่มรหัส" disabled={pwBusy}><Icon name="sparkle" /></button>
-                  <button className="btn btn-sm btn-primary" type="button" onClick={() => resetPassword(u.email)} disabled={pwBusy || pwInput.length < 6}>{pwBusy ? 'กำลังตั้ง...' : 'ตั้งรหัส'}</button>
-                </div>
-                <div className="cap" style={{ color: 'var(--ink-4)' }}>บัญชีใหม่ต้องสร้างใน Supabase Dashboard ก่อน แล้วตั้ง/รีเซ็ตรหัสที่นี่ได้</div>
-              </div>
             </div>
-          </Modal>
-        );
-      })()}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeAdd} disabled={busy}>ยกเลิก</Button>
+            <Button onClick={addUser} disabled={!newEmail.trim() || busy}>
+              {busy ? <Icon name="loader" className="mr-2 size-4 animate-spin" /> : <Icon name="userPlus" className="mr-2 size-4" />}
+              {busy ? 'กำลังบันทึก…' : 'เพิ่มผู้ใช้'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* แก้ไขผู้ใช้ Dialog */}
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) cancelEdit(); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          {editing && (() => {
+            const u = users.find(x => x.email === editing);
+            if (!u) return null;
+            const tasks = taskCount(u.name, u.department);
+            
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Icon name="pencil" className="size-5" /> แก้ไขผู้ใช้
+                  </DialogTitle>
+                  <DialogDescription className="truncate">
+                    {u.email}
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto px-1">
+                  <div className="flex gap-4 items-end">
+                    <Avatar name={u.name} color={u.color || '#888'} size={52} />
+                    <div className="grid gap-2 flex-1">
+                      <Label>ชื่อที่แสดง <span className="text-xs font-normal text-muted-foreground">(ลิงก์กับงาน)</span></Label>
+                      <Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="ชื่อที่ใช้แสดงในระบบ" className="font-semibold" />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>หน้าที่ / แผนก</Label>
+                    {DUTIES.length === 0 ? (
+                      <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${!editDutyId ? 'bg-primary text-primary-foreground border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setEditDutyId('')}>
+                          — ไม่ระบุ —
+                        </button>
+                        {DUTIES.map(d => (
+                          <button key={d.id} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${editDutyId === d.id ? 'bg-primary/10 border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setEditDutyId(d.id)}>
+                            <span className="size-2 rounded-full" style={{ background: d.color }}></span>
+                            {d.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-3">
+                    <Label>สิทธิ์การเข้าถึง</Label>
+                    <div className="grid gap-2">
+                      {Object.entries(roleMeta).map(([k, v]) => {
+                        const on = editRole === k;
+                        return (
+                          <button key={k} type="button" onClick={() => setEditRole(k)}
+                            className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/50'}`}>
+                            <div className={`mt-0.5 size-4 rounded-full border flex items-center justify-center shrink-0 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
+                              {on && <Icon name="check" className="size-3" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className={`text-sm font-semibold flex items-center gap-2 ${on ? 'text-primary' : 'text-foreground'}`}>
+                                <Icon name={v.icon} className="size-4" /> {v.l}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">{v.d}</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {tasks > 0 && (
+                    <div className="text-xs text-primary flex items-center gap-2 bg-primary/10 p-2 rounded">
+                      <Icon name="listChecks" className="size-4 shrink-0" /> เปลี่ยนชื่อจะอัปเดตอัตโนมัติใน {tasks} งานที่เกี่ยวข้อง
+                    </div>
+                  )}
+
+                  <div className="grid gap-3 pt-4 border-t border-dashed">
+                    <Label>รหัสผ่านเข้าระบบ</Label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input type={pwShow ? 'text' : 'password'} value={pwInput} onChange={e => setPwInput(e.target.value)} placeholder="ตั้งรหัสใหม่ (อย่างน้อย 6 ตัว)" autoComplete="new-password" className="pr-10" />
+                        <Button type="button" variant="ghost" size="icon" className="absolute right-0 top-0 h-full w-10 text-muted-foreground hover:text-foreground" onClick={() => setPwShow(!pwShow)}>
+                          <Icon name="eye" className="size-4" />
+                        </Button>
+                      </div>
+                      <Button type="button" variant="outline" size="icon" onClick={genPassword} disabled={pwBusy} title="สุ่มรหัส">
+                        <Icon name="sparkle" className="size-4 text-primary" />
+                      </Button>
+                      <Button type="button" onClick={() => resetPassword(u.email)} disabled={pwBusy || pwInput.length < 6}>
+                        {pwBusy ? 'กำลังตั้ง...' : 'ตั้งรหัส'}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">บัญชีใหม่ต้องสร้างใน Supabase Dashboard ก่อน แล้วตั้ง/รีเซ็ตรหัสที่นี่ได้</p>
+                  </div>
+                </div>
+
+                <DialogFooter className="flex-row sm:justify-between pt-2">
+                  <Button variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => deleteUser(u.email)} disabled={busy}>
+                    <Icon name="trash" className="mr-2 size-4" /> ลบ
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={cancelEdit} disabled={busy}>ยกเลิก</Button>
+                    <Button onClick={saveEdit} disabled={!editName.trim() || busy}>
+                      {busy ? <Icon name="loader" className="mr-2 size-4 animate-spin" /> : <Icon name="check" className="mr-2 size-4" />}
+                      {busy ? 'กำลังบันทึก...' : 'บันทึก'}
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -4112,48 +3591,65 @@ function TrashView() {
 
   if (!loading && items.length === 0) {
     return (
-      <div className="content-inner rise">
-        <div className="card" style={{ textAlign: 'center', padding: '56px 20px' }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 64, height: 64 }}>
-            <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6" />
-          </svg>
-          <h3 style={{ marginTop: 12 }}>ถังขยะว่างเปล่า</h3>
-          <div className="cap" style={{ marginTop: 6 }}>รายการที่ลบจะถูกเก็บไว้ที่นี่ · กู้คืนได้ตลอด</div>
-        </div>
+      <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+        <Card className="border-dashed bg-muted/10">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+            <Icon name="trash" className="size-16 opacity-20 mb-4 text-muted-foreground" />
+            <h3 className="text-xl font-semibold mb-2">ถังขยะว่างเปล่า</h3>
+            <p className="text-sm text-muted-foreground">รายการที่ลบจะถูกเก็บไว้ที่นี่ · กู้คืนได้ตลอด</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="content-inner rise">
-      <div className="card">
-        <div className="card-head">
-          <h3><span style={{ color: 'var(--bad)' }}><Icon name="trash" /></span> ถังขยะ ({items.length})</h3>
-          <span className="cap">กู้คืนได้ · หรือลบถาวร</span>
-        </div>
-        <div style={{ marginBottom: 10, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', borderLeft: '3px solid var(--warn)' }}>
-          <span className="cap">หมายเหตุ: กู้คืนแคมเปญแล้ว งานที่เคยผูกจะไม่กลับมาผูกอัตโนมัติ (ต้องเลือกแคมเปญใหม่ในแต่ละงาน)</span>
-        </div>
-        <div>
-          {loading ? (
-            <div className="cap" style={{ padding: 20, textAlign: 'center' }}>กำลังโหลด…</div>
-          ) : items.map((it, i) => (
-            <div key={it.meta.table + it.id + i} className="row" style={{ gap: 12, padding: '12px 4px', borderBottom: '1px solid var(--line-2)' }}>
-              <span className="chip" style={{ flexShrink: 0 }}>{it.meta.type}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
-                <div className="cap">ลบเมื่อ {fmtDate(it.deletedAt)}</div>
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between pb-4 border-b border-border/50 bg-muted/20">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Icon name="trash" className="size-5 text-destructive" /> ถังขยะ <span className="text-sm text-muted-foreground font-normal">({items.length})</span>
+            </CardTitle>
+            <CardDescription className="mt-1.5">กู้คืนได้ · หรือลบถาวร</CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          <div className="bg-amber-500/10 border-l-4 border-amber-500 p-3 m-4 rounded-r-md">
+            <p className="text-sm text-amber-700 font-medium">หมายเหตุ: กู้คืนแคมเปญแล้ว งานที่เคยผูกจะไม่กลับมาผูกอัตโนมัติ (ต้องเลือกแคมเปญใหม่ในแต่ละงาน)</p>
+          </div>
+
+          <div className="flex flex-col divide-y divide-border/50">
+            {loading ? (
+              <div className="py-12 flex flex-col items-center justify-center text-muted-foreground gap-3">
+                <Icon name="loader" className="size-6 animate-spin opacity-50" />
+                <p className="text-sm">กำลังโหลด…</p>
               </div>
-              <button className="btn btn-sm" disabled={busy} onClick={() => restore(it)} style={{ flexShrink: 0 }}>
-                <Icon name="refresh" /> กู้คืน
-              </button>
-              <button className="btn btn-sm" disabled={busy} onClick={() => purge(it)} style={{ flexShrink: 0, color: 'var(--bad)' }}>
-                <Icon name="trash" /> ลบถาวร
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
+            ) : items.map((it, i) => (
+              <div key={it.meta.table + it.id + i} className="flex flex-wrap sm:flex-nowrap items-center gap-4 p-4 hover:bg-muted/20 transition-colors">
+                <Badge variant="outline" className="bg-muted shrink-0 text-xs py-1">
+                  {it.meta.type}
+                </Badge>
+                
+                <div className="flex-1 min-w-[200px]">
+                  <div className="font-semibold text-sm truncate text-foreground">{it.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">ลบเมื่อ {fmtDate(it.deletedAt)}</div>
+                </div>
+                
+                <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end mt-2 sm:mt-0">
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => restore(it)}>
+                    <Icon name="refreshCcw" className="size-4 mr-2" /> กู้คืน
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" disabled={busy} onClick={() => purge(it)}>
+                    <Icon name="trash" className="size-4 mr-2" /> ลบถาวร
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

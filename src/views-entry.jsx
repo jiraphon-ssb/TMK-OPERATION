@@ -96,7 +96,7 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
         </button>
 
         {/* Mode badge */}
-        <span className="chip" style={{ background: modeBadge.bg, color: modeBadge.color, fontWeight: 600 }}>
+        <span className="badge badge-outline" style={{ background: modeBadge.bg, color: modeBadge.color, fontWeight: 600 }}>
           {modeBadge.label}
         </span>
 
@@ -184,7 +184,7 @@ function QuarterView({ year }) {
             <div key={mIdx} className="card" style={{ padding: 20, border: isThisMonth ? '2px solid var(--accent)' : undefined }}>
               <div className="row between" style={{ marginBottom: 12 }}>
                 <div className="h3">{MONTH_SHORT[mIdx]}</div>
-                {isThisMonth && <span className="chip chip-accent" style={{ fontSize: 10 }}>เดือนนี้</span>}
+                {isThisMonth && <span className="badge badge-secondary" style={{ fontSize: 10 }}>เดือนนี้</span>}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
@@ -211,7 +211,7 @@ function QuarterView({ year }) {
               </div>
 
               <div style={{ marginTop: 10 }}>
-                <span className="chip" style={{ background: si.bg, color: si.color, fontWeight: 600, width: '100%', justifyContent: 'center' }}>
+                <span className="badge badge-outline" style={{ background: si.bg, color: si.color, fontWeight: 600, width: '100%', justifyContent: 'center' }}>
                   <span style={{ width: 14, height: 14, display: 'inline-flex' }}><Icon name={si.icon} /></span>
                   {d.status}
                 </span>

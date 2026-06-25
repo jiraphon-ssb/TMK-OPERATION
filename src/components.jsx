@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Shared components, icons, formatters, charts
    ============================================================ */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, createContext, useContext } from 'react';
 
 /* ---------- Image upload helper ---------- */
 // อ่านรูป + ย่อขนาด (canvas) → data URL เล็ก ป้องกันรูปใหญ่ทำให้บันทึกพัง/ช้า/เกิน quota
@@ -279,7 +279,7 @@ export function useCountUp(target, ms = 900) {
 /* ---------- Avatar ---------- */
 export function Avatar({ name, color, size = 28 }) {
   const safe = String(name || '?');
-  const initials = safe.length <= 2 ? safe : safe.slice(0, 2);
+  const initials = safe.length <= 2 ? safe.toUpperCase() : safe.slice(0, 2).toUpperCase();
   return <span className="avatar" style={{ background: color, width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
 }
 
@@ -431,3 +431,263 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
   );
 }
 
+
+/* (เดิมมี PageLoading แบบวงกลมหมุน — เลิกใช้แล้ว เปลี่ยนเป็น Skeleton ทุกหน้า) */
+
+
+/* ---- จอ splash โหลดแรก: เริ่มจับเวลาตอน "armed" (login เสร็จ) แสดงจนกว่าจะ "done"
+   และอย่างน้อย minMs — รับประกันเห็นจอโหลด 5-6 วิ แม้ข้อมูลจะมาไว (cache อุ่น)
+   armed = ผ่าน login แล้ว · done = โหลดข้อมูลหลักครั้งแรกเสร็จ/พลาด */
+export function useMinSplash(armed, done, minMs = 5500) {
+  const startRef = useRef(null);
+  const [, tick] = useState(0);
+  if (armed && startRef.current == null) startRef.current = Date.now();
+  useEffect(() => {
+    if (startRef.current == null || !done) return;
+    const left = minMs - (Date.now() - startRef.current);
+    if (left <= 0) return;
+    const t = setTimeout(() => tick(x => x + 1), left);
+    return () => clearTimeout(t);
+  }, [armed, done, minMs]);
+  if (startRef.current == null) return false;            // ยังไม่ arm (ยังไม่ login) → ไม่โชว์
+  if (!done) return true;                                 // ข้อมูลยังไม่พร้อม → โชว์
+  return Date.now() - startRef.current < minMs;           // พร้อมแล้วแต่ยังไม่ครบเวลาขั้นต่ำ
+}
+
+/* ---- คุมจังหวะ skeleton: โผล่หลัง active ค้างเกิน delayMs (กันกระพริบตอน cache มาไว)
+   + เมื่อโผล่แล้วอยู่อย่างน้อย minMs (กัน skeleton วาบหายเร็วเกินจนตาไม่ทัน) ---- */
+export function useDelayedFlag(active, delayMs = 120, minMs = 300) {
+  const [on, setOn] = useState(false);
+  const shownAt = useRef(0);
+  useEffect(() => {
+    if (active && !on) { // กำลังโหลด & ยังไม่โชว์ → ตั้งเวลาโผล่หลัง delay
+      const t = setTimeout(() => { shownAt.current = Date.now(); setOn(true); }, delayMs);
+      return () => clearTimeout(t);
+    }
+    if (!active && on) { // ข้อมูลมาแล้ว & กำลังโชว์ → อยู่ต่อจนครบ minMs
+      const left = minMs - (Date.now() - shownAt.current);
+      if (left <= 0) { setOn(false); return; }
+      const t = setTimeout(() => setOn(false), left);
+      return () => clearTimeout(t);
+    }
+  }, [active, on, delayMs, minMs]);
+  return on;
+}
+
+/* ---- จังหวะ skeleton สั้นๆ ตอนเข้าหน้า (สำหรับหน้าที่ข้อมูลพร้อมอยู่แล้ว = ไม่มีโหลดจริง)
+   เพื่อความสม่ำเสมอกับหน้า Sale — โชว์ ~350ms ตอน mount แล้วเข้าเนื้อหา ---- */
+export function useBeat(ms = 350) {
+  const [on, setOn] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setOn(false), ms); return () => clearTimeout(t); }, []);
+  return on;
+}
+
+/* ---- Skeleton primitives: บล็อก shimmer + ตารางจำลอง (ใช้ตอนดึงข้อมูลจริง) ---- */
+export function Skel({ w = '100%', h = 14, r = 8, style }) {
+  return <div className="skel" style={{ width: w, height: h, borderRadius: r, ...style }} aria-hidden="true" />;
+}
+// ตารางจำลอง: หัวตาราง + แถว (จางลงเรื่อยๆ ให้รู้สึกว่ามีของอยู่)
+export function SkelTable({ cols = 6, rows = 8 }) {
+  const widths = ['46%', '70%', '60%', '80%', '54%', '66%', '50%', '74%'];
+  return (
+    <div style={{ display: 'grid', gap: 11 }}>
+      <div className="row" style={{ gap: 14 }}>{Array.from({ length: cols }).map((_, i) => <div key={i} style={{ flex: 1 }}><Skel w={widths[i % widths.length]} h={11} /></div>)}</div>
+      {Array.from({ length: rows }).map((_, r) => (
+        <div key={r} className="row" style={{ gap: 14, opacity: Math.max(0.32, 1 - r * 0.075) }}>
+          {Array.from({ length: cols }).map((_, i) => <div key={i} style={{ flex: 1 }}><Skel w={i === 0 ? '85%' : widths[(i + r) % widths.length]} h={13} /></div>)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---- Skeleton กลาง (ใช้ตอนยังไม่รู้ layout: lazy-chunk Suspense / หน้ารอง) — การ์ด KPI + ตาราง ---- */
+export function PageSkeleton() {
+  return (
+    <div className="content-inner rise" style={{ display: 'grid', gap: 14 }}>
+      <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>
+        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="card" style={{ flex: '1 1 180px' }}><Skel w="55%" h={10} /><Skel w="72%" h={24} style={{ marginTop: 10 }} /></div>)}
+      </div>
+      <div className="card" style={{ minHeight: 240 }}><Skel w={160} h={13} style={{ marginBottom: 18 }} /><SkelTable cols={6} rows={6} /></div>
+    </div>
+  );
+}
+
+/* ============================================================
+   shadcn-inspired JSX components (Phase 7)
+   ============================================================ */
+/* Accordion — wraps native <details>/<summary>, no JS needed for open/close */
+export function Accordion({ children, className = '' }) {
+  return <div className={`accordion ${className}`}>{children}</div>;
+}
+export function AccordionItem({ children, defaultOpen, className = '' }) {
+  return <details className={`accordion-item ${className}`} open={defaultOpen}>{children}</details>;
+}
+export function AccordionTrigger({ children, className = '' }) {
+  return <summary className={`accordion-trigger ${className}`}>{children}<svg className="accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg></summary>;
+}
+export function AccordionContent({ children, className = '' }) {
+  return <div className={`accordion-content ${className}`}>{children}</div>;
+}
+
+/* Dropdown — stateful open/close */
+export function Dropdown({ trigger, children, align = 'left', className = '' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} className={`dropdown ${className}`} style={{ position: 'relative', display: 'inline-block' }}>
+      <div className="dropdown-trigger" onClick={() => setOpen(!open)}>{trigger}</div>
+      {open && <div className={`dropdown-content${align === 'right' ? ' dropdown-content-right' : ''}`} style={{ position: 'absolute', zIndex: 60 }}>{children}</div>}
+    </div>
+  );
+}
+export function DropdownItem({ children, onClick, danger, className = '' }) {
+  return <button className={`dropdown-item${danger ? ' danger' : ''} ${className}`} onClick={onClick}>{children}</button>;
+}
+
+/* Alert — simple wrapper */
+export function Alert({ variant = 'default', title, description, action, children, className = '' }) {
+  return (
+    <div className={`alert${variant === 'destructive' ? ' alert-destructive' : ''} ${className}`}>
+      {title && <div className="alert-title">{title}</div>}
+      {description && <div className="alert-description">{description}</div>}
+      {children}
+      {action && <div className="alert-action">{action}</div>}
+    </div>
+  );
+}
+
+/* Popover — stateful */
+export function Popover({ trigger, children, position = 'top', className = '' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  const posClass = position === 'top' ? 'popover-content-top' : position === 'right' ? 'popover-content-right' : '';
+  return (
+    <div ref={ref} className={`popover ${className}`}>
+      <div className="popover-trigger" onClick={() => setOpen(!open)}>{trigger}</div>
+      {open && <div className={`popover-content ${posClass}`}><div className="popover-arrow" />{children}</div>}
+    </div>
+  );
+}
+
+/* Tooltip — CSS-hover based (pure CSS, no state) */
+export function Tooltip({ label, children, position = 'top' }) {
+  const posClass = position === 'top' ? 'tooltip-content-top' : position === 'bottom' ? 'tooltip-content-bottom' : position === 'right' ? 'tooltip-content-right' : 'tooltip-content-left';
+  return (
+    <span className="tooltip">
+      {children}
+      <span className={`tooltip-content ${posClass}`}>
+        {label}
+        <span className="tooltip-arrow" />
+      </span>
+    </span>
+  );
+}
+
+/* Checkbox — styled native input */
+export function Checkbox({ checked, onChange, label, disabled, indeterminate, className = '' }) {
+  const inputRef = useRef(null);
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  const inner = <input ref={inputRef} type="checkbox" className={`checkbox ${className}`} checked={checked} onChange={onChange} disabled={disabled} />;
+  if (label) return <label className="checkbox-label">{inner}{label}</label>;
+  return inner;
+}
+
+/* ===== shadcn-style Sidebar ===== */
+const SidebarContext = createContext({ open: true, setOpen: () => {} });
+
+export function SidebarProvider({ children, defaultOpen = true, open: controlledOpen, onOpenChange, className = '' }) {
+  const controlled = controlledOpen !== undefined;
+  const [open, setOpen] = useState(defaultOpen);
+  const isOpen = controlled ? controlledOpen : open;
+  const toggle = () => { const v = !isOpen; if (!controlled) setOpen(v); onOpenChange?.(v); };
+  return (
+    <SidebarContext.Provider value={{ open: isOpen, toggle }}>
+      <div className={`sidebar-provider ${className}`} data-state={isOpen ? 'expanded' : 'collapsed'}>
+        {children}
+      </div>
+    </SidebarContext.Provider>
+  );
+}
+
+export function useSidebar() { return useContext(SidebarContext); }
+
+export function Sidebar({ children, collapsible = 'icon', side = 'left', variant = 'sidebar', className = '' }) {
+  const { open } = useSidebar();
+  return (
+    <aside
+      className={`sidebar ${className}`}
+      data-state={open ? 'expanded' : 'collapsed'}
+      data-collapsible={collapsible}
+      data-side={side}
+      data-variant={variant}
+    >
+      {children}
+    </aside>
+  );
+}
+
+export function SidebarHeader({ children, className = '' }) {
+  return <div className={`sidebar-header ${className}`}>{children}</div>;
+}
+
+export function SidebarContent({ children, className = '' }) {
+  return <div className={`sidebar-content ${className}`}>{children}</div>;
+}
+
+export function SidebarGroup({ label, children, className = '' }) {
+  return (
+    <div className={`sidebar-group ${className}`}>
+      {label && <div className="sidebar-group-label">{label}</div>}
+      {children}
+    </div>
+  );
+}
+
+export function SidebarMenu({ children, className = '' }) {
+  return <div className={`sidebar-menu ${className}`}>{children}</div>;
+}
+
+export function SidebarMenuItem({ icon, label, isActive, badge, onClick, children, className = '' }) {
+  return (
+    <div className={`sidebar-menu-item ${className}`}>
+      <button className={`sidebar-menu-button${isActive ? ' active' : ''}`} onClick={onClick}>
+        <Icon name={icon} />
+        <span className="label">{label}</span>
+        {badge != null && <span className="sidebar-menu-badge">{badge}</span>}
+      </button>
+      {children}
+    </div>
+  );
+}
+
+export function SidebarFooter({ children, className = '' }) {
+  return <div className={`sidebar-footer ${className}`}>{children}</div>;
+}
+
+export function SidebarTrigger({ className = '' }) {
+  const { toggle } = useSidebar();
+  return (
+    <button className={`sidebar-trigger ${className}`} onClick={toggle} aria-label="Toggle sidebar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+    </button>
+  );
+}
+
+export function SidebarInset({ children, className = '' }) {
+  return <div className={`sidebar-inset ${className}`}>{children}</div>;
+}

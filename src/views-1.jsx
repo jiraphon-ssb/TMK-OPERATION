@@ -3,11 +3,15 @@
    ============================================================ */
 import { useState, useMemo, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, Skel, useBeat } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Avatar as ShadcnAvatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
@@ -96,43 +100,70 @@ function TeamTodayCard({ go }) {
   };
 
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="card-head">
-        <h3><span style={{ color: 'var(--accent)' }}><Icon name="users" /></span> {'ทีมวันนี้'}
-          {members.length > 0 && <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}> · {onlineCount} ออนไลน์</span>}</h3>
-        <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'roles')}>{'จัดการทีม'} <Icon name="arrowR" /></button>
-      </div>
-      {members.length === 0 ? (
-        <div className="cap" style={{ textAlign: 'center', padding: '20px 0', color: 'var(--ink-4)' }}>ยังไม่มีสมาชิกในทีม</div>
-      ) : (<>
-        <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-          <span className="chip chip-good"><span className="dot-c" style={{ background: 'var(--good)' }}></span> {onlineCount} ออนไลน์</span>
-          <span className="chip"><span className="dot-c" style={{ background: 'var(--ink-4)' }}></span> {members.length - onlineCount} ออฟไลน์</span>
-          <span className="chip" style={{ color: 'var(--ink-3)' }}>เคลื่อนไหววันนี้ {activeCount} คน</span>
+    <Card className="flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <div className="space-y-1">
+          <CardTitle className="flex items-center text-base font-semibold">
+            <Icon name="users" className="mr-2 h-4 w-4 text-primary" />
+            ทีมวันนี้
+            {members.length > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">· {onlineCount} ออนไลน์</span>}
+          </CardTitle>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {members.slice(0, 6).map((m, i) => (
-            <div key={m.email || i} className="row" style={{ gap: 10, padding: '6px 2px', alignItems: 'center' }}>
-              <div style={{ position: 'relative', flexShrink: 0 }}>
-                <Avatar name={m.name} color={m.color} size={28} />
-                <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: m.online ? 'var(--good)' : 'var(--ink-4)', border: '2px solid var(--surface)' }}></span>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}
-                  {m.load > 0 && <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 400 }}> · งานค้าง {m.load}</span>}</div>
-                <div className="cap" style={{ color: m.online ? 'var(--good)' : 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {m.online ? `ออนไลน์${m.page ? ` · ดู${PAGE_LABEL[m.page] || m.page}` : ''}` : ago(m.last)}</div>
-              </div>
+        <Button variant="ghost" size="sm" onClick={() => go('settings', 'roles')} className="h-8 text-xs">
+          จัดการทีม <Icon name="arrowR" className="ml-2 h-3 w-3" />
+        </Button>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col">
+        {members.length === 0 ? (
+          <div className="text-center text-sm text-muted-foreground py-6">ยังไม่มีสมาชิกในทีม</div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-400">
+                <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                {onlineCount} ออนไลน์
+              </Badge>
+              <Badge variant="secondary" className="bg-muted text-muted-foreground hover:bg-muted">
+                <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-muted-foreground"></span>
+                {members.length - onlineCount} ออฟไลน์
+              </Badge>
+              <Badge variant="outline" className="text-muted-foreground">
+                เคลื่อนไหววันนี้ {activeCount} คน
+              </Badge>
             </div>
-          ))}
-          {members.length > 6 && <div className="cap" style={{ textAlign: 'center', color: 'var(--ink-4)', paddingTop: 4 }}>+ อีก {members.length - 6} คน</div>}
-        </div>
-        {topLoad.length > 0 && (
-          <div className="cap" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)', color: 'var(--ink-3)' }}>
-            งานค้างมากสุด: {topLoad.map(m => `${m.name} (${m.load})`).join(' · ')}</div>
+            <div className="flex flex-col gap-3">
+              {members.slice(0, 6).map((m, i) => (
+                <div key={m.email || i} className="flex items-center gap-3">
+                  <div className="relative flex-shrink-0">
+                    <ShadcnAvatar className="h-8 w-8">
+                      <AvatarFallback className="text-xs font-medium" style={{ backgroundColor: m.color || '#e2e8f0', color: m.color ? '#fff' : '#334155' }}>
+                        {m.name ? m.name.substring(0, 2).toUpperCase() : 'U'}
+                      </AvatarFallback>
+                    </ShadcnAvatar>
+                    <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background ${m.online ? 'bg-green-500' : 'bg-muted-foreground'}`}></span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {m.name}
+                      {m.load > 0 && <span className="ml-1 text-xs font-normal text-muted-foreground">· งานค้าง {m.load}</span>}
+                    </div>
+                    <div className={`text-xs truncate ${m.online ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'}`}>
+                      {m.online ? `ออนไลน์${m.page ? ` · ดู${PAGE_LABEL[m.page] || m.page}` : ''}` : ago(m.last)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {members.length > 6 && <div className="text-center text-xs text-muted-foreground pt-1">+ อีก {members.length - 6} คน</div>}
+            </div>
+            {topLoad.length > 0 && (
+              <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
+                งานค้างมากสุด: {topLoad.map(m => `${m.name} (${m.load})`).join(' · ')}
+              </div>
+            )}
+          </>
         )}
-      </>)}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -222,10 +253,49 @@ function CampaignsCard({ go }) {
   );
 }
 
+/* Skeleton หน้าหลัก: greeting + การ์ด todo + การ์ดสรุป */
+function HomeSkeleton() {
+  return (
+    <div className="content-inner rise">
+      <div className="row between wrap" style={{ marginBottom: 20, gap: 12 }}>
+        <div><Skel w={170} h={11} style={{ marginBottom: 10 }} /><Skel w={280} h={30} r={8} /></div>
+        <Skel w={90} h={24} r={20} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 14 }}>
+        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="card"><div className="row" style={{ gap: 10, alignItems: 'flex-start' }}><Skel w={10} h={10} r="50%" style={{ marginTop: 4 }} /><div style={{ flex: 1 }}><Skel w="68%" h={13} /><Skel w="90%" h={9} style={{ marginTop: 9 }} /></div></div></div>)}
+      </div>
+      <div className="row" style={{ gap: 14, marginTop: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div className="card" style={{ flex: '2 1 320px' }}><Skel w={140} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 4 }).map((_, i) => <div key={i} className="row" style={{ gap: 10, padding: '8px 0' }}><Skel w={8} h={8} r="50%" /><Skel w={`${52 + i * 8}%`} h={12} /></div>)}</div>
+        <div className="card" style={{ flex: '1 1 220px' }}><Skel w={120} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ marginBottom: 14 }}><Skel w="50%" h={9} /><Skel w="75%" h={18} style={{ marginTop: 6 }} /></div>)}</div>
+      </div>
+    </div>
+  );
+}
+
+/* Skeleton ยอดขาย: การ์ด KPI + กราฟ */
+function SalesSkeleton() {
+  const bar = (i) => `${30 + ((i * 43) % 62)}%`;
+  return (
+    <div className="content-inner rise">
+      <div className="row" style={{ gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
+        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="card" style={{ flex: '1 1 200px' }}><Skel w="55%" h={10} /><Skel w="72%" h={26} style={{ marginTop: 11 }} /><Skel w="45%" h={9} style={{ marginTop: 11 }} /></div>)}
+      </div>
+      <div className="card" style={{ minHeight: 300 }}>
+        <Skel w={170} h={14} style={{ marginBottom: 20 }} />
+        <div className="row" style={{ alignItems: 'flex-end', gap: 7, height: 220 }}>
+          {Array.from({ length: 16 }).map((_, i) => <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', height: '100%' }}><Skel w="100%" h={bar(i)} r={4} /></div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function HomeView({ go }) {
   const { user } = useUser() || {};
   const userName = user?.name || 'มัง';
   const [filter, setFilter] = useState('all');
+  const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
+  if (beat) return <HomeSkeleton />;
 
   // โฟกัสวันนี้ — สิ่งที่ต้องจัดการ (หลังบ้าน ไม่มียอด/เป้า) + งานวันนี้
   const todayD = getToday().day;
@@ -364,38 +434,68 @@ export function HomeView({ go }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
         <TeamTodayCard go={go} />
         {/* อัพเดท / ความเคลื่อนไหว — พระเอก */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="clock" /></span> {'อัพเดทล่าสุด'} {todayCount > 0 && <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>· วันนี้ {todayCount} รายการ</span>}</h3>
-            <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'audit')}>{'ดูประวัติทั้งหมด'} <Icon name="arrowR" /></button></div>
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-            {LOG_FILTERS.map(x => <button key={x.id} className={`chip ${filter === x.id ? 'chip-accent' : ''}`} style={{ cursor: 'pointer', border: filter === x.id ? undefined : '1px solid var(--line)' }} onClick={() => setFilter(x.id)}>{x.label}</button>)}
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', maxHeight: 560, display: 'flex', flexDirection: 'column' }}>
-            {logs.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: 28, color: 'var(--ink-4)' }}>ยังไม่มีความเคลื่อนไหวในหมวดนี้</div>}
-            {groups.map(g => (
-              <div key={g.key}>
-                <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-3)', padding: '8px 0 4px', position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>{g.key}</div>
-                {g.items.map((a, i) => {
-                  const m = logMeta(a.action);
-                  const s = (D.staff || []).find(x => x.name === a.user) || { color: 'var(--ink-3)' };
-                  const tm = a.ts ? new Date(a.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : a.time;
-                  return (
-                    <div key={i} className="row" style={{ gap: 11, padding: '8px 2px', alignItems: 'flex-start' }}>
-                      <Avatar name={a.user} color={s.color} size={26} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {/* เข้า/ออกระบบ: ชื่อ+อีเมลซ้ำกับ summary → โชว์บรรทัดเดียวพอ */}
-                        <div className="sm" style={{ lineHeight: 1.4 }}><strong>{a.user}</strong> <span style={{ color: m.c, fontWeight: 600 }}>{m.l}</span>{a.name && a.entity !== 'auth' ? <span className="muted"> {a.name}</span> : null}</div>
-                        {a.entity !== 'auth' && <div className="cap" style={{ marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.summary}</div>}
-                        {a.fields && a.fields.length > 0 && <div className="cap" style={{ marginTop: 2, color: 'var(--ink-4)' }}>{a.fields.slice(0, 3).map(fd => `${fd.label}: ${fd.value}`).join(' · ')}</div>}
+        <Card className="flex flex-col">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center text-base font-semibold">
+                <Icon name="clock" className="mr-2 h-4 w-4 text-primary" />
+                อัพเดทล่าสุด
+                {todayCount > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">· วันนี้ {todayCount} รายการ</span>}
+              </CardTitle>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => go('settings', 'audit')} className="h-8 text-xs">
+              ดูประวัติทั้งหมด <Icon name="arrowR" className="ml-2 h-3 w-3" />
+            </Button>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col">
+            <div className="flex flex-wrap gap-2 mb-4">
+              {LOG_FILTERS.map(x => (
+                <Badge
+                  key={x.id}
+                  variant={filter === x.id ? 'default' : 'outline'}
+                  className="cursor-pointer"
+                  onClick={() => setFilter(x.id)}
+                >
+                  {x.label}
+                </Badge>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto max-h-[560px] flex flex-col pr-2">
+              {logs.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground">ยังไม่มีความเคลื่อนไหวในหมวดนี้</div>}
+              {groups.map(g => (
+                <div key={g.key}>
+                  <div className="sticky top-0 z-10 bg-card py-2 text-xs font-bold text-muted-foreground">
+                    {g.key}
+                  </div>
+                  {g.items.map((a, i) => {
+                    const m = logMeta(a.action);
+                    const s = (D.staff || []).find(x => x.name === a.user) || { color: 'var(--ink-3)' };
+                    const tm = a.ts ? new Date(a.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : a.time;
+                    return (
+                      <div key={i} className="flex items-start gap-3 py-2">
+                        <ShadcnAvatar className="h-7 w-7 mt-0.5">
+                          <AvatarFallback className="text-[10px] font-medium" style={{ backgroundColor: s.color || '#e2e8f0', color: s.color ? '#fff' : '#334155' }}>
+                            {a.user ? a.user.substring(0, 2).toUpperCase() : 'U'}
+                          </AvatarFallback>
+                        </ShadcnAvatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm leading-tight">
+                            <span className="font-semibold mr-1">{a.user}</span>
+                            <span style={{ color: m.c }} className="font-medium">{m.l}</span>
+                            {a.name && a.entity !== 'auth' ? <span className="text-muted-foreground ml-1">{a.name}</span> : null}
+                          </div>
+                          {a.entity !== 'auth' && <div className="text-xs text-muted-foreground mt-0.5 truncate">{a.summary}</div>}
+                          {a.fields && a.fields.length > 0 && <div className="text-[11px] text-muted-foreground/80 mt-1">{a.fields.slice(0, 3).map(fd => `${fd.label}: ${fd.value}`).join(' · ')}</div>}
+                        </div>
+                        <span className="text-[11px] text-muted-foreground whitespace-nowrap flex-shrink-0 mt-0.5">{tm}</span>
                       </div>
-                      <span className="cap" style={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{tm}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
         </div>
       </div>
     </div>
@@ -543,6 +643,8 @@ export function SalesView({ sub }) {
   // ข้อมูลของ "เดือนที่เลือก" — memo (คำนวณใหม่เมื่อเปลี่ยนเดือน/ปี หรือข้อมูลรีโหลด) กันคำนวณซ้ำทุก render
   const md = useMemo(() => computeMonth(month, year), [month, year, version]);
   const prevMd = useMemo(() => computeMonth(month === 0 ? 11 : month - 1, month === 0 ? year - 1 : year), [month, year, version]);
+  const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
+  if (beat) return <SalesSkeleton />;
 
   if (sub === 'channels') return <SalesChannels dateProps={dateProps} prevMonthName={prevMonthName} md={md} prevMd={prevMd} />;
   if (sub === 'ads') return <SalesAds dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
@@ -610,7 +712,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
         <div className="card" style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)', boxShadow: '0 0 0 1px rgba(245,180,35,0.28), 0 10px 34px rgba(245,180,35,0.14)' } : undefined}>
           <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
             <span className="eyebrow">{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</span>
-            {targetHit && <span className="chip" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap' }}>🎉 ทะลุเป้าแล้ว</span>}
+            {targetHit && <span className="badge badge-outline" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap' }}>🎉 ทะลุเป้าแล้ว</span>}
           </div>
           <div className="num display">{B(C.MTD)}</div>
           {/* เดือนปัจจุบัน: เทียบ MTD กับ "วันที่เดียวกัน" ของเดือนก่อน — กันแดงหลอกตากลางเดือน */}
@@ -1339,12 +1441,12 @@ function SalesCustomers({ dateProps, md }) {
                 </td>
                 <td className="num" style={{ textAlign: 'right' }}>
                   {row.m2 !== null
-                    ? <span className="chip" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>{row.m2}%</span>
+                    ? <span className="badge badge-outline" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>{row.m2}%</span>
                     : <span className="cap">—</span>}
                 </td>
                 <td className="num" style={{ textAlign: 'right' }}>
                   {row.m3 !== null
-                    ? <span className="chip" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>{row.m3}%</span>
+                    ? <span className="badge badge-outline" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>{row.m3}%</span>
                     : <span className="cap">—</span>}
                 </td>
               </tr>
@@ -1391,7 +1493,7 @@ function SalesCustomers({ dateProps, md }) {
               <div key={seg.name} className="card card-pad-sm" style={{ borderLeft: `3px solid ${seg.color}` }}>
                 <div className="row between" style={{ marginBottom: 6 }}>
                   <span className="sm" style={{ fontWeight: 700 }}>{seg.name}</span>
-                  <span className="chip">{seg.revPct}% {'รายได้'}</span>
+                  <span className="badge badge-default">{seg.revPct}% {'รายได้'}</span>
                 </div>
                 <div className="num h1">{seg.count} <span className="cap">{'คน'}</span></div>
                 <div className="bar" style={{ marginTop: 8 }}>

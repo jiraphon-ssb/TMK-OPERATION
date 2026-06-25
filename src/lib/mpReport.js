@@ -107,11 +107,15 @@ export function detectFileKind(grid) {
   return 'unknown';
 }
 
-/* ---- ตัวจับคู่ catalog ---- */
-export function buildMatchers(catalogGrid) {
+/* ---- ตัวจับคู่ catalog (+ alias ชื่อพ้อง + สีที่ผู้ใช้ลงทะเบียนเพิ่ม) ----
+   aliases: [{ kind:'design'|'color', term, code, design }]
+   - design alias: term (ที่เจอในไฟล์) → code/design ใน catalog
+   - color alias: term = คำสีใหม่ที่อยากให้ระบบรู้จัก */
+export function buildMatchers(catalogGrid, aliases = []) {
   const { get } = indexer(catalogGrid);
   const ci = { code: get('product_code', 'sku', 'รหัสสินค้า', 'รหัส'), name: get('product_name', 'name', 'ชื่อสินค้า', 'ชื่อ'), design: get('design_key', 'design', 'ลาย') };
-  const code2 = {}, name2 = {}, kwseen = new Set(), kw = [];
+  const code2 = {}, name2 = {}, alias2 = {}, kwseen = new Set(), kw = [];
+  const colors = new Set();
   for (let r = 1; r < (catalogGrid?.length || 0); r++) {
     const row = catalogGrid[r] || [];
     const code = String(row[ci.code] ?? '').trim();
@@ -125,8 +129,17 @@ export function buildMatchers(catalogGrid) {
       if (t && t.length >= 3) { const key = t + '||' + code; if (!kwseen.has(key)) { kwseen.add(key); kw.push([t, code, dk]); } }
     }
   }
+  // ผนวก alias เข้า matcher
+  for (const a of (aliases || [])) {
+    const term = String(a.term ?? '').trim(); if (!term) continue;
+    if (a.kind === 'color') { colors.add(term.replace(/^สี/, '').trim()); continue; }
+    const code = String(a.code ?? '').trim();
+    const design = String(a.design ?? '').trim() || (code && code2[code.toUpperCase()]?.design) || term;
+    alias2[term] = { code, design };                      // ตรงเป๊ะ
+    const key = term + '||' + code; if (!kwseen.has(key)) { kwseen.add(key); kw.push([term, code, design]); }
+  }
   kw.sort((a, b) => b[0].length - a[0].length); // ยาวสุดก่อน
-  return { code2, name2, kw };
+  return { code2, name2, alias2, kw, colors };
 }
 function kwmatch(kw, text) {
   const t = String(text);
@@ -153,6 +166,125 @@ export function splitShopeeVar(v) {
     return { color, size };
   }
   return { color: v.trim(), size: '' };
+}
+
+/* ============================================================
+   แก้ปัญหา "ลาย↔สี สลับกัน" ใน TikTok/Shopee
+   ----------------------------------------------------------------
+   ช่อง Variation/ชื่อตัวเลือก = "<สีหรือลาย>, <ไซซ์>"  โดย token แรก
+   อาจเป็น "สี" (ดำ/ขาว/กรมท่า…) หรือ "ลาย" (กนกประยุกต์/จันทกานต์…)
+   - ถ้า listing เจาะลาย (เช่น "(ลายสิริกานต์)") → token คือ "สี" / ลายอยู่ในชื่อ
+   - ถ้า listing รวมสีดำ (เช่น "(รวมสีดำพิเศษ)") → token คือ "ลาย" / สี = ดำ
+   ============================================================ */
+export const MP_COLOR_WORDS = new Set([
+  'ดำ', 'ขาว', 'กรม', 'กรมท่า', 'น้ำเงิน', 'ฟ้า', 'ชมพู', 'แดง', 'เหลือง', 'เขียว',
+  'ม่วง', 'ส้ม', 'เทา', 'น้ำตาล', 'ครีม', 'โอรส', 'ทอง', 'เงิน', 'บานเย็น', 'เลือดหมู',
+  'กากี', 'ขาวอมเหลือง', 'เขียวขี้ม้า', 'ฟ้าอ่อน', 'เทาอ่อน',
+]);
+// ตัดคำนำ "สี" เพื่อ normalize: สีฟ้า→ฟ้า, สีดำ→ดำ
+export function cleanColor(tok) {
+  const t = String(tok || '').trim();
+  if (!t) return '';
+  return t.split(/[-/]/).map(s => s.trim().replace(/^สี/, '').trim()).filter(Boolean).join('-') || t;
+}
+export function isMpColor(tok, extra) {
+  const t = String(tok || '').trim();
+  if (!t) return false;
+  const has = (p) => MP_COLOR_WORDS.has(p) || (extra && extra.has && extra.has(p));
+  const parts = t.split(/[-/]/).map(s => s.trim().replace(/^สี/, '').trim()).filter(Boolean);
+  if (parts.length && parts.every(has)) return true;
+  return has(t.replace(/^สี/, '').trim());
+}
+// แยก token แรก + ไซซ์ จาก "(qualifier) token, size (อกXX)"
+export function splitVariantToken(varTxt) {
+  let v = String(varTxt || '').trim();
+  let prefix = '';
+  const pm = /^\(([^)]*)\)\s*/.exec(v); // qualifier นำหน้า เช่น "(สกรีน-อปท) "
+  if (pm) { prefix = pm[1].trim(); v = v.slice(pm[0].length).trim(); }
+  let tok = v, size = '';
+  const ci = v.indexOf(',');
+  if (ci >= 0) { tok = v.slice(0, ci).trim(); const rest = v.slice(ci + 1).trim(); size = rest ? rest.split(/\s+/)[0] : ''; }
+  if (tok && MP_SIZES.has(tok)) { size = size || tok; tok = ''; } // token เป็นไซซ์ล้วน
+  return { tok, size, prefix };
+}
+// จับลายจาก "token" (กรณี token เป็นลาย) → คืน {code, design}; ไม่เจอใน catalog คืน design=token
+export function matchDesignFromToken(tok, M) {
+  const t = String(tok || '').replace(/^ลาย/, '').trim();
+  if (!t) return { code: '', design: '' };
+  for (const [k, code, dk] of (M.kw || [])) { if (dk === t || k === t) return { code, design: dk }; } // ตรงเป๊ะก่อน
+  for (const [k, code, dk] of (M.kw || [])) { if (t.includes(k)) return { code, design: dk }; }          // token คลุม keyword (kw เรียงยาวสุดก่อน)
+  return { code: '', design: t }; // เก็บชื่อลายไว้แม้ไม่มีรหัส
+}
+const MP_NAME_NOISE = /^(ลายใหม่|เปิดจอง|ใหม่ล่าสุด|ไม่มีโลโก้|พร้อมส่ง|NEW|ชาย\/หญิง|ชาย|หญิง)$/i;
+// design_key กว้างเกินไป/ปนกับ brand "ลายไทย…" → ห้ามใช้จับทั้งชื่อ
+const MP_GENERIC_DK = new Set(['ลายไทย', 'F02 ลายไทย', 'แถม', 'แถม05', 'DARK', 'OVERSIZE', 'อื่นๆ', 'Promotion01']);
+// จับลายจาก "วงเล็บ" ในชื่อสินค้า เท่านั้น (เจาะจง — listing เจาะลาย เช่น "(ลายสิริกานต์)")
+export function matchDesignFromName(name, M) {
+  const n = String(name || '');
+  const C = M && M.colors;
+  const parens = [...n.matchAll(/\(([^)]*)\)/g)].map(x => x[1].trim());
+  for (const p of parens.reverse()) {
+    const p2 = p.replace(/^ลาย/, '').trim();
+    if (!p2 || MP_NAME_NOISE.test(p2) || /รวม|สกรีน|พร้อมส่ง|โลโก้/.test(p2)) continue;
+    for (const [k, code, dk] of (M.kw || [])) { if (isMpColor(dk, C)) continue; if (k === p2 || p2.includes(k)) return { code, design: dk }; }
+    const guess = p2.replace(/[-,].*$/, '').trim();
+    if (guess && !isMpColor(guess, C)) return { code: '', design: guess };
+  }
+  return { code: '', design: '' };
+}
+// สแกน "ทั้งชื่อ" หา keyword เจาะจง (ใช้เฉพาะตอน token เป็นสีแต่วงเล็บไม่ให้ลาย เช่น "(ไม่มีโลโก้)")
+// กัน brand "ลายไทย…"/generic ปน
+export function matchDesignWholeName(name, M) {
+  const n = String(name || ''); const C = M && M.colors;
+  for (const [k, code, dk] of (M.kw || [])) {
+    if (isMpColor(dk, C) || MP_GENERIC_DK.has(dk) || k.length < 4) continue;
+    if (n.includes(k)) return { code, design: dk };
+  }
+  return { code: '', design: '' };
+}
+// รวมตรรกะ: คืน {code, design, color, size, how, flag}
+//   flag: ''(ปกติ) | 'color_new'(สีที่ระบบยังไม่รู้จัก) | 'design_new'(ลายที่ยังไม่มีรหัสใน catalog)
+//   ใช้ "ชนิด listing" เป็นตัวตัดสิน — กันสลับแม้เจอสี/ลายใหม่ที่ไม่เคยเห็น
+export function resolveMpVariant({ name, variation }, M, opt = {}) {
+  const { tok, size } = splitVariantToken(variation);
+  const nm = String(name || '');
+  const C = M && M.colors;
+  const blackListing = /รวม.*สีดำ|รวมเสื้อสีดำ|สีดำพิเศษ|สีดำโทน/.test(nm);
+  const vIsColor = isMpColor(tok, C);
+  const byOpt = () => (opt.code && M.code2 && M.code2[String(opt.code).toUpperCase()]) || null;
+
+  // 1) listing "รวมสีดำ" → token = ลาย, สี = ดำ (ตัวตัดสินหลัก กันสลับ)
+  //    ลำดับรหัส: design-token match (ลาย=รหัสตรงกัน) ก่อน → ไม่งั้นรหัสฝังใน SKU → ไม่งั้น design_new
+  if (blackListing && tok && !vIsColor) {
+    const md = matchDesignFromToken(tok, M); const bc = byOpt();
+    if (md.code) return { code: md.code, design: md.design, color: 'ดำ', size, how: 'variant', flag: '' };
+    if (bc) return { code: opt.code, design: bc.design, color: 'ดำ', size, how: 'sku-code', flag: '' };
+    return { code: '', design: md.design, color: 'ดำ', size, how: 'variant', flag: 'design_new' };
+  }
+  // 2) listing เจาะลาย (วงเล็บให้ลาย) → token = สี (แม้สีใหม่ ก็ไม่เอาไปเป็นลาย)
+  const dnParen = matchDesignFromName(nm, M);
+  if (dnParen.design) {
+    const color = tok ? cleanColor(tok) : (blackListing ? 'ดำ' : '');
+    const flag = (tok && !vIsColor) ? 'color_new' : '';
+    return { code: opt.code || dnParen.code, design: dnParen.design, color, size, how: 'name', flag };
+  }
+  // 3) token เป็นสีรู้จัก แต่วงเล็บไม่ให้ลาย → ลายมาจาก brand/ทั้งชื่อ (เช่น "(ไม่มีโลโก้)")
+  if (vIsColor) {
+    const bc = byOpt(); if (bc) return { code: opt.code, design: bc.design, color: cleanColor(tok), size, how: 'sku-code', flag: '' };
+    const dw = matchDesignWholeName(nm, M);
+    return { code: dw.code, design: dw.design, color: cleanColor(tok), size, how: dw.design ? 'name' : '', flag: '' };
+  }
+  // 4) token ไม่ใช่สี → ถือเป็น "ลาย" (รวมสีดำ หรือ pattern token)
+  if (tok) {
+    const md = matchDesignFromToken(tok, M); const bc = byOpt();
+    const color = blackListing ? 'ดำ' : '';
+    if (md.code) return { code: md.code, design: md.design, color, size, how: 'variant', flag: '' };
+    if (bc) return { code: opt.code, design: bc.design, color, size, how: 'sku-code', flag: '' };
+    return { code: '', design: md.design, color, size, how: 'variant', flag: 'design_new' };
+  }
+  // 5) ไม่มี token → พึ่งรหัสฝังอย่างเดียว
+  const bc = byOpt();
+  return { code: opt.code || '', design: bc ? bc.design : '', color: blackListing ? 'ดำ' : '', size, how: bc ? 'sku-code' : '', flag: '' };
 }
 
 /* ============================ STEP 1: MASTER (order-level) ============================ */
@@ -227,10 +359,21 @@ export function buildMaster({ shipnity, tiktok } = {}) {
 /* ============================ STEP 2: SKU master (SKU-level) ============================ */
 // opts.shipnityAllChannels=true → แกะ 'รายการขาย' ทุกออเดอร์ (โหมด base-only ไม่มี Shopee file)
 export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = {}) {
-  const M = catalogGrid ? buildMatchers(catalogGrid) : { code2: {}, name2: {}, kw: [] };
+  const M = catalogGrid ? buildMatchers(catalogGrid, opts.aliases) : { code2: {}, name2: {}, kw: [], colors: new Set() };
+  // ดึงรหัส catalog ที่ฝังอยู่หัว SKU-ref เช่น "JRP111-S-4XL" → "JRP111"
+  const embedCode = (txt) => { const t = String(txt || '').trim(); if (!t) return ''; for (const seg of t.split(/[-_\s/]/)) { const s = seg.trim().toUpperCase(); if (s && M.code2[s]) return M.code2[s].code; } return ''; };
   const rows = [];
   const hasShopee = !!(shopee && shopee.length > 1);
   const shipnityAll = opts.shipnityAllChannels != null ? opts.shipnityAllChannels : !hasShopee;
+
+  // map เลข Shopee (date-hash) → เลขออเดอร์จริง (SK/M1K) จากชีต Shipnity
+  // ไฟล์ Shopee มีแต่ 'หมายเลขคำสั่งซื้อ' = marketplace_id ทำให้ SKU จับคู่ออเดอร์ไม่ได้ ถ้าไม่ remap
+  const mid2ono = new Map();
+  if (shipnity && shipnity.length > 1) {
+    const { get } = indexer(shipnity);
+    const oi = get('เลขที่ออเดอร์'), mi = get('ID บน Marketplace');
+    for (let r = 1; r < shipnity.length; r++) { const row = shipnity[r] || []; const mid = String(row[mi] ?? '').trim(); const ono = String(row[oi] ?? '').trim(); if (mid && mid !== '-' && ono) mid2ono.set(mid, ono); }
+  }
 
   // ---- Shopee : Parent SKU → ไม่งั้นชื่อสินค้า ----
   if (hasShopee) {
@@ -241,32 +384,29 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
       if (String(row[c.status] ?? '').includes('ยกเลิก')) continue;
       const par = String(row[c.par] ?? '').trim();
       const full = String(row[c.full] ?? '').trim();
-      const { color, size } = splitShopeeVar(row[c.opt]);
-      let m = M.code2[par.toUpperCase()], how = 'code';
-      if (!m) { m = kwmatch(M.kw, row[c.pname]); how = 'name'; }
-      rows.push({ channel: 'Shopee', source: 'shopee', order_no: String(row[c.order] ?? '').trim(), product_code: m.code || par || full, design: m.design, color, size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.price]), raw_sku_or_name: full, match_how: m.design ? how : '' });
+      const skuCode = embedCode(full) || embedCode(par); // รหัส catalog ที่ฝังใน SKU-ref/Parent
+      const v = resolveMpVariant({ name: row[c.pname], variation: row[c.opt] }, M, { code: skuCode });
+      // เติม design จากรหัส catalog ถ้า resolver ยังว่าง
+      const byCode = M.code2[(v.code || par).toUpperCase()];
+      const design = v.design || (byCode ? byCode.design : '');
+      const code = v.code || (byCode ? byCode.code : '') || par || full;
+      const rawOno = String(row[c.order] ?? '').trim();
+      rows.push({ channel: 'Shopee', source: 'shopee', order_no: mid2ono.get(rawOno) || rawOno, product_code: code, design, color: v.color, size: v.size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.price]), raw_sku_or_name: full, match_how: design ? (v.how || (byCode ? 'code' : '')) : '', attrs: v.flag ? { flag: v.flag } : undefined });
     }
   }
 
-  // ---- TikTok : ลายในวงเล็บก่อน → ไม่งั้น keyword ----
+  // ---- TikTok : Variation อาจเป็น สี หรือ ลาย → resolveMpVariant จัดให้ ----
   if (tiktok && tiktok.length > 2) {
     const { get } = indexer(tiktok);
     const c = { status: get('Order Status'), oid: get('Order ID'), seller: get('Seller SKU'), skuid: get('SKU ID'), pname: get('Product Name'), variation: get('Variation'), qty: get('Quantity'), sub: get('SKU Subtotal After Discount') };
-    const tkDesign = (name) => {
-      const n = String(name);
-      const parens = [...n.matchAll(/\(([^)]*)\)/g)].map(x => x[1]);
-      for (const p of parens.reverse()) {
-        const p2 = p.replace(/^ลาย/, '').trim();
-        for (const [k, code, dk] of M.kw) { if (k === p2 || p2.includes(k)) return { code, design: dk, how: 'paren' }; }
-      }
-      const m = kwmatch(M.kw, n); return { code: m.code, design: m.design, how: m.design ? 'listing' : '' };
-    };
     for (let r = 1; r < tiktok.length; r++) {
       const row = tiktok[r] || [];
+      const ono = String(row[c.oid] ?? '').trim();
+      if (!/^\d{6,}$/.test(ono)) continue; // ข้ามแถวคำอธิบายคอลัมน์ ("Platform unique order ID.")
       if (String(row[c.status] ?? '').trim() === 'ยกเลิกแล้ว') continue;
-      const { color, size } = splitShopeeVar(row[c.variation]);
-      const d = tkDesign(row[c.pname]);
-      rows.push({ channel: 'TikTok', source: 'tiktok', order_no: String(row[c.oid] ?? '').trim(), product_code: d.code, design: d.design, color, size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.sub]), raw_sku_or_name: String(row[c.seller] || row[c.skuid] || '').trim(), match_how: d.how });
+      const seller = String(row[c.seller] || row[c.skuid] || '').trim();
+      const v = resolveMpVariant({ name: row[c.pname], variation: row[c.variation] }, M, { code: embedCode(seller) });
+      rows.push({ channel: 'TikTok', source: 'tiktok', order_no: ono, product_code: v.code, design: v.design, color: v.color, size: v.size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.sub]), raw_sku_or_name: seller, match_how: v.design ? v.how : '', attrs: v.flag ? { flag: v.flag } : undefined });
     }
   }
 
@@ -299,7 +439,8 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
       }
     }
   }
-  return rows;
+  // ทุกแถวต้องมี key 'attrs' เท่ากัน (PostgREST bulk insert ต้องคีย์ตรงกัน)
+  return rows.map(r => ({ ...r, attrs: r.attrs || {} }));
 }
 
 /* ============================ สรุป/รวมยอด (สำหรับ preview reconciliation) ============================ */
@@ -324,4 +465,41 @@ function groupSum(arr, key, val) {
   const o = {};
   arr.forEach(x => { const k = x[key] || 'ไม่ระบุ'; if (!o[k]) o[k] = { count: 0, value: 0 }; o[k].count++; o[k].value += Number(x[val]) || 0; });
   return o;
+}
+
+/* ============================ ตรวจสุขภาพการนำเข้า (Import Health) ============================
+   คืน anomalies เพื่อเตือนผู้ใช้: ลายใหม่ / สีใหม่ / จับคู่ไม่ได้ — ทั้งตอน import และดูย้อนหลัง */
+export function auditImport(master, sku, M, _opts = {}) {
+  const s = sku || [], m = master || [];
+  const hasCode = (x) => !!(x.product_code && M && M.code2 && M.code2[String(x.product_code).toUpperCase()]);
+  const flagOf = (x) => (x.attrs && (x.attrs.flag || (typeof x.attrs === 'string' && (() => { try { return JSON.parse(x.attrs).flag; } catch { return ''; } })()))) || '';
+  const tally = (arr, keyf) => {
+    const o = {};
+    arr.forEach(x => { const k = keyf(x); if (k == null || k === '') return; (o[k] = o[k] || { count: 0, qty: 0, channels: new Set(), sample: '' }); o[k].count++; o[k].qty += Number(x.qty) || 0; if (x.channel) o[k].channels.add(x.channel); if (!o[k].sample) o[k].sample = x.raw_sku_or_name || ''; });
+    return Object.entries(o).map(([k, v]) => ({ key: k, count: v.count, qty: v.qty, channels: [...v.channels], sample: v.sample })).sort((a, b) => b.count - a.count);
+  };
+  return {
+    newDesigns: tally(s.filter(x => x.design && !hasCode(x)), x => x.design),          // มีชื่อลายแต่ไม่มีรหัส catalog (ลายใหม่/สะกดต่าง)
+    newColors: tally(s.filter(x => flagOf(x) === 'color_new'), x => x.color),           // สีที่ระบบยังไม่รู้จัก (เสี่ยงสลับ)
+    unmatched: tally(s.filter(x => !x.design), x => `${x.channel || '?'} · ${x.color || '—'}`), // จับคู่ไม่ได้เลย
+    counts: { skus: s.length, matched: s.filter(x => x.design).length, withCode: s.filter(hasCode).length, orders: m.length },
+  };
+}
+// คอลัมน์ที่จำเป็นต่อชนิดไฟล์ → เตือนถ้าโครงเปลี่ยน/หาย
+const MP_REQUIRED_COLS = {
+  shipnity: ['เลขที่ออเดอร์', 'รายการขาย', 'ยอดขาย'],
+  shopee: ['หมายเลขคำสั่งซื้อ', 'ชื่อตัวเลือก', 'ชื่อสินค้า', 'ราคาขายสุทธิ'],
+  tiktok: ['Order ID', 'Product Name', 'Variation', 'SKU Subtotal After Discount'],
+  catalog: ['product_code', 'design_key'],
+};
+export function auditColumns(files) {
+  const issues = [];
+  for (const f of (files || [])) {
+    if (f.kind === 'unknown') { issues.push({ file: f.name, kind: 'unknown', missing: [] }); continue; }
+    const req = MP_REQUIRED_COLS[f.kind]; if (!req) continue;
+    const H = (f.grid?.[0] || []).map(x => String(x ?? '').trim());
+    const missing = req.filter(col => !H.includes(col));
+    if (missing.length) issues.push({ file: f.name, kind: f.kind, missing });
+  }
+  return issues;
 }

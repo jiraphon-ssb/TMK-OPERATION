@@ -1,6 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { APP_VERSION } from './src/changelog.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 // ปล่อยไฟล์ version.json (เวอร์ชันที่ deploy) — ให้เว็บที่เปิดค้างเช็คว่ามีบิลด์ใหม่ไหม
 // dev: serve สด · build: เขียนลง dist
@@ -24,4 +29,9 @@ function versionFile() {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), versionFile()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
 })

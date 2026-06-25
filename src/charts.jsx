@@ -155,3 +155,75 @@ function hexA(hex, a) {
   const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
 }
+
+// ---- คอมโบ: แท่ง(ยอด) + เส้น(ออเดอร์) สองแกน + เส้นเทียบช่วงก่อน(ประ) ----
+export function ComboChart({ labels, bars, line, cmpBars, barLabel = 'ยอดขาย', lineLabel = 'ออเดอร์', barFmt, lineFmt, cmpLabel = 'ช่วงก่อน', height = 230, ariaLabel = 'กราฟยอดขายตามเวลา' }) {
+  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={(labels || []).join(', ')}
+    deps={[JSON.stringify(labels), JSON.stringify(bars), JSON.stringify(line), JSON.stringify(cmpBars)]}
+    make={(t) => {
+      const ds = [{ type: 'bar', label: barLabel, data: bars, backgroundColor: hexA(t.accent2, 0.85), borderRadius: 4, maxBarThickness: 34, order: 2, yAxisID: 'y' }];
+      if (cmpBars && cmpBars.some(v => v != null)) ds.push({ type: 'bar', label: cmpLabel, data: cmpBars, backgroundColor: hexA(t.ink3, 0.28), borderRadius: 4, maxBarThickness: 34, order: 3, yAxisID: 'y' });
+      if (line) ds.push({ type: 'line', label: lineLabel, data: line, borderColor: t.accent, backgroundColor: t.accent, tension: 0.35, pointRadius: 2, borderWidth: 2, order: 1, yAxisID: 'y1' });
+      return { data: { labels, datasets: ds }, options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.dataset.yAxisID === 'y1' ? (lineFmt || ((v) => v))(c.raw) : (barFmt || B)(c.raw)}` } } }, scales: { y: { position: 'left', grid: { color: t.line }, ticks: { color: t.ink3, callback: (v) => '฿' + Math.round(v / 1000) + 'k' } }, y1: { position: 'right', grid: { display: false }, ticks: { color: t.ink3 } }, x: { grid: { display: false }, ticks: { color: t.ink3, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } } };
+    }} />;
+}
+
+// ---- แท่งซ้อน (channel × เวลา) — datasets หลายชุด stacked ----
+export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = 'กราฟแท่งซ้อน' }) {
+  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={(labels || []).join(', ')}
+    deps={[JSON.stringify(labels), JSON.stringify(datasets)]}
+    make={(t) => ({
+      type: 'bar',
+      data: { labels, datasets: (datasets || []).map((d, i) => ({ label: d.label, data: d.data, backgroundColor: d.color || CAT_COLORS[i % CAT_COLORS.length], borderRadius: 2, maxBarThickness: 40 })) },
+      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(fmt || B)(c.raw)}` } } }, scales: { x: { stacked: true, grid: { display: false }, ticks: { color: t.ink3, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } }, y: { stacked: true, grid: { color: t.line }, ticks: { color: t.ink3, callback: (v) => '฿' + Math.round(v / 1000) + 'k' } } } },
+    })} />;
+}
+
+// ---- Pareto: แท่ง(ค่า) + เส้นสะสม%(80/20) ----
+export function ParetoChart({ items, valKey = 'sales', height = 230, fmt, ariaLabel = 'กราฟพาเรโต' }) {
+  const it = items || [];
+  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={it.map(x => x.key).join(', ')}
+    deps={[JSON.stringify(it), valKey]}
+    make={(t) => {
+      const total = it.reduce((a, x) => a + x[valKey], 0); let cum = 0; const cumPct = it.map(x => { cum += x[valKey]; return total ? Math.round(cum / total * 100) : 0; });
+      return { data: { labels: it.map(x => x.key), datasets: [{ type: 'bar', data: it.map(x => x[valKey]), backgroundColor: hexA(t.accent2, 0.85), borderRadius: 4, maxBarThickness: 30, order: 2, yAxisID: 'y' }, { type: 'line', data: cumPct, borderColor: t.warn, backgroundColor: t.warn, pointRadius: 2, borderWidth: 2, tension: 0.3, order: 1, yAxisID: 'y1' }] }, options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.dataset.yAxisID === 'y1' ? `สะสม ${c.raw}%` : (fmt || B)(c.raw) } } }, scales: { y: { grid: { color: t.line }, ticks: { color: t.ink3 } }, y1: { position: 'right', min: 0, max: 100, grid: { display: false }, ticks: { color: t.ink3, callback: (v) => v + '%' } }, x: { grid: { display: false }, ticks: { color: t.ink, font: { size: 11 }, maxRotation: 45 } } } } };
+    }} />;
+}
+
+// ---- Heatmap (matrix) — HTML grid, ความเข้ม = ค่าเทียบ max (เบา ไม่ใช้ chart lib) ----
+export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4c7dff', height: _height }) {
+  const all = []; (rows || []).forEach(r => (cols || []).forEach(c => all.push(cell(r, c) || 0)));
+  const max = Math.max(1, ...all);
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `minmax(64px,auto) repeat(${(cols || []).length}, minmax(38px,1fr))`, gap: 3, minWidth: 'max-content' }}>
+        <div />
+        {(cols || []).map((c, i) => <div key={i} className="cap" style={{ fontSize: 10, textAlign: 'center', color: 'var(--ink-3)', padding: '2px 0', whiteSpace: 'nowrap' }}>{c.label ?? c}</div>)}
+        {(rows || []).map((r, ri) => (
+          <React.Fragment key={ri}>
+            <div className="cap" style={{ fontSize: 11, color: 'var(--ink)', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', paddingRight: 6 }}>{r.label ?? r}</div>
+            {(cols || []).map((c, ci) => { const v = cell(r, c) || 0; const a = v / max; return <div key={ci} title={`${r.label ?? r} · ${c.label ?? c}: ${fmt(v)}`} style={{ aspectRatio: '1.4', minHeight: 26, borderRadius: 4, background: v ? hexA(color, 0.12 + a * 0.78) : 'var(--surface-2, rgba(130,140,160,.06))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: a > 0.55 ? '#fff' : 'var(--ink-3)', fontWeight: a > 0.55 ? 600 : 400 }}>{v ? fmt(v) : ''}</div>; })}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// เส้นเทรนด์จิ๋วใน hero/KPI card — SVG ล้วน เบา ไม่พึ่ง Chart.js
+export function Sparkline({ data = [], w = 120, h = 30, color = 'var(--accent)', fill = true, strokeW = 1.7 }) {
+  const v = (data || []).map(n => Number(n) || 0);
+  if (v.length < 2) return <svg width={w} height={h} aria-hidden="true" />;
+  const min = Math.min(...v), max = Math.max(...v), span = (max - min) || 1;
+  const x = i => (i / (v.length - 1)) * (w - 4) + 2;
+  const y = n => h - 3 - ((n - min) / span) * (h - 6);
+  const pts = v.map((n, i) => `${x(i).toFixed(1)},${y(n).toFixed(1)}`).join(' ');
+  const last = v.length - 1;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{ display: 'block', overflow: 'visible' }} aria-hidden="true">
+      {fill && <polygon points={`2,${h} ${pts} ${w - 2},${h}`} fill={color} opacity="0.09" />}
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={strokeW} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      <circle cx={x(last)} cy={y(v[last])} r="2.4" fill={color} />
+    </svg>
+  );
+}

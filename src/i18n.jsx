@@ -23,12 +23,12 @@ const T = {
 
     // ---- Nav ----
     navHome: 'หน้าหลัก', navSales: 'ยอดขาย', navPlanner: 'วางแผน',
-    navCatalog: 'แคตตาล็อก', navSystem: 'ตั้งค่า',
+    navCatalog: 'Sale', navSystem: 'ตั้งค่า',
     subOverview: 'ภาพรวมยอดขาย', subChannels: 'ช่องทางการขาย',
     subAds: 'โฆษณา & แชท', subCustomers: 'ลูกค้า',
     subDaily: 'บันทึกรายวัน', subMonthly: 'บันทึก & ภาพรวมเดือน', subStatus: 'สถานะการกรอก',
     subCalendar: 'ปฏิทินปฏิบัติงาน', subKanban: 'บอร์ดคุมงาน', subTimeline: 'ไทม์ไลน์แคมเปญ',
-    subProducts: 'สินค้า', subCampaigns: 'แคมเปญ', subPO: 'PO / สต็อก', subStock: 'สต็อก/คลัง', subReport: 'รายงานขาย', subOrders: 'ออเดอร์', subCustomers2: 'ลูกค้า',
+    subProducts: 'สินค้า', subCampaigns: 'แคมเปญ', subPO: 'PO / สต็อก', subStock: 'สต็อก/คลัง', subReport: 'รายงานขาย', subOrders: 'ออเดอร์', subEntry: 'บันทึกขาย', subShirts: 'แคตตาล็อกเสื้อ', subCrm: 'ลูกค้า (CRM)', subHealth: 'สุขภาพข้อมูล', subImport: 'ข้อมูล', subCustomers2: 'ลูกค้า',
     subAudit: 'ประวัติการใช้งาน', subRoles: 'สิทธิ์ผู้ใช้', subTrash: 'ถังขยะ',
     panelSalesSub: 'ดูตัวเลข บันทึกยอด และตั้งค่า',
     panelPlannerSub: 'งาน แคมเปญ และปฏิทินทีม',
@@ -259,12 +259,12 @@ const T = {
 
     // ---- Nav ----
     navHome: 'Home', navSales: 'Sales', navPlanner: 'Planner',
-    navCatalog: 'Catalog', navSystem: 'Settings',
+    navCatalog: 'Sale', navSystem: 'Settings',
     subOverview: 'Sales Overview', subChannels: 'Sales Channels',
     subAds: 'Ads & Chat', subCustomers: 'Customers',
     subDaily: 'Daily Entry', subMonthly: 'Daily & Monthly', subStatus: 'Entry Status',
     subCalendar: 'Calendar', subKanban: 'Kanban Board', subTimeline: 'Timeline',
-    subProducts: 'Products', subCampaigns: 'Campaigns', subPO: 'PO / Stock', subStock: 'Stock / Inventory', subReport: 'Sales report', subOrders: 'Orders', subCustomers2: 'Customers',
+    subProducts: 'Products', subCampaigns: 'Campaigns', subPO: 'PO / Stock', subStock: 'Stock / Inventory', subReport: 'Sales report', subOrders: 'Orders', subEntry: 'Sale entry', subShirts: 'Shirt catalog', subCrm: 'Customers', subHealth: 'Data health', subImport: 'Data', subCustomers2: 'Customers',
     subAudit: 'Activity Log', subRoles: 'User Roles', subTrash: 'Trash',
     panelSalesSub: 'View metrics, record sales & configure',
     panelPlannerSub: 'Tasks, campaigns & team calendar',

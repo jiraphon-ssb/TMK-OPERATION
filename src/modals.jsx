@@ -10,7 +10,14 @@ import { useLang } from './i18n.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { parseTaskDate, getToday, todayISO, thaiDate } from './lib/dateUtils.js';
 import { ScanButton } from './ScanButton.jsx';
-import { buildMaster, buildSku, summarize, detectFileKind } from './lib/mpReport.js';
+import { buildMaster, buildSku, summarize, detectFileKind, buildMatchers, auditImport, auditColumns } from './lib/mpReport.js';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
+import { parseShipnityCustomers } from './lib/shipnityCustomers.js';
 import { logAudit } from './lib/audit.js';
 import { computeMonth } from './dataContext.jsx';
 
@@ -96,35 +103,96 @@ const MD = TMK;
 
 /* ---------- Modal shell ---------- */
 export function Modal({ icon, title, sub, onClose, footer, wide, children, confirmOnClose }) {
-  // กันข้อมูลหายเงียบ: ถ้ามีการแก้ไขค้าง (confirmOnClose) → ถามก่อนปิดด้วย ESC/พื้นหลัง/ปุ่ม X
+  const tryClose = () => {
+    if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
+    onClose();
+  };
+  const tryCloseRef = useRef(tryClose);
+  useEffect(() => { tryCloseRef.current = tryClose; });
+  const boxRef = useRef(null);
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') tryCloseRef.current(); };
+    window.addEventListener('keydown', onKey);
+    boxRef.current?.focus?.();
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // Portal ไป document.body — กัน scrim โดน "ขัง" ใน stacking context ของหน้าที่มี transform
+  // (เช่น .content-inner.rise ที่มี animation → ทำให้ position:fixed ผูกกับ element นั้นแทน viewport
+  //  → พื้นหลังดำไม่เต็มจอ rail/topbar ทะลุ). Portal ทำให้ modal อยู่ root เสมอเหมือน modal อื่น
+  return createPortal(
+    <div className="dialog-overlay" onClick={tryClose}>
+      <div ref={boxRef} className={'dialog-content' + (wide ? ' dialog-content-lg' : '')} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+        <div className="dialog-header">
+          {icon && <div className="mh-icon"><Icon name={icon} /></div>}
+          <div style={{ minWidth: 0 }}>
+            <div className="dialog-title">{title}</div>
+            {sub && <div className="dialog-description">{sub}</div>}
+          </div>
+          <button className="icon-btn dialog-close" onClick={tryClose} aria-label="ปิด"><Icon name="x" /></button>
+        </div>
+        <div className="dialog-body">{children}</div>
+        {footer && <div className="dialog-footer">{footer}</div>}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+export function SideSheet({ icon, title, sub, onClose, footer, size = 'md', children, confirmOnClose, showCloseButton = true, position = 'right' }) {
   const tryClose = () => {
     if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
     onClose();
   };
   const boxRef = useRef(null);
+  const lastFocusRef = useRef(null);
+
+  const tryCloseRef = useRef(tryClose);
+
+  useEffect(() => { tryCloseRef.current = tryClose; });
+
   useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') tryClose(); };
+    lastFocusRef.current = document.activeElement;
+    const onKey = e => {
+      if (e.key === 'Escape') tryCloseRef.current();
+      if (e.key === 'Tab' && boxRef.current) {
+        const focusable = boxRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
     window.addEventListener('keydown', onKey);
-    boxRef.current?.focus?.(); // โฟกัสเข้า modal เมื่อเปิด (a11y)
-    return () => window.removeEventListener('keydown', onKey);
-  }, [confirmOnClose]);
-  // Portal ไป document.body — กัน scrim โดน "ขัง" ใน stacking context ของหน้าที่มี transform
-  // (เช่น .content-inner.rise ที่มี animation → ทำให้ position:fixed ผูกกับ element นั้นแทน viewport
-  //  → พื้นหลังดำไม่เต็มจอ rail/topbar ทะลุ). Portal ทำให้ modal อยู่ root เสมอเหมือน modal อื่น
+    boxRef.current?.focus?.();
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      lastFocusRef.current?.focus?.();
+    };
+  }, []);
+
   return createPortal(
-    <div className="modal-scrim" onClick={tryClose}>
-      <div ref={boxRef} className={'modal' + (wide ? ' modal-lg' : '')} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
-        <div className="modal-head">
+    <div className="sheet-scrim" onClick={tryClose}>
+      <aside
+        ref={boxRef}
+        className={`side-sheet side-sheet-${size}${position === 'left' ? ' side-sheet-left' : ''}`}
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+      >
+        <div className="side-sheet-head">
           {icon && <div className="mh-icon"><Icon name={icon} /></div>}
           <div style={{ minWidth: 0 }}>
-            <div className="modal-title">{title}</div>
-            {sub && <div className="modal-sub">{sub}</div>}
+            <div className="dialog-title">{title}</div>
+            {sub && <div className="dialog-description">{sub}</div>}
           </div>
-          <button className="icon-btn modal-x" onClick={tryClose} aria-label="ปิด"><Icon name="x" /></button>
+          {showCloseButton && <button className="icon-btn dialog-close" onClick={tryClose} aria-label="ปิด"><Icon name="x" /></button>}
         </div>
-        <div className="modal-body">{children}</div>
-        {footer && <div className="modal-foot">{footer}</div>}
-      </div>
+        <div className="side-sheet-body">{children}</div>
+        {footer && <div className="side-sheet-foot">{footer}</div>}
+      </aside>
     </div>,
     document.body
   );
@@ -670,8 +738,8 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
         </div>
       </div>
       <div className="field"><label>สถานะ</label>
-        <div className="segbar">
-          {MD.kanbanMeta.map(k => <button key={k.id} className={'seg' + (f.status === k.id ? ' active' : '')} onClick={() => set('status', k.id)}>{k.label}</button>)}
+        <div className="tabs-list">
+          {MD.kanbanMeta.map(k => <button key={k.id} className={'tabs-trigger' + (f.status === k.id ? ' active' : '')} onClick={() => set('status', k.id)}>{k.label}</button>)}
         </div>
       </div>
     </Modal>
@@ -1056,7 +1124,7 @@ function detectDelimiter(s) {
   return best;
 }
 function parseCSV(text, delim) {
-  const s = String(text || '').replace(/^﻿/, ''); // ตัด BOM
+  const s = String(text || '').replace(/^\uFEFF/, ''); // ตัด BOM
   const d = delim || detectDelimiter(s);
   const rows = []; let row = [], cur = '', q = false;
   for (let i = 0; i < s.length; i++) {
@@ -1100,8 +1168,8 @@ function parseNum(v) {
   let s = String(v ?? '').trim();
   if (!s) return 0;
   s = s.replace(/[๐-๙]/g, d => THAI_DIGITS[d] || d);
-  s = s.replace(/[,\s ฿$€£]/g, '');     // ตัดคอมมา/ช่องว่าง/สัญลักษณ์เงิน
-  s = s.replace(/[^0-9.eE+\-]/g, '');   // เหลือตัวเลข จุด ลบ + เลขยกกำลัง (กัน Excel เซฟราคาเป็น 1.2E5)
+  s = s.replace(/[, \s\u00A0฿$€£]/g, '');     // ตัดคอมมา/ช่องว่าง/สัญลักษณ์เงิน
+  s = s.replace(/[^0-9.eE+\-]/g, '');   // เหลือตัวเลข จุด ลบ + เลขยกกำลัง
   const n = parseFloat(s);
   return isFinite(n) ? n : 0;
 }
@@ -1256,7 +1324,7 @@ export function ImportProductsModal({ onClose }) {
       if (r.price < 0) issues.push({ sev: 'warn', msg: 'ราคาติดลบ → ปรับเป็น 0' });
       if (r.price > 1000000) issues.push({ sev: 'warn', msg: 'ราคาสูงผิดปกติ (>1,000,000)' });
       if (medianPrice > 0 && r.price > 0 && (r.price > medianPrice * 100 || r.price < medianPrice / 100)) issues.push({ sev: 'warn', msg: `ราคาต่างจากค่ากลางมาก (กลาง ~${B(medianPrice)}) — เช็คจุดทศนิยม` });
-      if (/\d[eE][+\-]?\d/.test(r.sku) || /\d[eE][+\-]?\d/.test(r.barcode)) issues.push({ sev: 'warn', msg: 'รหัส/บาร์โค้ดเพี้ยนจาก Excel (สัญกรณ์วิทยาศาสตร์) — ตั้งคอลัมน์เป็น Text ก่อนเซฟ' });
+      if (/\d[eE][+\-]?\d/.test(r.sku) || /\d[eE][+\-]?\d/.test(r.barcode)) issues.push({ sev: 'warn', msg: 'รหัส/บาร์โค้ดเพี้ยนจาก Excel' });
       if (r.barcode && !/^(\d{8}|\d{12,14})$/.test(r.barcode.replace(/\s/g, ''))) issues.push({ sev: 'info', msg: 'บาร์โค้ดไม่ใช่ 8/12/13/14 หลัก' });
       const barK = r.barcode.replace(/\s/g, '');
       if (barK) { if (seenBarcode.has(barK)) issues.push({ sev: 'warn', msg: 'บาร์โค้ดซ้ำกับแถวอื่น' }); else seenBarcode.add(barK); }
@@ -1356,8 +1424,8 @@ export function ImportProductsModal({ onClose }) {
 
   return (
     <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV / Excel" sub="หลายไฟล์ในครั้งเดียว · จับคู่คอลัมน์เอง · ตรวจสอบข้อมูลก่อนนำเข้า" onClose={onClose} footer={footer}>
-      <div className="segbar" style={{ marginBottom: 14 }}>
-        {STEPS.map(([id, l]) => <button key={id} className={'seg' + (step === id ? ' active' : '')} onClick={() => { if (id === 'upload' || files.length) setStep(id); }} disabled={id !== 'upload' && !files.length}>{l}</button>)}
+      <div className="tabs-list" style={{ marginBottom: 14 }}>
+        {STEPS.map(([id, l]) => <button key={id} className={'tabs-trigger' + (step === id ? ' active' : '')} onClick={() => { if (id === 'upload' || files.length) setStep(id); }} disabled={id !== 'upload' && !files.length}>{l}</button>)}
       </div>
 
       {/* ---------- STEP 1: UPLOAD ---------- */}
@@ -1443,9 +1511,9 @@ export function ImportProductsModal({ onClose }) {
       {/* ---------- STEP 3: VALIDATE & PREVIEW ---------- */}
       {step === 'preview' && (<>
         <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="segbar">
-            <button className={'seg' + (mode === 'add' ? ' active' : '')} onClick={() => setMode('add')}>เพิ่มใหม่อย่างเดียว</button>
-            <button className={'seg' + (mode === 'upsert' ? ' active' : '')} onClick={() => setMode('upsert')}>เพิ่ม + อัปเดตของเดิม</button>
+          <div className="tabs-list">
+            <button className={'tabs-trigger' + (mode === 'add' ? ' active' : '')} onClick={() => setMode('add')}>เพิ่มใหม่อย่างเดียว</button>
+            <button className={'tabs-trigger' + (mode === 'upsert' ? ' active' : '')} onClick={() => setMode('upsert')}>เพิ่ม + อัปเดตของเดิม</button>
           </div>
           <button className="btn btn-sm btn-ghost" disabled={!analyzed.rows.length} onClick={downloadReport}><Icon name="external" /> ดาวน์โหลดรายงาน</button>
         </div>
@@ -1495,11 +1563,29 @@ async function mpFileToGrid(file) {
 }
 const mpChunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 
+// รวมหลายไฟล์ชนิดเดียวกัน (เช่น Shipnity 20 ไฟล์) → กริดเดียว · จับคอลัมน์ตามชื่อหัว กันคอลัมน์เรียงไม่ตรง
+function mergeGrids(grids) {
+  const valid = (grids || []).filter(g => g && g.length);
+  if (valid.length === 0) return null;
+  if (valid.length === 1) return valid[0];
+  const header = [], seen = new Set();
+  valid.forEach(g => (g[0] || []).forEach(h => { const k = String(h ?? '').trim(); if (k && !seen.has(k)) { seen.add(k); header.push(k); } }));
+  const out = [header];
+  valid.forEach(g => {
+    const hmap = {}; (g[0] || []).forEach((h, i) => { hmap[String(h ?? '').trim()] = i; });
+    for (let r = 1; r < g.length; r++) { const row = g[r] || []; out.push(header.map(h => (h in hmap ? row[hmap[h]] : ''))); }
+  });
+  return out;
+}
+
 export function MpImportModal({ onClose, onDone }) {
   const [files, setFiles] = useState([]); // [{ id, name, kind, grid }]
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aliases, setAliases] = useState([]); // ชื่อพ้อง/สีใหม่ จาก tmk_mp_aliases
+  const [step, setStep] = useState(1);         // 1 = เลือกไฟล์ · 2 = ตรวจข้อมูลละเอียด
   const fileRef = useRef(null);
+  useEffect(() => { (async () => { const { data } = await supabase.from('tmk_mp_aliases').select('kind,term,code,design'); if (data) setAliases(data); })(); }, []);
 
   const onFiles = async (e) => {
     const picked = Array.from(e.target.files || []); e.target.value = '';
@@ -1515,27 +1601,37 @@ export function MpImportModal({ onClose, onDone }) {
       } catch (err) { toast(`อ่าน ${f.name} ไม่สำเร็จ: ${err?.message || ''}`, 'error'); }
     }
     setLoading(false);
-    // แทนที่ไฟล์ชนิดเดิม (อัปโหลดซ้ำ = ทับ)
-    setFiles(prev => { const map = {}; [...prev, ...added].forEach(f => { map[f.kind] = f; }); return Object.values(map); });
+    // รับหลายไฟล์ต่อชนิดได้ (Shipnity 20 ไฟล์ ฯลฯ) — dedup ตามชื่อไฟล์ (อัปโหลดชื่อซ้ำ = ทับ)
+    setFiles(prev => { const map = {}; [...prev, ...added].forEach(f => { map[f.kind + '::' + f.name] = f; }); return Object.values(map); });
   };
   const removeFile = (id) => setFiles(prev => prev.filter(f => f.id !== id));
-  const byKind = (k) => files.find(f => f.kind === k);
+  const cntKind = (k) => files.filter(f => f.kind === k).length;
 
   const result = useMemo(() => {
-    const shipnity = byKind('shipnity')?.grid, shopee = byKind('shopee')?.grid, tiktok = byKind('tiktok')?.grid, catalog = byKind('catalog')?.grid;
-    if (!shipnity || !catalog) return null; // ต้องมีฐานหลัก + แคตตาล็อก
-    const master = buildMaster({ shipnity, tiktok });
-    const sku = buildSku({ shipnity, shopee, tiktok }, catalog);
-    return { master, sku, sum: summarize(master, sku) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files]);
+    const shipnity = mergeGrids(files.filter(f => f.kind === 'shipnity').map(f => f.grid));
+    const shopee = mergeGrids(files.filter(f => f.kind === 'shopee').map(f => f.grid));
+    const tiktok = mergeGrids(files.filter(f => f.kind === 'tiktok').map(f => f.grid));
+    // แคตตาล็อก: ใช้ไฟล์ที่อัปมา → ถ้าไม่อัป ใช้ golden ในตัว (1,617 SKU จากตารางลายเสื้อ) ไม่ต้องอัปทุกรอบ
+    const catalog = mergeGrids(files.filter(f => f.kind === 'catalog').map(f => f.grid)) || GOLDEN_CATALOG_GRID;
+    if (!shipnity) return null; // ต้องมีฐานหลัก (Shipnity) — แคตตาล็อกมี golden ในตัวสำรองให้
+    const master0 = buildMaster({ shipnity, tiktok });
+    const M = buildMatchers(catalog, aliases);
+    const sku0 = buildSku({ shipnity, shopee, tiktok }, catalog, { aliases });
+    // dedup กันไฟล์ที่นำเข้าทับกัน (order_no ซ้ำข้ามไฟล์) → กัน ON CONFLICT + ตัวเลขไม่เฟ้อ
+    const omap = new Map(); master0.forEach(m => omap.set(`${m.source}:${m.order_no}`, m)); const master = [...omap.values()];
+    const sseen = new Set(); const sku = sku0.filter(s => { const k = `${s.source}|${s.order_no}|${s.design}|${s.color}|${s.size}|${s.qty}|${s.line_sales}|${s.raw_sku_or_name || ''}`; if (sseen.has(k)) return false; sseen.add(k); return true; });
+    // ดึงโปรไฟล์ลูกค้าจากไฟล์ Shipnity (มีคอลัมน์เบอร์/ที่อยู่/Tags อยู่แล้ว) → เก็บในครั้งเดียว ไม่ต้องอัปโหลดซ้ำ
+    const hdr = shipnity[0] || []; const custObjs = shipnity.slice(1).map(r => Object.fromEntries(hdr.map((h, i) => [h, r[i]])));
+    const customers = parseShipnityCustomers(custObjs).customers;
+    return { master, sku, customers, dropped: { orders: master0.length - master.length, skus: sku0.length - sku.length }, sum: summarize(master, sku), audit: auditImport(master, sku, M), cols: auditColumns(files) };
+  }, [files, aliases]);
 
-  const baht = n => '฿' + Math.round(n).toLocaleString();
+  const baht = n => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const save = async () => {
     if (!result || saving) return;
     setSaving(true);
     try {
-      const { master, sku } = result;
+      const { master, sku, customers } = result;
       const batch = 'imp-' + Date.now().toString(36);
       const omByOrder = {}, odByOrder = {}; master.forEach(m => { omByOrder[m.order_no] = m.order_month; odByOrder[m.order_no] = m.order_date || null; });
       const months = master.map(m => m.order_month).filter(Boolean);
@@ -1548,13 +1644,20 @@ export function MpImportModal({ onClose, onDone }) {
       for (const src in bySrc) { for (const ids of mpChunk([...bySrc[src]], 150)) { const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', src).in('order_no', ids); if (error) throw error; } }
       const sRows = sku.map((s, i) => ({ id: `${s.source}:${s.order_no}:${i}`, ...s, order_month: omByOrder[s.order_no] || overall, order_date: odByOrder[s.order_no] || null, import_batch: batch }));
       for (const ch of mpChunk(sRows, 500)) { const { error } = await supabase.from('tmk_mp_skus').insert(ch); if (error) throw error; }
+      // 2.5) โปรไฟล์ลูกค้า (จากไฟล์ Shipnity เดียวกัน) → tmk_mp_customers (ไม่บล็อกถ้าตารางยังไม่มี)
+      try {
+        if (customers && customers.length) {
+          const cRows = customers.map(c => ({ ...c, import_batch: batch, updated_at: new Date().toISOString() }));
+          for (const ch of mpChunk(cRows, 500)) { const { error } = await supabase.from('tmk_mp_customers').upsert(ch, { onConflict: 'customer_code' }); if (error) throw error; }
+        }
+      } catch (_e) { /* ลูกค้า optional — ไม่ให้ล้มทั้ง import */ }
       // 3) ledger การนำเข้า (ไม่บล็อกถ้าตารางยังไม่มี)
       try {
         const chans = [...new Set(master.map(m => m.channel))].join(', ');
         await supabase.from('tmk_mp_import_batches').insert({ id: batch, source_files: files.map(f => f.name).join(', '), row_orders: master.length, row_skus: sku.length, sales_total: result.sum.sales, qty_total: result.sum.qty, channels: chans, month_span: overall, status: 'active' });
       } catch { /* ledger optional */ }
       logAudit({ action: 'create', entityType: 'data', entityName: 'รายงานรวมข้ามช่อง', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }] });
-      toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} รายการ SKU`, 'success');
+      toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} SKU · ${customers?.length || 0} ลูกค้า`, 'success');
       onDone?.(); onClose();
     } catch (err) {
       const msg = /relation .* does not exist|tmk_mp_|column .* does not exist|schema cache|PGRST204/i.test(err?.message || '') ? 'ตาราง/คอลัมน์ยังไม่ครบ — รัน migration ล่าสุด (20260623-mp-foundation.sql) ใน Supabase ก่อน' : (err.message || '');
@@ -1562,51 +1665,100 @@ export function MpImportModal({ onClose, onDone }) {
     } finally { setSaving(false); }
   };
 
-  const footer = (<>
-    <button className="btn" onClick={onClose}>ปิด</button>
-    <button className="btn btn-primary" disabled={!result || saving} onClick={save}><Icon name="check" /> {saving ? 'กำลังบันทึก…' : result ? `บันทึกลงระบบ (${N(result.master.length)} ออเดอร์)` : 'ต้องมีไฟล์ฐาน + แคตตาล็อก'}</button>
-  </>);
-
-  const need = !byKind('shipnity') || !byKind('catalog');
+  const need = !cntKind('shipnity'); // แคตตาล็อกไม่บังคับแล้ว — มี golden ในตัวสำรอง
+  const kindSummary = ['shipnity', 'shopee', 'tiktok', 'catalog'].map(k => [k, cntKind(k)]).filter(([, n]) => n > 0);
+  const footer = step === 1
+    ? (<>
+        <button className="btn" onClick={onClose}>ปิด</button>
+        <button className="btn btn-primary" disabled={!result} onClick={() => setStep(2)}>{result ? <>ตรวจข้อมูล <Icon name="external" /></> : (need ? 'ต้องมีไฟล์ Shipnity (ฐานหลัก)' : 'เลือกไฟล์ก่อน')}</button>
+      </>)
+    : (<>
+        <button className="btn" onClick={() => setStep(1)}>← ย้อนกลับ</button>
+        <button className="btn btn-primary" disabled={!result || saving} onClick={save}><Icon name="check" /> {saving ? 'กำลังบันทึก…' : `บันทึกลงระบบ (${N(result?.master.length || 0)} ออเดอร์)`}</button>
+      </>);
   return (
-    <Modal wide icon="external" title="นำเข้ารายงานรวมข้ามช่อง" sub="อัปโหลดไฟล์ขาย Shipnity (ฐาน) + แคตตาล็อก · Shopee/TikTok เสริม" onClose={onClose} footer={footer}>
-      <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
-        ลากไฟล์มาได้หลายไฟล์พร้อมกัน — ระบบรู้เองว่าไฟล์ไหนคืออะไร · <b>ต้องมี Shipnity (ฐานหลัก) + แคตตาล็อกลาย</b> · Shopee/TikTok ใส่เพิ่มเพื่อความแม่นระดับ SKU
-      </div>
-      <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button className="btn btn-sm btn-primary" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</button>
-        <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,.xlsm,.xlsb" style={{ display: 'none' }} onChange={onFiles} />
-      </div>
-      {files.length === 0
-        ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)', border: '1px dashed var(--line)', borderRadius: 'var(--r-sm)' }}>ยังไม่ได้เลือกไฟล์</div>
-        : <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
-            {files.map(f => (
-              <div key={f.id} className="row between" style={{ gap: 8, padding: '8px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                <span style={{ minWidth: 0, wordBreak: 'break-all' }}><span className={'chip ' + (f.kind === 'unknown' ? 'chip-bad' : f.kind === 'shipnity' || f.kind === 'catalog' ? 'chip-good' : 'chip-accent')} style={{ marginRight: 8 }}>{MP_KIND_LABEL[f.kind]}</span>{f.name} <span className="cap">· {N(f.rows)} แถว</span></span>
-                <button className="btn btn-sm btn-ghost" onClick={() => removeFile(f.id)}><Icon name="trash" /></button>
-              </div>
-            ))}
-          </div>}
-      {need && files.length > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>⚠️ ยังขาด: {!byKind('shipnity') ? 'ไฟล์ Shipnity (ฐานหลัก) ' : ''}{!byKind('catalog') ? '· แคตตาล็อกลาย' : ''}</div>}
-      {result && (<>
-        <div className="eyebrow" style={{ margin: '6px 0 10px' }}>ตรวจก่อนบันทึก (reconciliation)</div>
-        <div className="row" style={{ gap: 22, flexWrap: 'wrap', marginBottom: 12 }}>
-          <div><div className="cap">ออเดอร์</div><div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{N(result.sum.orders)}</div></div>
-          <div><div className="cap">ยอดขายรวม</div><div className="num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent-2)' }}>{baht(result.sum.sales)}</div></div>
-          <div><div className="cap">จำนวนชิ้น</div><div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{N(result.sum.qty)}</div></div>
-          <div><div className="cap">SKU บรรทัด</div><div className="num" style={{ fontSize: 18, fontWeight: 700 }}>{N(result.sum.skuLines)}</div></div>
-          <div><div className="cap">จับคู่ลาย</div><div className="num" style={{ fontSize: 18, fontWeight: 700, color: result.sum.matchedPct >= 99 ? 'var(--good)' : 'var(--warn)' }}>{result.sum.matchedPct.toFixed(1)}%</div></div>
-          <div><div className="cap">SKU ชิ้น</div><div className="num" style={{ fontSize: 18, fontWeight: 700, color: result.sum.skuQty === result.sum.qty ? 'var(--good)' : 'var(--warn)' }}>{N(result.sum.skuQty)}</div></div>
+    <SideSheet size="xl" icon="external" title="นำเข้ารายงานรวมข้ามช่อง" sub={step === 1 ? 'ขั้น 1/2 · เลือกไฟล์' : 'ขั้น 2/2 · ตรวจข้อมูลก่อนบันทึก'} onClose={onClose} footer={footer}>
+      {step === 1 ? (<>
+        <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
+          ลากไฟล์มาได้หลายไฟล์พร้อมกัน — ระบบรู้เองว่าไฟล์ไหนคืออะไร · <b>ต้องมี Shipnity (ฐานหลัก)</b> · แคตตาล็อกใช้ <b>golden ในตัว</b> ให้แล้ว (อัปไฟล์แคตตาล็อกเองได้ถ้าอยากแทน) · Shopee/TikTok ใส่เพิ่มเพื่อความแม่นระดับ SKU
         </div>
-        <div className="table-wrap" style={{ maxHeight: 220, overflow: 'auto' }}><table className="table">
-          <thead><tr><th>ช่องทาง</th><th style={{ textAlign: 'right' }}>ออเดอร์</th><th style={{ textAlign: 'right' }}>ยอดขาย</th></tr></thead>
-          <tbody>{Object.entries(result.sum.byChannel).sort((a, b) => b[1].value - a[1].value).map(([k, v]) => (
-            <tr key={k}><td>{k}</td><td className="num" style={{ textAlign: 'right' }}>{N(v.count)}</td><td className="num" style={{ textAlign: 'right' }}>{baht(v.value)}</td></tr>
+        <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-sm btn-primary" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</button>
+          <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,.xlsm,.xlsb" style={{ display: 'none' }} onChange={onFiles} />
+        </div>
+        {files.length === 0
+          ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)', border: '1px dashed var(--line)', borderRadius: 'var(--r-sm)' }}>ยังไม่ได้เลือกไฟล์</div>
+          : <div style={{ display: 'grid', gap: 8, marginBottom: 12, maxHeight: 320, overflow: 'auto' }}>
+              {files.map(f => (
+                <div key={f.id} className="row between" style={{ gap: 8, padding: '8px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
+                  <span style={{ minWidth: 0, wordBreak: 'break-all' }}><span className={'chip ' + (f.kind === 'unknown' ? 'chip-bad' : f.kind === 'shipnity' || f.kind === 'catalog' ? 'chip-good' : 'chip-accent')} style={{ marginRight: 8 }}>{MP_KIND_LABEL[f.kind]}</span>{f.name} <span className="cap">· {N(f.rows)} แถว</span></span>
+                  <button className="btn btn-sm btn-ghost" onClick={() => removeFile(f.id)}><Icon name="trash" /></button>
+                </div>
+              ))}
+            </div>}
+        {files.length > 0 && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+          <span className="cap" style={{ color: 'var(--ink-3)' }}>รวม {N(files.length)} ไฟล์:</span>
+          {kindSummary.map(([k, n]) => <span key={k} className="badge badge-default">{MP_KIND_LABEL[k]} × {N(n)}</span>)}
+          <span className="cap" style={{ color: 'var(--ink-4)' }}>· {N(files.reduce((a, f) => a + (f.rows || 0), 0))} แถวรวม</span>
+        </div>}
+        {need && files.length > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>⚠️ ยังขาดไฟล์ Shipnity (ฐานหลัก)</div>}
+        {!cntKind('catalog') && cntKind('shipnity') > 0 && <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>ℹ️ ไม่ได้อัปไฟล์แคตตาล็อก — จะใช้ golden ในตัว (1,617 SKU จากตารางลายเสื้อ)</div>}
+        {result && <div className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>✓ อ่านไฟล์เสร็จ ({N(result.master.length)} ออเดอร์) — กด "ตรวจข้อมูล" เพื่อดูละเอียดก่อนบันทึก</div>}
+      </>) : !result ? <div className="cap" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)' }}>ยังไม่มีข้อมูล — กดย้อนกลับไปเลือกไฟล์</div> : (<>
+        <div className="metric-grid" style={{ marginBottom: 12 }}>
+          <div className="metric-card"><div className="cap">ออเดอร์</div><div className="num" style={{ fontSize: 20, fontWeight: 700 }}>{N(result.sum.orders)}</div></div>
+          <div className="metric-card"><div className="cap">ยอดขายรวม</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-2)' }}>{baht(result.sum.sales)}</div></div>
+          <div className="metric-card"><div className="cap">จำนวนชิ้น</div><div className="num" style={{ fontSize: 20, fontWeight: 700 }}>{N(result.sum.qty)}</div></div>
+          <div className="metric-card"><div className="cap">จับคู่ลาย</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: result.sum.matchedPct >= 99 ? 'var(--good)' : 'var(--warn)' }}>{result.sum.matchedPct.toFixed(1)}%</div><div className="cap" style={{ color: 'var(--ink-4)' }}>{N(result.sum.skuLines)} SKU</div></div>
+          <div className="metric-card"><div className="cap">ลูกค้า (โปรไฟล์)</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-2)' }}>{N(result.customers?.length || 0)}</div></div>
+        </div>
+        {result.dropped && (result.dropped.orders > 0 || result.dropped.skus > 0) && <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 10 }}><Icon name="refresh" /> ไฟล์ทับกัน — ตัดออเดอร์ซ้ำ {N(result.dropped.orders)} · SKU ซ้ำ {N(result.dropped.skus)} (เก็บรายการล่าสุด)</div>}
+
+        <div className="row between" style={{ alignItems: 'baseline', margin: '4px 0 8px' }}>
+          <div className="eyebrow">รายการออเดอร์ที่จะนำเข้า</div>
+          <span className="cap" style={{ color: 'var(--ink-4)' }}>แสดง {N(Math.min(result.master.length, 500))} จาก {N(result.master.length)}</span>
+        </div>
+        <div className="table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}><table className="table">
+          <thead><tr><th>วันที่</th><th>ออเดอร์</th><th>ช่อง</th><th>เซลล์</th><th>ลูกค้า</th><th>จว.</th><th style={{ textAlign: 'right' }}>ยอด</th><th style={{ textAlign: 'right' }}>ตัว</th></tr></thead>
+          <tbody>{result.master.slice(0, 500).map((m, i) => (
+            <tr key={i}><td className="cap">{m.order_date || '—'}</td><td className="num">{m.order_no}</td><td className="cap">{m.channel}</td><td className="cap">{/^\(/.test(m.salesperson) ? '—' : m.salesperson}</td><td className="cap" style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.customer_name || '—'}</td><td className="cap">{m.province || '—'}</td><td className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(m.sales || 0)}</td><td className="num" style={{ textAlign: 'right' }}>{N(m.qty || 0)}</td></tr>
           ))}</tbody>
         </table></div>
+
+        <div className="eyebrow" style={{ margin: '16px 0 8px' }}>ยอดตามช่องทาง</div>
+        <div style={{ display: 'grid', gap: 2 }}>
+          {Object.entries(result.sum.byChannel).sort((a, b) => b[1].value - a[1].value).map(([k, v]) => (
+            <div key={k} className="row between" style={{ padding: '6px 2px', borderBottom: '1px solid var(--line)' }}>
+              <span style={{ fontWeight: 500 }}>{k}</span>
+              <span className="num cap" style={{ color: 'var(--ink-4)' }}>{N(v.count)} ออเดอร์ · <b style={{ color: 'var(--ink)', fontWeight: 700 }}>{baht(v.value)}</b></span>
+            </div>
+          ))}
+        </div>
+
+        {(() => { const a = result.audit, cols = result.cols || []; const warn = (a.newDesigns.length + a.newColors.length + cols.length) > 0; return (
+          <div style={{ marginTop: 14, border: `1px solid ${warn ? 'var(--warn)' : 'var(--line)'}`, borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
+            <div className="row between" style={{ padding: '9px 12px', background: warn ? 'rgba(227,155,46,.10)' : 'var(--surface)', borderBottom: '1px solid var(--line)' }}>
+              <b className="row" style={{ gap: 7 }}><Icon name="shield" /> ตรวจสุขภาพการนำเข้า</b>
+              <span className="badge badge-outline" style={{ color: warn ? 'var(--warn)' : 'var(--good)' }}>{warn ? 'มีของต้องตรวจ' : 'ผ่านสะอาด ✓'}</span>
+            </div>
+            <div style={{ padding: '8px 12px', display: 'grid', gap: 6, fontSize: 13 }}>
+              {cols.map((c, i) => <div key={'c' + i} style={{ color: 'var(--bad)' }}>⚠️ <b>{c.file}</b> {c.kind === 'unknown' ? 'ไม่รู้ชนิดไฟล์' : `ขาดคอลัมน์: ${c.missing.join(', ')}`}</div>)}
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                <span className="cap" style={{ color: 'var(--ink-3)' }}>ลายใหม่/ไม่มีรหัส:</span>
+                {a.newDesigns.length ? a.newDesigns.slice(0, 8).map((d, i) => <span key={i} className="badge badge-outline" style={{ background: 'rgba(227,155,46,.14)', color: 'var(--warn)' }}>{d.key} ×{d.count}</span>) : <span className="cap" style={{ color: 'var(--good)' }}>ไม่มี ✓</span>}
+              </div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                <span className="cap" style={{ color: 'var(--ink-3)' }}>สีที่ยังไม่รู้จัก:</span>
+                {a.newColors.length ? a.newColors.slice(0, 8).map((d, i) => <span key={i} className="badge badge-outline" style={{ background: 'rgba(224,81,74,.14)', color: 'var(--bad)' }}>{d.key} ×{d.count}</span>) : <span className="cap" style={{ color: 'var(--good)' }}>ไม่มี ✓</span>}
+              </div>
+              <div className="cap" style={{ color: 'var(--ink-4)' }}>จัดการชื่อพ้อง/เพิ่มสีได้ที่ ข้อมูล → สุขภาพข้อมูล (ตั้งแล้วนำเข้าซ้ำเพื่อใช้)</div>
+            </div>
+          </div>
+        ); })()}
+
         <div className="cap" style={{ marginTop: 8, color: 'var(--ink-4)' }}>บันทึกแล้วจะ "ทับ" ออเดอร์รหัสเดิม (อัปโหลดเดือนเดิมซ้ำได้ ไม่บวกซ้ำ)</div>
       </>)}
-    </Modal>
+    </SideSheet>
   );
 }
 
@@ -1885,8 +2037,8 @@ export function CampaignModal({ data, onClose }) {
         </div>
       </div>
       <div className="field"><label>สถานะ</label>
-        <div className="segbar">
-          {statuses.map(s => <button key={s[0]} className={'seg' + (f.status === s[0] ? ' active' : '')} onClick={() => set('status', s[0])}>{s[1]}</button>)}
+        <div className="tabs-list">
+          {statuses.map(s => <button key={s[0]} className={'tabs-trigger' + (f.status === s[0] ? ' active' : '')} onClick={() => set('status', s[0])}>{s[1]}</button>)}
         </div>
       </div>
     </Modal>
@@ -2198,7 +2350,7 @@ export function MovementLedgerModal({ data, onClose }) {
                 {rows.map((r, i) => { const m = LEDGER_META[r.action] || { l: r.action, c: 'var(--ink-3)', sign: '·' }; return (
                   <tr key={i}>
                     <td className="cap" style={{ whiteSpace: 'nowrap' }}>{new Date(r.at).toLocaleString('th-TH', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                    <td><span className="chip" style={{ background: 'var(--surface-2)', color: m.c, fontWeight: 700 }}>{m.sign} {m.l}</span></td>
+                    <td><span className="badge badge-outline" style={{ background: 'var(--surface-2)', color: m.c, fontWeight: 700 }}>{m.sign} {m.l}</span></td>
                     <td><div className="cap">{(r.fields || []).filter(f => !['รวมขาย', 'มูลค่าขาย', 'วันที่', 'ล็อต', 'ต้นทุน/ตัว'].includes(f.label)).map(f => `${f.label} ${f.value}`).join(', ') || r.summary}</div></td>
                   </tr>
                 ); })}
@@ -2312,7 +2464,7 @@ export function ReceiveModal({ data, onClose }) {
           <div className="row" style={{ gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <ScanButton task="receipt" hint={{ sizes: SIZES, colors: SHIRT_COLORS.map(c => c.name), product: product.name }} onResult={applyReceipt} label="ถ่ายใบส่งของ → ให้ AI กรอก" />
             {aiFilled
-              ? <span className="chip" style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', fontWeight: 600 }}>✨ กรอกด้วย AI — ตรวจให้ครบก่อนบันทึก</span>
+              ? <span className="badge badge-outline" style={{ background: 'color-mix(in srgb, var(--accent) 14%, transparent)', color: 'var(--accent)', fontWeight: 600 }}>✨ กรอกด้วย AI — ตรวจให้ครบก่อนบันทึก</span>
               : <span className="cap" style={{ color: 'var(--ink-4)' }}>หรือพิมพ์เองด้านล่าง</span>}
           </div>
           <div className="field-row">
@@ -2498,7 +2650,7 @@ export function LabelModal({ data, onClose }) {
           <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
             <div className="row" style={{ gap: 8 }}>
               <span className="cap">ขนาดป้าย</span>
-              <div className="segbar">{Object.entries(SIZE_OPTS).map(([id, o]) => <button key={id} className={'seg' + (size === id ? ' active' : '')} onClick={() => setSize(id)}>{o.label}</button>)}</div>
+              <div className="tabs-list">{Object.entries(SIZE_OPTS).map(([id, o]) => <button key={id} className={'tabs-trigger' + (size === id ? ' active' : '')} onClick={() => setSize(id)}>{o.label}</button>)}</div>
             </div>
             {/* พรีวิวป้าย */}
             {preview && <div style={{ border: '1px dashed var(--line)', borderRadius: 6, padding: 8, textAlign: 'center', minWidth: 150 }}>
@@ -2911,9 +3063,9 @@ export function POModal({ data, onClose }) {
       <div className="field-row">
         <div className="field"><label>จำนวน (ตัว)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
         <div className="field"><label>สถานะ</label>
-          <div className="segbar">
-            <button className={'seg' + (f.status === 'Pending' ? ' active' : '')} onClick={() => set('status', 'Pending')}>กำลังผลิต</button>
-            <button className={'seg' + (f.status === 'Completed' ? ' active' : '')} onClick={() => set('status', 'Completed')}>ของเข้าแล้ว</button>
+          <div className="tabs-list">
+            <button className={'tabs-trigger' + (f.status === 'Pending' ? ' active' : '')} onClick={() => set('status', 'Pending')}>กำลังผลิต</button>
+            <button className={'tabs-trigger' + (f.status === 'Completed' ? ' active' : '')} onClick={() => set('status', 'Completed')}>ของเข้าแล้ว</button>
           </div>
         </div>
       </div>
@@ -3468,7 +3620,7 @@ export function HistoricalEntryModal({ onClose, data }) {
 export function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState(() => { try { return localStorage.getItem('tmk-remember-email') || ''; } catch { return ''; } });
   const [pw, setPw] = useState('');
-  const [showPw, setShowPw] = useState(false); // ดู/ซ่อนรหัสผ่าน
+  const [showPw, setShowPw] = useState(false);
   const [agree, setAgree] = useState(false);
   const [remember, setRemember] = useState(() => { try { return localStorage.getItem('tmk-remember') === 'true'; } catch { return false; } });
   const [showTerms, setShowTerms] = useState(false);
@@ -3482,7 +3634,6 @@ export function LoginScreen({ onLogin }) {
     } catch { /* ignore */ }
   };
 
-  // เข้าสู่ระบบด้วยอีเมล+รหัส (แอดมินเป็นคนตั้งรหัสให้ — ไม่มีตั้งเอง/ลืมรหัสในหน้านี้)
   const submit = async (e) => {
     e.preventDefault();
     setErr('');
@@ -3505,155 +3656,155 @@ export function LoginScreen({ onLogin }) {
   };
 
   const canSubmit = !busy && !!email.trim() && !!pw && agree;
+
   return (
-    <div className="login">
-      <div className="login-art">
-        <div className="blob b1"></div><div className="blob b2"></div><div className="gridlines"></div>
-        <div className="login-logo"><img src={tmkLogo} alt="TMK" /></div>
-        <div className="login-head">
-          <div className="eyebrow" style={{ color: 'rgba(255,255,255,0.65)', marginBottom: 12 }}>TMK OPERATION</div>
-          <h1>ศูนย์ปฏิบัติการ<br />บริหารแบรนด์<br />ครบในที่เดียว</h1>
-          <p>ดูยอดขายทุกช่องทาง บันทึกข้อมูลรายวัน วางแผนงาน คุมแคมเปญ จัดการสต็อก และดูภาพรวมธุรกิจแบบเรียลไทม์</p>
-        </div>
-        <div className="login-stats">
-          <div><div className="ls-v">{MD.consts.TARGET ? Bk(MD.consts.TARGET) : '฿1M'}</div><div className="ls-l">เป้ายอดขาย/เดือน</div></div>
-          <div><div className="ls-v">{MD.channels.length || 6}</div><div className="ls-l">ช่องทางการขาย</div></div>
-          <div><div className="ls-v">{(MD.roles && MD.roles.length) || (MD.staff && MD.staff.length) || 4}</div><div className="ls-l">ทีมผู้ใช้งาน</div></div>
-        </div>
-      </div>
-
-      <div className="login-form-wrap">
-        <form className="login-card" onSubmit={submit}>
-          <div className="row" style={{ gap: 11, marginBottom: 20 }}>
-            <div className="rail-brand" style={{ margin: 0, width: 44, height: 44 }}><img src={tmkLogo} alt="TMK" /></div>
-            <div><div className="h2">เข้าสู่ระบบ TMK</div><div className="cap">ยินดีต้อนรับกลับมา 👋</div></div>
-          </div>
-          <div className="field" style={{ marginBottom: 14 }}>
-            <label>อีเมล</label>
-            <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@tmk.co" autoComplete="username" />
-          </div>
-          <div className="field" style={{ marginBottom: 14 }}>
-            <label>รหัสผ่าน</label>
-            <div style={{ position: 'relative' }}>
-              <input className="input" type={showPw ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} placeholder="••••••••" autoComplete="current-password" style={{ width: '100%', paddingRight: 42 }} />
-              <button type="button" onClick={() => setShowPw(v => !v)} title={showPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'} aria-label={showPw ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
-                style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: showPw ? 'var(--accent)' : 'var(--ink-3)', width: 30, height: 30, display: 'grid', placeItems: 'center', padding: 0 }}>
-                <Icon name="eye" />
-              </button>
+    <>
+      <div className="container relative h-screen flex-col items-center justify-center grid lg:max-w-none lg:px-0 bg-background text-foreground">
+        <div className="flex h-full items-center p-4 lg:p-8">
+          <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
+            <div className="flex flex-col space-y-2 text-center">
+              <img src={tmkLogo} alt="TMK" className="mx-auto h-12 w-12 object-contain mb-4" />
+              <h1 className="text-2xl font-semibold tracking-tight">
+                เข้าสู่ระบบ
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                ยินดีต้อนรับกลับมา 👋
+              </p>
             </div>
-          </div>
-
-          {err && <div className="sm" style={{ background: 'var(--bad-soft, rgba(255,90,90,0.12))', color: 'var(--bad, #d9434e)', padding: '9px 12px', borderRadius: 'var(--r-sm)', marginBottom: 14 }}>{err}</div>}
-
-          <div style={{ marginBottom: 14 }}>
-            <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
-              <span className="cap">จำการเข้าสู่ระบบ (จำอีเมลไว้ ไม่ต้องกรอกใหม่)</span>
-            </label>
-          </div>
-          <div style={{ marginBottom: 18 }}>
-            <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={agree} onChange={() => { if (!agree) { setShowTerms(true); } else { setAgree(false); } }} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
-              <span className="cap">ยอมรับ<button type="button" onClick={e => { e.preventDefault(); setShowTerms(true); }} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0, fontSize: 'inherit', fontFamily: 'inherit' }}>ข้อตกลงและกฎระเบียบการใช้งานระบบ</button></span>
-            </label>
-          </div>
-
-          {/* Terms & Conditions Modal */}
-          {showTerms && (
-            <div className="modal-scrim" style={{ zIndex: 9999 }} onClick={() => setShowTerms(false)}>
-              <div onClick={e => e.stopPropagation()} style={{
-                position: 'relative', width: '100%', maxWidth: 560, maxHeight: '85vh',
-                background: 'var(--surface)', borderRadius: 'var(--r-xl)',
-                boxShadow: '0 12px 48px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              }}>
-                {/* Header */}
-                <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                  <span style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'grid', placeItems: 'center' }}>
-                    <Icon name="shield" />
-                  </span>
-                  <div style={{ flex: 1 }}>
-                    <div className="h3">ข้อตกลงและกฎระเบียบการใช้งานระบบ</div>
-                    <div className="cap">TMK Operation — กรุณาอ่านก่อนยอมรับ</div>
+            <div className="grid gap-6">
+              <form onSubmit={submit}>
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="email">อีเมล</Label>
+                    <Input
+                      id="email"
+                      placeholder="name@tmk.co"
+                      type="email"
+                      autoCapitalize="none"
+                      autoComplete="username"
+                      autoCorrect="off"
+                      disabled={busy}
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                    />
                   </div>
-                  <button type="button" onClick={() => setShowTerms(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-3)', width: 24, height: 24 }}>
-                    <Icon name="x" />
-                  </button>
-                </div>
-
-                {/* Content — scrollable */}
-                <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', fontSize: 'var(--fs-sm)', color: 'var(--ink-2)', lineHeight: 1.8 }}>
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>1. ขอบเขตการใช้งาน</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ระบบ TMK Operation เป็นเครื่องมือภายในสำหรับบริหารจัดการธุรกิจแบรนด์ TMK เท่านั้น ผู้ใช้งานต้องเป็นบุคลากรของบริษัทหรือได้รับอนุญาตจากผู้ดูแลระบบ ห้ามมิให้ใช้งานระบบเพื่อวัตถุประสงค์อื่นนอกเหนือจากการบริหารธุรกิจ
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>2. บัญชีผู้ใช้และความปลอดภัย</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ผู้ใช้งานต้องรักษาความลับของอีเมลและรหัสผ่าน ห้ามแบ่งปันข้อมูลการเข้าสู่ระบบกับบุคคลภายนอก หากพบว่ามีการเข้าถึงบัญชีโดยไม่ได้รับอนุญาต ให้แจ้งผู้ดูแลระบบทันที ผู้ใช้งานต้องรับผิดชอบต่อทุกการกระทำที่เกิดขึ้นภายใต้บัญชีของตน
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>3. ข้อมูลที่เป็นความลับ</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ข้อมูลทั้งหมดในระบบ ได้แก่ ยอดขาย ข้อมูลลูกค้า กลยุทธ์การตลาด ข้อมูลสินค้า ราคา ต้นทุน ค่าโฆษณา และข้อมูลทางธุรกิจอื่น ๆ ถือเป็นความลับทางการค้า ห้ามมิให้เปิดเผย คัดลอก แจกจ่าย หรือนำไปใช้นอกเหนือจากการปฏิบัติงาน การละเมิดอาจถูกดำเนินการทางกฎหมาย
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>4. สิทธิ์การเข้าถึงและระดับผู้ใช้</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ระบบแบ่งสิทธิ์เป็น 3 ระดับ: <strong>ผู้ดูแลระบบ</strong> (จัดการได้ทุกอย่าง รวมถึงสิทธิ์ผู้ใช้), <strong>แก้ไขได้</strong> (บันทึกยอดขาย จัดการงาน แก้ไขข้อมูล), <strong>ดูอย่างเดียว</strong> (เปิดดูข้อมูลได้แต่ไม่สามารถแก้ไข) ผู้ดูแลระบบเป็นผู้กำหนดสิทธิ์ของแต่ละบุคคล
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>5. การบันทึกข้อมูลและความถูกต้อง</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ผู้ใช้งานต้องกรอกข้อมูลยอดขายรายวันอย่างถูกต้องและตรงเวลา ข้อมูลที่บันทึกจะถูกใช้ในการวิเคราะห์ภาพรวมธุรกิจ การกรอกข้อมูลเท็จหรือบิดเบือนข้อมูลถือเป็นการกระทำที่ร้ายแรง ทุกการเปลี่ยนแปลงจะถูกบันทึกไว้ในประวัติการใช้งาน (Audit Log) เพื่อตรวจสอบย้อนหลัง
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>6. การใช้งานอุปกรณ์และเครือข่าย</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ควรเข้าใช้งานระบบผ่านเครือข่ายที่ปลอดภัย หลีกเลี่ยงการใช้งานผ่าน Wi-Fi สาธารณะที่ไม่เข้ารหัส เมื่อใช้งานเสร็จให้ออกจากระบบทุกครั้ง โดยเฉพาะเมื่อใช้เครื่องคอมพิวเตอร์ร่วมกับผู้อื่น
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>7. การสำรองข้อมูลและการกู้คืน</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ข้อมูลที่ลบจะถูกเก็บไว้ในถังขยะเป็นเวลา 30 วันก่อนลบถาวร สามารถกู้คืนได้ตลอดภายในระยะเวลาดังกล่าว ระบบจะสำรองข้อมูลอัตโนมัติเมื่อเชื่อมต่อกับ Supabase
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>8. การเปลี่ยนแปลงข้อตกลง</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    บริษัทขอสงวนสิทธิ์ในการเปลี่ยนแปลงข้อตกลงนี้โดยไม่ต้องแจ้งล่วงหน้า ผู้ใช้งานสามารถตรวจสอบข้อตกลงฉบับล่าสุดได้ที่หน้าตั้งค่าของระบบ การใช้งานระบบต่อเนื่องหลังจากการเปลี่ยนแปลงถือว่าผู้ใช้ยอมรับข้อตกลงฉบับใหม่
-                  </p>
-
-                  <h3 style={{ color: 'var(--ink)', marginBottom: 8 }}>9. การระงับการใช้งาน</h3>
-                  <p style={{ marginBottom: 16 }}>
-                    ผู้ดูแลระบบมีสิทธิ์ระงับหรือยกเลิกบัญชีผู้ใช้ได้ทุกเมื่อ ในกรณีที่พบว่ามีการฝ่าฝืนข้อตกลง ใช้งานอย่างไม่เหมาะสม หรือเมื่อบุคลากรพ้นจากการปฏิบัติงาน
-                  </p>
-
-                  <div style={{ padding: '14px 16px', background: 'var(--accent-soft)', borderRadius: 'var(--r)', borderLeft: '3px solid var(--accent)', marginTop: 8 }}>
-                    <div className="sm" style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>หมายเหตุ</div>
-                    <div className="cap" style={{ lineHeight: 1.6 }}>
-                      การกด "ยอมรับและดำเนินการต่อ" ถือว่าท่านได้อ่าน เข้าใจ และยินยอมปฏิบัติตามข้อตกลงและกฎระเบียบทั้งหมดข้างต้น
+                  <div className="grid gap-2">
+                    <Label htmlFor="password">รหัสผ่าน</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPw ? "text" : "password"}
+                        autoComplete="current-password"
+                        disabled={busy}
+                        value={pw}
+                        onChange={e => setPw(e.target.value)}
+                        className="pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full w-9 px-0 hover:bg-transparent text-muted-foreground"
+                        onClick={() => setShowPw(!showPw)}
+                      >
+                        <Icon name="eye" className="size-4" />
+                        <span className="sr-only">แสดงรหัสผ่าน</span>
+                      </Button>
                     </div>
                   </div>
-                </div>
+                  
+                  {err && (
+                    <div className="text-sm text-destructive font-medium bg-destructive/10 p-3 rounded-md">
+                      {err}
+                    </div>
+                  )}
 
-                {/* Footer */}
-                <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
-                  <button type="button" className="btn" onClick={() => setShowTerms(false)}>ปิด</button>
-                  <button type="button" className="btn btn-primary" onClick={() => { setAgree(true); setShowTerms(false); }}>
-                    <Icon name="check" /> ยอมรับและดำเนินการต่อ
-                  </button>
+                  <div className="flex items-center space-x-2 mt-2">
+                    <Checkbox id="remember" checked={remember} onCheckedChange={setRemember} />
+                    <Label
+                      htmlFor="remember"
+                      className="text-sm font-normal cursor-pointer text-muted-foreground"
+                    >
+                      จำการเข้าสู่ระบบ
+                    </Label>
+                  </div>
+                  <div className="flex items-start space-x-2">
+                    <Checkbox id="terms" checked={agree} onCheckedChange={(checked) => { if (!agree) setShowTerms(true); else setAgree(false); }} />
+                    <Label
+                      htmlFor="terms"
+                      className="text-sm font-normal cursor-pointer text-muted-foreground leading-snug"
+                    >
+                      ยอมรับ <button type="button" className="underline underline-offset-4 hover:text-primary font-medium" onClick={() => setShowTerms(true)}>ข้อตกลงและกฎระเบียบ</button>
+                    </Label>
+                  </div>
+                  
+                  <Button disabled={!canSubmit} className="mt-2 w-full">
+                    {busy ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+                  </Button>
                 </div>
-              </div>
+              </form>
             </div>
-          )}
-          <button className="btn btn-primary" type="submit" disabled={!canSubmit} style={{ width: '100%', justifyContent: 'center', padding: '11px', opacity: canSubmit ? 1 : 0.5 }}>
-            {busy ? 'กำลังเข้าสู่ระบบ…' : <>เข้าสู่ระบบ (Sign In) <Icon name="arrowR" /></>}
-          </button>
-
-          <div className="cap" style={{ textAlign: 'center', marginTop: 16, color: 'var(--ink-4)' }}>
-            ลืมรหัสผ่าน? ติดต่อผู้ดูแลระบบเพื่อตั้งรหัสใหม่
+            <p className="px-8 text-center text-sm text-muted-foreground">
+              ลืมรหัสผ่าน? ติดต่อผู้ดูแลระบบ
+            </p>
           </div>
-        </form>
+        </div>
       </div>
-    </div>
+
+      <Dialog open={showTerms} onOpenChange={setShowTerms}>
+        <DialogContent className="sm:max-w-[600px] max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Icon name="shield" className="size-4" />
+              </span>
+              ข้อตกลงและกฎระเบียบการใช้งานระบบ
+            </DialogTitle>
+            <DialogDescription>
+              TMK Operation — กรุณาอ่านก่อนยอมรับ
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto px-6 py-6 text-sm text-muted-foreground leading-relaxed space-y-6">
+            <div>
+              <h3 className="text-foreground font-semibold mb-2 text-base">1. ขอบเขตการใช้งาน</h3>
+              <p>ระบบ TMK Operation เป็นเครื่องมือภายในสำหรับบริหารจัดการธุรกิจแบรนด์ TMK เท่านั้น ผู้ใช้งานต้องเป็นบุคลากรของบริษัทหรือได้รับอนุญาตจากผู้ดูแลระบบ ห้ามมิให้ใช้งานระบบเพื่อวัตถุประสงค์อื่นนอกเหนือจากการบริหารธุรกิจ</p>
+            </div>
+            
+            <div>
+              <h3 className="text-foreground font-semibold mb-2 text-base">2. บัญชีผู้ใช้และความปลอดภัย</h3>
+              <p>ผู้ใช้งานต้องรักษาความลับของอีเมลและรหัสผ่าน ห้ามแบ่งปันข้อมูลการเข้าสู่ระบบกับบุคคลภายนอก หากพบว่ามีการเข้าถึงบัญชีโดยไม่ได้รับอนุญาต ให้แจ้งผู้ดูแลระบบทันที ผู้ใช้งานต้องรับผิดชอบต่อทุกการกระทำที่เกิดขึ้นภายใต้บัญชีของตน</p>
+            </div>
+
+            <div>
+              <h3 className="text-foreground font-semibold mb-2 text-base">3. ข้อมูลที่เป็นความลับ</h3>
+              <p>ข้อมูลทั้งหมดในระบบ ได้แก่ ยอดขาย ข้อมูลลูกค้า กลยุทธ์การตลาด ข้อมูลสินค้า ราคา ต้นทุน ค่าโฆษณา และข้อมูลทางธุรกิจอื่น ๆ ถือเป็นความลับทางการค้า ห้ามมิให้เปิดเผย คัดลอก แจกจ่าย หรือนำไปใช้นอกเหนือจากการปฏิบัติงาน การละเมิดอาจถูกดำเนินการทางกฎหมาย</p>
+            </div>
+
+            <div>
+              <h3 className="text-foreground font-semibold mb-2 text-base">4. สิทธิ์การเข้าถึงและระดับผู้ใช้</h3>
+              <p>ระบบแบ่งสิทธิ์เป็น 3 ระดับ: <strong>ผู้ดูแลระบบ</strong> (จัดการได้ทุกอย่าง รวมถึงสิทธิ์ผู้ใช้), <strong>แก้ไขได้</strong> (บันทึกยอดขาย จัดการงาน แก้ไขข้อมูล), <strong>ดูอย่างเดียว</strong> (เปิดดูข้อมูลได้แต่ไม่สามารถแก้ไข) ผู้ดูแลระบบเป็นผู้กำหนดสิทธิ์ของแต่ละบุคคล</p>
+            </div>
+
+            <div>
+              <h3 className="text-foreground font-semibold mb-2 text-base">5. การบันทึกข้อมูลและความถูกต้อง</h3>
+              <p>ผู้ใช้งานต้องกรอกข้อมูลยอดขายรายวันอย่างถูกต้องและตรงเวลา ข้อมูลที่บันทึกจะถูกใช้ในการวิเคราะห์ภาพรวมธุรกิจ การกรอกข้อมูลเท็จหรือบิดเบือนข้อมูลถือเป็นการกระทำที่ร้ายแรง ทุกการเปลี่ยนแปลงจะถูกบันทึกไว้ในประวัติการใช้งาน (Audit Log) เพื่อตรวจสอบย้อนหลัง</p>
+            </div>
+
+            <div className="bg-primary/5 p-4 rounded-lg border-l-4 border-primary">
+              <div className="font-semibold text-primary mb-1">หมายเหตุ</div>
+              <div className="text-sm">การกด "ยอมรับและดำเนินการต่อ" ถือว่าท่านได้อ่าน เข้าใจ และยินยอมปฏิบัติตามข้อตกลงและกฎระเบียบทั้งหมดข้างต้น</div>
+            </div>
+          </div>
+
+          <DialogFooter className="px-6 py-4 border-t flex-row justify-end gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setShowTerms(false)}>ปิด</Button>
+            <Button onClick={() => { setAgree(true); setShowTerms(false); }}>
+              <Icon name="check" className="mr-2 size-4" /> ยอมรับและดำเนินการต่อ
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
