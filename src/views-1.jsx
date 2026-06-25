@@ -187,15 +187,16 @@ function CampaignsCard({ go }) {
   const progressOf = (c) => { if (!c.startISO || !c.endISO) return null; const s = dnum(c.startISO), e = dnum(c.endISO); if (e <= s) return 100; return Math.max(0, Math.min(100, ((tNum - s) / (e - s)) * 100)); };
 
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-      <div className="card-head">
-        <h3><span style={{ color: 'var(--accent)' }}><Icon name="megaphone" /></span> {'แคมเปญ'}</h3>
-        <button className="btn btn-sm btn-ghost" onClick={() => go('settings', 'campaigns')}>{'ดูทั้งหมด'} <Icon name="arrowR" /></button>
-      </div>
+    <Card className="flex flex-col">
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="flex items-center text-base font-semibold"><Icon name="megaphone" className="mr-2 h-4 w-4 text-primary" /> แคมเปญ</CardTitle>
+        <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => go('settings', 'campaigns')}>ดูทั้งหมด <Icon name="arrowR" className="ml-2 h-3 w-3" /></Button>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col">
       {total === 0 ? (
         <div style={{ textAlign: 'center', padding: '18px 0', color: 'var(--ink-4)' }}>
           <div className="cap" style={{ marginBottom: 10 }}>ยังไม่มีแคมเปญที่กำลังดำเนินอยู่</div>
-          <button className="btn btn-sm" onClick={() => go('settings', 'campaigns')}>{'สร้างแคมเปญ'}</button>
+          <Button variant="outline" size="sm" onClick={() => go('settings', 'campaigns')}>สร้างแคมเปญ</Button>
         </div>
       ) : (<>
         <div className="row" style={{ justifyContent: 'space-around', gap: 8, padding: '6px 0 4px' }}>
@@ -249,7 +250,8 @@ function CampaignsCard({ go }) {
           })}
         </div>
       </>)}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -401,9 +403,15 @@ export function HomeView({ go }) {
         </div>
 
         {/* สรุปเมื่อวาน — digest อัตโนมัติ */}
-        <div className="card">
-          <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="up" /></span> {'สรุปเมื่อวาน'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>({digest.label})</span></h3>
-            {digest.yest && <button className="btn btn-sm btn-ghost" onClick={copyDigest} title="คัดลอกข้อความสรุป — แปะส่งไลน์ได้เลย">{'คัดลอก'}</button>}</div>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="flex items-center text-base font-semibold">
+              <Icon name="up" className="mr-2 h-4 w-4 text-primary" /> สรุปเมื่อวาน
+              <span className="ml-2 text-xs font-normal text-muted-foreground">({digest.label})</span>
+            </CardTitle>
+            {digest.yest && <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={copyDigest} title="คัดลอกข้อความสรุป — แปะส่งไลน์ได้เลย">คัดลอก</Button>}
+          </CardHeader>
+          <CardContent>
           {digest.yest ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <div className="row" style={{ gap: 10, alignItems: 'baseline' }}>
@@ -421,10 +429,11 @@ export function HomeView({ go }) {
           ) : (
             <div style={{ textAlign: 'center', padding: '14px 0', color: 'var(--ink-4)' }}>
               <div className="cap" style={{ marginBottom: 8 }}>{'ยังไม่มีข้อมูลเมื่อวาน'} ({digest.label})</div>
-              <button className="btn btn-sm" onClick={() => window.__openModal && window.__openModal('record', {})}>{'กรอกย้อนหลัง'}</button>
+              <Button variant="outline" size="sm" onClick={() => window.__openModal && window.__openModal('record', {})}>กรอกย้อนหลัง</Button>
             </div>
           )}
-        </div>
+          </CardContent>
+        </Card>
 
         {/* แคมเปญ — ใต้สรุปเมื่อวาน */}
         <CampaignsCard go={go} />
