@@ -13,9 +13,15 @@ import { ScanButton } from './ScanButton.jsx';
 import { buildMaster, buildSku, summarize, detectFileKind, buildMatchers, auditImport, auditColumns } from './lib/mpReport.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Toggle } from '@/components/ui/toggle';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import * as RDialog from '@radix-ui/react-dialog';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
 import { parseShipnityCustomers } from './lib/shipnityCustomers.js';
 import { logAudit } from './lib/audit.js';
@@ -101,100 +107,56 @@ async function deleteRow(table, id, label, audit = null) {
 
 const MD = TMK;
 
-/* ---------- Modal shell ---------- */
+// ปิด modal/sheet เมื่อ Radix สั่ง (Escape ชั้นบนสุด / คลิกฉากหลัง) — เคารพ confirmOnClose
+const dialogCloseHandler = (onClose, confirmOnClose) => (open) => {
+  if (open) return;
+  if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
+  onClose();
+};
+
+/* ---------- Modal shell (Radix Dialog — ประกอบกับ Radix Select/Dropdown ได้ถูกต้อง) ---------- */
 export function Modal({ icon, title, sub, onClose, footer, wide, children, confirmOnClose }) {
-  const tryClose = () => {
-    if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
-    onClose();
-  };
-  const tryCloseRef = useRef(tryClose);
-  useEffect(() => { tryCloseRef.current = tryClose; });
-  const boxRef = useRef(null);
-  useEffect(() => {
-    const onKey = e => { if (e.key === 'Escape') tryCloseRef.current(); };
-    window.addEventListener('keydown', onKey);
-    boxRef.current?.focus?.();
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
-  // Portal ไป document.body — กัน scrim โดน "ขัง" ใน stacking context ของหน้าที่มี transform
-  // (เช่น .content-inner.rise ที่มี animation → ทำให้ position:fixed ผูกกับ element นั้นแทน viewport
-  //  → พื้นหลังดำไม่เต็มจอ rail/topbar ทะลุ). Portal ทำให้ modal อยู่ root เสมอเหมือน modal อื่น
-  return createPortal(
-    <div className="dialog-overlay" onClick={tryClose}>
-      <div ref={boxRef} className={'dialog-content' + (wide ? ' dialog-content-lg' : '')} onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
-        <div className="dialog-header">
-          {icon && <div className="mh-icon"><Icon name={icon} /></div>}
-          <div style={{ minWidth: 0 }}>
-            <div className="dialog-title">{title}</div>
-            {sub && <div className="dialog-description">{sub}</div>}
+  return (
+    <RDialog.Root open onOpenChange={dialogCloseHandler(onClose, confirmOnClose)}>
+      <RDialog.Portal>
+        <RDialog.Overlay className="dialog-overlay" />
+        <RDialog.Content className={'dialog-content' + (wide ? ' dialog-content-lg' : '')} aria-describedby={undefined}>
+          <div className="dialog-header">
+            {icon && <div className="mh-icon"><Icon name={icon} /></div>}
+            <div style={{ minWidth: 0 }}>
+              <RDialog.Title className="dialog-title">{title}</RDialog.Title>
+              <RDialog.Description className={sub ? 'dialog-description' : 'sr-only'}>{sub || title}</RDialog.Description>
+            </div>
+            <RDialog.Close asChild><Button variant="ghost" size="icon" className="dialog-close" aria-label="ปิด"><Icon name="x" /></Button></RDialog.Close>
           </div>
-          <button className="icon-btn dialog-close" onClick={tryClose} aria-label="ปิด"><Icon name="x" /></button>
-        </div>
-        <div className="dialog-body">{children}</div>
-        {footer && <div className="dialog-footer">{footer}</div>}
-      </div>
-    </div>,
-    document.body
+          <div className="dialog-body">{children}</div>
+          {footer && <div className="dialog-footer">{footer}</div>}
+        </RDialog.Content>
+      </RDialog.Portal>
+    </RDialog.Root>
   );
 }
 
+/* ---------- Side sheet (Radix Dialog — แก้บั๊ก Radix Select/Dropdown ภายในใช้ไม่ได้) ---------- */
 export function SideSheet({ icon, title, sub, onClose, footer, size = 'md', children, confirmOnClose, showCloseButton = true, position = 'right' }) {
-  const tryClose = () => {
-    if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
-    onClose();
-  };
-  const boxRef = useRef(null);
-  const lastFocusRef = useRef(null);
-
-  const tryCloseRef = useRef(tryClose);
-
-  useEffect(() => { tryCloseRef.current = tryClose; });
-
-  useEffect(() => {
-    lastFocusRef.current = document.activeElement;
-    const onKey = e => {
-      if (e.key === 'Escape') tryCloseRef.current();
-      if (e.key === 'Tab' && boxRef.current) {
-        const focusable = boxRef.current.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    boxRef.current?.focus?.();
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      lastFocusRef.current?.focus?.();
-    };
-  }, []);
-
-  return createPortal(
-    <div className="sheet-scrim" onClick={tryClose}>
-      <aside
-        ref={boxRef}
-        className={`side-sheet side-sheet-${size}${position === 'left' ? ' side-sheet-left' : ''}`}
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        tabIndex={-1}
-      >
-        <div className="side-sheet-head">
-          {icon && <div className="mh-icon"><Icon name={icon} /></div>}
-          <div style={{ minWidth: 0 }}>
-            <div className="dialog-title">{title}</div>
-            {sub && <div className="dialog-description">{sub}</div>}
+  return (
+    <RDialog.Root open onOpenChange={dialogCloseHandler(onClose, confirmOnClose)}>
+      <RDialog.Portal>
+        <RDialog.Overlay className="sheet-scrim" />
+        <RDialog.Content className={`side-sheet side-sheet-${size}${position === 'left' ? ' side-sheet-left' : ''}`} aria-describedby={undefined}>
+          <div className="side-sheet-head">
+            {icon && <div className="mh-icon"><Icon name={icon} /></div>}
+            <div style={{ minWidth: 0 }}>
+              <RDialog.Title className="dialog-title">{title}</RDialog.Title>
+              <RDialog.Description className={sub ? 'dialog-description' : 'sr-only'}>{sub || title}</RDialog.Description>
+            </div>
+            {showCloseButton && <RDialog.Close asChild><Button variant="ghost" size="icon" className="dialog-close" aria-label="ปิด"><Icon name="x" /></Button></RDialog.Close>}
           </div>
-          {showCloseButton && <button className="icon-btn dialog-close" onClick={tryClose} aria-label="ปิด"><Icon name="x" /></button>}
-        </div>
-        <div className="side-sheet-body">{children}</div>
-        {footer && <div className="side-sheet-foot">{footer}</div>}
-      </aside>
-    </div>,
-    document.body
+          <div className="side-sheet-body">{children}</div>
+          {footer && <div className="side-sheet-foot">{footer}</div>}
+        </RDialog.Content>
+      </RDialog.Portal>
+    </RDialog.Root>
   );
 }
 
@@ -492,16 +454,16 @@ export function RecordSalesModal({ data, onClose }) {
 
   const footer = step === 1 ? (
     <>
-      {exists && <button className="btn btn-sm" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={saving} onClick={handleDelete}><Icon name="trash" /> ลบข้อมูลวันนี้</button>}
-      <button className="btn" onClick={() => guardClose(touched, onClose)}>{t('cancel')}</button>
-      <button className="btn btn-primary" disabled={!s.ok} style={{ opacity: s.ok ? 1 : 0.5 }} onClick={() => setStep(2)}>{t('reviewBefore')} <Icon name="arrowR" /></button>
+      {exists && <Button variant="outline" size="sm" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={saving} onClick={handleDelete}><Icon name="trash" /> ลบข้อมูลวันนี้</Button>}
+      <Button variant="outline" onClick={() => guardClose(touched, onClose)}>{t('cancel')}</Button>
+      <Button disabled={!s.ok} style={{ opacity: s.ok ? 1 : 0.5 }} onClick={() => setStep(2)}>{t('reviewBefore')} <Icon name="arrowR" /></Button>
     </>
   ) : (
     <>
-      <button className="btn" onClick={() => setStep(1)}><Icon name="chevR" className="flip-h" /> {t('goBackEdit')}</button>
-      <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+      <Button variant="outline" onClick={() => setStep(1)}><Icon name="chevR" className="flip-h" /> {t('goBackEdit')}</Button>
+      <Button disabled={saving} onClick={handleSave}>
         {saving ? <><Icon name="refresh" /> {t('saving')}</> : <><Icon name="check" /> {t('confirmSave')}</>}
-      </button>
+      </Button>
     </>
   );
 
@@ -521,11 +483,11 @@ export function RecordSalesModal({ data, onClose }) {
           <div className="row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="field" style={{ maxWidth: 220, margin: 0 }}>
               <label>วันที่</label>
-              <input type="date" className="input" max={todayISO()} value={date} onChange={e => { const v = e.target.value; if (touched && !window.confirm(DISCARD_MSG)) return; setDate(v); }} />
+              <Input type="date" max={todayISO()} value={date} onChange={e => { const v = e.target.value; if (touched && !window.confirm(DISCARD_MSG)) return; setDate(v); }} />
             </div>
-            <button type="button" className="btn btn-sm" onClick={copyYesterday} title="ดึงยอดของเมื่อวานมาเป็นจุดเริ่ม">
+            <Button variant="outline" size="sm" type="button" onClick={copyYesterday} title="ดึงยอดของเมื่อวานมาเป็นจุดเริ่ม">
               <Icon name="refresh" /> คัดลอกเมื่อวาน
-            </button>
+            </Button>
           </div>
 
           {/* Channel cards — 2 คอลัมน์ ลดการเลื่อน */}
@@ -541,13 +503,13 @@ export function RecordSalesModal({ data, onClose }) {
                   <span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }}></span>{ch.name}
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: ch.hasAd ? '1fr 1fr 1fr' : '1fr 1fr', gap: 10 }}>
-                  <div className="field"><label>ยอดขาย (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
-                  <div className="field"><label>ออเดอร์</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
-                  {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
+                  <div className="field"><label>ยอดขาย (฿)</label><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></div>
+                  <div className="field"><label>ออเดอร์</label><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.ord} onChange={e => up(i, 'ord', e.target.value)} /></div>
+                  {ch.hasAd && <div className="field"><label>ค่าแอด (฿)</label><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></div>}
                 </div>
                 <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 8 }}>
-                  <div className="field"><label>ลูกค้าใหม่</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
-                  <div className="field"><label>ลูกค้าเก่า</label><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าใหม่</label><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.newC} onChange={e => up(i, 'newC', e.target.value)} /></div>
+                  <div className="field"><label>ลูกค้าเก่า</label><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.oldC} onChange={e => up(i, 'oldC', e.target.value)} /></div>
                 </div>
                 {/* คนทัก = ลูกค้าใหม่ + เก่า (auto) — โชว์เมื่อกรอกแล้ว */}
                 {inq > 0 && (
@@ -559,8 +521,8 @@ export function RecordSalesModal({ data, onClose }) {
           </div>
 
           <div className="field-row">
-            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={chatTime} onChange={e => { loadDirty.current = true; setTouched(true); setChatTime(e.target.value); }} /></div>
-            <div className="field"><label>โน้ตประจำวัน</label><input className="input" placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { loadDirty.current = true; setTouched(true); setNote(e.target.value); }} /></div>
+            <div className="field"><label>เวลาตอบแชทเฉลี่ย (นาที)</label><Input type="number" min="0" inputMode="decimal" placeholder="0" value={chatTime} onChange={e => { loadDirty.current = true; setTouched(true); setChatTime(e.target.value); }} /></div>
+            <div className="field"><label>โน้ตประจำวัน</label><Input placeholder="ไลฟ์เย็น 1 รอบ, Flash Sale..." value={note} onChange={e => { loadDirty.current = true; setTouched(true); setNote(e.target.value); }} /></div>
           </div>
         </>
       )}
@@ -682,36 +644,38 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   const footer = (
     <>
       {edit && onDelete && (
-        <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }}
-          onClick={() => { if (window.confirm(`ลบงาน "${data.title}"?\nงานจะถูกย้ายไปถังขยะ (กู้คืนได้)`)) onDelete(data); }}>
+        <Button variant="outline" style={{ color: 'var(--bad)', marginRight: 'auto' }}
+ onClick={() => { if (window.confirm(`ลบงาน "${data.title}"?\nงานจะถูกย้ายไปถังขยะ (กู้คืนได้)`)) onDelete(data); }}>
           <Icon name="trash" /> ลบงาน
-        </button>
+        </Button>
       )}
-      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={!valid || submitting} style={{ opacity: valid && !submitting ? 1 : 0.5 }} onClick={() => { if (!valid || submitting) return; setSubmitting(true); onSubmit({ ...f, id: taskId }); }}>
+      <Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button>
+      <Button disabled={!valid || submitting} style={{ opacity: valid && !submitting ? 1 : 0.5 }} onClick={() => { if (!valid || submitting) return; setSubmitting(true); onSubmit({ ...f, id: taskId }); }}>
         <Icon name="check" /> {edit ? 'บันทึกการแก้ไข' : 'เพิ่มงาน'}
-      </button>
+      </Button>
     </>
   );
   return (
     <Modal icon="listChecks" title={edit ? 'แก้ไขงาน' : 'เพิ่มงานใหม่'} sub="มอบหมายงานให้ทีมพร้อมกำหนดวัน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field-row">
-        <div className="field"><label>วันที่</label><input type="date" className="input" value={f.date} onChange={e => set('date', e.target.value)} /></div>
+        <div className="field"><label>วันที่</label><Input type="date" value={f.date} onChange={e => set('date', e.target.value)} /></div>
         <div className="field"><label>แคมเปญ</label>
-          <select className="input" value={f.camp} onChange={e => set('camp', e.target.value)}>
-            <option value="">— ยังไม่ได้เลือก —</option>
-            {MD.campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <Select value={f.camp || undefined} onValueChange={v => set('camp', v)}>
+            <SelectTrigger><SelectValue placeholder="— ยังไม่ได้เลือก —" /></SelectTrigger>
+            <SelectContent>
+              {MD.campaigns.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-      <div className="field"><label>หัวข้องาน *</label><input className="input" value={f.title} onChange={e => set('title', e.target.value)} placeholder="เช่น บรีฟงาน Graphic / ถ่ายคอนเทนต์" /></div>
-      <div className="field"><label>รายละเอียด</label><textarea className="input" value={f.detail} onChange={e => set('detail', e.target.value)} placeholder="ระบุขั้นตอน / สิ่งที่ต้องส่ง..." /></div>
+      <div className="field"><label>หัวข้องาน *</label><Input value={f.title} onChange={e => set('title', e.target.value)} placeholder="เช่น บรีฟงาน Graphic / ถ่ายคอนเทนต์" /></div>
+      <div className="field"><label>รายละเอียด</label><Textarea value={f.detail} onChange={e => set('detail', e.target.value)} placeholder="ระบุขั้นตอน / สิ่งที่ต้องส่ง..." /></div>
       <div className="field"><label>ผู้รับผิดชอบ (เลือกหน้าที่)</label>
         <div className="chips-pick">
           {(MD.duties && MD.duties.length > 0 ? MD.duties.map(d => ({ name: d.name, color: d.color })) : MD.staff).map(st => (
-            <button key={st.name} className={'pick' + (f.responsible.includes(st.name) ? ' on' : '')} onClick={() => toggle('responsible', st.name)}>
+            <Toggle key={st.name} variant="pill" size="sm" pressed={f.responsible.includes(st.name)} onPressedChange={() => toggle('responsible', st.name)}>
               <span className="dot-c" style={{ background: st.color }}></span>{st.name}
-            </button>
+            </Toggle>
           ))}
         </div>
         <div className="cap" style={{ marginTop: 6, color: 'var(--ink-3)' }}>
@@ -721,26 +685,28 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
       <div className="field"><label>ช่องทาง</label>
         <div className="chips-pick">
           {/* ไม่มีช่องทาง (งานภายใน) — เคลียร์ช่องทางทั้งหมด */}
-          <button className={'pick' + (f.channel.length === 0 ? ' on' : '')} onClick={() => set('channel', [])}>
+          <Toggle variant="pill" size="sm" pressed={f.channel.length === 0} onPressedChange={() => set('channel', [])}>
             <span className="dot-c" style={{ background: 'var(--ink-4)' }}></span>ไม่มี
-          </button>
+          </Toggle>
           {/* ช่องทางจริงจาก Supabase เท่านั้น */}
           {(MD.channels || []).map(ch => (
-            <button key={ch.id} className={'pick' + (f.channel.includes(ch.name) ? ' on' : '')} onClick={() => toggle('channel', ch.name)}>
+            <Toggle key={ch.id} variant="pill" size="sm" pressed={f.channel.includes(ch.name)} onPressedChange={() => toggle('channel', ch.name)}>
               {ch.logoUrl ? (
                 <img src={ch.logoUrl} alt="" style={{ width: 18, height: 18, borderRadius: 4, objectFit: 'contain', marginRight: 4 }} />
               ) : (
                 <span className="dot-c" style={{ background: ch.hex }}></span>
               )}
               {ch.name}
-            </button>
+            </Toggle>
           ))}
         </div>
       </div>
       <div className="field"><label>สถานะ</label>
-        <div className="tabs-list">
-          {MD.kanbanMeta.map(k => <button key={k.id} className={'tabs-trigger' + (f.status === k.id ? ' active' : '')} onClick={() => set('status', k.id)}>{k.label}</button>)}
-        </div>
+        <Tabs value={f.status} onValueChange={v => set('status', v)}>
+          <TabsList>
+            {MD.kanbanMeta.map(k => <TabsTrigger key={k.id} value={k.id}>{k.label}</TabsTrigger>)}
+          </TabsList>
+        </Tabs>
       </div>
     </Modal>
   );
@@ -897,7 +863,7 @@ export function ProductModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_products', data.id, 'สินค้า', { action: 'delete', entityType: 'product', entityName: data.name, summary: `ลบสินค้า "${data.name}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</button></>);
+  const footer = (<>{data?.id && <Button variant="outline" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_products', data.id, 'สินค้า', { action: 'delete', entityType: 'product', entityName: data.name, summary: `ลบสินค้า "${data.name}"` })) onClose(); }}><Icon name="trash" /> ลบ</Button>}<Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกสินค้า'}</Button></>);
 
   // สไตล์ช่องในตาราง ไซส์×สี
   const cellInput = { width: 50, textAlign: 'center', padding: '6px 2px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16, fontVariantNumeric: 'tabular-nums' };
@@ -920,22 +886,22 @@ export function ProductModal({ data, onClose }) {
               ? <img src={f.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               : <span style={{ color: 'var(--ink-4)', display: 'grid', placeItems: 'center', gap: 4 }}><Icon name="bag" /><span className="cap">เพิ่มรูป</span></span>}
           </button>
-          {f.image && <button type="button" className="btn btn-sm btn-ghost" style={{ width: 92, marginTop: 6, color: 'var(--bad)' }} onClick={() => set('image', '')}>ลบรูป</button>}
+          {f.image && <Button variant="ghost" size="sm" type="button" style={{ width: 92, marginTop: 6, color: 'var(--bad)' }} onClick={() => set('image', '')}>ลบรูป</Button>}
         </div>
-        <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>ชื่อสินค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อยืดลาย Summer" /></div>
+        <div className="field" style={{ flex: 1, marginBottom: 0 }}><label>ชื่อสินค้า</label><Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น เสื้อยืดลาย Summer" /></div>
       </div>
       <div className="field-row">
-        <div className="field"><label>ราคาขาย (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>ราคาขาย (฿)</label><Input type="number" min="0" inputMode="decimal" className="num" value={f.price} onChange={e => set('price', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวนที่ขาย (ตัว)</label><Input type="number" min="0" inputMode="decimal" className="num" value={f.units} onChange={e => set('units', e.target.value)} placeholder="0" /></div>
       </div>
       <div className="field-row">
         <div className="field">
           <label>สต็อกคงเหลือ{hasLots && <span className="cap" style={{ marginLeft: 6, color: 'var(--ink-4)' }}>(คิดจากล็อต)</span>}</label>
           {hasLots
-            ? <input type="number" className="input num" value={grandTotal} readOnly disabled style={{ opacity: 0.7 }} />
-            : <input type="number" min="0" inputMode="decimal" className="input num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" />}
+            ? <Input type="number" className="num" value={grandTotal} readOnly disabled style={{ opacity: 0.7 }} />
+            : <Input type="number" min="0" inputMode="decimal" className="num" value={f.onHand} onChange={e => set('onHand', e.target.value)} placeholder="0" />}
         </div>
-        <div className="field"><label>จุดสั่งผลิตซ้ำ</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จุดสั่งผลิตซ้ำ</label><Input type="number" min="0" inputMode="decimal" className="num" value={f.reorder} onChange={e => set('reorder', e.target.value)} placeholder="0" /></div>
       </div>
       {hasLots && <div className="cap" style={{ marginTop: -4, marginBottom: 12, color: 'var(--ink-3)' }}>มูลค่าสต็อก (ต้นทุน): <b style={{ color: 'var(--ink)' }}>{B(grandValue)}</b></div>}
 
@@ -944,8 +910,8 @@ export function ProductModal({ data, onClose }) {
         <div className="row between" style={{ marginBottom: 8 }}>
           <label style={{ margin: 0 }}>ล็อต (ไซส์ × สี){hasLots && <span className="cap" style={{ marginLeft: 6, color: 'var(--ink-3)' }}>· {lots.length} ล็อต · รวม {N(grandTotal)} ตัว</span>}</label>
           <div className="row" style={{ gap: 6 }}>
-            {hasLots && <button type="button" className="btn btn-sm btn-ghost" title="คัดลอกสี+ไซส์จากล็อตล่าสุด" onClick={() => addLot(lots[lots.length - 1])}><Icon name="layers" /> คัดลอกโครงสร้าง</button>}
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => addLot()}><Icon name="plus" /> เพิ่มล็อต</button>
+            {hasLots && <Button variant="ghost" size="sm" type="button" title="คัดลอกสี+ไซส์จากล็อตล่าสุด" onClick={() => addLot(lots[lots.length - 1])}><Icon name="layers" /> คัดลอกโครงสร้าง</Button>}
+            <Button variant="ghost" size="sm" type="button" onClick={() => addLot()}><Icon name="plus" /> เพิ่มล็อต</Button>
           </div>
         </div>
         {!hasLots && <div className="cap" style={{ color: 'var(--ink-4)', padding: '4px 0 2px' }}>ยังไม่มีล็อต — กด "เพิ่มล็อต" เพื่อกรอกจำนวนแยกตามไซส์ × สี (สต็อกคงเหลือคิดจากผลรวมทุกล็อตอัตโนมัติ)</div>}
@@ -963,25 +929,25 @@ export function ProductModal({ data, onClose }) {
                     <div className="cap" style={{ color: 'var(--ink-3)' }}>รวม {N(calcLotTotal(l))} ตัว · {l.colors.length} สี × {l.sizes.length} ไซส์{calcLotValue(l) ? ` · มูลค่า ${B(calcLotValue(l))}` : ''}</div>
                   </div>
                 </div>
-                <button type="button" className="icon-btn" title="ลบล็อตนี้" onClick={(e) => { e.stopPropagation(); removeLot(i); }} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="trash" /></button>
+                <Button variant="ghost" size="icon" type="button" title="ลบล็อตนี้" onClick={(e) => { e.stopPropagation(); removeLot(i); }} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="trash" /></Button>
               </div>
 
               {isOpen && (
                 <div style={{ padding: '0 12px 12px', borderTop: '1px solid var(--line)' }}>
                   <div className="field-row" style={{ marginTop: 12, marginBottom: 8 }}>
-                    <div className="field" style={{ marginBottom: 0 }}><label>รหัสล็อต</label><input className="input" value={l.lotNo} onChange={e => setLotField(i, 'lotNo', e.target.value)} placeholder="เช่น LOT-2406" /></div>
-                    <div className="field" style={{ marginBottom: 0 }}><label>วันที่รับเข้า</label><input type="date" className="input" value={l.date} onChange={e => setLotField(i, 'date', e.target.value)} /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>รหัสล็อต</label><Input value={l.lotNo} onChange={e => setLotField(i, 'lotNo', e.target.value)} placeholder="เช่น LOT-2406" /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>วันที่รับเข้า</label><Input type="date" value={l.date} onChange={e => setLotField(i, 'date', e.target.value)} /></div>
                   </div>
                   <div className="field-row" style={{ marginBottom: 10 }}>
-                    <div className="field" style={{ marginBottom: 0 }}><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={l.cost} onChange={e => setLotField(i, 'cost', e.target.value)} placeholder="0" /></div>
-                    <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={l.note} onChange={e => setLotField(i, 'note', e.target.value)} placeholder="เช่น โรงงาน A / ผ้า Cotton" /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>ต้นทุน/ตัว (฿)</label><Input type="number" min="0" inputMode="decimal" className="num" value={l.cost} onChange={e => setLotField(i, 'cost', e.target.value)} placeholder="0" /></div>
+                    <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><Input value={l.note} onChange={e => setLotField(i, 'note', e.target.value)} placeholder="เช่น โรงงาน A / ผ้า Cotton" /></div>
                   </div>
 
                   {/* เลือกไซส์ */}
                   <div className="field" style={{ marginBottom: 10 }}>
                     <label>ไซส์ในล็อตนี้</label>
                     <div className="chips-pick">
-                      {SIZES.map(s => <button type="button" key={s} className={'pick' + (l.sizes.includes(s) ? ' on' : '')} onClick={() => toggleSize(i, s)}>{s}</button>)}
+                      {SIZES.map(s => <Toggle type="button" variant="pill" size="sm" key={s} pressed={l.sizes.includes(s)} onPressedChange={() => toggleSize(i, s)}>{s}</Toggle>)}
                     </div>
                   </div>
 
@@ -1008,7 +974,7 @@ export function ProductModal({ data, onClose }) {
                                     <div className="row" style={{ gap: 6 }}>
                                       <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : '#cccccc'} onChange={e => setColor(i, c.id, 'hex', e.target.value)} title="เลือกสี" style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, background: 'none', cursor: 'pointer', flexShrink: 0 }} />
                                       <input value={c.name} onChange={e => setColor(i, c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16 }} />
-                                      <button type="button" className="icon-btn" title="ลบสีนี้" onClick={() => removeColor(i, c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></button>
+                                      <Button variant="ghost" size="icon" type="button" title="ลบสีนี้" onClick={() => removeColor(i, c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></Button>
                                     </div>
                                   </td>
                                   {l.sizes.map(s => (
@@ -1053,15 +1019,15 @@ export function ProductModal({ data, onClose }) {
       <datalist id="cat-list">{[...new Set((MD.products || []).map(p => p.category).filter(Boolean))].map(c => <option key={c} value={c} />)}</datalist>
       <datalist id="sup-list">{[...new Set((MD.products || []).map(p => p.supplier).filter(Boolean))].map(s => <option key={s} value={s} />)}</datalist>
       <div className="field-row">
-        <div className="field"><label>หมวดหมู่</label><input className="input" list="cat-list" value={f.category} onChange={e => set('category', e.target.value)} placeholder="เช่น เสื้อยืด, โปโล" /></div>
-        <div className="field"><label>ผู้ผลิต / ซัพพลายเออร์</label><input className="input" list="sup-list" value={f.supplier} onChange={e => set('supplier', e.target.value)} placeholder="เช่น โรงงาน A" /></div>
+        <div className="field"><label>หมวดหมู่</label><Input list="cat-list" value={f.category} onChange={e => set('category', e.target.value)} placeholder="เช่น เสื้อยืด, โปโล" /></div>
+        <div className="field"><label>ผู้ผลิต / ซัพพลายเออร์</label><Input list="sup-list" value={f.supplier} onChange={e => set('supplier', e.target.value)} placeholder="เช่น โรงงาน A" /></div>
       </div>
       <div className="field-row">
-        <div className="field"><label>SKU</label><input className="input" value={f.sku} onChange={e => set('sku', e.target.value)} placeholder="เช่น TS-SUMMER-01" /></div>
-        <div className="field"><label>บาร์โค้ด</label><input className="input" value={f.barcode} onChange={e => set('barcode', e.target.value)} placeholder="เช่น 885xxxxxxxxxx" /></div>
+        <div className="field"><label>SKU</label><Input value={f.sku} onChange={e => set('sku', e.target.value)} placeholder="เช่น TS-SUMMER-01" /></div>
+        <div className="field"><label>บาร์โค้ด</label><Input value={f.barcode} onChange={e => set('barcode', e.target.value)} placeholder="เช่น 885xxxxxxxxxx" /></div>
       </div>
 
-      <div className="field" style={{ marginBottom: 0 }}><label>กลยุทธ์ / โน้ต</label><textarea className="input" value={f.strategy} onChange={e => set('strategy', e.target.value)} placeholder="เช่น สินค้าเรือธง ดันต่อเนื่อง" /></div>
+      <div className="field" style={{ marginBottom: 0 }}><label>กลยุทธ์ / โน้ต</label><Textarea value={f.strategy} onChange={e => set('strategy', e.target.value)} placeholder="เช่น สินค้าเรือธง ดันต่อเนื่อง" /></div>
     </Modal>
   );
 }
@@ -1414,19 +1380,21 @@ export function ImportProductsModal({ onClose }) {
 
   const STEPS = [['upload', '1. เลือกไฟล์'], ['map', '2. จับคู่คอลัมน์'], ['preview', '3. ตรวจ & นำเข้า']];
   const footer = (<>
-    <button className="btn" onClick={onClose}>ยกเลิก</button>
-    {step === 'map' && <button className="btn" onClick={() => setStep('upload')}>ย้อนกลับ</button>}
-    {step === 'preview' && <button className="btn" onClick={() => setStep('map')}>ย้อนกลับ</button>}
-    {step === 'upload' && <button className="btn btn-primary" disabled={!files.length} onClick={() => setStep('map')}>ถัดไป: จับคู่คอลัมน์</button>}
-    {step === 'map' && <button className="btn btn-primary" disabled={!mapping.name} onClick={() => setStep('preview')}>ถัดไป: ตรวจ & พรีวิว</button>}
-    {step === 'preview' && <button className="btn btn-primary" disabled={busy || !importable.length} onClick={handleImport}><Icon name="check" /> {busy ? 'กำลังนำเข้า…' : `นำเข้า ${N(importable.length)} รายการ`}</button>}
+    <Button variant="outline" onClick={onClose}>ยกเลิก</Button>
+    {step === 'map' && <Button variant="outline" onClick={() => setStep('upload')}>ย้อนกลับ</Button>}
+    {step === 'preview' && <Button variant="outline" onClick={() => setStep('map')}>ย้อนกลับ</Button>}
+    {step === 'upload' && <Button disabled={!files.length} onClick={() => setStep('map')}>ถัดไป: จับคู่คอลัมน์</Button>}
+    {step === 'map' && <Button disabled={!mapping.name} onClick={() => setStep('preview')}>ถัดไป: ตรวจ & พรีวิว</Button>}
+    {step === 'preview' && <Button disabled={busy || !importable.length} onClick={handleImport}><Icon name="check" /> {busy ? 'กำลังนำเข้า…' : `นำเข้า ${N(importable.length)} รายการ`}</Button>}
   </>);
 
   return (
     <Modal wide icon="external" title="นำเข้าสินค้าจาก CSV / Excel" sub="หลายไฟล์ในครั้งเดียว · จับคู่คอลัมน์เอง · ตรวจสอบข้อมูลก่อนนำเข้า" onClose={onClose} footer={footer}>
-      <div className="tabs-list" style={{ marginBottom: 14 }}>
-        {STEPS.map(([id, l]) => <button key={id} className={'tabs-trigger' + (step === id ? ' active' : '')} onClick={() => { if (id === 'upload' || files.length) setStep(id); }} disabled={id !== 'upload' && !files.length}>{l}</button>)}
-      </div>
+      <Tabs value={step} onValueChange={setStep} style={{ marginBottom: 14 }}>
+        <TabsList>
+          {STEPS.map(([id, l]) => <TabsTrigger key={id} value={id} disabled={id !== 'upload' && !files.length}>{l}</TabsTrigger>)}
+        </TabsList>
+      </Tabs>
 
       {/* ---------- STEP 1: UPLOAD ---------- */}
       {step === 'upload' && (<>
@@ -1434,8 +1402,8 @@ export function ImportProductsModal({ onClose }) {
           เลือกได้หลายไฟล์ <b>.csv</b> / <b>.xlsx</b> / <b>.xls</b> พร้อมกัน — ระบบรวมให้อัตโนมัติ · จับคู่คอลัมน์ให้เอง (แก้ได้) · นำเข้าเฉพาะ "ข้อมูลสินค้า" (สต็อก/ล็อตเพิ่มทีหลังที่หน้าสต็อก)
         </div>
         <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-sm btn-primary" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</button>
-          <button className="btn btn-sm btn-ghost" onClick={downloadTemplate}><Icon name="external" /> ดาวน์โหลดเทมเพลต</button>
+          <Button size="sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</Button>
+          <Button variant="ghost" size="sm" onClick={downloadTemplate}><Icon name="external" /> ดาวน์โหลดเทมเพลต</Button>
           <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,.xlsm,.xlsb,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style={{ display: 'none' }} onChange={onFiles} />
         </div>
         {files.length === 0
@@ -1447,26 +1415,29 @@ export function ImportProductsModal({ onClose }) {
                   <div key={f.id} style={{ padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
                     <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, minWidth: 0, wordBreak: 'break-all' }}><Icon name="external" /> {f.name}</span>
-                      <button className="btn btn-sm btn-ghost" onClick={() => removeFile(f.id)} title="เอาออก"><Icon name="trash" /></button>
+                      <Button variant="ghost" size="sm" onClick={() => removeFile(f.id)} title="เอาออก"><Icon name="trash" /></Button>
                     </div>
                     <div className="row" style={{ gap: 10, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                       <span className="cap">{N(dataRows)} แถวข้อมูล · {N(f.headers.filter(Boolean).length)} คอลัมน์</span>
                       {f.kind === 'xlsx' && f.sheetNames.length > 1 && (
                         <label className="cap" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>ชีต:
-                          <select className="input" style={{ width: 'auto', padding: '2px 6px' }} value={f.sheetIdx} onChange={e => changeSheet(f.id, Number(e.target.value))}>
-                            {f.sheetNames.map((s, i) => <option key={i} value={i}>{s}</option>)}
-                          </select>
+                          <Select value={String(f.sheetIdx)} onValueChange={v => changeSheet(f.id, Number(v))}>
+                            <SelectTrigger style={{ width: 'auto' }}><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {f.sheetNames.map((s, i) => <SelectItem key={i} value={String(i)}>{s}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
                         </label>
                       )}
                       <label className="cap" style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>แถวหัวคอลัมน์:
-                        <input type="number" min="1" className="input num" style={{ width: 60, padding: '2px 6px' }} value={f.headerRow + 1} onChange={e => changeHeaderRow(f.id, e.target.value)} />
+                        <Input type="number" min="1" className="num" style={{ width: 60, padding: '2px 6px' }} value={f.headerRow + 1} onChange={e => changeHeaderRow(f.id, e.target.value)} />
                       </label>
                       {f.recovered && <span className="chip chip-warn">แปลง encoding เป็นไทย (windows-874)</span>}
                     </div>
                   </div>
                 );
               })}
-              <button className="btn btn-sm btn-ghost" onClick={() => fileRef.current?.click()} style={{ justifySelf: 'start' }}><Icon name="plus" /> เพิ่มไฟล์อีก</button>
+              <Button variant="ghost" size="sm" onClick={() => fileRef.current?.click()} style={{ justifySelf: 'start' }}><Icon name="plus" /> เพิ่มไฟล์อีก</Button>
             </div>}
       </>)}
 
@@ -1481,10 +1452,13 @@ export function ImportProductsModal({ onClose }) {
             return (
               <div key={f.key} className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ flex: '0 0 110px', fontWeight: 600 }}>{f.label}{f.required && <span style={{ color: 'var(--bad)' }}> *</span>}</span>
-                <select className="input" style={{ flex: '1 1 180px' }} value={mapping[f.key] || ''} onChange={e => setMapping(m => ({ ...m, [f.key]: e.target.value }))}>
-                  <option value="">— ไม่ใช้ —</option>
-                  {allHeaders.map(h => <option key={h} value={h}>{h}</option>)}
-                </select>
+                <Select value={mapping[f.key] || '__none__'} onValueChange={v => setMapping(m => ({ ...m, [f.key]: v === '__none__' ? '' : v }))}>
+                  <SelectTrigger style={{ flex: '1 1 180px' }}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— ไม่ใช้ —</SelectItem>
+                    {allHeaders.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
+                  </SelectContent>
+                </Select>
                 <span className="cap" style={{ flex: '1 1 140px', color: 'var(--ink-4)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mapping[f.key] ? (sample != null ? `ตัวอย่าง: ${sample}` : '(ไม่พบค่าตัวอย่าง)') : ''}</span>
               </div>
             );
@@ -1498,7 +1472,7 @@ export function ImportProductsModal({ onClose }) {
             <div style={{ marginTop: 14, padding: '10px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
               <div className="cap" style={{ marginBottom: 6 }}>คอลัมน์ที่ไม่ได้จับคู่ ({N(unmapped.length)}): <b style={{ color: 'var(--ink)' }}>{unmapped.join(' · ')}</b></div>
               <label className="row" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }}>
-                <input type="checkbox" checked={keepUnmapped} onChange={e => setKeepUnmapped(e.target.checked)} />
+                <Checkbox checked={keepUnmapped} onCheckedChange={setKeepUnmapped} />
                 <span className="cap">เก็บคอลัมน์เหล่านี้ไว้ในโน้ตของสินค้า (เผื่อใช้ภายหลัง — ไม่ทิ้งข้อมูล)</span>
               </label>
             </div>
@@ -1511,19 +1485,21 @@ export function ImportProductsModal({ onClose }) {
       {/* ---------- STEP 3: VALIDATE & PREVIEW ---------- */}
       {step === 'preview' && (<>
         <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div className="tabs-list">
-            <button className={'tabs-trigger' + (mode === 'add' ? ' active' : '')} onClick={() => setMode('add')}>เพิ่มใหม่อย่างเดียว</button>
-            <button className={'tabs-trigger' + (mode === 'upsert' ? ' active' : '')} onClick={() => setMode('upsert')}>เพิ่ม + อัปเดตของเดิม</button>
-          </div>
-          <button className="btn btn-sm btn-ghost" disabled={!analyzed.rows.length} onClick={downloadReport}><Icon name="external" /> ดาวน์โหลดรายงาน</button>
+          <Tabs value={mode} onValueChange={setMode}>
+            <TabsList>
+              <TabsTrigger value="add">เพิ่มใหม่อย่างเดียว</TabsTrigger>
+              <TabsTrigger value="upsert">เพิ่ม + อัปเดตของเดิม</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button variant="ghost" size="sm" disabled={!analyzed.rows.length} onClick={downloadReport}><Icon name="external" /> ดาวน์โหลดรายงาน</Button>
         </div>
         <div className="cap" style={{ marginBottom: 10, color: 'var(--ink-4)' }}>
           {mode === 'upsert' ? 'โหมดอัปเดต: ถ้า SKU/ชื่อ ตรงกับสินค้าเดิม จะอัปเดตข้อมูล (ไม่แตะสต็อก/ล็อต) ที่ไม่ตรงจะเพิ่มใหม่' : 'โหมดเพิ่มอย่างเดียว: ถ้า SKU/ชื่อ ซ้ำกับของเดิม จะข้าม'}
         </div>
-        <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        <ToggleGroup type="single" variant="pill" size="sm" className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap' }} value={statusFilter} onValueChange={v => v && setStatusFilter(v)}>
           {[['all', `ทั้งหมด ${N(analyzed.counts.total)}`], ['new', `ใหม่ ${N(analyzed.counts.new)}`], ['update', `อัปเดต ${N(analyzed.counts.update)}`], ['dup', `ซ้ำ ${N(analyzed.counts.dup)}`], ['error', `ผิดพลาด ${N(analyzed.counts.error)}`], ['issues', `มีข้อสังเกต ${N(analyzed.rows.filter(r => r.issues.length).length)}`]]
-            .map(([id, l]) => <button key={id} className={'pick' + (statusFilter === id ? ' on' : '')} onClick={() => setStatusFilter(id)}>{l}</button>)}
-        </div>
+            .map(([id, l]) => <ToggleGroupItem key={id} value={id}>{l}</ToggleGroupItem>)}
+        </ToggleGroup>
         {analyzed.counts.error > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 8 }}>⚠️ {N(analyzed.counts.error)} แถวไม่มีชื่อสินค้า — จะถูกข้าม</div>}
         <div className="table-wrap table-sticky-first" style={{ maxHeight: 360, overflow: 'auto' }}>
           <table className="table">
@@ -1669,12 +1645,12 @@ export function MpImportModal({ onClose, onDone }) {
   const kindSummary = ['shipnity', 'shopee', 'tiktok', 'catalog'].map(k => [k, cntKind(k)]).filter(([, n]) => n > 0);
   const footer = step === 1
     ? (<>
-        <button className="btn" onClick={onClose}>ปิด</button>
-        <button className="btn btn-primary" disabled={!result} onClick={() => setStep(2)}>{result ? <>ตรวจข้อมูล <Icon name="external" /></> : (need ? 'ต้องมีไฟล์ Shipnity (ฐานหลัก)' : 'เลือกไฟล์ก่อน')}</button>
+        <Button variant="outline" onClick={onClose}>ปิด</Button>
+        <Button disabled={!result} onClick={() => setStep(2)}>{result ? <>ตรวจข้อมูล <Icon name="external" /></> : (need ? 'ต้องมีไฟล์ Shipnity (ฐานหลัก)' : 'เลือกไฟล์ก่อน')}</Button>
       </>)
     : (<>
-        <button className="btn" onClick={() => setStep(1)}>← ย้อนกลับ</button>
-        <button className="btn btn-primary" disabled={!result || saving} onClick={save}><Icon name="check" /> {saving ? 'กำลังบันทึก…' : `บันทึกลงระบบ (${N(result?.master.length || 0)} ออเดอร์)`}</button>
+        <Button variant="outline" onClick={() => setStep(1)}>← ย้อนกลับ</Button>
+        <Button disabled={!result || saving} onClick={save}><Icon name="check" /> {saving ? 'กำลังบันทึก…' : `บันทึกลงระบบ (${N(result?.master.length || 0)} ออเดอร์)`}</Button>
       </>);
   return (
     <SideSheet size="xl" icon="external" title="นำเข้ารายงานรวมข้ามช่อง" sub={step === 1 ? 'ขั้น 1/2 · เลือกไฟล์' : 'ขั้น 2/2 · ตรวจข้อมูลก่อนบันทึก'} onClose={onClose} footer={footer}>
@@ -1683,7 +1659,7 @@ export function MpImportModal({ onClose, onDone }) {
           ลากไฟล์มาได้หลายไฟล์พร้อมกัน — ระบบรู้เองว่าไฟล์ไหนคืออะไร · <b>ต้องมี Shipnity (ฐานหลัก)</b> · แคตตาล็อกใช้ <b>golden ในตัว</b> ให้แล้ว (อัปไฟล์แคตตาล็อกเองได้ถ้าอยากแทน) · Shopee/TikTok ใส่เพิ่มเพื่อความแม่นระดับ SKU
         </div>
         <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button className="btn btn-sm btn-primary" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</button>
+          <Button size="sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</Button>
           <input ref={fileRef} type="file" multiple accept=".csv,.xlsx,.xls,.xlsm,.xlsb" style={{ display: 'none' }} onChange={onFiles} />
         </div>
         {files.length === 0
@@ -1692,7 +1668,7 @@ export function MpImportModal({ onClose, onDone }) {
               {files.map(f => (
                 <div key={f.id} className="row between" style={{ gap: 8, padding: '8px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
                   <span style={{ minWidth: 0, wordBreak: 'break-all' }}><span className={'chip ' + (f.kind === 'unknown' ? 'chip-bad' : f.kind === 'shipnity' || f.kind === 'catalog' ? 'chip-good' : 'chip-accent')} style={{ marginRight: 8 }}>{MP_KIND_LABEL[f.kind]}</span>{f.name} <span className="cap">· {N(f.rows)} แถว</span></span>
-                  <button className="btn btn-sm btn-ghost" onClick={() => removeFile(f.id)}><Icon name="trash" /></button>
+                  <Button variant="ghost" size="sm" onClick={() => removeFile(f.id)}><Icon name="trash" /></Button>
                 </div>
               ))}
             </div>}
@@ -1708,7 +1684,7 @@ export function MpImportModal({ onClose, onDone }) {
         <div className="metric-grid" style={{ marginBottom: 12 }}>
           <div className="metric-card"><div className="cap">ออเดอร์</div><div className="num" style={{ fontSize: 20, fontWeight: 700 }}>{N(result.sum.orders)}</div></div>
           <div className="metric-card"><div className="cap">ยอดขายรวม</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-2)' }}>{baht(result.sum.sales)}</div></div>
-          <div className="metric-card"><div className="cap">จำนวนชิ้น</div><div className="num" style={{ fontSize: 20, fontWeight: 700 }}>{N(result.sum.qty)}</div></div>
+          <div className="metric-card"><div className="cap">จำนวนตัว</div><div className="num" style={{ fontSize: 20, fontWeight: 700 }}>{N(result.sum.qty)}</div></div>
           <div className="metric-card"><div className="cap">จับคู่ลาย</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: result.sum.matchedPct >= 99 ? 'var(--good)' : 'var(--warn)' }}>{result.sum.matchedPct.toFixed(1)}%</div><div className="cap" style={{ color: 'var(--ink-4)' }}>{N(result.sum.skuLines)} SKU</div></div>
           <div className="metric-card"><div className="cap">ลูกค้า (โปรไฟล์)</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-2)' }}>{N(result.customers?.length || 0)}</div></div>
         </div>
@@ -1885,7 +1861,7 @@ export function SellModal({ data, onClose }) {
   };
 
   const canSave = !!product && totalQty > 0;
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกการขาย'}</button></>);
+  const footer = (<><Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกการขาย'}</Button></>);
 
   return (
     <Modal wide icon="wallet" title="บันทึกการขาย / ตัดสต็อก" sub="เลือก ล็อต → สี → ไซส์ → จำนวน แล้วระบบจะหักสต็อกให้" onClose={onClose} footer={footer} confirmOnClose={touched}>
@@ -1893,10 +1869,12 @@ export function SellModal({ data, onClose }) {
         ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้าที่มีล็อต — ไปหน้า "สินค้า" เพิ่มล็อต (ไซส์ × สี) ก่อน</div>
         : (<>
           <div className="field"><label>สินค้า</label>
-            <select className="input" value={productId} onChange={e => changeProduct(e.target.value)}>
-              <option value="">— เลือกสินค้า —</option>
-              {lotProducts.map(p => <option key={p.id} value={p.id}>{p.name} (เหลือ {p.onHand})</option>)}
-            </select>
+            <Select value={productId || undefined} onValueChange={v => changeProduct(v)}>
+              <SelectTrigger><SelectValue placeholder="— เลือกสินค้า —" /></SelectTrigger>
+              <SelectContent>
+                {lotProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name} (เหลือ {p.onHand})</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
 
           {product && product.reservedTotal > 0 && (
@@ -1907,7 +1885,7 @@ export function SellModal({ data, onClose }) {
           {product && (<>
             <div className="row between" style={{ marginBottom: 8 }}>
               <label style={{ margin: 0 }}>รายการที่ขาย</label>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</button>
+              <Button variant="ghost" size="sm" type="button" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</Button>
             </div>
             {lines.map((l, i) => {
               const lot = lotById(l.lotId);
@@ -1918,29 +1896,35 @@ export function SellModal({ data, onClose }) {
                 <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
                   <div className="mrow2" style={{ marginBottom: 8 }}>
                     <div className="field" style={{ margin: 0 }}><label>ล็อต</label>
-                      <select className="input" value={l.lotId} onChange={e => setLine(i, { lotId: e.target.value, colorId: '', size: '', qty: '' })}>
-                        <option value="">— เลือกล็อต —</option>
-                        {lots.filter(x => calcLotTotal(x) > 0).map((x, xi) => <option key={x.id} value={x.id}>{(x.lotNo || `ล็อต ${xi + 1}`)}{x.date ? ` · ${x.date}` : ''} (เหลือ {calcLotTotal(x)})</option>)}
-                      </select>
+                      <Select value={l.lotId || undefined} onValueChange={v => setLine(i, { lotId: v, colorId: '', size: '', qty: '' })}>
+                        <SelectTrigger><SelectValue placeholder="— เลือกล็อต —" /></SelectTrigger>
+                        <SelectContent>
+                          {lots.filter(x => calcLotTotal(x) > 0).map((x, xi) => <SelectItem key={x.id} value={x.id}>{(x.lotNo || `ล็อต ${xi + 1}`)}{x.date ? ` · ${x.date}` : ''} (เหลือ {calcLotTotal(x)})</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="field" style={{ margin: 0 }}><label>สี</label>
-                      <select className="input" value={l.colorId} disabled={!l.lotId} onChange={e => setLine(i, { colorId: e.target.value, size: '', qty: '' })}>
-                        <option value="">{l.lotId ? '— เลือกสี —' : '— เลือกล็อตก่อน —'}</option>
-                        {colorsAvail.map(c => { const n = Object.values(lot.grid?.[c.id] || {}).reduce((a, v) => a + (Number(v) || 0), 0); return <option key={c.id} value={c.id}>{c.name} (เหลือ {n})</option>; })}
-                      </select>
+                      <Select value={l.colorId || undefined} disabled={!l.lotId} onValueChange={v => setLine(i, { colorId: v, size: '', qty: '' })}>
+                        <SelectTrigger><SelectValue placeholder={l.lotId ? '— เลือกสี —' : '— เลือกล็อตก่อน —'} /></SelectTrigger>
+                        <SelectContent>
+                          {colorsAvail.map(c => { const n = Object.values(lot.grid?.[c.id] || {}).reduce((a, v) => a + (Number(v) || 0), 0); return <SelectItem key={c.id} value={c.id}>{c.name} (เหลือ {n})</SelectItem>; })}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="mrowf">
                     <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
-                      <select className="input" value={l.size} disabled={!l.colorId} onChange={e => setLine(i, { size: e.target.value, qty: '' })}>
-                        <option value="">{l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'}</option>
-                        {sizesAvail.map(s => <option key={s} value={s}>{s} (เหลือ {cellAvail(lot, l.colorId, s)})</option>)}
-                      </select>
+                      <Select value={l.size || undefined} disabled={!l.colorId} onValueChange={v => setLine(i, { size: v, qty: '' })}>
+                        <SelectTrigger><SelectValue placeholder={l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'} /></SelectTrigger>
+                        <SelectContent>
+                          {sizesAvail.map(s => <SelectItem key={s} value={s}>{s} (เหลือ {cellAvail(lot, l.colorId, s)})</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="field" style={{ margin: 0 }}><label>จำนวน{l.size ? ` / เหลือ ${avail}` : ''}</label>
-                      <input type="number" min="0" inputMode="decimal" max={avail || undefined} className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
+                      <Input type="number" min="0" inputMode="decimal" max={avail || undefined} className="num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
                     </div>
-                    <button type="button" className="icon-btn" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
+                    <Button variant="ghost" size="icon" type="button" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></Button>
                   </div>
                   {l.size && Number(l.qty) > avail && <div className="cap" style={{ color: 'var(--warn)', marginTop: 6 }}>เกินคงเหลือ — จะตัดได้สูงสุด {avail} ตัว</div>}
                 </div>
@@ -1948,14 +1932,17 @@ export function SellModal({ data, onClose }) {
             })}
 
             <div className="field-row" style={{ marginTop: 4 }}>
-              <div className="field" style={{ marginBottom: 0 }}><label>วันที่ขาย</label><input type="date" className="input" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>วันที่ขาย</label><Input type="date" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
               <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง (ไม่บังคับ)</label>
-                <select className="input" value={channel} onChange={e => { setTouched(true); setChannel(e.target.value); }}>
-                  <option value="">— ไม่ระบุ —</option>
-                  {(MD.channels || []).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </select>
+                <Select value={channel || '__none__'} onValueChange={v => { setTouched(true); setChannel(v === '__none__' ? '' : v); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— ไม่ระบุ —</SelectItem>
+                    {(MD.channels || []).map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ชื่อลูกค้า" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><Input value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ชื่อลูกค้า" /></div>
             </div>
 
             <div className="row between" style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
@@ -2007,13 +1994,13 @@ export function CampaignModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกแคมเปญ'}</button></>);
+  const footer = (<><Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกแคมเปญ'}</Button></>);
   return (
     <Modal icon="megaphone" title={data ? 'แก้ไขแคมเปญ' : 'สร้างแคมเปญ'} sub="ตั้งชื่อ ช่วงเวลา และช่องทาง" onClose={onClose} footer={footer} confirmOnClose={touched}>
-      <div className="field"><label>ชื่อแคมเปญ</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Payday Push" /></div>
+      <div className="field"><label>ชื่อแคมเปญ</label><Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Payday Push" /></div>
       <div className="field-row">
-        <div className="field"><label>เริ่ม</label><input type="date" className="input" value={f.start} onChange={e => set('start', e.target.value)} /></div>
-        <div className="field"><label>สิ้นสุด</label><input type="date" className="input" value={f.end} onChange={e => set('end', e.target.value)} /></div>
+        <div className="field"><label>เริ่ม</label><Input type="date" value={f.start} onChange={e => set('start', e.target.value)} /></div>
+        <div className="field"><label>สิ้นสุด</label><Input type="date" value={f.end} onChange={e => set('end', e.target.value)} /></div>
       </div>
       <div className="field"><label>สีประจำแคมเปญ</label>
         <div className="chips-pick">
@@ -2025,21 +2012,23 @@ export function CampaignModal({ data, onClose }) {
       <div className="field"><label>ช่องทาง (ติ๊กเลือก)</label>
         <div className="chips-pick">
           {MD.channels.map(ch => (
-            <button key={ch.id} className={'pick' + (f.channels.includes(ch.id) ? ' on' : '')} onClick={() => toggleCh(ch.id)}>
+            <Toggle key={ch.id} variant="pill" size="sm" pressed={f.channels.includes(ch.id)} onPressedChange={() => toggleCh(ch.id)}>
               {ch.logoUrl ? (
                 <img src={ch.logoUrl} alt="" style={{ width: 16, height: 16, borderRadius: 3, objectFit: 'contain', marginRight: 4 }} />
               ) : (
                 <span className="dot-c" style={{ background: ch.hex }}></span>
               )}
               {ch.name}
-            </button>
+            </Toggle>
           ))}
         </div>
       </div>
       <div className="field"><label>สถานะ</label>
-        <div className="tabs-list">
-          {statuses.map(s => <button key={s[0]} className={'tabs-trigger' + (f.status === s[0] ? ' active' : '')} onClick={() => set('status', s[0])}>{s[1]}</button>)}
-        </div>
+        <Tabs value={f.status} onValueChange={v => set('status', v)}>
+          <TabsList>
+            {statuses.map(s => <TabsTrigger key={s[0]} value={s[0]}>{s[1]}</TabsTrigger>)}
+          </TabsList>
+        </Tabs>
       </div>
     </Modal>
   );
@@ -2127,7 +2116,7 @@ export function StockAdjustModal({ data, onClose }) {
   };
 
   const canSave = !!product && lines.some(lineReady);
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกการปรับสต็อก'}</button></>);
+  const footer = (<><Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกการปรับสต็อก'}</Button></>);
 
   return (
     <Modal wide icon="box" title="ปรับสต็อก / นับสต็อก" sub="รับเข้า / รับคืน / ของเสีย / นับสต็อกใหม่ — แยกตาม ล็อต × สี × ไซส์" onClose={onClose} footer={footer} confirmOnClose={touched}>
@@ -2135,16 +2124,18 @@ export function StockAdjustModal({ data, onClose }) {
         ? <div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>ยังไม่มีสินค้าที่มีล็อต — ไปหน้า "สินค้า" เพิ่มล็อตก่อน</div>
         : (<>
           <div className="field"><label>สินค้า</label>
-            <select className="input" value={productId} onChange={e => changeProduct(e.target.value)}>
-              <option value="">— เลือกสินค้า —</option>
-              {lotProducts.map(p => <option key={p.id} value={p.id}>{p.name} (เหลือ {p.onHand})</option>)}
-            </select>
+            <Select value={productId || undefined} onValueChange={v => changeProduct(v)}>
+              <SelectTrigger><SelectValue placeholder="— เลือกสินค้า —" /></SelectTrigger>
+              <SelectContent>
+                {lotProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name} (เหลือ {p.onHand})</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
 
           {product && (<>
             <div className="row between" style={{ marginBottom: 8 }}>
               <label style={{ margin: 0 }}>รายการปรับสต็อก</label>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</button>
+              <Button variant="ghost" size="sm" type="button" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</Button>
             </div>
             {lines.map((l, i) => {
               const lot = lotById(l.lotId);
@@ -2156,43 +2147,52 @@ export function StockAdjustModal({ data, onClose }) {
                 <div key={l.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
                   <div className="mrow2" style={{ marginBottom: 8 }}>
                     <div className="field" style={{ margin: 0 }}><label>ล็อต</label>
-                      <select className="input" value={l.lotId} onChange={e => setLine(i, { lotId: e.target.value, colorId: '', size: '' })}>
-                        <option value="">— เลือกล็อต —</option>
-                        {lots.map((x, xi) => <option key={x.id} value={x.id}>{x.lotNo || `ล็อต ${xi + 1}`}{x.date ? ` · ${x.date}` : ''} (เหลือ {calcLotTotal(x)})</option>)}
-                      </select>
+                      <Select value={l.lotId || undefined} onValueChange={v => setLine(i, { lotId: v, colorId: '', size: '' })}>
+                        <SelectTrigger><SelectValue placeholder="— เลือกล็อต —" /></SelectTrigger>
+                        <SelectContent>
+                          {lots.map((x, xi) => <SelectItem key={x.id} value={x.id}>{x.lotNo || `ล็อต ${xi + 1}`}{x.date ? ` · ${x.date}` : ''} (เหลือ {calcLotTotal(x)})</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="field" style={{ margin: 0 }}><label>สี</label>
-                      <select className="input" value={l.colorId} disabled={!l.lotId} onChange={e => setLine(i, { colorId: e.target.value, size: '' })}>
-                        <option value="">{l.lotId ? '— เลือกสี —' : '— เลือกล็อตก่อน —'}</option>
-                        {/* รับเข้า/นับใหม่ = โชว์ทุกสีในล็อต; ของเสีย/รับคืน = เฉพาะที่มีของ */}
-                        {(reason.sign >= 0 && isSet ? (lot?.colors || []) : reason.sign > 0 ? (lot?.colors || []) : colorsAvail).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
+                      <Select value={l.colorId || undefined} disabled={!l.lotId} onValueChange={v => setLine(i, { colorId: v, size: '' })}>
+                        <SelectTrigger><SelectValue placeholder={l.lotId ? '— เลือกสี —' : '— เลือกล็อตก่อน —'} /></SelectTrigger>
+                        <SelectContent>
+                          {/* รับเข้า/นับใหม่ = โชว์ทุกสีในล็อต; ของเสีย/รับคืน = เฉพาะที่มีของ */}
+                          {(reason.sign >= 0 && isSet ? (lot?.colors || []) : reason.sign > 0 ? (lot?.colors || []) : colorsAvail).map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="mrow2b" style={{ marginBottom: 8 }}>
                     <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
-                      <select className="input" value={l.size} disabled={!l.colorId} onChange={e => setLine(i, { size: e.target.value })}>
-                        <option value="">{l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'}</option>
-                        {sizesAll.map(s => <option key={s} value={s}>{s} (เหลือ {cellAvail(lot, l.colorId, s)})</option>)}
-                      </select>
+                      <Select value={l.size || undefined} disabled={!l.colorId} onValueChange={v => setLine(i, { size: v })}>
+                        <SelectTrigger><SelectValue placeholder={l.colorId ? '— เลือกไซส์ —' : '— เลือกสีก่อน —'} /></SelectTrigger>
+                        <SelectContent>
+                          {sizesAll.map(s => <SelectItem key={s} value={s}>{s} (เหลือ {cellAvail(lot, l.colorId, s)})</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="field" style={{ margin: 0 }}><label>เหตุผล</label>
-                      <select className="input" value={l.reason} onChange={e => setLine(i, { reason: e.target.value })}>
-                        {ADJUST_REASONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
-                      </select>
+                      <Select value={l.reason} onValueChange={v => setLine(i, { reason: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {ADJUST_REASONS.map(r => <SelectItem key={r.id} value={r.id}>{r.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
                   <div className="mrow-qty">
                     <div className="field" style={{ margin: 0 }}><label>{isSet ? 'ตั้งเป็น (ตัว)' : 'จำนวน (ตัว)'}</label>
-                      <input type="number" min="0" inputMode="decimal" className="input num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
+                      <Input type="number" min="0" inputMode="decimal" className="num" value={l.qty} disabled={!l.size} onChange={e => setLine(i, { qty: e.target.value })} placeholder="0" />
                     </div>
                     <div className="cap" style={{ paddingBottom: 8, whiteSpace: 'nowrap', color: 'var(--ink-3)' }}>{l.size ? <>คงเหลือ {N(avail)} → <b style={{ color: newQty >= avail ? 'var(--good)' : 'var(--bad)' }}>{N(newQty)}</b></> : ''}</div>
-                    <button type="button" className="icon-btn" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
+                    <Button variant="ghost" size="icon" type="button" title="ลบรายการ" onClick={() => removeLine(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></Button>
                   </div>
                 </div>
               );
             })}
-            <div className="field" style={{ marginTop: 4, marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ตรวจนับประจำเดือน / ลูกค้าคืนของ" /></div>
+            <div className="field" style={{ marginTop: 4, marginBottom: 0 }}><label>โน้ต (ไม่บังคับ)</label><Input value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น ตรวจนับประจำเดือน / ลูกค้าคืนของ" /></div>
           </>)}
         </>)}
     </Modal>
@@ -2250,7 +2250,7 @@ export function ReservationModal({ data, onClose }) {
   };
 
   const canSave = !!product && totalQty > 0;
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'จองสต็อก'}</button></>);
+  const footer = (<><Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'จองสต็อก'}</Button></>);
 
   return (
     <Modal wide icon="clock" title="จองสต็อก" sub="กันสินค้า (สี × ไซส์) ให้ลูกค้า → พร้อมขายจะลดลงตามจอง" onClose={onClose} footer={footer} confirmOnClose={touched}>
@@ -2259,18 +2259,20 @@ export function ReservationModal({ data, onClose }) {
         : (<>
           <div className="field-row">
             <div className="field"><label>สินค้า</label>
-              <select className="input" value={productId} onChange={e => changeProduct(e.target.value)}>
-                <option value="">— เลือกสินค้า —</option>
-                {lotProducts.map(p => <option key={p.id} value={p.id}>{p.name} (พร้อมขาย {p.available})</option>)}
-              </select>
+              <Select value={productId || undefined} onValueChange={v => changeProduct(v)}>
+                <SelectTrigger><SelectValue placeholder="— เลือกสินค้า —" /></SelectTrigger>
+                <SelectContent>
+                  {lotProducts.map(p => <SelectItem key={p.id} value={p.id}>{p.name} (พร้อมขาย {p.available})</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="field"><label>ลูกค้า / อ้างอิง</label><input className="input" value={customer} onChange={e => { setTouched(true); setCustomer(e.target.value); }} placeholder="เช่น คุณเอ / ออเดอร์ #123" /></div>
+            <div className="field"><label>ลูกค้า / อ้างอิง</label><Input value={customer} onChange={e => { setTouched(true); setCustomer(e.target.value); }} placeholder="เช่น คุณเอ / ออเดอร์ #123" /></div>
           </div>
 
           {product && (<>
             <div className="row between" style={{ marginBottom: 8 }}>
               <label style={{ margin: 0 }}>รายการจอง</label>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={addItem}><Icon name="plus" /> เพิ่มรายการ</button>
+              <Button variant="ghost" size="sm" type="button" onClick={addItem}><Icon name="plus" /> เพิ่มรายการ</Button>
             </div>
             {items.map((it, i) => {
               const colors = Object.keys(variants).filter(c => Object.entries(variants[c]).some(([s]) => availOf(c, s) > 0 || s === it.size));
@@ -2279,25 +2281,27 @@ export function ReservationModal({ data, onClose }) {
               return (
                 <div key={it.id} className="mrowf" style={{ marginBottom: 8 }}>
                   <div className="field" style={{ margin: 0 }}><label>สี</label>
-                    <select className="input" value={it.color} onChange={e => setItem(i, { color: e.target.value, size: '' })}>
-                      <option value="">— สี —</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
+                    <Select value={it.color || undefined} onValueChange={v => setItem(i, { color: v, size: '' })}>
+                      <SelectTrigger><SelectValue placeholder="— สี —" /></SelectTrigger>
+                      <SelectContent>{colors.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                    </Select>
                   </div>
                   <div className="field" style={{ margin: 0 }}><label>ไซส์</label>
-                    <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}>
-                      <option value="">— ไซส์ —</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {availOf(it.color, s)})</option>)}
-                    </select>
+                    <Select value={it.size || undefined} disabled={!it.color} onValueChange={v => setItem(i, { size: v })}>
+                      <SelectTrigger><SelectValue placeholder="— ไซส์ —" /></SelectTrigger>
+                      <SelectContent>{sizes.map(s => <SelectItem key={s} value={s}>{s} (ว่าง {availOf(it.color, s)})</SelectItem>)}</SelectContent>
+                    </Select>
                   </div>
                   <div className="field" style={{ margin: 0 }}><label>จำนวน{it.size ? ` / ว่าง ${av}` : ''}</label>
-                    <input type="number" min="0" inputMode="decimal" max={av || undefined} className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="0" />
+                    <Input type="number" min="0" inputMode="decimal" max={av || undefined} className="num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="0" />
                   </div>
-                  <button type="button" className="icon-btn" onClick={() => removeItem(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></button>
+                  <Button variant="ghost" size="icon" type="button" onClick={() => removeItem(i)} style={{ color: 'var(--bad)', marginBottom: 4 }}><Icon name="x" /></Button>
                 </div>
               );
             })}
             <div className="field-row" style={{ marginTop: 4 }}>
-              <div className="field" style={{ marginBottom: 0 }}><label>วันที่จอง</label><input type="date" className="input" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น รอโอน / นัดรับศุกร์" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>วันที่จอง</label><Input type="date" value={date} onChange={e => { setTouched(true); setDate(e.target.value); }} /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><Input value={note} onChange={e => { setTouched(true); setNote(e.target.value); }} placeholder="เช่น รอโอน / นัดรับศุกร์" /></div>
             </div>
             <div className="row between" style={{ marginTop: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
               <span className="cap">รวมจอง</span><span><b style={{ fontSize: 16 }}>{N(totalQty)}</b> ตัว</span>
@@ -2336,7 +2340,7 @@ export function MovementLedgerModal({ data, onClose }) {
     return () => { cancel = true; };
   }, [product.name]);
 
-  const footer = <button className="btn" onClick={onClose}>ปิด</button>;
+  const footer = <Button variant="outline" onClick={onClose}>ปิด</Button>;
   return (
     <Modal wide icon="route" title="ประวัติเข้า-ออกสต็อก" sub={product.name || ''} onClose={onClose} footer={footer}>
       {rows === null
@@ -2453,7 +2457,7 @@ export function ReceiveModal({ data, onClose }) {
   };
 
   const canSave = !!product && lotTot > 0;
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'รับเข้าสต็อก'}</button></>);
+  const footer = (<><Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy || !canSave} style={{ opacity: canSave ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'รับเข้าสต็อก'}</Button></>);
 
   return (
     <Modal wide icon="box" title="รับเข้าสต็อกจาก PO" sub={`${po.product || ''} · สั่ง ${N(po.quantity || 0)} ตัว`} onClose={onClose} footer={footer} confirmOnClose={touched}>
@@ -2468,17 +2472,17 @@ export function ReceiveModal({ data, onClose }) {
               : <span className="cap" style={{ color: 'var(--ink-4)' }}>หรือพิมพ์เองด้านล่าง</span>}
           </div>
           <div className="field-row">
-            <div className="field"><label>รหัสล็อต</label><input className="input" value={lot.lotNo} onChange={e => patchLot(l => ({ ...l, lotNo: e.target.value }))} placeholder="เช่น LOT-2406 (เว้นว่าง = อัตโนมัติ)" /></div>
-            <div className="field"><label>วันที่รับเข้า</label><input type="date" className="input" value={lot.date} onChange={e => patchLot(l => ({ ...l, date: e.target.value }))} /></div>
+            <div className="field"><label>รหัสล็อต</label><Input value={lot.lotNo} onChange={e => patchLot(l => ({ ...l, lotNo: e.target.value }))} placeholder="เช่น LOT-2406 (เว้นว่าง = อัตโนมัติ)" /></div>
+            <div className="field"><label>วันที่รับเข้า</label><Input type="date" value={lot.date} onChange={e => patchLot(l => ({ ...l, date: e.target.value }))} /></div>
           </div>
           <div className="field-row">
-            <div className="field"><label>ต้นทุน/ตัว (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={lot.cost} onChange={e => patchLot(l => ({ ...l, cost: e.target.value }))} placeholder="0" /></div>
-            <div className="field"><label>โน้ต</label><input className="input" value={lot.note} onChange={e => patchLot(l => ({ ...l, note: e.target.value }))} placeholder="เช่น โรงงาน A" /></div>
+            <div className="field"><label>ต้นทุน/ตัว (฿)</label><Input type="number" min="0" inputMode="decimal" className="num" value={lot.cost} onChange={e => patchLot(l => ({ ...l, cost: e.target.value }))} placeholder="0" /></div>
+            <div className="field"><label>โน้ต</label><Input value={lot.note} onChange={e => patchLot(l => ({ ...l, note: e.target.value }))} placeholder="เช่น โรงงาน A" /></div>
           </div>
 
           <div className="field" style={{ marginBottom: 10 }}>
             <label>ไซส์ในล็อตนี้</label>
-            <div className="chips-pick">{SIZES.map(s => <button type="button" key={s} className={'pick' + (lot.sizes.includes(s) ? ' on' : '')} onClick={() => toggleSize(s)}>{s}</button>)}</div>
+            <div className="chips-pick">{SIZES.map(s => <Toggle type="button" variant="pill" size="sm" key={s} pressed={lot.sizes.includes(s)} onPressedChange={() => toggleSize(s)}>{s}</Toggle>)}</div>
           </div>
 
           <label style={{ display: 'block', marginBottom: 6 }}>จำนวนรับเข้า ต่อ สี × ไซส์ <span className="cap" style={{ fontWeight: 400 }}>· รวม {N(lotTot)} ตัว</span></label>
@@ -2497,7 +2501,7 @@ export function ReceiveModal({ data, onClose }) {
                             <div className="row" style={{ gap: 6 }}>
                               <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(c.hex) ? c.hex : '#cccccc'} onChange={e => setColor(c.id, 'hex', e.target.value)} style={{ width: 22, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 5, background: 'none', cursor: 'pointer', flexShrink: 0 }} />
                               <input value={c.name} onChange={e => setColor(c.id, 'name', e.target.value)} placeholder="ชื่อสี" style={{ flex: 1, minWidth: 70, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--surface-2)', color: 'var(--ink)', fontSize: 16 }} />
-                              <button type="button" className="icon-btn" onClick={() => removeColor(c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></button>
+                              <Button variant="ghost" size="icon" type="button" onClick={() => removeColor(c.id)} style={{ color: 'var(--bad)', flexShrink: 0 }}><Icon name="x" /></Button>
                             </div>
                           </td>
                           {lot.sizes.map(s => <td key={s} style={{ textAlign: 'center', padding: 4 }}><input inputMode="numeric" value={cellQty(lot, c.id, s)} onChange={e => setCell(c.id, s, e.target.value)} placeholder="0" style={cellInput} /></td>)}
@@ -2565,14 +2569,14 @@ export function QuickFindModal({ onClose }) {
     } catch (err) { setScanErr('เปิดกล้องไม่ได้: ' + err.message); }
   };
 
-  const footer = <button className="btn" onClick={close}>ปิด</button>;
+  const footer = <Button variant="outline" onClick={close}>ปิด</Button>;
   return (
     <Modal icon="search" title="ขายเร็ว / สแกนบาร์โค้ด" sub="พิมพ์ชื่อ / SKU / บาร์โค้ด หรือยิงสแกนเนอร์ แล้วกด Enter → ไปหน้าขาย" onClose={close} footer={footer}>
       <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-        <input ref={inputRef} className="input" style={{ flex: 1 }} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} placeholder="🔍 บาร์โค้ด / SKU / ชื่อสินค้า" />
+        <Input ref={inputRef} style={{ flex: 1 }} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey} placeholder="🔍 บาร์โค้ด / SKU / ชื่อสินค้า" />
         {!scanning
-          ? <button className="btn btn-sm" onClick={startCam} title="สแกนด้วยกล้อง"><Icon name="search" /> กล้อง</button>
-          : <button className="btn btn-sm" onClick={stopCam} style={{ color: 'var(--bad)' }}><Icon name="x" /> หยุด</button>}
+          ? <Button variant="outline" size="sm" onClick={startCam} title="สแกนด้วยกล้อง"><Icon name="search" /> กล้อง</Button>
+          : <Button variant="outline" size="sm" onClick={stopCam} style={{ color: 'var(--bad)' }}><Icon name="x" /> หยุด</Button>}
       </div>
       {scanErr && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>{scanErr}</div>}
       {scanning && <div style={{ marginBottom: 10, borderRadius: 'var(--r-sm)', overflow: 'hidden', border: '1px solid var(--line)', background: '#000' }}><video ref={videoRef} muted playsInline style={{ width: '100%', maxHeight: 240, objectFit: 'cover', display: 'block' }} /></div>}
@@ -2641,7 +2645,7 @@ export function LabelModal({ data, onClose }) {
     toast(`กำลังเปิดหน้าพิมพ์ ${totalLabels} ดวง`, 'success');
   };
 
-  const footer = (<><button className="btn" onClick={onClose}>ปิด</button><button className="btn btn-primary" disabled={!totalLabels} style={{ opacity: totalLabels ? 1 : 0.5 }} onClick={doPrint}><Icon name="external" /> พิมพ์ป้าย ({totalLabels})</button></>);
+  const footer = (<><Button variant="outline" onClick={onClose}>ปิด</Button><Button disabled={!totalLabels} style={{ opacity: totalLabels ? 1 : 0.5 }} onClick={doPrint}><Icon name="external" /> พิมพ์ป้าย ({totalLabels})</Button></>);
   return (
     <Modal wide icon="bag" title="พิมพ์ป้ายราคา / บาร์โค้ด" sub="เลือกจำนวนป้ายต่อสินค้า แล้วกดพิมพ์ (ใช้กับเครื่องพิมพ์ทั่วไป/ป้ายสติกเกอร์)" onClose={onClose} footer={footer}>
       {products.length === 0
@@ -2650,7 +2654,7 @@ export function LabelModal({ data, onClose }) {
           <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
             <div className="row" style={{ gap: 8 }}>
               <span className="cap">ขนาดป้าย</span>
-              <div className="tabs-list">{Object.entries(SIZE_OPTS).map(([id, o]) => <button key={id} className={'tabs-trigger' + (size === id ? ' active' : '')} onClick={() => setSize(id)}>{o.label}</button>)}</div>
+              <Tabs value={size} onValueChange={setSize}><TabsList>{Object.entries(SIZE_OPTS).map(([id, o]) => <TabsTrigger key={id} value={id}>{o.label}</TabsTrigger>)}</TabsList></Tabs>
             </div>
             {/* พรีวิวป้าย */}
             {preview && <div style={{ border: '1px dashed var(--line)', borderRadius: 6, padding: 8, textAlign: 'center', minWidth: 150 }}>
@@ -2663,8 +2667,8 @@ export function LabelModal({ data, onClose }) {
           <div className="row between" style={{ marginBottom: 6 }}>
             <label style={{ margin: 0 }}>จำนวนป้ายต่อสินค้า</label>
             <div className="row" style={{ gap: 6 }}>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCopies(Object.fromEntries(products.map(p => [p.id, 1])))}>ทุกชิ้น ×1</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCopies(Object.fromEntries(products.map(p => [p.id, 0])))}>ล้าง</button>
+              <Button variant="ghost" size="sm" type="button" onClick={() => setCopies(Object.fromEntries(products.map(p => [p.id, 1])))}>ทุกตัว ×1</Button>
+              <Button variant="ghost" size="sm" type="button" onClick={() => setCopies(Object.fromEntries(products.map(p => [p.id, 0])))}>ล้าง</Button>
             </div>
           </div>
           <div className="table-wrap" style={{ maxHeight: 320, overflowY: 'auto' }}><table className="table">
@@ -2675,7 +2679,7 @@ export function LabelModal({ data, onClose }) {
                     <span style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, overflow: 'hidden', background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center' }}>{p.image ? <img src={p.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <Icon name="bag" />}</span>
                     <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600 }}>{p.name}</div><div className="cap">{[p.sku && ('SKU ' + p.sku), p.barcode].filter(Boolean).join(' · ') || B(p.price)}</div></div>
                   </div></td>
-                  <td style={{ width: 90, textAlign: 'right' }}><input type="number" min="0" inputMode="decimal" max="99" className="input num" style={{ width: 70 }} value={copies[p.id] || 0} onChange={e => setC(p.id, e.target.value)} /></td>
+                  <td style={{ width: 90, textAlign: 'right' }}><Input type="number" min="0" inputMode="decimal" max="99" className="num" style={{ width: 70 }} value={copies[p.id] || 0} onChange={e => setC(p.id, e.target.value)} /></td>
                 </tr>
               ))}
             </tbody>
@@ -2900,7 +2904,7 @@ export function OrderModal({ data, onClose }) {
   };
 
   const isShipped = data?.status === 'shipped';
-  const footer = (<>{data?.id && !isShipped && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (window.confirm('ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)')) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ปิด</button>{!isShipped && <button className="btn btn-primary" disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</button>}</>);
+  const footer = (<>{data?.id && !isShipped && <Button variant="outline" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (window.confirm('ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)')) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</Button>}<Button variant="outline" onClick={() => guardClose(touched, onClose)}>ปิด</Button>{!isShipped && <Button disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</Button>}</>);
 
   return (
     <Modal wide icon="listChecks" title={data ? `ออเดอร์ ${data.code}` : 'สร้างออเดอร์'} sub={data ? orderStatusMeta(data.status).label : 'เลือกลูกค้า + สินค้า → จองสต็อกอัตโนมัติ'} onClose={onClose} footer={footer} confirmOnClose={touched}>
@@ -2912,22 +2916,24 @@ export function OrderModal({ data, onClose }) {
             {custNew ? (
               <div style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10 }}>
                 <div className="field-row" style={{ marginBottom: 8 }}>
-                  <div className="field" style={{ margin: 0 }}><label>ชื่อลูกค้า</label><input className="input" value={custNew.name} onChange={e => _t(setCustNew)({ ...custNew, name: e.target.value })} placeholder="ชื่อ-นามสกุล / ชื่อร้าน" /></div>
-                  <div className="field" style={{ margin: 0 }}><label>เบอร์โทร</label><input className="input" value={custNew.phone} onChange={e => _t(setCustNew)({ ...custNew, phone: e.target.value })} placeholder="08x-xxx-xxxx" /></div>
+                  <div className="field" style={{ margin: 0 }}><label>ชื่อลูกค้า</label><Input value={custNew.name} onChange={e => _t(setCustNew)({ ...custNew, name: e.target.value })} placeholder="ชื่อ-นามสกุล / ชื่อร้าน" /></div>
+                  <div className="field" style={{ margin: 0 }}><label>เบอร์โทร</label><Input value={custNew.phone} onChange={e => _t(setCustNew)({ ...custNew, phone: e.target.value })} placeholder="08x-xxx-xxxx" /></div>
                 </div>
                 <div className="field-row" style={{ marginBottom: 0 }}>
-                  <div className="field" style={{ margin: 0 }}><label>LINE</label><input className="input" value={custNew.line} onChange={e => _t(setCustNew)({ ...custNew, line: e.target.value })} placeholder="LINE ID" /></div>
-                  <div className="field" style={{ margin: 0 }}><label>ที่อยู่จัดส่ง</label><input className="input" value={custNew.address} onChange={e => _t(setCustNew)({ ...custNew, address: e.target.value })} placeholder="ที่อยู่" /></div>
+                  <div className="field" style={{ margin: 0 }}><label>LINE</label><Input value={custNew.line} onChange={e => _t(setCustNew)({ ...custNew, line: e.target.value })} placeholder="LINE ID" /></div>
+                  <div className="field" style={{ margin: 0 }}><label>ที่อยู่จัดส่ง</label><Input value={custNew.address} onChange={e => _t(setCustNew)({ ...custNew, address: e.target.value })} placeholder="ที่อยู่" /></div>
                 </div>
-                {customers.length > 0 && <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 8 }} onClick={() => { setCustNew(null); setCustId(''); }}>← เลือกจากลูกค้าเดิม</button>}
+                {customers.length > 0 && <Button variant="ghost" size="sm" type="button" style={{ marginTop: 8 }} onClick={() => { setCustNew(null); setCustId(''); }}>← เลือกจากลูกค้าเดิม</Button>}
               </div>
             ) : (
               <div className="row" style={{ gap: 8 }}>
-                <select className="input" style={{ flex: 1 }} value={custId} onChange={e => _t(setCustId)(e.target.value)}>
-                  <option value="">— เลือกลูกค้า —</option>
-                  {customers.map(c => <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</option>)}
-                </select>
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setCustNew({ name: '', phone: '', line: '', address: '' }); }}><Icon name="userPlus" /> ลูกค้าใหม่</button>
+                <Select value={custId || undefined} onValueChange={v => _t(setCustId)(v)}>
+                  <SelectTrigger style={{ flex: 1 }}><SelectValue placeholder="— เลือกลูกค้า —" /></SelectTrigger>
+                  <SelectContent>
+                    {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Button variant="ghost" size="sm" type="button" onClick={() => { setCustNew({ name: '', phone: '', line: '', address: '' }); }}><Icon name="userPlus" /> ลูกค้าใหม่</Button>
               </div>
             )}
           </div>
@@ -2935,7 +2941,7 @@ export function OrderModal({ data, onClose }) {
           {/* รายการสินค้า */}
           <div className="row between" style={{ marginBottom: 8 }}>
             <label style={{ margin: 0 }}>รายการสินค้า</label>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={addItem}><Icon name="plus" /> เพิ่มสินค้า</button>
+            <Button variant="ghost" size="sm" type="button" onClick={addItem}><Icon name="plus" /> เพิ่มสินค้า</Button>
           </div>
           {items.map((it, i) => {
             const p = prodById(it.productId);
@@ -2945,17 +2951,19 @@ export function OrderModal({ data, onClose }) {
             return (
               <div key={it.id} style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', padding: 10, marginBottom: 8, background: 'var(--surface)' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8 }}>
-                  <select className="input" value={it.productId} onChange={e => { const np = prodById(e.target.value); setItem(i, { productId: e.target.value, color: '', size: '', price: np?.price || '' }); }}>
-                    <option value="">— เลือกสินค้า —</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <button type="button" className="icon-btn" onClick={() => removeItem(i)} style={{ color: 'var(--bad)' }}><Icon name="x" /></button>
+                  <Select value={it.productId || undefined} onValueChange={v => { const np = prodById(v); setItem(i, { productId: v, color: '', size: '', price: np?.price || '' }); }}>
+                    <SelectTrigger><SelectValue placeholder="— เลือกสินค้า —" /></SelectTrigger>
+                    <SelectContent>
+                      {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Button variant="ghost" size="icon" type="button" onClick={() => removeItem(i)} style={{ color: 'var(--bad)' }}><Icon name="x" /></Button>
                 </div>
                 <div className="order-item-grid">
-                  <select className="input" value={it.color} disabled={!it.productId} onChange={e => setItem(i, { color: e.target.value, size: '' })}><option value="">สี</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}</select>
-                  <select className="input" value={it.size} disabled={!it.color} onChange={e => setItem(i, { size: e.target.value })}><option value="">ไซส์</option>{sizes.map(s => <option key={s} value={s}>{s} (ว่าง {Math.max(0, (Number(p.variants[it.color]?.[s]) || 0) - Math.max(0, (Number(p.reservedByVariant?.[it.color]?.[s]) || 0) - ownRes(p.id, it.color, s)))})</option>)}</select>
-                  <input type="number" min="0" inputMode="decimal" className="input num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="จำนวน" />
-                  <input type="number" min="0" inputMode="decimal" className="input num" value={it.price} onChange={e => setItem(i, { price: e.target.value })} placeholder="ราคา/ตัว" />
+                  <Select value={it.color || undefined} disabled={!it.productId} onValueChange={v => setItem(i, { color: v, size: '' })}><SelectTrigger><SelectValue placeholder="สี" /></SelectTrigger><SelectContent>{colors.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select>
+                  <Select value={it.size || undefined} disabled={!it.color} onValueChange={v => setItem(i, { size: v })}><SelectTrigger><SelectValue placeholder="ไซส์" /></SelectTrigger><SelectContent>{sizes.map(s => <SelectItem key={s} value={s}>{s} (ว่าง {Math.max(0, (Number(p.variants[it.color]?.[s]) || 0) - Math.max(0, (Number(p.reservedByVariant?.[it.color]?.[s]) || 0) - ownRes(p.id, it.color, s)))})</SelectItem>)}</SelectContent></Select>
+                  <Input type="number" min="0" inputMode="decimal" className="num" value={it.qty} disabled={!it.size} onChange={e => setItem(i, { qty: e.target.value })} placeholder="จำนวน" />
+                  <Input type="number" min="0" inputMode="decimal" className="num" value={it.price} onChange={e => setItem(i, { price: e.target.value })} placeholder="ราคา/ตัว" />
                 </div>
                 {avail != null && Number(it.qty) > avail && <div className="cap" style={{ color: 'var(--warn)', marginTop: 6 }}>พร้อมขายเหลือ {avail} (เกินจะกลายเป็นค้างส่ง)</div>}
               </div>
@@ -2963,17 +2971,17 @@ export function OrderModal({ data, onClose }) {
           })}
 
           <div className="field-row" style={{ marginTop: 4 }}>
-            <div className="field" style={{ marginBottom: 0 }}><label>ส่วนลด (฿)</label><input type="number" min="0" inputMode="decimal" className="input num" value={discount} onChange={e => _t(setDiscount)(e.target.value)} placeholder="0" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>ส่วนลด (฿)</label><Input type="number" min="0" inputMode="decimal" className="num" value={discount} onChange={e => _t(setDiscount)(e.target.value)} placeholder="0" /></div>
             <div className="field" style={{ marginBottom: 0 }}><label>ช่องทาง</label>
-              <input className="input" list="order-channel-list" value={channel} onChange={e => _t(setChannel)(e.target.value)} placeholder="เช่น LINE / Shopee / หน้าร้าน" />
+              <Input list="order-channel-list" value={channel} onChange={e => _t(setChannel)(e.target.value)} placeholder="เช่น LINE / Shopee / หน้าร้าน" />
               <datalist id="order-channel-list">{(MD.channels || []).map(c => <option key={c.id} value={c.name} />)}</datalist>
             </div>
           </div>
           <div className="field-row">
-            <div className="field" style={{ marginBottom: 0 }}><label>เลขแทร็กกิ้ง</label><input className="input" value={trackingNo} onChange={e => _t(setTrackingNo)(e.target.value)} placeholder="(ใส่ตอนส่ง)" /></div>
-            <div className="field" style={{ marginBottom: 0 }}><label>ขนส่ง</label><input className="input" value={carrier} onChange={e => _t(setCarrier)(e.target.value)} placeholder="เช่น Flash / Kerry / J&T" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>เลขแทร็กกิ้ง</label><Input value={trackingNo} onChange={e => _t(setTrackingNo)(e.target.value)} placeholder="(ใส่ตอนส่ง)" /></div>
+            <div className="field" style={{ marginBottom: 0 }}><label>ขนส่ง</label><Input value={carrier} onChange={e => _t(setCarrier)(e.target.value)} placeholder="เช่น Flash / Kerry / J&T" /></div>
           </div>
-          <div className="field" style={{ marginTop: 8, marginBottom: 0 }}><label>โน้ต</label><input className="input" value={note} onChange={e => _t(setNote)(e.target.value)} placeholder="เช่น พิมพ์ลายพิเศษ / นัดรับ" /></div>
+          <div className="field" style={{ marginTop: 8, marginBottom: 0 }}><label>โน้ต</label><Input value={note} onChange={e => _t(setNote)(e.target.value)} placeholder="เช่น พิมพ์ลายพิเศษ / นัดรับ" /></div>
 
           <div className="row between" style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)' }}>
             <span className="cap">{N(totalQty)} ตัว · ส่วนลด {B(Number(discount) || 0)}</span>
@@ -3004,16 +3012,16 @@ export function CustomerModal({ data, onClose }) {
       onClose();
     } catch (err) { toast('บันทึกไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }
   };
-  const footer = (<><button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button></>);
+  const footer = (<><Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>);
   return (
     <Modal icon="user" title={data ? 'แก้ไขลูกค้า' : 'เพิ่มลูกค้า'} onClose={onClose} footer={footer} confirmOnClose={touched}>
-      <div className="field"><label>ชื่อลูกค้า</label><input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="ชื่อ-นามสกุล / ชื่อร้าน" /></div>
+      <div className="field"><label>ชื่อลูกค้า</label><Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="ชื่อ-นามสกุล / ชื่อร้าน" /></div>
       <div className="field-row">
-        <div className="field"><label>เบอร์โทร</label><input className="input" value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="08x-xxx-xxxx" /></div>
-        <div className="field"><label>LINE</label><input className="input" value={f.line} onChange={e => set('line', e.target.value)} placeholder="LINE ID" /></div>
+        <div className="field"><label>เบอร์โทร</label><Input value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="08x-xxx-xxxx" /></div>
+        <div className="field"><label>LINE</label><Input value={f.line} onChange={e => set('line', e.target.value)} placeholder="LINE ID" /></div>
       </div>
-      <div className="field"><label>ที่อยู่จัดส่ง</label><textarea className="input" value={f.address} onChange={e => set('address', e.target.value)} placeholder="ที่อยู่" /></div>
-      <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><input className="input" value={f.note} onChange={e => set('note', e.target.value)} placeholder="เช่น ลูกค้าประจำ / ขายส่ง" /></div>
+      <div className="field"><label>ที่อยู่จัดส่ง</label><Textarea value={f.address} onChange={e => set('address', e.target.value)} placeholder="ที่อยู่" /></div>
+      <div className="field" style={{ marginBottom: 0 }}><label>โน้ต</label><Input value={f.note} onChange={e => set('note', e.target.value)} placeholder="เช่น ลูกค้าประจำ / ขายส่ง" /></div>
     </Modal>
   );
 }
@@ -3040,9 +3048,9 @@ export function POModal({ data, onClose }) {
     };
     const ok = await saveRow('tmk_purchase_orders', row, 'บันทึก PO', {
       action: data ? 'update' : 'create', entityType: 'po', entityName: row.product,
-      summary: `${data ? 'แก้ไข' : 'เปิด'} PO "${row.product}" (${row.quantity} ชิ้น)`,
+      summary: `${data ? 'แก้ไข' : 'เปิด'} PO "${row.product}" (${row.quantity} ตัว)`,
       fields: [
-        { label: 'จำนวน', value: N(row.quantity) + ' ชิ้น' },
+        { label: 'จำนวน', value: N(row.quantity) + ' ตัว' },
         { label: 'วันสั่ง', value: thaiDate(f.orderDate) || '—' },
         { label: 'กำหนดเข้า', value: thaiDate(f.arrivalDate) || '—' },
         { label: 'สถานะ', value: f.status },
@@ -3051,27 +3059,31 @@ export function POModal({ data, onClose }) {
     setBusy(false);
     if (ok) onClose();
   };
-  const footer = (<>{data?.id && <button className="btn" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_purchase_orders', data.id, 'PO', { action: 'delete', entityType: 'po', entityName: data.product, summary: `ลบ PO "${data.product}"` })) onClose(); }}><Icon name="trash" /> ลบ</button>}<button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button><button className="btn btn-primary" disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</button></>);
+  const footer = (<>{data?.id && <Button variant="outline" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await deleteRow('tmk_purchase_orders', data.id, 'PO', { action: 'delete', entityType: 'po', entityName: data.product, summary: `ลบ PO "${data.product}"` })) onClose(); }}><Icon name="trash" /> ลบ</Button>}<Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button><Button disabled={busy || !f.product} style={{ opacity: f.product ? 1 : 0.5 }} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก PO'}</Button></>);
   return (
     <Modal icon="box" title={data?.id ? 'แก้ไข PO' : 'เปิด PO การผลิตใหม่'} sub="สั่งผลิตสินค้ากับโรงงาน" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field"><label>รายการสินค้า</label>
-        <select className="input" value={f.product} onChange={e => set('product', e.target.value)}>
-          <option value="">{MD.products.length ? '— ยังไม่ได้เลือก —' : '— ยังไม่มีสินค้า (เพิ่มสินค้าก่อน) —'}</option>
-          {MD.products.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-        </select>
+        <Select value={f.product || undefined} onValueChange={v => set('product', v)}>
+          <SelectTrigger><SelectValue placeholder={MD.products.length ? '— ยังไม่ได้เลือก —' : '— ยังไม่มีสินค้า (เพิ่มสินค้าก่อน) —'} /></SelectTrigger>
+          <SelectContent>
+            {MD.products.map(p => <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
       <div className="field-row">
-        <div className="field"><label>จำนวน (ตัว)</label><input type="number" min="0" inputMode="decimal" className="input num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวน (ตัว)</label><Input type="number" min="0" inputMode="decimal" className="num" value={f.quantity} onChange={e => set('quantity', e.target.value)} placeholder="0" /></div>
         <div className="field"><label>สถานะ</label>
-          <div className="tabs-list">
-            <button className={'tabs-trigger' + (f.status === 'Pending' ? ' active' : '')} onClick={() => set('status', 'Pending')}>กำลังผลิต</button>
-            <button className={'tabs-trigger' + (f.status === 'Completed' ? ' active' : '')} onClick={() => set('status', 'Completed')}>ของเข้าแล้ว</button>
-          </div>
+          <Tabs value={f.status} onValueChange={v => set('status', v)}>
+            <TabsList>
+              <TabsTrigger value="Pending">กำลังผลิต</TabsTrigger>
+              <TabsTrigger value="Completed">ของเข้าแล้ว</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
       </div>
       <div className="field-row">
-        <div className="field"><label>วันที่สั่ง</label><input type="date" className="input" value={f.orderDate} onChange={e => set('orderDate', e.target.value)} /></div>
-        <div className="field"><label>กำหนดของเข้า</label><input type="date" className="input" value={f.arrivalDate} onChange={e => set('arrivalDate', e.target.value)} /></div>
+        <div className="field"><label>วันที่สั่ง</label><Input type="date" value={f.orderDate} onChange={e => set('orderDate', e.target.value)} /></div>
+        <div className="field"><label>กำหนดของเข้า</label><Input type="date" value={f.arrivalDate} onChange={e => set('arrivalDate', e.target.value)} /></div>
       </div>
     </Modal>
   );
@@ -3196,22 +3208,25 @@ export function MonthlyTargetModal({ data, onClose }) {
   };
   const footer = (
     <>
-      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+      <Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button>
+      <Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
     </>
   );
   return (
     <Modal icon="target" title="ตั้งเป้าหมายรายเดือน" sub="กำหนดเป้ายอดขายและงบโฆษณา" onClose={onClose} footer={footer} wide confirmOnClose={touched}>
       <div className="field" style={{ maxWidth: 220 }}>
         <label>เดือน/ปี</label>
-        <select className="input" value={`${monthIdx}-${year}`} onChange={e => { const [i, y] = e.target.value.split('-').map(Number); changeMonth(i, y); }}>
-          {monthOptions.map(o => <option key={o.label} value={`${o.idx}-${o.year}`}>{o.label}</option>)}
-        </select>
+        <Select value={`${monthIdx}-${year}`} onValueChange={v => { const [i, y] = v.split('-').map(Number); changeMonth(i, y); }}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {monthOptions.map(o => <SelectItem key={o.label} value={`${o.idx}-${o.year}`}>{o.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="field">
         <label>เป้ายอดรวม (฿)</label>
-        <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
+        <Input type="number" min="0" inputMode="decimal" placeholder="0" value={total} onChange={e => { setTouched(true); setTotal(e.target.value); }} />
       </div>
 
       <div className="field">
@@ -3222,7 +3237,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, flex: '0 1 100px', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value)} />
+              <Input type="number" min="0" inputMode="decimal" placeholder="0" style={{ flex: 1 }} value={c.target} onChange={e => upCh(i, e.target.value)} />
             </div>
           ))}
         </div>
@@ -3242,7 +3257,7 @@ export function MonthlyTargetModal({ data, onClose }) {
               <span className="row" style={{ gap: 7, flex: '0 1 100px', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap', fontWeight: 600 }}>
                 <span style={{ width: 9, height: 9, borderRadius: 3, background: c.hex }}></span>{c.name}
               </span>
-              <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value)} />
+              <Input type="number" min="0" inputMode="decimal" placeholder="0" style={{ flex: 1 }} value={c.budget} onChange={e => upAd(i, e.target.value)} />
             </div>
           ))}
         </div>
@@ -3255,23 +3270,23 @@ export function MonthlyTargetModal({ data, onClose }) {
       <div className="field-row">
         <div className="field">
           <label>เป้าลูกค้าใหม่</label>
-          <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
+          <Input type="number" min="0" inputMode="decimal" placeholder="0" value={newCustTarget} onChange={e => { setTouched(true); setNewCustTarget(e.target.value); }} />
         </div>
         <div className="field">
           <label>เพดาน ACOS %</label>
-          <input type="number" min="0" inputMode="decimal" className="input" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
+          <Input type="number" min="0" inputMode="decimal" value={acosCeil} onChange={e => { setTouched(true); setAcosCeil(e.target.value); }} />
         </div>
       </div>
 
       <div className="field-row">
         <div className="field">
           <label>ต้นทุนสินค้า % (ของยอดขาย)</label>
-          <input type="number" min="0" inputMode="decimal" max="100" className="input" placeholder="เช่น 40" value={cogsPct} onChange={e => { setTouched(true); setCogsPct(e.target.value); }} />
+          <Input type="number" min="0" inputMode="decimal" max="100" placeholder="เช่น 40" value={cogsPct} onChange={e => { setTouched(true); setCogsPct(e.target.value); }} />
           <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ใช้คำนวณกำไรสุทธิ — ต้นทุนสินค้าคิดเป็น % ของยอดขาย</div>
         </div>
         <div className="field">
           <label>ค่าใช้จ่ายอื่น/เดือน (บาท)</label>
-          <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={otherExpense} onChange={e => { setTouched(true); setOtherExpense(e.target.value); }} />
+          <Input type="number" min="0" inputMode="decimal" placeholder="0" value={otherExpense} onChange={e => { setTouched(true); setOtherExpense(e.target.value); }} />
           <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ค่าส่ง/แพ็ค/เงินเดือน/ค่าเช่า ฯลฯ</div>
         </div>
       </div>
@@ -3326,57 +3341,57 @@ export function AdCampaignModal({ data, onClose }) {
 
   const footer = (
     <>
-      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+      <Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button>
+      <Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
     </>
   );
   return (
     <Modal icon="zap" title={data ? 'แก้ไขแคมเปญแอด' : 'สร้างแคมเปญแอด'} sub="ตั้งค่าแคมเปญโฆษณา" onClose={onClose} footer={footer} confirmOnClose={touched}>
       <div className="field">
         <label>ชื่อแคมเปญ</label>
-        <input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Polo Signature — Awareness" />
+        <Input value={f.name} onChange={e => set('name', e.target.value)} placeholder="เช่น Polo Signature — Awareness" />
       </div>
 
       <div className="field">
         <label>แพลตฟอร์ม</label>
-        <div className="chips-pick">
+        <ToggleGroup type="single" variant="pill" size="sm" className="chips-pick" value={f.platform} onValueChange={v => v && set('platform', v)}>
           {platforms.map(p => (
-            <button key={p} className={'pick' + (f.platform === p ? ' on' : '')} onClick={() => set('platform', p)}>{p}</button>
+            <ToggleGroupItem key={p} value={p}>{p}</ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
 
       <div className="field-row-3">
         <div className="field">
           <label>งบประมาณ (฿)</label>
-          <input type="number" min="0" inputMode="decimal" className="input" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
+          <Input type="number" min="0" inputMode="decimal" value={f.budget} onChange={e => set('budget', e.target.value)} placeholder="0" />
         </div>
         <div className="field">
           <label>วันเริ่ม</label>
-          <input type="date" className="input" value={f.startDate} onChange={e => set('startDate', e.target.value)} />
+          <Input type="date" value={f.startDate} onChange={e => set('startDate', e.target.value)} />
         </div>
         <div className="field">
           <label>วันจบ</label>
-          <input type="date" className="input" value={f.endDate} onChange={e => set('endDate', e.target.value)} />
+          <Input type="date" value={f.endDate} onChange={e => set('endDate', e.target.value)} />
         </div>
       </div>
 
       <div className="field">
         <label>เป้าหมาย</label>
-        <div className="chips-pick">
+        <ToggleGroup type="single" variant="pill" size="sm" className="chips-pick" value={f.goal} onValueChange={v => v && set('goal', v)}>
           {goals.map(g => (
-            <button key={g} className={'pick' + (f.goal === g ? ' on' : '')} onClick={() => set('goal', g)}>{g}</button>
+            <ToggleGroupItem key={g} value={g}>{g}</ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
 
       <div className="field">
         <label>สถานะ</label>
-        <div className="chips-pick">
+        <ToggleGroup type="single" variant="pill" size="sm" className="chips-pick" value={f.status} onValueChange={v => v && set('status', v)}>
           {statuses.map(s => (
-            <button key={s} className={'pick' + (f.status === s ? ' on' : '')} onClick={() => set('status', s)}>{s}</button>
+            <ToggleGroupItem key={s} value={s}>{s}</ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
     </Modal>
   );
@@ -3430,8 +3445,8 @@ export function CustomerSegmentModal({ onClose }) {
   };
   const footer = (
     <>
-      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+      <Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button>
+      <Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
     </>
   );
   return (
@@ -3448,11 +3463,11 @@ export function CustomerSegmentModal({ onClose }) {
             <div className="field-row">
               <div className="field">
                 <label>จำนวน (คน)</label>
-                <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={seg.count} onChange={e => upSeg(i, 'count', e.target.value === '' ? '' : +e.target.value)} />
+                <Input type="number" min="0" inputMode="decimal" placeholder="0" value={seg.count} onChange={e => upSeg(i, 'count', e.target.value === '' ? '' : +e.target.value)} />
               </div>
               <div className="field">
                 <label>% รายได้</label>
-                <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={seg.revPct} onChange={e => upSeg(i, 'revPct', e.target.value === '' ? '' : +e.target.value)} />
+                <Input type="number" min="0" inputMode="decimal" placeholder="0" value={seg.revPct} onChange={e => upSeg(i, 'revPct', e.target.value === '' ? '' : +e.target.value)} />
               </div>
             </div>
           </div>
@@ -3461,7 +3476,7 @@ export function CustomerSegmentModal({ onClose }) {
 
       <div className="field" style={{ marginTop: 14 }}>
         <label>CLV เฉลี่ย (฿)</label>
-        <input type="number" min="0" inputMode="decimal" className="input" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
+        <Input type="number" min="0" inputMode="decimal" placeholder="0" value={clv} onChange={e => { setTouched(true); setClv(e.target.value); }} />
       </div>
 
       <div style={{ marginTop: 10, padding: '12px 14px', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
@@ -3571,17 +3586,20 @@ export function HistoricalEntryModal({ onClose, data }) {
   };
   const footer = (
     <>
-      <button className="btn" onClick={() => guardClose(touched, onClose)}>ยกเลิก</button>
-      <button className="btn btn-primary" disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</button>
+      <Button variant="outline" onClick={() => guardClose(touched, onClose)}>ยกเลิก</Button>
+      <Button disabled={busy} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
     </>
   );
   return (
     <Modal icon="clock" title="กรอกข้อมูลย้อนหลัง" sub="ป้อนยอดขายรายเดือนเพื่อเปรียบเทียบแนวโน้ม" onClose={onClose} footer={footer} wide confirmOnClose={touched}>
       <div className="row" style={{ gap: 10, marginBottom: 12, alignItems: 'center' }}>
         <span className="cap" style={{ fontWeight: 600 }}>ปี (พ.ศ.)</span>
-        <select className="input" style={{ maxWidth: 140 }} value={year} onChange={e => setYear(Number(e.target.value))}>
-          {yearOptions.map(y => <option key={y} value={y}>{y}{y === _today.yearBE ? ' (ปีนี้)' : ''}</option>)}
-        </select>
+        <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
+          <SelectTrigger style={{ maxWidth: 140 }}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {yearOptions.map(y => <SelectItem key={y} value={String(y)}>{y}{y === _today.yearBE ? ' (ปีนี้)' : ''}</SelectItem>)}
+          </SelectContent>
+        </Select>
         <span className="cap" style={{ color: 'var(--ink-4)' }}>เลือกปีเพื่อแก้ไขย้อนหลังข้ามปีได้</span>
       </div>
       <div className="table-wrap hist-scroll">
@@ -3601,11 +3619,11 @@ export function HistoricalEntryModal({ onClose, data }) {
                 {r.isCurrent ? (
                   <td colSpan={5} style={{ padding: '5px 8px', color: 'var(--ink-4)', fontSize: 'var(--fs-cap)' }}>เดือนปัจจุบันคำนวณจากยอดรายวันอัตโนมัติ — กรอกที่หน้า "บันทึก & ภาพรวมเดือน"</td>
                 ) : (<>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
-                  <td style={{ padding: '5px 8px' }}><input type="number" min="0" inputMode="decimal" className="input num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.rev} onChange={e => up(i, 'rev', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.orders} onChange={e => up(i, 'orders', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right' }} placeholder="0" value={r.ad} onChange={e => up(i, 'ad', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.newCust} onChange={e => up(i, 'newCust', e.target.value)} /></td>
+                  <td style={{ padding: '5px 8px' }}><Input type="number" min="0" inputMode="decimal" className="num" style={{ textAlign: 'right', width: 90 }} placeholder="0" value={r.messages} onChange={e => up(i, 'messages', e.target.value)} /></td>
                 </>)}
               </tr>
             ))}

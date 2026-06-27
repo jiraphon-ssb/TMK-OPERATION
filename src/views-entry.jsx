@@ -6,6 +6,8 @@ import { TMK } from './data.js';
 import { B, Bk, Bc, N, Icon, Ring } from './components.jsx';
 import { getToday, THAI_MONTHS as MONTH_SHORT, THAI_MONTHS_FULL as MONTH_FULL } from './lib/dateUtils.js';
 import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
+import { Button } from '@/components/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
 
@@ -75,25 +77,25 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
     <div style={{ position: 'relative', marginBottom: 8 }}>
       <div className="card" style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         {/* Left arrow */}
-        <button className="btn btn-ghost" onClick={goPrev} style={{ padding: 6 }}>
+        <Button variant="ghost" onClick={goPrev} style={{ padding: 6 }}>
           <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M15 6l-6 6 6 6" />
           </svg>
-        </button>
+        </Button>
 
         {/* Month label (clickable for picker) */}
-        <button className="btn btn-ghost" onClick={() => { setPickerYear(year); setShowPicker(!showPicker); }}
+        <Button variant="ghost" onClick={() => { setPickerYear(year); setShowPicker(!showPicker); }}
           style={{ fontWeight: 700, fontSize: 'var(--fs-h3)', padding: '4px 12px', minWidth: 120, textAlign: 'center' }}>
           {label}
           <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ width: 14, height: 14, marginLeft: 4 }}>
             <path d="M6 9l6 6 6-6" />
           </svg>
-        </button>
+        </Button>
 
         {/* Right arrow */}
-        <button className="btn btn-ghost" onClick={goNext} style={{ padding: 6 }}>
+        <Button variant="ghost" onClick={goNext} style={{ padding: 6 }}>
           <Icon name="chevR" />
-        </button>
+        </Button>
 
         {/* Mode badge */}
         <span className="badge badge-outline" style={{ background: modeBadge.bg, color: modeBadge.color, fontWeight: 600 }}>
@@ -102,15 +104,15 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
 
         {/* Today button */}
         {!isCurrent && (
-          <button className="btn btn-sm btn-outline" onClick={goToday}>วันนี้</button>
+          <Button variant="outline" size="sm" onClick={goToday}>วันนี้</Button>
         )}
 
         {/* Quarter view toggle */}
-        <button className="btn btn-sm btn-outline" onClick={() => setQuarterView(!quarterView)}
+        <Button variant="outline" size="sm" onClick={() => setQuarterView(!quarterView)}
           style={{ marginLeft: 'auto', background: quarterView ? 'var(--accent-soft)' : undefined, color: quarterView ? 'var(--accent)' : undefined }}>
           <Icon name="grid" />
           {quarterView ? 'ดูรายเดือน' : 'ดูรายไตรมาส'}
-        </button>
+        </Button>
       </div>
 
       {/* Quick Jump Dropdown */}
@@ -120,17 +122,17 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
           <div className="card" style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, marginTop: 4, padding: 16, width: 320, boxShadow: 'var(--shadow-lg, 0 8px 32px rgba(0,0,0,.15))' }}>
             {/* Year nav */}
             <div className="row between" style={{ marginBottom: 12 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPickerYear(pickerYear - 1)}>
+              <Button variant="ghost" size="sm" onClick={() => setPickerYear(pickerYear - 1)}>
                 <svg className="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M15 6l-6 6 6 6" />
                 </svg>
                 {pickerYear - 1}
-              </button>
+              </Button>
               <span className="h3">{pickerYear}</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => setPickerYear(pickerYear + 1)}>
+              <Button variant="ghost" size="sm" onClick={() => setPickerYear(pickerYear + 1)}>
                 {pickerYear + 1}
                 <Icon name="chevR" />
-              </button>
+              </Button>
             </div>
             {/* Month grid 4x3 */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
@@ -138,17 +140,17 @@ function MonthNav({ month, year, setMonth, setYear, quarterView, setQuarterView 
                 const isSelected = i === month && pickerYear === year;
                 const isNow = i === NOW_MONTH && pickerYear === NOW_YEAR;
                 return (
-                  <button key={i} className={`pick${isSelected ? ' on' : ''}`}
+                  <Button key={i} variant="ghost" size="sm"
                     onClick={() => pickMonth(i)}
+                    className="h-auto border-0 py-2"
                     style={{
-                      padding: '8px 4px', borderRadius: 'var(--r-sm)', border: 'none', cursor: 'pointer',
                       background: isSelected ? 'var(--accent)' : isNow ? 'var(--accent-soft)' : 'var(--surface-2)',
                       color: isSelected ? '#fff' : isNow ? 'var(--accent)' : 'var(--ink)',
                       fontWeight: isSelected || isNow ? 700 : 400,
                       fontSize: 'var(--fs-sm)',
                     }}>
                     {m}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -218,10 +220,10 @@ function QuarterView({ year }) {
               </div>
 
               {d.status === 'เตรียมการ' && (
-                <button className="btn btn-outline btn-sm" style={{ marginTop: 8, width: '100%' }}
+                <Button variant="outline" size="sm" style={{ marginTop: 8, width: '100%' }}
                   onClick={() => window.__openModal('monthlyTarget', { month: mIdx, year })}>
                   ตั้งเป้า
-                </button>
+                </Button>
               )}
             </div>
           );
@@ -376,11 +378,11 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
   const modeToggle = (
     <div className="row between" style={{ gap: 10, flexWrap: 'wrap', paddingBottom: 10, marginBottom: 10, borderBottom: '1px solid var(--line)' }}>
       <span className="cap" style={{ color: 'var(--ink-2)' }}>ใช้ข้อมูลแบบ:</span>
-      <div className="row" style={{ border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
+      <ToggleGroup type="single" variant="pill" size="sm" value={entryMode} onValueChange={v => v && switchEntryMode(v)}>
         {[['monthly', 'รายเดือน'], ['daily', 'รายวัน']].map(([m, l]) => (
-          <button key={m} onClick={() => switchEntryMode(m)} style={{ border: 'none', padding: '5px 14px', cursor: 'pointer', fontSize: 'var(--fs-cap)', fontWeight: 600, background: entryMode === m ? 'var(--accent)' : 'transparent', color: entryMode === m ? '#fff' : 'var(--ink-2)' }}>{l}</button>
+          <ToggleGroupItem key={m} value={m}>{l}</ToggleGroupItem>
         ))}
-      </div>
+      </ToggleGroup>
     </div>
   );
 
@@ -415,9 +417,9 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
           <div style={{ height: '100%', width: `${Math.min((ENTERED_DAYS / DAYS) * 100, 100)}%`, background: 'var(--accent)', borderRadius: 4, transition: 'width 0.5s var(--ease)' }}></div>
         </div>
         <div className="cap" style={{ color: 'var(--ink-3)', margin: '10px 0 12px' }}>{missHint}</div>
-        <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: 12, opacity: primaryDisabled ? 0.55 : 1 }} disabled={primaryDisabled} onClick={firePrimary}>
+        <Button style={{ width: '100%', justifyContent: 'center', padding: 12, opacity: primaryDisabled ? 0.55 : 1 }} disabled={primaryDisabled} onClick={firePrimary}>
           <Icon name="pencil" /> {primaryLabel}
-        </button>
+        </Button>
         {/* รายการที่กรอก (ดิบ — โชว์มาเลย ไม่ซ่อน) */}
         <div className="cap" style={{ color: 'var(--ink-3)', fontWeight: 700, margin: '16px 0 6px' }}>รายการที่กรอก{dailyRows.length ? ` (${dailyRows.length})` : ''}</div>
         {dailyRows.length === 0
@@ -484,7 +486,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
     <div className="card">
       <div className="card-head row between" style={{ alignItems: 'center' }}>
         <div><div className="eyebrow">เป้าหมาย & งบ ที่ตั้งไว้</div><div className="h3">เดือน{monthLabel} {year}</div></div>
-        {canEdit && <button className="btn btn-sm btn-outline" onClick={() => window.__openModal('monthlyTarget', { month, year })}><Icon name="pencil" /> {TARGET > 0 ? 'แก้ไข' : 'ตั้งค่า'}</button>}
+        {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('monthlyTarget', { month, year })}><Icon name="pencil" /> {TARGET > 0 ? 'แก้ไข' : 'ตั้งค่า'}</Button>}
       </div>
       <div style={{ padding: '0 16px 16px' }}>
         <div className="grid g2" style={{ gap: 10 }}>
@@ -544,7 +546,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
     <div className="card">
       <div className="card-head row between" style={{ alignItems: 'center' }}>
         <div><div className="eyebrow">แคมเปญแอด</div><div className="h3">{monthAdCamps.length > 0 ? `${monthAdCamps.length} แคมเปญ` : `เดือน${monthLabel}`}</div></div>
-        {canEdit && <button className="btn btn-sm btn-outline" onClick={() => window.__openModal('adCampaign')}><Icon name="plus" /> เพิ่ม</button>}
+        {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('adCampaign')}><Icon name="plus" /> เพิ่ม</Button>}
       </div>
       <div style={{ padding: '0 16px 16px' }}>
         {monthAdCamps.length === 0
@@ -582,14 +584,14 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
             <span style={_bubble}><Icon name="users" /></span>
             <div style={{ minWidth: 0 }}><div className="sm" style={{ fontWeight: 600 }}>กลุ่มลูกค้า</div><div className="cap" style={{ color: 'var(--ink-3)' }}>{segCount > 0 ? `${segCount} กลุ่ม` : 'ยังไม่ได้อัปเดต'}</div></div>
           </div>
-          {canEdit && <button className="btn btn-sm btn-outline" onClick={() => window.__openModal('customerSegment')}>จัดการ</button>}
+          {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('customerSegment')}>จัดการ</Button>}
         </div>
         <div className="row between" style={{ padding: '10px 4px', gap: 12 }}>
           <div className="row" style={{ gap: 10, minWidth: 0 }}>
             <span style={_bubble}><Icon name="clock" /></span>
             <div style={{ minWidth: 0 }}><div className="sm" style={{ fontWeight: 600 }}>ข้อมูลย้อนหลัง</div><div className="cap" style={{ color: 'var(--ink-3)' }}>กรอกแล้ว {monthsFilled}/12 เดือน</div></div>
           </div>
-          {canEdit && <button className="btn btn-sm btn-outline" onClick={() => window.__openModal('historical', { year })}>กรอก</button>}
+          {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('historical', { year })}>กรอก</Button>}
         </div>
       </div>
     </div>
@@ -602,7 +604,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
         <div className="card" style={{ padding: 24, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
           <div className="h2" style={{ marginBottom: 4 }}>เตรียมเดือน{monthFull} {year}</div>
           <div className="sm" style={{ color: 'var(--ink-2)', marginBottom: 16 }}>ตั้งเป้าหมาย งบ และแคมเปญล่วงหน้าได้เลย — พอถึงเดือนนี้ค่อยเริ่มกรอกยอดรายวัน</div>
-          {canEdit && <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: 12 }} onClick={() => window.__openModal('monthlyTarget', { month, year })}><Icon name="target" /> ตั้งเป้า & งบล่วงหน้า</button>}
+          {canEdit && <Button style={{ width: '100%', justifyContent: 'center', padding: 12 }} onClick={() => window.__openModal('monthlyTarget', { month, year })}><Icon name="target" /> ตั้งเป้า & งบล่วงหน้า</Button>}
         </div>
         {targetCard}
         <div className="grid g2" style={{ gap: 14, alignItems: 'start' }}>{campaignCard}{extrasCard}</div>

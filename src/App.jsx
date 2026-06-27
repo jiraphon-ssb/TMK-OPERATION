@@ -11,6 +11,8 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Card } from '@/components/ui/card';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Loader2 } from 'lucide-react';
 import tmkLogo from './assets/tmk-logo.png';
@@ -29,7 +31,7 @@ import { logAudit } from './lib/audit.js';
 import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
-import { WhatsNew, UpdateBanner } from './WhatsNew.jsx';
+import { UpdateBanner, useUnseenVersion } from './WhatsNew.jsx';
 
 function LoadingScreen() {
   const tips = [
@@ -80,9 +82,9 @@ function DataErrorScreen({ error, onRetry }) {
           เชื่อมต่อฐานข้อมูลไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง
         </div>
         {error && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, wordBreak: 'break-word' }}>{String(error)}</div>}
-        <button className="btn btn-primary" onClick={retry} disabled={busy} style={{ marginTop: 18 }}>
+        <Button onClick={retry} disabled={busy} style={{ marginTop: 18 }}>
           {busy ? 'กำลังลองใหม่…' : 'ลองใหม่อีกครั้ง'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -102,10 +104,22 @@ function SyncIndicator() {
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 const modKey = isMac ? '⌘' : 'Ctrl+';
 
+// ---- Spotlight recents (localStorage) — boost รายการที่ใช้ล่าสุด ----
+const SPOT_RECENT_KEY = 'tmk-spotlight-recent';
+const readSpotRecents = () => { try { return JSON.parse(localStorage.getItem(SPOT_RECENT_KEY)) || []; } catch { return []; } };
+const pushSpotRecent = (item) => {
+  try {
+    const list = readSpotRecents().filter(r => !(r.label === item.label && r.cat === item.cat));
+    list.unshift({ cat: item.cat, icon: item.icon, label: item.label, sub: item.sub, color: item.color, go: item.go });
+    localStorage.setItem(SPOT_RECENT_KEY, JSON.stringify(list.slice(0, 6)));
+  } catch { /* ignore quota/parse */ }
+};
+
 function Spotlight({ onClose, onGo }) {
   const [q, setQ] = useState('');
   const [idx, setIdx] = useState(0);
   const inputRef = useRef(null);
+  const recents = useMemo(() => readSpotRecents(), []);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
   // เปลี่ยนคำค้น → reset ตัวเลือกเป็นรายการแรก (ทำตอนพิมพ์ ไม่ใช่ใน effect → กัน re-render ซ้ำ)
@@ -117,47 +131,53 @@ function Spotlight({ onClose, onGo }) {
   // Helper — safe lowercase (handles null/undefined/non-string)
   const lc = (v) => String(v || '').toLowerCase();
 
+  // เปิดรายการ + จำไว้เป็น "ล่าสุด" (go = [section, sub] แบบ serialize ได้)
+  const fire = (r) => { pushSpotRecent(r); onGo(r.go[0], r.go[1]); onClose(); };
+
   if (ql) {
     // Tasks
     (TMK.tasks || []).filter(t => lc(t.title).includes(ql) || lc(t.detail).includes(ql)).slice(0, 5).forEach(t => {
       const c = (TMK.campaigns || []).find(x => x.id === t.camp);
-      results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, action: () => { onGo('planner', 'kanban'); onClose(); } });
+      results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, go: ['planner', 'kanban'] });
     });
     // Products
     (TMK.products || []).filter(p => lc(p.name).includes(ql)).slice(0, 3).forEach(p => {
-      results.push({ cat: 'สินค้า', icon: 'bag', label: p.name, sub: `${B(p.price)} · ขาย ${N(p.units)} ชิ้น`, color: 'var(--accent)', action: () => { onGo('catalog', 'products'); onClose(); } });
+      results.push({ cat: 'สินค้า', icon: 'bag', label: p.name, sub: `${B(p.price)} · ขาย ${N(p.units)} ตัว`, color: 'var(--accent)', go: ['catalog', 'products'] });
     });
     // Campaigns
     (TMK.campaigns || []).filter(c => lc(c.name).includes(ql)).slice(0, 3).forEach(c => {
-      results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, action: () => { onGo('settings', 'campaigns'); onClose(); } });
+      results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, go: ['settings', 'campaigns'] });
     });
     // Staff
     (TMK.staff || []).filter(s => lc(s.name).includes(ql) || lc(s.role).includes(ql)).forEach(s => {
-      results.push({ cat: 'ทีม', icon: 'users', label: s.name, sub: s.role, color: s.color, action: () => { onGo('settings', 'roles'); onClose(); } });
+      results.push({ cat: 'ทีม', icon: 'users', label: s.name, sub: s.role, color: s.color, go: ['settings', 'roles'] });
     });
     // Channels
     (TMK.channels || []).filter(c => lc(c.name).includes(ql)).forEach(c => {
-      results.push({ cat: 'ช่องทาง', icon: 'layers', label: c.name, sub: `เป้า ${Bk(c.target)}`, color: c.hex, action: () => { onGo('sales', 'channels'); onClose(); } });
+      results.push({ cat: 'ช่องทาง', icon: 'layers', label: c.name, sub: `เป้า ${Bk(c.target)}`, color: c.hex, go: ['sales', 'channels'] });
     });
     // Orders (ค้นด้วยรหัสออเดอร์ / ชื่อลูกค้า)
     (TMK.orders || []).filter(o => lc(o.code).includes(ql) || lc(o.customerName).includes(ql)).slice(0, 4).forEach(o => {
-      results.push({ cat: 'ออเดอร์', icon: 'listChecks', label: o.code || o.customerName || 'ออเดอร์', sub: `${o.customerName || ''} · ${B(o.total)}`, color: 'var(--accent-2)', action: () => { onGo('catalog', 'orders'); onClose(); } });
+      results.push({ cat: 'ออเดอร์', icon: 'listChecks', label: o.code || o.customerName || 'ออเดอร์', sub: `${o.customerName || ''} · ${B(o.total)}`, color: 'var(--accent-2)', go: ['catalog', 'orders'] });
     });
     // Customers (ค้นด้วยชื่อ / เบอร์ / รหัส)
     (TMK.customers || []).filter(c => lc(c.name).includes(ql) || lc(c.phone).includes(ql) || lc(c.code).includes(ql)).slice(0, 4).forEach(c => {
-      results.push({ cat: 'ลูกค้า', icon: 'users', label: c.name || c.code || 'ลูกค้า', sub: `${c.phone || ''}${c.orderCount ? ' · ' + c.orderCount + ' ออเดอร์' : ''}`, color: 'var(--info)', action: () => { onGo('catalog', 'customers'); onClose(); } });
+      results.push({ cat: 'ลูกค้า', icon: 'users', label: c.name || c.code || 'ลูกค้า', sub: `${c.phone || ''}${c.orderCount ? ' · ' + c.orderCount + ' ออเดอร์' : ''}`, color: 'var(--info)', go: ['catalog', 'customers'] });
     });
     // Navigation
     [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'planner', sub: 'calendar' }, { l: 'Kanban', s: 'planner', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'planner', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'settings', sub: 'campaigns' }]
       .filter(n => lc(n.l).includes(ql)).forEach(n => {
-        results.push({ cat: 'นำทาง', icon: 'arrowR', label: `ไปที่ ${n.l}`, sub: '', color: 'var(--ink-3)', action: () => { onGo(n.s, n.sub); onClose(); } });
+        results.push({ cat: 'นำทาง', icon: 'arrowR', label: `ไปที่ ${n.l}`, sub: '', color: 'var(--ink-3)', go: [n.s, n.sub] });
       });
+  } else {
+    // ไม่มีคำค้น → โชว์ "ล่าสุด" ที่เคยเปิด (recent boost)
+    recents.forEach(r => results.push({ ...r, cat: 'ล่าสุด' }));
   }
 
   const onKey = (e) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setIdx(i => Math.min(i + 1, results.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter' && results[idx]) { results[idx].action(); }
+    else if (e.key === 'Enter' && results[idx]) { fire(results[idx]); }
     else if (e.key === 'Escape') { onClose(); }
   };
 
@@ -179,7 +199,7 @@ function Spotlight({ onClose, onGo }) {
 
         {/* Results */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
-          {!ql && (
+          {!ql && results.length === 0 && (
             <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--ink-3)' }}>
               <div style={{ fontSize: 'var(--fs-sm)', marginBottom: 4 }}>พิมพ์เพื่อค้นหา</div>
               <div className="cap">งาน · สินค้า · แคมเปญ · ทีม · ช่องทาง · นำทาง</div>
@@ -194,7 +214,7 @@ function Spotlight({ onClose, onGo }) {
             <div key={cat}>
               <div className="eyebrow" style={{ padding: '10px 20px 4px' }}>{cat}</div>
               {items.map(r => (
-                <button key={r._i} onClick={r.action} onMouseEnter={() => setIdx(r._i)}
+                <button key={r._i} onClick={() => fire(r)} onMouseEnter={() => setIdx(r._i)}
                   style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '10px 20px', border: 'none', background: idx === r._i ? 'var(--accent-soft)' : 'transparent', color: 'var(--ink)', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--font)', transition: 'background 0.08s' }}>
                   <span style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', background: (r.color || 'var(--ink-3)') + '18', color: r.color || 'var(--ink-3)', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon name={r.icon} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -253,9 +273,9 @@ function useNav() {
   }));
 }
 const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
-const ACCENTS = { '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
+const ACCENTS = { '#4f46e5': '#4338ca', '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
 
-const accent = '#0a5aa0';
+const accent = '#4f46e5'; // indigo-600 — แบรนด์ active/selected/icon
 
 // กันจอขาว: ถ้า render throw → แสดงหน้า error + ปุ่มล้างข้อมูลเข้าใหม่ (แทนจอว่างถาวร)
 class ErrorBoundary extends React.Component {
@@ -265,16 +285,18 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.err) {
       return (
-        <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, fontFamily: 'sans-serif', background: '#f3f6fb', color: '#10203a' }}>
-          <div style={{ textAlign: 'center', maxWidth: 420 }}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
-            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>เกิดข้อผิดพลาด</div>
-            <div style={{ fontSize: 13, color: '#5a6b82', marginBottom: 18, lineHeight: 1.7 }}>ระบบสะดุดชั่วคราว — ลองรีเฟรช หรือล้างข้อมูลเข้าสู่ระบบแล้วเริ่มใหม่</div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <button onClick={() => location.reload()} style={{ padding: '10px 18px', borderRadius: 10, border: '1px solid #dce4f0', background: '#fff', cursor: 'pointer' }}>รีเฟรช</button>
-              <button onClick={() => { try { localStorage.removeItem('tmk-user'); } catch { /* ignore */ } location.reload(); }} style={{ padding: '10px 18px', borderRadius: 10, border: 'none', background: '#0a5aa0', color: '#fff', cursor: 'pointer' }}>ล้างข้อมูล &amp; เข้าใหม่</button>
+        <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: 'var(--bg, #f3f6fb)', color: 'var(--ink, #10203a)' }}>
+          <Card className="w-full max-w-[420px] p-8 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full [&_svg]:size-7" style={{ background: 'var(--warn-soft, #fdf2d0)', color: 'var(--warn, #d99e16)' }}>
+              <Icon name="alertTriangle" />
             </div>
-          </div>
+            <h2 className="mb-2 text-lg font-bold" style={{ color: 'var(--ink)' }}>เกิดข้อผิดพลาด</h2>
+            <p className="mb-6 text-[13px] leading-relaxed" style={{ color: 'var(--ink-4)' }}>ระบบสะดุดชั่วคราว — ลองรีเฟรช หรือล้างข้อมูลเข้าสู่ระบบแล้วเริ่มใหม่</p>
+            <div className="flex justify-center gap-2.5">
+              <Button variant="outline" onClick={() => location.reload()}>รีเฟรช</Button>
+              <Button onClick={() => { try { localStorage.removeItem('tmk-user'); } catch { /* ignore */ } location.reload(); }}>ล้างข้อมูล &amp; เข้าใหม่</Button>
+            </div>
+          </Card>
         </div>
       );
     }
@@ -325,8 +347,8 @@ function PublicTrackPage({ code }) {
           <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--ink)' }}>ติดตามสถานะออเดอร์</div>
         </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <input className="input" style={{ flex: 1 }} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} placeholder="กรอกรหัสออเดอร์ (เช่น ORD-260609-AB12)" />
-          <button className="btn btn-primary" onClick={doSearch}><Icon name="search" /> ค้นหา</button>
+          <Input style={{ flex: 1 }} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} placeholder="กรอกรหัสออเดอร์ (เช่น ORD-260609-AB12)" />
+          <Button onClick={doSearch}><Icon name="search" /> ค้นหา</Button>
         </div>
 
         {order === undefined && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กำลังค้นหา…</div>}
@@ -416,6 +438,7 @@ function AppInner() {
   const { user: currentUserCtx } = useUser() || {};
   // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
+  const unseenVersion = useUnseenVersion(); // จุดแดง "มีอะไรใหม่" บนเมนูโปรไฟล์
 
   const [dark, setDark] = useState(() => {
     try { return localStorage.getItem('tmk-dark') === 'true'; } catch { return false; }
@@ -476,8 +499,8 @@ function AppInner() {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle('dark', !!dark);
-    root.style.setProperty('--accent', accent);
-    root.style.setProperty('--accent-2', dark ? `color-mix(in srgb, ${accent} 48%, white)` : (ACCENTS[accent] || accent));
+    root.style.setProperty('--accent', dark ? `color-mix(in srgb, ${accent} 62%, white)` : accent);
+    root.style.setProperty('--accent-2', dark ? `color-mix(in srgb, ${accent} 40%, white)` : (ACCENTS[accent] || accent));
     try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch { /* ignore */ }
   }, [dark]);
 
@@ -800,12 +823,15 @@ function AppInner() {
                     size="lg"
                     className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground outline-none"
                   >
-                    <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarImage src={currentUserCtx?.avatar} alt={currentUserCtx?.name} />
-                      <AvatarFallback className="rounded-lg font-semibold" style={{ backgroundColor: currentUserCtx?.color || '#e2e8f0', color: currentUserCtx?.color ? '#fff' : '#334155' }}>
-                        {currentUserCtx?.name ? currentUserCtx.name.substring(0, 2).toUpperCase() : 'GR'}
-                      </AvatarFallback>
-                    </Avatar>
+                    <span className="relative">
+                      <Avatar className="h-8 w-8 rounded-lg">
+                        <AvatarImage src={currentUserCtx?.avatar} alt={currentUserCtx?.name} />
+                        <AvatarFallback className="rounded-lg font-semibold" style={{ backgroundColor: currentUserCtx?.color || '#e2e8f0', color: currentUserCtx?.color ? '#fff' : '#334155' }}>
+                          {currentUserCtx?.name ? currentUserCtx.name.substring(0, 2).toUpperCase() : 'GR'}
+                        </AvatarFallback>
+                      </Avatar>
+                      {unseenVersion && <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-[var(--sidebar,#fff)]" style={{ background: 'var(--bad, #ef4444)' }} aria-hidden="true" />}
+                    </span>
                     <div className="flex flex-col gap-0.5 leading-none flex-1 text-left">
                       <span className="font-semibold text-sm">{currentUserCtx?.name || 'Graphic'}</span>
                       <span className="text-xs text-muted-foreground">{currentUserCtx?.email || 'graphic@tmk.co'}</span>
@@ -845,6 +871,11 @@ function AppInner() {
                     <DropdownMenuItem onClick={() => go('settings', 'audit')} className="cursor-pointer">
                       <Icon name="clock" className="size-4 mr-2 text-muted-foreground" />
                       ประวัติระบบ
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => go('settings', 'updates')} className="cursor-pointer">
+                      <Icon name="sparkle" className="size-4 mr-2 text-muted-foreground" />
+                      มีอะไรใหม่
+                      {unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
@@ -1031,10 +1062,7 @@ function AppInner() {
       {showShell && Shell()}
       {syncing && <SyncIndicator />}
 
-      {/* What's New — widget มุมขวาล่าง */}
-      {showShell && <WhatsNew />}
-
-      {/* แถบ "มีเวอร์ชันใหม่" — เด้งบนสุดเมื่อ deploy บิลด์ใหม่ */}
+      {/* แถบ "มีเวอร์ชันใหม่" — เด้งบนสุดเมื่อ deploy บิลด์ใหม่ (changelog ย้ายไปหน้า Settings > มีอะไรใหม่) */}
       {showShell && <UpdateBanner />}
 
       {authed && modal && (

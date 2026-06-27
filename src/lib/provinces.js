@@ -126,3 +126,8 @@ export function matchProvince(raw) {
   return best;
 }
 export const normalizeProvince = (raw) => { const p = matchProvince(raw); return p ? p.th : null; };
+
+// จังหวัด (ดิบ/canonical) → รหัสภาค (N/C/NE/E/W/S) | null
+export const regionCodeOf = (raw) => { const p = matchProvince(raw); return p ? p.region : null; };
+// จังหวัด → ชื่อภาคไทย ('ภาคกลาง' …) | null
+export const regionOf = (raw) => { const c = regionCodeOf(raw); return c ? REGIONS[c] : null; };

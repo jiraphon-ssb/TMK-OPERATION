@@ -10,6 +10,7 @@
    - TikTok  = นับเป็นออเดอร์ใหม่ (คนละระบบ)
    - ตัดออเดอร์ยกเลิกทิ้ง · รวมหลาย LOT เป็นลายเดียว (design_key)
 ============================================================================ */
+import { BUILTIN_DESIGN_ALIASES } from './shirtCatalog.js'; // คำพ้องชัวร์ → ฉีดเข้า matcher อัตโนมัติ (จันทกานต์→จันทร์, สีดำ-*→OEM)
 
 export const MP_SIZES = new Set(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL', '8XL']);
 
@@ -31,12 +32,16 @@ export function qtyBand(q) {
   return '51+';
 }
 
-// ---- ประเภทงาน (ปลีก/ส่ง/OEM) จากจำนวน+ช่องทาง — proxy ตาม blueprint M1.3 ----
-export function deriveJobType(channel, qty) {
+// ---- DFT: ระบุจากหมายเหตุออเดอร์ (ถ้าหมายเหตุมีคำว่า DFT = งาน DFT) ----
+export const isDftNote = (note) => /\bdft\b/i.test(String(note ?? ''));
+
+// ---- ประเภทงาน (ปลีก / DFT / OEM) ----
+// ปลีก+ส่ง รวมเป็น "ปลีก" · DFT แยกตามหมายเหตุ · OEM = ออเดอร์ก้อนใหญ่ช่องทาง direct
+export function deriveJobType(channel, qty, note) {
+  if (isDftNote(note)) return 'DFT';
   const q = Number(qty) || 0;
   const direct = ['Phone', 'Direct', 'POS', 'LINE', 'Facebook'].includes(String(channel));
-  if (q >= 51) return direct ? 'OEM' : 'ส่ง';
-  if (q >= 11) return 'ส่ง';
+  if (q >= 51 && direct) return 'OEM';
   return 'ปลีก';
 }
 
@@ -116,6 +121,7 @@ export function buildMatchers(catalogGrid, aliases = []) {
   const ci = { code: get('product_code', 'sku', 'รหัสสินค้า', 'รหัส'), name: get('product_name', 'name', 'ชื่อสินค้า', 'ชื่อ'), design: get('design_key', 'design', 'ลาย') };
   const code2 = {}, name2 = {}, alias2 = {}, kwseen = new Set(), kw = [];
   const colors = new Set();
+  const dk2code = {}; // design_key → รหัส SKU เต็มแรกที่เจอ (ให้ alias ยืมไปใช้ จะได้นับเป็น "จับคู่ได้")
   for (let r = 1; r < (catalogGrid?.length || 0); r++) {
     const row = catalogGrid[r] || [];
     const code = String(row[ci.code] ?? '').trim();
@@ -123,18 +129,20 @@ export function buildMatchers(catalogGrid, aliases = []) {
     const dk = String(row[ci.design] ?? '').trim();
     if (!code && !name) continue;
     if (code) code2[code.toUpperCase()] = { code, design: dk };
+    if (dk && code && !dk2code[dk]) dk2code[dk] = code;
     if (name) name2[name] = { code, design: dk };
     for (const tok of [dk, name]) {
       const t = String(tok).trim();
       if (t && t.length >= 3) { const key = t + '||' + code; if (!kwseen.has(key)) { kwseen.add(key); kw.push([t, code, dk]); } }
     }
   }
-  // ผนวก alias เข้า matcher
-  for (const a of (aliases || [])) {
+  // ผนวก alias เข้า matcher — builtin (คำพ้องชัวร์) ก่อน แล้วทับด้วย alias จากผู้ใช้ (DB) ได้
+  for (const a of [...BUILTIN_DESIGN_ALIASES, ...(aliases || [])]) {
     const term = String(a.term ?? '').trim(); if (!term) continue;
     if (a.kind === 'color') { colors.add(term.replace(/^สี/, '').trim()); continue; }
-    const code = String(a.code ?? '').trim();
+    let code = String(a.code ?? '').trim();
     const design = String(a.design ?? '').trim() || (code && code2[code.toUpperCase()]?.design) || term;
+    if (!code) code = dk2code[design] || '';              // ยืม SKU เต็มของลายเป้าหมาย → ผ่าน hasCode (ไม่ตกเป็น anomaly)
     alias2[term] = { code, design };                      // ตรงเป๊ะ
     const key = term + '||' + code; if (!kwseen.has(key)) { kwseen.add(key); kw.push([term, code, design]); }
   }
@@ -298,6 +306,7 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       cancel: get('ยกเลิกออเดอร์แล้ว'), qty: get('จำนวนสั่งซื้อรวม'), sales: get('ยอดขาย'), cost: get('ต้นทุนรวม'),
       comm: get('ค่าคอมมิชชั่นของ Marketplace'), net: get('รายรับจากคำสั่งซื้อ Shopee'), profit: get('กำไรสุทธิ'),
       cod: get('ยอด COD'), bank: get('ธนาคารที่รับเงิน'), prov: get('ชื่อจังหวัด (จังหวัด)'),
+      note: get('หมายเหตุ', 'หมายเหตุออเดอร์', 'หมายเหตุภายใน', 'โน้ต', 'Note', 'Remark'),
       custDate: get('วันที่สร้าง (ลูกค้า)'), custCum: get('จำนวนออเดอร์สะสม (ลูกค้า)'),
       custCode: get('รหัสลูกค้า (ลูกค้า)'), custName: get('ชื่อ'), custSocial: get('ชื่อโซเชียล (ลูกค้า)', 'ชื่อในช่องทางติดต่อ'), custSpent: get('ยอดสั่งซื้อสะสม (ลูกค้า)'),
     };
@@ -309,9 +318,10 @@ export function buildMaster({ shipnity, tiktok } = {}) {
       const om = ymOf(o[c.date]), cm = ymOf(o[c.custDate]);
       const q = mpNum(o[c.qty]); const user = String(o[c.user] ?? '').trim();
       const ch = normChannel(o[c.mkt], o[c.contact], o[c.user], o[c.prov]);
+      const noteVal = c.note >= 0 ? String(o[c.note] ?? '').trim() : '';
       rows.push({
         order_no: ono, source: 'shipnity', status: cancelled ? 'cancelled' : 'active',
-        channel: ch, job_type: deriveJobType(ch, q),
+        channel: ch, job_type: deriveJobType(ch, q, noteVal), note: noteVal,
         marketplace_id: String(o[c.mid] ?? '').trim(),
         order_month: om, order_date: isoDate(o[c.date]),
         salesperson: (user && user !== '-') ? user : '(อัตโนมัติ/มาร์เก็ตเพลส)',
@@ -434,13 +444,66 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
         const label = nm.replace(/\s*\([^)]*\)\s*$/, '').trim();
         const { color, size } = splitParenVar(varTxt);
         const m = matchLabel(label);
-        const lsales = tot ? Math.round(osales * (q / tot) * 100) / 100 : 0; // เฉลี่ยตามชิ้น
+        const lsales = tot ? Math.round(osales * (q / tot) * 100) / 100 : 0; // เฉลี่ยตามตัว
         rows.push({ channel: shipnityAll ? ch : 'Shipnity-direct', source: 'shipnity', order_no: ono, product_code: m.code, design: m.design, color, size, qty: q, line_sales: lsales, raw_sku_or_name: label + (varTxt ? ` (${varTxt})` : ''), match_how: m.design ? 'label' : '' });
       }
     }
   }
   // ทุกแถวต้องมี key 'attrs' เท่ากัน (PostgREST bulk insert ต้องคีย์ตรงกัน)
   return rows.map(r => ({ ...r, attrs: r.attrs || {} }));
+}
+
+/* ============================ RE-MATCH (ไม่ต้อง reimport) ============================
+   จับคู่ลายใหม่บนแถว tmk_mp_skus ที่เก็บไว้แล้ว โดยใช้ M = buildMatchers(catalog, aliases)
+   ปัจจุบัน → คำนวณ design/product_code/match_how ใหม่จาก raw_sku_or_name + product_code
+   ที่ frozen ไว้ตอน import. ใช้ตอน "ปรับ alias/แคตตาล็อกแล้วอยากดันลงข้อมูลเก่าถาวร".
+   คืน null = ไม่ควรแก้ (กันทับของที่จับคู่ดีอยู่แล้ว). */
+export function rematchSkuRow(row, M) {
+  const raw = String(row.raw_sku_or_name || '').trim();
+  const code0 = String(row.product_code || '').trim();
+  const curDesign = String(row.design || '').trim();
+  const matched = !!curDesign;                       // มีลายอยู่แล้ว = เคยจับคู่ได้
+
+  // หา catalog row จากรหัสที่ฝัง (เช่น "JRP111-S-4XL" → "JRP111")
+  const embed = (txt) => { for (const seg of String(txt || '').split(/[-_\s/]/)) { const s = seg.trim().toUpperCase(); if (s && M.code2[s]) return M.code2[s]; } return null; };
+  const byCode = (code0 && M.code2[code0.toUpperCase()]) || embed(code0) || embed(raw);
+  // ชื่อ/alias ตรงเป๊ะ (ตัดวงเล็บ variant ท้ายออกก่อน)
+  const label = raw.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  const exact = M.name2[label] || (M.alias2 && M.alias2[label]) || M.name2[raw] || (M.alias2 && M.alias2[raw]);
+  // keyword (มั่นใจกลาง) — ใช้เฉพาะเมื่อไม่มี code/exact
+  const kw = (!byCode && !exact) ? kwmatch(M.kw, label) : null;
+
+  let cand = null, conf = '';
+  if (byCode && byCode.design) { cand = { design: byCode.design, code: byCode.code, how: 'code' }; conf = 'high'; }
+  else if (exact && exact.design) { cand = { design: exact.design, code: exact.code || code0, how: 'label' }; conf = 'high'; }
+  else if (kw && kw.design) { cand = { design: kw.design, code: kw.code || code0, how: 'kw' }; conf = 'mid'; }
+  if (!cand) return null;
+
+  const newCode = cand.code || code0;
+  if (cand.design === curDesign && newCode === code0) return null;   // ไม่เปลี่ยน
+  if (matched && conf !== 'high') return null;                       // กันทับ: เคยจับคู่ได้ → แก้เฉพาะมั่นใจสูง
+  return { design: cand.design, product_code: newCode, match_how: cand.how, conf, filled: !matched };
+}
+
+/* วางแผน re-match ทั้งชุด → group ตาม (source, raw_sku_or_name, product_code) ให้ update ทีละก้อน
+   (design/code ขึ้นกับ raw+code เท่านั้น → แถวที่มี raw+code เดียวกันเปลี่ยนเหมือนกันหมด).
+   คืน { changes:[{source,raw,oldCode,design,product_code,match_how,filled,rows,conf}], filled, fixed, scanned } */
+export function planRematch(rows, M) {
+  const groups = new Map();
+  for (const r of (rows || [])) {
+    const k = `${r.source || ''}|||${r.raw_sku_or_name || ''}|||${r.product_code || ''}`;
+    const g = groups.get(k) || { source: r.source || '', raw: r.raw_sku_or_name || '', oldCode: r.product_code || '', sample: r, rows: 0 };
+    g.rows++; groups.set(k, g);
+  }
+  const changes = [];
+  let filled = 0, fixed = 0;
+  for (const g of groups.values()) {
+    const res = rematchSkuRow(g.sample, M);
+    if (!res) continue;
+    changes.push({ source: g.source, raw: g.raw, oldCode: g.oldCode, design: res.design, product_code: res.product_code, match_how: res.match_how, filled: res.filled, conf: res.conf, rows: g.rows });
+    if (res.filled) filled += g.rows; else fixed += g.rows;
+  }
+  return { changes, filled, fixed, scanned: (rows || []).length };
 }
 
 /* ============================ สรุป/รวมยอด (สำหรับ preview reconciliation) ============================ */

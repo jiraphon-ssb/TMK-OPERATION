@@ -1,13 +1,15 @@
 /* ============================================================
-   TMK Operation — What's New (การ์ดเดียวจบ, มุมขวาล่าง)
+   TMK Operation — What's New (หน้าเต็มในเมนูโปรไฟล์)
    ============================================================
-   - ปุ่มลอยมุมขวาล่าง = ทางเข้าเดียว กดเปิด/ปิดการ์ดได้ตลอด (จุดแดงตอนมีเวอร์ชันใหม่)
-   - การ์ดเดียวเก็บทุกอย่าง: เวอร์ชันล่าสุดเด่นบนสุด + ไทม์ไลน์ย้อนหลังเลื่อนดูในตัว
-   - ปุ่มมีแค่ ✕ (+ Esc / คลิกปุ่มลอย) — ไม่มีลิงก์ไปหน้าอื่น (ไม่มีหน้าอัปเดตแยกแล้ว)
+   - ไม่มีปุ่มลอย (FAB) แล้ว — changelog เป็น "หน้า" เข้าจากเมนูโปรไฟล์ใน sidebar
+   - UpdateBanner (แถบ poll เวอร์ชันใหม่) ยังคงไว้
+   - จุดแดง "ยังไม่อ่าน" sync ข้าม component ด้วย CustomEvent (useUnseenVersion)
    ============================================================ */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CHANGELOG, APP_VERSION } from './changelog.js';
 import { Icon } from './components.jsx';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 /* ---------- แถบ "มีเวอร์ชันใหม่" (แบบ A — นุ่ม) ----------
    เช็ค version.json บนเซิร์ฟเวอร์ทุก ~3 นาที + ตอนกลับมาที่แท็บ
@@ -66,83 +68,67 @@ const TYPE_META = {
   release:     { c: 'var(--warn)',     l: 'เปิดตัว' },
 };
 const SEEN_KEY = 'tmk-seen-version';
+const SEEN_EVT = 'tmk-version-seen';
 const getSeen = () => { try { return localStorage.getItem(SEEN_KEY); } catch { return null; } };
 
-export function WhatsNew() {
-  const latest = CHANGELOG[0];
+// ทำเครื่องหมาย "อ่านแล้ว" + แจ้งทุก component (จุดแดงหายพร้อมกัน)
+export function markVersionSeen() {
+  try { localStorage.setItem(SEEN_KEY, APP_VERSION); } catch { /* ignore */ }
+  try { window.dispatchEvent(new CustomEvent(SEEN_EVT)); } catch { /* ignore */ }
+}
+
+// hook: มีเวอร์ชันใหม่ที่ยังไม่อ่านหรือยัง (sync ข้าม component ด้วย CustomEvent + storage)
+export function useUnseenVersion() {
   const [unseen, setUnseen] = useState(() => getSeen() !== APP_VERSION);
-  const [open, setOpen] = useState(() => getSeen() !== APP_VERSION); // เด้งเองครั้งเดียวเมื่อมีเวอร์ชันใหม่
-
-  const markSeen = useCallback(() => { try { localStorage.setItem(SEEN_KEY, APP_VERSION); } catch { /* ignore */ } setUnseen(false); }, []);
-  const close = useCallback(() => { setOpen(false); markSeen(); }, [markSeen]);
-  const toggle = () => setOpen(o => { const next = !o; if (next) markSeen(); return next; });
-
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, close]);
+    const refresh = () => setUnseen(getSeen() !== APP_VERSION);
+    window.addEventListener(SEEN_EVT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => { window.removeEventListener(SEEN_EVT, refresh); window.removeEventListener('storage', refresh); };
+  }, []);
+  return unseen;
+}
 
-  if (!latest) return null;
-  const meta = TYPE_META[latest.type] || TYPE_META.fix;
-  const items = latest.items || [];
-  const history = CHANGELOG.slice(1, 8);
-
+// หน้าเต็ม changelog (ใน Settings > มีอะไรใหม่) — timeline ทุกเวอร์ชัน + mark seen ตอนเปิด
+export function WhatsNewPage() {
+  useEffect(() => { markVersionSeen(); }, []);
+  if (!CHANGELOG.length) return null;
   return (
-    <div className="whatsnew">
-      {open && (
-        <div className="whatsnew-card" role="dialog" aria-label="มีอะไรใหม่">
-          <div className="whatsnew-head whatsnew-head-navy" style={{ background: 'var(--surface-2)' }}>
-            <span className="whatsnew-badge" style={{ background: 'var(--ink)', color: '#fff' }}><Icon name="help" /></span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="cap" style={{ color: 'var(--ink-3)', fontWeight: 700 }}>มีอะไรใหม่</div>
-              <div className="row" style={{ gap: 7, alignItems: 'center' }}>
-                <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--ink)' }}>เวอร์ชัน {latest.ver}</span>
-                <span className="whatsnew-chip" style={{ background: meta.c }}>{meta.l}</span>
-              </div>
-            </div>
-            <button className="whatsnew-x" onClick={close} aria-label="ปิด"><Icon name="x" /></button>
-          </div>
-          <div className="whatsnew-scroll">
-            <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 11 }}>{latest.date}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {items.map((it, i) => (
-                <div key={i} className="row" style={{ gap: 9, alignItems: 'flex-start' }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: meta.c, marginTop: 6, flexShrink: 0 }} />
-                  <span className="sm" style={{ lineHeight: 1.5 }}>{it}</span>
-                </div>
-              ))}
-            </div>
-            {history.length > 0 && (
-              <>
-                <div className="whatsnew-sep"><span /><span className="cap">เวอร์ชันก่อนหน้า</span><span /></div>
-                <div className="whatsnew-timeline">
-                  {history.map((u, i) => {
-                    const m = TYPE_META[u.type] || TYPE_META.fix;
-                    return (
-                      <div key={i} className="whatsnew-tl-row">
-                        <span className="whatsnew-tl-dot" style={{ background: m.c }} />
-                        <div style={{ minWidth: 0 }}>
-                          <div className="row" style={{ gap: 7, alignItems: 'baseline' }}>
-                            <span className="sm" style={{ fontWeight: 700 }}>v{u.ver}</span>
-                            <span className="cap" style={{ color: 'var(--ink-4)' }}>{u.date}</span>
-                          </div>
-                          <div className="cap" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{(u.items && u.items[0]) || ''}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
+    <div style={{ display: 'grid', gap: 14, maxWidth: 760 }}>
+      <div>
+        <div className="row" style={{ gap: 9, alignItems: 'center' }}>
+          <span className="grid size-9 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] flex-none"><Icon name="sparkle" /></span>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>มีอะไรใหม่</h2>
+            <div className="cap" style={{ color: 'var(--ink-4)' }}>ประวัติการอัปเดตทั้งหมด · เวอร์ชันปัจจุบัน v{APP_VERSION}</div>
           </div>
         </div>
-      )}
-      <button className={'whatsnew-fab' + (open ? ' active' : '')} onClick={toggle} aria-label="มีอะไรใหม่" title="มีอะไรใหม่">
-        <Icon name="help" />
-        {unseen && !open && <span className="whatsnew-dot" />}
-      </button>
+      </div>
+      {CHANGELOG.map((u, i) => {
+        const m = TYPE_META[u.type] || TYPE_META.fix;
+        const items = u.items || [];
+        const isLatest = i === 0;
+        return (
+          <Card key={u.ver + '-' + i} className="p-[18px]" style={isLatest ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent-soft)' } : undefined}>
+            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: items.length ? 12 : 0 }}>
+              <span style={{ fontWeight: 800, fontSize: 16 }}>เวอร์ชัน {u.ver}</span>
+              <Badge variant="outline" className="rounded-full font-semibold" style={{ background: m.c, color: '#fff', borderColor: 'transparent' }}>{m.l}</Badge>
+              {isLatest && <Badge variant="secondary" className="rounded-full">ล่าสุด</Badge>}
+              <span className="cap" style={{ color: 'var(--ink-4)', marginLeft: 'auto' }}>{u.date}</span>
+            </div>
+            {items.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {items.map((it, j) => (
+                  <div key={j} className="row" style={{ gap: 9, alignItems: 'flex-start' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: m.c, marginTop: 6, flexShrink: 0 }} />
+                    <span className="sm" style={{ lineHeight: 1.55 }}>{it}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })}
     </div>
   );
 }

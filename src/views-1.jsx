@@ -12,8 +12,13 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter }
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Avatar as ShadcnAvatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+
+// chip class (เดิม) → shadcn Badge variant — ใช้ตอน migrate chip → <Badge>
+const chipVar = (cls) => ({ 'chip-good': 'success', 'chip-warn': 'warning', 'chip-bad': 'danger', 'chip-accent': 'accent' }[cls] || 'secondary');
 
 const D = TMK;
 // ❌ ไม่ destructure constants เพราะ primitive snapshot จะค้างที่ 0
@@ -225,7 +230,7 @@ function CampaignsCard({ go }) {
               <span style={{ flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
             </div>
           ) : (
-            <div className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>✅ ทุกแคมเปญอยู่ในแผน</div>
+            <div className="cap cap-head" style={{ color: 'var(--good)', fontWeight: 600 }}><Icon name="check" /> ทุกแคมเปญอยู่ในแผน</div>
           )}
         </div>
         {/* ความคืบหน้าแต่ละแคมเปญ — รันไปกี่ % แล้ว (ครบทุกตัว) */}
@@ -264,11 +269,11 @@ function HomeSkeleton() {
         <Skel w={90} h={24} r={20} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 14 }}>
-        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="card"><div className="row" style={{ gap: 10, alignItems: 'flex-start' }}><Skel w={10} h={10} r="50%" style={{ marginTop: 4 }} /><div style={{ flex: 1 }}><Skel w="68%" h={13} /><Skel w="90%" h={9} style={{ marginTop: 9 }} /></div></div></div>)}
+        {Array.from({ length: 4 }).map((_, i) => <Card key={i} className="p-[22px]"><div className="row" style={{ gap: 10, alignItems: 'flex-start' }}><Skel w={10} h={10} r="50%" style={{ marginTop: 4 }} /><div style={{ flex: 1 }}><Skel w="68%" h={13} /><Skel w="90%" h={9} style={{ marginTop: 9 }} /></div></div></Card>)}
       </div>
       <div className="row" style={{ gap: 14, marginTop: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div className="card" style={{ flex: '2 1 320px' }}><Skel w={140} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 4 }).map((_, i) => <div key={i} className="row" style={{ gap: 10, padding: '8px 0' }}><Skel w={8} h={8} r="50%" /><Skel w={`${52 + i * 8}%`} h={12} /></div>)}</div>
-        <div className="card" style={{ flex: '1 1 220px' }}><Skel w={120} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ marginBottom: 14 }}><Skel w="50%" h={9} /><Skel w="75%" h={18} style={{ marginTop: 6 }} /></div>)}</div>
+        <Card className="p-[22px]" style={{ flex: '2 1 320px' }}><Skel w={140} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 4 }).map((_, i) => <div key={i} className="row" style={{ gap: 10, padding: '8px 0' }}><Skel w={8} h={8} r="50%" /><Skel w={`${52 + i * 8}%`} h={12} /></div>)}</Card>
+        <Card className="p-[22px]" style={{ flex: '1 1 220px' }}><Skel w={120} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ marginBottom: 14 }}><Skel w="50%" h={9} /><Skel w="75%" h={18} style={{ marginTop: 6 }} /></div>)}</Card>
       </div>
     </div>
   );
@@ -280,14 +285,14 @@ function SalesSkeleton() {
   return (
     <div className="content-inner rise">
       <div className="row" style={{ gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
-        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="card" style={{ flex: '1 1 200px' }}><Skel w="55%" h={10} /><Skel w="72%" h={26} style={{ marginTop: 11 }} /><Skel w="45%" h={9} style={{ marginTop: 11 }} /></div>)}
+        {Array.from({ length: 4 }).map((_, i) => <Card key={i} className="p-[22px]" style={{ flex: '1 1 200px' }}><Skel w="55%" h={10} /><Skel w="72%" h={26} style={{ marginTop: 11 }} /><Skel w="45%" h={9} style={{ marginTop: 11 }} /></Card>)}
       </div>
-      <div className="card" style={{ minHeight: 300 }}>
+      <Card className="p-[22px]" style={{ minHeight: 300 }}>
         <Skel w={170} h={14} style={{ marginBottom: 20 }} />
         <div className="row" style={{ alignItems: 'flex-end', gap: 7, height: 220 }}>
           {Array.from({ length: 16 }).map((_, i) => <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', height: '100%' }}><Skel w="100%" h={bar(i)} r={4} /></div>)}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }
@@ -361,15 +366,17 @@ export function HomeView({ go }) {
           <div className="eyebrow" style={{ marginBottom: 6 }}>{(() => { const td = getToday(); return `${THAI_WEEKDAYS[new Date().getDay()]} ${td.day} ${THAI_MONTHS_FULL[td.month - 1]} ${td.yearBE}`; })()}</div>
           <h1 className="display">{(() => { const h = new Date().getHours(); return h < 12 ? 'สวัสดีตอนเช้า' : h < 17 ? 'สวัสดีตอนบ่าย' : h < 21 ? 'สวัสดีตอนเย็น' : 'สวัสดีตอนดึก'; })()}, {userName} {'👋'}</h1>
         </div>
-        <span className={`chip ${navigator.onLine ? 'chip-good' : 'chip-warn'}`}><span className="dot-c" style={{ background: navigator.onLine ? 'var(--good)' : 'var(--warn)' }}></span> {navigator.onLine ? 'ออนไลน์' : 'ออฟไลน์'}</span>
+        <Badge variant={navigator.onLine ? 'success' : 'warning'}><span className="dot-c" style={{ background: navigator.onLine ? 'var(--good)' : 'var(--warn)' }}></span> {navigator.onLine ? 'ออนไลน์' : 'ออฟไลน์'}</Badge>
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: '1fr 1.5fr', gap: 16, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* โฟกัสวันนี้ */}
-        <div className="card">
-          <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> {'โฟกัสวันนี้'}</h3>
-            <button className="btn btn-sm btn-ghost" onClick={() => go('planner', 'kanban')}>{'งานทั้งหมด'} <Icon name="arrowR" /></button></div>
+        <Card className="p-[22px]">
+          <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+            <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> {'โฟกัสวันนี้'}</CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => go('planner', 'kanban')}>{'งานทั้งหมด'} <Icon name="arrowR" /></Button>
+          </CardHeader>
           {todos.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: todayTasks.length ? 16 : 0 }}>
               {todos.map((td, i) => (
@@ -383,7 +390,7 @@ export function HomeView({ go }) {
               ))}
             </div>
           ) : (
-            <div className="cap" style={{ textAlign: 'center', padding: '18px 0', color: 'var(--good)', fontWeight: 600 }}>✅ ไม่มีอะไรค้าง — เคลียร์หมดแล้ว</div>
+            <div className="cap" style={{ textAlign: 'center', padding: '18px 0', color: 'var(--good)', fontWeight: 600 }}><Icon name="check" /> ไม่มีอะไรค้าง — เคลียร์หมดแล้ว</div>
           )}
           {todayTasks.length > 0 && (<>
             <div className="cap" style={{ marginBottom: 8, fontWeight: 700, color: 'var(--ink-3)' }}>{'งานวันนี้'} ({todayTasks.length})</div>
@@ -400,7 +407,7 @@ export function HomeView({ go }) {
               })}
             </div>
           </>)}
-        </div>
+        </Card>
 
         {/* สรุปเมื่อวาน — digest อัตโนมัติ */}
         <Card>
@@ -524,42 +531,42 @@ function SalesDateBar({ month, year, onPrev, onNext, onPick, goToday, isCurrentM
   return (
     <div className="row between" style={{ marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-        <button className="btn btn-sm btn-ghost" onClick={onPrev} style={{ padding: '4px 8px' }}>
+        <Button variant="ghost" size="sm" onClick={onPrev} style={{ padding: '4px 8px' }}>
           <Icon name="chevR" className="flip-h" />
-        </button>
+        </Button>
         {/* คลิกชื่อเดือนเพื่อเปิด picker (เลือกเดือน/ปีย้อนหลังได้ ไม่ต้องกดลูกศรทีละเดือน) */}
         <div style={{ position: 'relative' }}>
-          <button className="btn btn-sm btn-ghost" onClick={() => { setPickYear(year); setOpen(o => !o); }} style={{ fontWeight: 700 }}>
+          <Button variant="ghost" size="sm" onClick={() => { setPickYear(year); setOpen(o => !o); }} style={{ fontWeight: 700 }}>
             <span className="h3 num" style={{ fontWeight: 700 }}>{THAI_MONTHS[month]} {year}</span> <Icon name={open ? 'chevD' : 'chevR'} />
-          </button>
+          </Button>
           {open && (
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => setOpen(false)} />
-              <div className="card" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 41, width: 260, padding: 12, boxShadow: 'var(--sh-pop)' }}>
+              <Card style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 41, width: 260, padding: 12, boxShadow: 'var(--sh-pop)' }}>
                 <div className="row between" style={{ marginBottom: 10 }}>
-                  <button className="btn btn-sm btn-ghost" onClick={() => setPickYear(y => y - 1)} style={{ padding: '2px 8px' }}><Icon name="chevR" className="flip-h" /></button>
+                  <Button variant="ghost" size="sm" onClick={() => setPickYear(y => y - 1)} style={{ padding: '2px 8px' }}><Icon name="chevR" className="flip-h" /></Button>
                   <span className="sm num" style={{ fontWeight: 700 }}>{pickYear}</span>
-                  <button className="btn btn-sm btn-ghost" onClick={() => setPickYear(y => Math.min(y + 1, _t.yearBE))} style={{ padding: '2px 8px' }} disabled={pickYear >= _t.yearBE}><Icon name="chevR" /></button>
+                  <Button variant="ghost" size="sm" onClick={() => setPickYear(y => Math.min(y + 1, _t.yearBE))} style={{ padding: '2px 8px' }} disabled={pickYear >= _t.yearBE}><Icon name="chevR" /></Button>
                 </div>
                 <div className="grid keep-cols" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
                   {THAI_MONTHS.map((mn, i) => {
                     const future = pickYear > _t.yearBE || (pickYear === _t.yearBE && i > _t.month - 1);
                     const sel = i === month && pickYear === year;
                     return (
-                      <button key={i} disabled={future} className={'btn btn-sm' + (sel ? ' btn-primary' : '')}
+                      <Button key={i} disabled={future} variant={sel ? 'default' : 'ghost'} size="sm"
                         onClick={() => { onPick?.(i, pickYear); setOpen(false); }}
-                        style={{ padding: '6px 0', opacity: future ? 0.35 : 1 }}>{mn}</button>
+                        style={{ padding: '6px 0', opacity: future ? 0.35 : 1 }}>{mn}</Button>
                     );
                   })}
                 </div>
-              </div>
+              </Card>
             </>
           )}
         </div>
-        <button className="btn btn-sm btn-ghost" onClick={onNext} style={{ padding: '4px 8px' }} disabled={isCurrentMonth}>
+        <Button variant="ghost" size="sm" onClick={onNext} style={{ padding: '4px 8px' }} disabled={isCurrentMonth}>
           <Icon name="chevR" />
-        </button>
-        {!isCurrentMonth && <button className="btn btn-sm" onClick={goToday}>เดือนนี้</button>}
+        </Button>
+        {!isCurrentMonth && <Button variant="outline" size="sm" onClick={goToday}>เดือนนี้</Button>}
       </div>
     </div>
   );
@@ -718,10 +725,10 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       <SalesDateBar {...dateProps} />
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginBottom: 16 }}>
-        <div className="card" style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)', boxShadow: '0 0 0 1px rgba(245,180,35,0.28), 0 10px 34px rgba(245,180,35,0.14)' } : undefined}>
+        <Card className="p-[22px]" style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)', boxShadow: '0 0 0 1px rgba(245,180,35,0.28), 0 10px 34px rgba(245,180,35,0.14)' } : undefined}>
           <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
             <span className="eyebrow">{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</span>
-            {targetHit && <span className="badge badge-outline" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap' }}>🎉 ทะลุเป้าแล้ว</span>}
+            {targetHit && <Badge variant="outline" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap' }}>🎉 ทะลุเป้าแล้ว</Badge>}
           </div>
           <div className="num display">{B(C.MTD)}</div>
           {/* เดือนปัจจุบัน: เทียบ MTD กับ "วันที่เดียวกัน" ของเดือนก่อน — กันแดงหลอกตากลางเดือน */}
@@ -756,61 +763,65 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
               </div>
             ))}
           </div>
-        </div>
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
+        </Card>
+        <Card className="p-[22px]" style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
           <Ring pct={pace} size={120} stroke={11} color={st.c}>
             <div><div className="num h1" style={{ color: st.c }}>{P(pace,0)}</div><div className="cap" style={{ lineHeight: 1.1 }}>จังหวะทำยอด</div></div>
           </Ring>
           <div style={{ flex: '1 1 160px', minWidth: 0 }}>
-            <span className={`chip ${st.cls}`} style={{ marginBottom: 10 }}>{st.label}</span>
+            <Badge variant={chipVar(st.cls)} style={{ marginBottom: 10 }}>{st.label}</Badge>
             <div className="cap" style={{ marginTop: 10 }}>MTD / {'เป้า'} pace</div>
             <div className="num sm" style={{ fontWeight: 600 }}>{B(C.MTD)} / {C.PACE_TGT ? B(C.PACE_TGT) : '—'}</div>
             <div className="cap" style={{ marginTop: 8 }}>{'ต้องเฉลี่ย/วัน'}</div>
             <div className="num sm" style={{ fontWeight: 600 }}>{(consts.TARGET > 0 && consts.DAYS - consts.DAY > 0) ? B(Math.max(0, Math.ceil((consts.TARGET-C.MTD)/(consts.DAYS-consts.DAY)))) : '—'}</div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* ยอดขายรายวัน (เจาะลึกตามช่องทาง) — เต็มแถว เห็นทั้งเดือน */}
-      <div className="card" style={{ marginBottom: 16, display: 'flex', flexDirection: 'column' }}>
-        <div className="card-head"><h3>{'ยอดขายรายวัน'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(เจาะลึกตามช่องทาง)</span></h3>
-          <span className="cap">{md.dailyBreakdown.length} {'วัน'}</span></div>
+      <Card className="p-[22px] mb-4 flex flex-col">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'ยอดขายรายวัน'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(เจาะลึกตามช่องทาง)</span></CardTitle>
+          <span className="cap">{md.dailyBreakdown.length} {'วัน'}</span>
+        </CardHeader>
         <DailyStackedChart days={md.dailyBreakdown} prevDays={prevMd.dailyBreakdown} prevLabel={prevMonthName} h={300} />
-      </div>
+      </Card>
 
       {/* per-platform: เป้า · ผลงาน · คุมแอด */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3>{'เป้า · ผลงาน · คุมงบโฆษณา — รายแพลตฟอร์ม (เดือนนี้)'}</h3>
-          <span className="cap">{'เพดาน ACOS'} {consts.ACOS_CEIL}%</span></div>
-        <div className="table-wrap"><table className="table">
-          <thead><tr>
-            <th>{'ช่องทาง'}</th>
-            <th style={{ textAlign: 'right' }}>{'เป้าเดือน'}</th>
-            <th style={{ textAlign: 'right' }}>{'ยอด MTD'}</th>
-            <th style={{ textAlign: 'right' }}>{'% เป้า'}</th>
-            <th style={{ textAlign: 'right' }}>{'ค่าแอด'}</th>
-            <th style={{ textAlign: 'right' }}>ROAS</th>
-            <th style={{ textAlign: 'right' }}>{'% แอด'}</th>
-          </tr></thead>
-          <tbody>
+      <Card className="p-[22px] mb-4">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'เป้า · ผลงาน · คุมงบโฆษณา — รายแพลตฟอร์ม (เดือนนี้)'}</CardTitle>
+          <span className="cap">{'เพดาน ACOS'} {consts.ACOS_CEIL}%</span>
+        </CardHeader>
+        <div className="table-wrap"><Table>
+          <TableHeader><TableRow>
+            <TableHead>{'ช่องทาง'}</TableHead>
+            <TableHead style={{ textAlign: 'right' }}>{'เป้าเดือน'}</TableHead>
+            <TableHead style={{ textAlign: 'right' }}>{'ยอด MTD'}</TableHead>
+            <TableHead style={{ textAlign: 'right' }}>{'% เป้า'}</TableHead>
+            <TableHead style={{ textAlign: 'right' }}>{'ค่าแอด'}</TableHead>
+            <TableHead style={{ textAlign: 'right' }}>ROAS</TableHead>
+            <TableHead style={{ textAlign: 'right' }}>{'% แอด'}</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>
             {channels.map(ch => {
               const tgtPct = ch.target > 0 ? (ch.actual / ch.target) * 100 : null;
               const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
               const adPct = ch.actual > 0 ? (ch.ad / ch.actual) * 100 : null; // ACOS
               return (
-                <tr key={ch.id}>
-                  <td><span className="row" style={{ gap: 8, fontWeight: 600 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>{ch.name}</span></td>
-                  <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.target > 0 ? Bk(ch.target) : '—'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{Bk(ch.actual)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: targetColor(tgtPct) }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</td>
-                  <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.ad > 0 ? Bk(ch.ad) : '—'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: roasColor(roas) }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: acosColor(adPct, consts.ACOS_CEIL) }}>{adPct == null ? '—' : P(adPct, 0)}</td>
-                </tr>
+                <TableRow key={ch.id}>
+                  <TableCell><span className="row" style={{ gap: 8, fontWeight: 600 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>{ch.name}</span></TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.target > 0 ? Bk(ch.target) : '—'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{Bk(ch.actual)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: targetColor(tgtPct) }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.ad > 0 ? Bk(ch.ad) : '—'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: roasColor(roas) }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: acosColor(adPct, consts.ACOS_CEIL) }}>{adPct == null ? '—' : P(adPct, 0)}</TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-          <tfoot>
+          </TableBody>
+          <TableFooter>
             {(() => {
               const tT = channels.reduce((s, c) => s + (c.target || 0), 0);
               const tA = channels.reduce((s, c) => s + (c.actual || 0), 0);
@@ -819,40 +830,42 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
               const roas = tAd > 0 ? tA / tAd : null;
               const adPct = tA > 0 ? (tAd / tA) * 100 : null;
               return (
-                <tr style={{ borderTop: '2px solid var(--line)' }}>
-                  <td style={{ fontWeight: 800 }}>{'รวม'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tT > 0 ? Bk(tT) : '—'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{Bk(tA)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tAd > 0 ? Bk(tAd) : '—'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{adPct == null ? '—' : P(adPct, 0)}</td>
-                </tr>
+                <TableRow style={{ borderTop: '2px solid var(--line)' }}>
+                  <TableCell style={{ fontWeight: 800 }}>{'รวม'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tT > 0 ? Bk(tT) : '—'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{Bk(tA)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{tAd > 0 ? Bk(tAd) : '—'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 800 }}>{adPct == null ? '—' : P(adPct, 0)}</TableCell>
+                </TableRow>
               );
             })()}
-          </tfoot>
-        </table></div>
-      </div>
+          </TableFooter>
+        </Table></div>
+      </Card>
 
       {/* charts */}
       <div className="grid g2">
-        <div className="card">
+        <Card className="p-[22px]">
           <div className="eyebrow" style={{ marginBottom: 12 }}>3 {'เดือนล่าสุด'}</div>
           <Bars data={md.month3} h={170} valueKey="actual" />
           <div className="cap" style={{ marginTop: 8 }}>{ABBR[dateProps.month]} {'รวมคาดการณ์'} ({'โปร่ง'})</div>
-        </div>
-        <div className="card">
+        </Card>
+        <Card className="p-[22px]">
           <div className="eyebrow" style={{ marginBottom: 12 }}>{'เทียบปีก่อน'} (YoY)</div>
           <YoYChart data={md.yoy} year={dateProps.year} />
-        </div>
+        </Card>
       </div>
 
       {/* แถวล่าง: ศูนย์เตือน | สรุปเด่น | P&L */}
       <div className="grid" style={{ gridTemplateColumns: md.isCurrent ? '1.1fr 0.9fr 1.1fr' : '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16, alignItems: 'stretch' }}>
       {md.isCurrent && (
-      <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-        <div className="card-head"><h3>{'ศูนย์เตือนยอดขาย'} <InfoTip text="ระบบเช็กให้อัตโนมัติ: ค่าแอดเกินเพดาน ACOS · ใช้งบเกิน · ยอดช้ากว่าแผน · ยังไม่กรอกยอดวันนี้ — หายเองเมื่อจัดการแล้ว" label="ศูนย์เตือน" /></h3>
-          {alerts.length > 0 ? <span className="chip chip-warn">{alerts.length} {'เรื่อง'}</span> : <span className="chip chip-good">{'เรียบร้อย'}</span>}</div>
+      <Card className="p-[22px]" style={{ display: 'flex', flexDirection: 'column' }}>
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'ศูนย์เตือนยอดขาย'} <InfoTip text="ระบบเช็กให้อัตโนมัติ: ค่าแอดเกินเพดาน ACOS · ใช้งบเกิน · ยอดช้ากว่าแผน · ยังไม่กรอกยอดวันนี้ — หายเองเมื่อจัดการแล้ว" label="ศูนย์เตือน" /></CardTitle>
+          {alerts.length > 0 ? <Badge variant="warning">{alerts.length} {'เรื่อง'}</Badge> : <Badge variant="success">{'เรียบร้อย'}</Badge>}
+        </CardHeader>
         {alerts.length === 0 ? (
           <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: '26px 0' }}>
             <div style={{ textAlign: 'center' }}>
@@ -874,11 +887,11 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             ))}
           </div>
         )}
-      </div>
+      </Card>
       )}
 
       {/* สรุปเด่น — การ์ดเดียว 3 แถว อ่านไล่ลงจบ */}
-      <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+      <Card className="p-[22px]" style={{ display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div className="cap" style={{ marginBottom: 5 }}>{'ช่องขายดีสุด'}</div>
           {topCh && topCh.actual > 0
@@ -893,11 +906,13 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
           <div className="cap" style={{ marginBottom: 5 }}>{'งบโฆษณา'}</div>
           <div className="num h3">{adStatus.txt}</div>
         </div>
-      </div>
+      </Card>
 
-      <div className="card">
-        <div className="card-head"><h3>{'กำไร-ขาดทุน (P&L)'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></h3>
-          <span className={`chip ${pnl.netProfit >= 0 ? 'chip-good' : 'chip-bad'}`}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</span></div>
+      <Card className="p-[22px]">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'กำไร-ขาดทุน (P&L)'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></CardTitle>
+          <Badge variant={pnl.netProfit >= 0 ? 'success' : 'danger'}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</Badge>
+        </CardHeader>
         {pnl.cogsPct === 0 && (
           <div className="cap" style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '8px 10px', marginBottom: 12, color: 'var(--ink-3)' }}>
             ยังไม่ตั้ง <b>"ต้นทุนสินค้า %"</b> — ตั้งได้ที่ <b>"ตั้งเป้ารายเดือน"</b>
@@ -922,7 +937,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             <span className="num h3" style={{ fontWeight: 800, color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>({P(pnl.netMargin, 1)})</span></span>
           </div>
         </div>
-      </div>
+      </Card>
       </div>
     </div>
   );
@@ -938,7 +953,7 @@ function YoYChart({ data: dataProp, year }) {
     return (
       <div style={{ height: 150, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 10, color: 'var(--ink-4)' }} className="cap">
         <span>ยังไม่มีข้อมูลเปรียบเทียบรายปี</span>
-        <button className="btn btn-sm" onClick={() => window.__openModal && window.__openModal('historical')}>+ เพิ่มข้อมูลปีก่อน (กรอกย้อนหลัง)</button>
+        <Button variant="outline" size="sm" onClick={() => window.__openModal && window.__openModal('historical')}>+ เพิ่มข้อมูลปีก่อน (กรอกย้อนหลัง)</Button>
       </div>
     );
   }
@@ -1022,12 +1037,14 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
   const reply = md.fb.avgReplyMinutes || 0;                           // เวลาตอบเฉลี่ย (รวมทั้งร้าน/วัน)
   const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : null;
   return (
-    <div className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
-      <div className="card-head"><h3><span style={{ width: 11, height: 11, borderRadius: 3, background: ch.hex, display: 'inline-block', marginRight: 7, verticalAlign: 'middle' }} />{ch.name} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(แชท → ปิดการขาย)</span></h3>
+    <Card className="p-[22px]" style={{ borderTop: `3px solid ${ch.hex}` }}>
+      <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+        <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{ width: 11, height: 11, borderRadius: 3, background: ch.hex, display: 'inline-block', marginRight: 7, verticalAlign: 'middle' }} />{ch.name} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(แชท → ปิดการขาย)</span></CardTitle>
         <span className="row" style={{ gap: 8, alignItems: 'baseline' }}>
           {growth != null && <span className="cap" style={{ color: growth >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{growth >= 0 ? '▲ +' : '▼ '}{growth}%</span>}
           <span className="num h3" style={{ fontWeight: 800 }}>{B(ch.actual)}</span>
-        </span></div>
+        </span>
+      </CardHeader>
       {/* funnel: คนทัก → ปิดออเดอร์ → %ปิด */}
       <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
         <div style={{ flex: 1, textAlign: 'center' }}><div className="num h1">{N(inq)}</div><div className="cap">คนทัก</div></div>
@@ -1052,7 +1069,7 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
         <span className="cap">เป้า <span className="num" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{ch.target > 0 ? B(ch.target) : '—'}</span></span>
         <span className="cap">{ch.target <= 0 ? 'ยังไม่ตั้งเป้า' : ch.actual >= ch.target ? '✓ ถึงเป้าแล้ว' : <>ขาดอีก <span className="num" style={{ fontWeight: 700 }}>{B(ch.target - ch.actual)}</span> ({P(tgtPct, 0)})</>}</span>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1067,7 +1084,7 @@ function ChannelCard({ ch, consts, prevMd }) {
   const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null;
   const tgtPct = ch.target > 0 ? (ch.actual / ch.target) * 100 : null;
   return (
-    <div className="card" style={{ borderTop: `3px solid ${ch.hex}` }}>
+    <Card className="p-[22px]" style={{ borderTop: `3px solid ${ch.hex}` }}>
       <div className="row between" style={{ marginBottom: 8 }}>
         <span className="row" style={{ gap: 8, fontWeight: 700 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: ch.hex }}></span>{ch.name}</span>
         {growth != null ? <span className="cap" style={{ color: growth >= 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 600 }}>{growth >= 0 ? '▲ +' : '▼ '}{growth}%</span> : null}
@@ -1086,7 +1103,7 @@ function ChannelCard({ ch, consts, prevMd }) {
         <span className="cap">กำไร{cogsPct === 0 ? ' (ยังไม่หักทุน)' : ''} <InfoTip text={`กำไร = ยอดขาย − ต้นทุนสินค้า${cogsPct > 0 ? ` (${cogsPct}%)` : ' (ยังไม่ตั้ง)'} − ค่าแอด − ค่าธรรมเนียม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ''}`} label="กำไร" /></span>
         <span className="num" style={{ fontWeight: 800, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(profit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-4)' }}>({P(margin, 0)})</span></span>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -1122,9 +1139,11 @@ function SalesAds({ dateProps, md }) {
       <SalesDateBar {...dateProps} />
 
       {/* Budget planner */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3><span style={{ color: 'var(--accent)' }}><Icon name="wallet" /></span> {'งบโฆษณา'}</h3>
-          {totalBudget > 0 && <span className="cap" style={{ color: barColor, fontWeight: 700 }}>ใช้ไป {P(spentPct, 0)} ของงบ</span>}</div>
+      <Card className="p-[22px] mb-4">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{ color: 'var(--accent)' }}><Icon name="wallet" /></span> {'งบโฆษณา'}</CardTitle>
+          {totalBudget > 0 && <span className="cap" style={{ color: barColor, fontWeight: 700 }}>ใช้ไป {P(spentPct, 0)} ของงบ</span>}
+        </CardHeader>
         <div className="grid g4" style={{ marginBottom: 12 }}>
           <div>
             <div className="cap">{'งบทั้งหมด'}</div>
@@ -1162,16 +1181,16 @@ function SalesAds({ dateProps, md }) {
               : `🟢 คุมงบดี — ใช้ไป ${P(spentPct, 0)} ตามจังหวะเวลา ${P(timePct, 0)}`}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* แผงเปรียบเทียบตามช่องทาง — เลือกได้ มีผลเฉพาะแผงนี้ */}
-      <div className="card" style={{ marginBottom: 16, background: 'var(--surface-2)', border: '1px dashed var(--line-2)' }}>
+      <Card className="p-[22px] mb-4" style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-2)' }}>
         <div className="row between" style={{ marginBottom: 12, gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span style={{ color: 'var(--accent)' }}><Icon name="filter" /></span> {'เปรียบเทียบตามช่องทาง'}</h3>
             <div className="cap" style={{ color: 'var(--ink-3)', marginTop: 3 }}>{'เลือกช่องทางที่อยากดู — ตัวเลข 4 ช่องด้านล่างจะคิดเฉพาะช่องที่เลือก (ไม่กระทบส่วนอื่น)'}</div>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={() => setSelCh(_defSel.length ? _defSel : channels.slice(0, 1).map(c => c.id))} title="กลับไป Facebook + LINE OA">{'คืนค่าเริ่มต้น'}</button>
+          <Button variant="ghost" size="sm" onClick={() => setSelCh(_defSel.length ? _defSel : channels.slice(0, 1).map(c => c.id))} title="กลับไป Facebook + LINE OA">{'คืนค่าเริ่มต้น'}</Button>
         </div>
         {/* chips ติดสีช่องทาง — เลือก = สีเข้ม+ขอบสี / ไม่เลือก = จาง · เลื่อนแนวนอนบนมือถือ */}
         <div className="chiprow" style={{ marginBottom: 14, paddingBottom: 2 }}>
@@ -1189,39 +1208,39 @@ function SalesAds({ dateProps, md }) {
         </div>
         {/* 4 KPI (การ์ดขาวบนพื้นเทา — เห็นชัดว่าเป็นผลของช่องที่เลือก) */}
         <div className="grid g4" style={{ gap: 12 }}>
-          <div className="card card-pad-sm">
+          <Card className="p-4">
             <div className="cap" style={{ marginBottom: 6 }}>{'รายได้'} (MTD)</div>
             <div className="num h1" style={{ color: 'var(--accent-2)' }}>{B(kRev)}</div>
             <div className="cap" style={{ marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selChans.map(c => c.name).join(' + ') || '—'}</div>
-          </div>
-          <div className="card card-pad-sm">
+          </Card>
+          <Card className="p-4">
             <div className="cap" style={{ marginBottom: 6 }}>Ads Spent</div>
             <div className="num h1">{B(kAd)}</div>
             <div className="cap" style={{ marginTop: 4 }}>{'ค่าแอดของช่องที่เลือก'}</div>
-          </div>
-          <div className="card card-pad-sm">
+          </Card>
+          <Card className="p-4">
             <div className="cap" style={{ marginBottom: 6 }}>ROAS <InfoTip text="โฆษณาคืนกี่เท่า = รายได้ ÷ ค่าแอด (ของช่องที่เลือก)" label="ROAS" /></div>
             <div className="num h1" style={{ color: roasColor(kRoas) }}>{kRoas != null ? kRoas.toFixed(2) : '—'}</div>
             {_chatSel && kRoas != null && kRoas < 2
-              ? <div className="cap" style={{ marginTop: 4, color: 'var(--warn)', fontWeight: 600 }}>⚠️ {'ดูคู่แชท (คนทัก→ปิด)'}</div>
+              ? <div className="cap" style={{ marginTop: 4, color: 'var(--warn)', fontWeight: 600 }}><Icon name="alertTriangle" /> {'ดูคู่แชท (คนทัก→ปิด)'}</div>
               : <div className="cap" style={{ marginTop: 4 }}>{'≥ 3 ดีมาก · ≥ 2 พอใช้'}</div>}
-          </div>
-          <div className="card card-pad-sm">
+          </Card>
+          <Card className="p-4">
             <div className="cap" style={{ marginBottom: 6 }}>% {'ค่าแอด'} (ACoS) <InfoTip text="ค่าแอด ÷ รายได้ × 100 (ของช่องที่เลือก) — ยิ่งต่ำยิ่งคุ้ม" label="ACoS" /></div>
             <div className="num h1" style={{ color: acosColor(kAcos, consts.ACOS_CEIL) }}>{kAcos != null ? P(kAcos, 1) : '—'}</div>
             <div className="cap" style={{ marginTop: 4 }}>{'เกณฑ์ ≤'} {consts.ACOS_CEIL}%</div>
-          </div>
+          </Card>
         </div>
-      </div>
+      </Card>
 
       {/* Ad performance table */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3><span style={{color:'var(--accent)'}}><Icon name="zap" /></span> {'ประสิทธิภาพโฆษณา'}</h3></div>
-        <div className="table-wrap"><table className="table">
-          <thead><tr><th>{'ช่องทาง'}</th><th style={{textAlign:'right'}}>{'รายได้'}</th><th style={{textAlign:'right'}}>{'ค่าแอด'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้/งบ'}</th><th style={{textAlign:'right'}}>ROAS</th><th style={{textAlign:'right'}}>ACOS</th></tr></thead>
-          <tbody>
+      <Card className="p-[22px] mb-4">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4"><CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{color:'var(--accent)'}}><Icon name="zap" /></span> {'ประสิทธิภาพโฆษณา'}</CardTitle></CardHeader>
+        <div className="table-wrap"><Table>
+          <TableHeader><TableRow><TableHead>{'ช่องทาง'}</TableHead><TableHead style={{textAlign:'right'}}>{'รายได้'}</TableHead><TableHead style={{textAlign:'right'}}>{'ค่าแอด'}</TableHead><TableHead style={{textAlign:'right'}}>{'งบ'}</TableHead><TableHead style={{textAlign:'right'}}>{'ใช้/งบ'}</TableHead><TableHead style={{textAlign:'right'}}>ROAS</TableHead><TableHead style={{textAlign:'right'}}>ACOS</TableHead></TableRow></TableHeader>
+          <TableBody>
             {channels.filter(c=>c.hasAd).length === 0 && (
-              <tr><td colSpan={7} style={{ textAlign:'center', padding:18, color:'var(--ink-4)' }} className="cap">ยังไม่มีช่องทางที่เปิดโฆษณา</td></tr>
+              <TableRow><TableCell colSpan={7} style={{ textAlign:'center', padding:18, color:'var(--ink-4)' }} className="cap">ยังไม่มีช่องทางที่เปิดโฆษณา</TableCell></TableRow>
             )}
             {channels.filter(c=>c.hasAd).map(c => {
               const r = c.ad > 0 ? c.actual/c.ad : null;
@@ -1229,53 +1248,54 @@ function SalesAds({ dateProps, md }) {
               const bud = c.adBudget || 0;
               const usePct = bud > 0 ? (c.ad/bud)*100 : null;
               return (
-                <tr key={c.id}>
-                  <td><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></td>
-                  <td className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</td>
-                  <td className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</td>
-                  <td className="num" style={{textAlign:'right', color:'var(--ink-3)'}}>{bud > 0 ? Bk(bud) : '—'}</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: usePct==null?'var(--ink-3)':usePct>100?'var(--bad)':usePct>80?'var(--warn)':'var(--good)'}}>{usePct!=null ? P(usePct,0) : '—'}</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: r==null?'var(--ink-3)':r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r!=null ? r.toFixed(1)+'x' : '—'}</td>
-                  <td className="num" style={{textAlign:'right', fontWeight:700, color: a==null?'var(--ink-3)':a<=consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{a!=null ? P(a,0) : '—'}</td>
-                </tr>
+                <TableRow key={c.id}>
+                  <TableCell><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></TableCell>
+                  <TableCell className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</TableCell>
+                  <TableCell className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</TableCell>
+                  <TableCell className="num" style={{textAlign:'right', color:'var(--ink-3)'}}>{bud > 0 ? Bk(bud) : '—'}</TableCell>
+                  <TableCell className="num" style={{textAlign:'right', fontWeight:700, color: usePct==null?'var(--ink-3)':usePct>100?'var(--bad)':usePct>80?'var(--warn)':'var(--good)'}}>{usePct!=null ? P(usePct,0) : '—'}</TableCell>
+                  <TableCell className="num" style={{textAlign:'right', fontWeight:700, color: r==null?'var(--ink-3)':r>=3?'var(--good)':r>=2?'var(--warn)':'var(--bad)'}}>{r!=null ? r.toFixed(1)+'x' : '—'}</TableCell>
+                  <TableCell className="num" style={{textAlign:'right', fontWeight:700, color: a==null?'var(--ink-3)':a<=consts.ACOS_CEIL?'var(--good)':a<=40?'var(--warn)':'var(--bad)'}}>{a!=null ? P(a,0) : '—'}</TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table></div>
-      </div>
+          </TableBody>
+        </Table></div>
+      </Card>
 
       {/* Ad campaigns table — ไว้ล่างสุด (ส่วนใหญ่ยังว่าง ไม่ควรคั่นข้อมูลหลัก) */}
-      <div className="card">
-        <div className="card-head"><h3><Icon name="megaphone" /> {'แคมเปญแอด'}</h3>
+      <Card className="p-[22px]">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><Icon name="megaphone" /> {'แคมเปญแอด'}</CardTitle>
           <span className="cap">{'จัดการที่หน้า'} {'รายเดือน'}</span>
-        </div>
+        </CardHeader>
         {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '14px 0' }}>
             <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีแคมเปญแอดในเดือนนี้</div>
-            <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="plus" /> สร้างแคมเปญแอด</button>
+            <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="plus" /> สร้างแคมเปญแอด</Button>
           </div>
         ) : (
-        <div className="table-wrap"><table className="table">
-          <thead><tr><th>{'ชื่อแคมเปญ'}</th><th>{'แพลตฟอร์ม'}</th><th style={{textAlign:'right'}}>{'งบ'}</th><th style={{textAlign:'right'}}>{'ใช้ไป'}</th><th style={{textAlign:'right'}}>ROAS</th><th>{'สถานะ'}</th></tr></thead>
-          <tbody>
+        <div className="table-wrap"><Table>
+          <TableHeader><TableRow><TableHead>{'ชื่อแคมเปญ'}</TableHead><TableHead>{'แพลตฟอร์ม'}</TableHead><TableHead style={{textAlign:'right'}}>{'งบ'}</TableHead><TableHead style={{textAlign:'right'}}>{'ใช้ไป'}</TableHead><TableHead style={{textAlign:'right'}}>ROAS</TableHead><TableHead>{'สถานะ'}</TableHead></TableRow></TableHeader>
+          <TableBody>
             {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).map((c, i) => {
               const stMap = { live: { l: 'กำลังรัน', cls: 'chip-good' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, upcoming: { l: 'รอเริ่ม', cls: 'chip-warn' }, done: { l: 'เสร็จสิ้น', cls: '' }, cancelled: { l: 'ยกเลิก', cls: 'chip-bad' } };
               const s = stMap[c.status] || stMap.done;
               return (
-                <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{c.name}</td>
-                  <td><span className="cap">{c.platform}</span></td>
-                  <td className="num" style={{ textAlign: 'right' }}>{Bk(c.budget)}</td>
-                  <td className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{Bk(c.spent)}</td>
-                  <td className="num" style={{ textAlign: 'right', fontWeight: 700, color: roasColor(c.roas) }}>{Number(c.roas || 0).toFixed(1)}x</td>
-                  <td><span className={`chip ${s.cls}`}>{s.l}</span></td>
-                </tr>
+                <TableRow key={i}>
+                  <TableCell style={{ fontWeight: 600 }}>{c.name}</TableCell>
+                  <TableCell><span className="cap">{c.platform}</span></TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right' }}>{Bk(c.budget)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{Bk(c.spent)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: roasColor(c.roas) }}>{Number(c.roas || 0).toFixed(1)}x</TableCell>
+                  <TableCell><Badge variant={chipVar(s.cls)}>{s.l}</Badge></TableCell>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table></div>
+          </TableBody>
+        </Table></div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -1369,7 +1389,7 @@ function SalesCustomers({ dateProps, md }) {
 
       {/* KPI ลูกค้า — ข้อมูลจริง (ระบบไม่เก็บรายได้แยกใหม่/เก่า → ใช้จำนวน + อัตราซื้อซ้ำ + CAC) */}
       <div className="grid g4" style={{ marginBottom: 16 }}>
-        <div className="card card-pad-sm">
+        <Card className="p-4">
           <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าใหม่'} (MTD)</div>
           <div className="num h1" style={{ color: 'var(--good)' }}>{N(C.NEW_C)}</div>
           {/* แสดงเป้า + progress ถ้าตั้งไว้ — ไม่ตั้งก็คงข้อความเดิม */}
@@ -1383,37 +1403,37 @@ function SalesCustomers({ dateProps, md }) {
           ) : (
             <div className="cap" style={{ marginTop: 4 }}>{custTot > 0 ? P(newPct, 0) : '—'} {'ของลูกค้าทั้งหมด'}</div>
           )}
-        </div>
-        <div className="card card-pad-sm">
+        </Card>
+        <Card className="p-4">
           <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าเก่า'} (MTD)</div>
           <div className="num h1" style={{ color: 'var(--info)' }}>{N(C.OLD_C)}</div>
           <div className="cap" style={{ marginTop: 4 }}>{custTot > 0 ? P(100 - newPct, 0) : '—'} {'ของลูกค้าทั้งหมด'}</div>
-        </div>
-        <div className="card card-pad-sm">
+        </Card>
+        <Card className="p-4">
           <div className="cap" style={{ marginBottom: 6 }}>{'อัตราซื้อซ้ำ'} (Returning) <InfoTip text="สัดส่วนลูกค้าเก่าต่อลูกค้าทั้งหมด (จำนวนคน) · เป้า ≥ 35%" label="Returning" /></div>
           <div className="num h1" style={{ color: custTot <= 0 ? 'var(--ink-4)' : (100 - newPct) >= 35 ? 'var(--good)' : 'var(--warn)' }}>{custTot > 0 ? P(100 - newPct, 0) : '—'}</div>
           <div className="cap" style={{ marginTop: 4 }}>{'เป้าหมาย ≥ 35%'}</div>
-        </div>
-        <div className="card card-pad-sm">
+        </Card>
+        <Card className="p-4">
           <div className="cap" style={{ marginBottom: 6 }}>CAC <span style={{ color: 'var(--ink-4)' }}>(ต้นทุนลูกค้าใหม่)</span> <InfoTip text="ต้นทุนหาลูกค้าใหม่ = ค่าแอดรวม ÷ จำนวนลูกค้าใหม่" label="CAC" /></div>
           <div className="num h1" style={{ color: 'var(--accent)' }}>{C.CAC > 0 ? B(C.CAC) : '—'}</div>
           <div className="cap" style={{ marginTop: 4 }}>{'ค่าแอด ÷ ลูกค้าใหม่'}</div>
-        </div>
+        </Card>
       </div>
 
       {/* ลูกค้าใหม่ vs เก่า รายสัปดาห์ (แท่งคู่) + เส้น %ซื้อซ้ำ + CLV */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head">
-          <h3>{'ลูกค้าใหม่ vs เก่า — รายสัปดาห์'} <InfoTip text="แท่ง = จำนวนลูกค้าใหม่/เก่าต่อสัปดาห์ · เส้นประ = % ซื้อซ้ำ (ลูกค้าเก่า ÷ ลูกค้าทั้งหมด)" label="ลูกค้ารายสัปดาห์" /></h3>
+      <Card className="p-[22px] mb-4">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'ลูกค้าใหม่ vs เก่า — รายสัปดาห์'} <InfoTip text="แท่ง = จำนวนลูกค้าใหม่/เก่าต่อสัปดาห์ · เส้นประ = % ซื้อซ้ำ (ลูกค้าเก่า ÷ ลูกค้าทั้งหมด)" label="ลูกค้ารายสัปดาห์" /></CardTitle>
           <span className="cap">CLV {'เฉลี่ย'} <b style={{ color: 'var(--accent)' }}>{C.CLV ? B(C.CLV) : '—'}</b></span>
-        </div>
+        </CardHeader>
         {(() => {
           // เฉพาะสัปดาห์ที่ "กรอกลูกค้าจริง" — กันสัปดาห์ที่มีแต่ยอดขาย (ลูกค้า 0) โชว์เป็น 0 หลอกตา
           const wk = (md.custWeekly || []).filter(w => (w.newC + w.oldC) > 0);
           if (!wk.length) return (
             <div style={{ textAlign: 'center', padding: 30 }}>
               <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีข้อมูลลูกค้ารายสัปดาห์</div>
-              <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="pencil" /> กรอกลูกค้าใหม่/เก่า</button>
+              <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="pencil" /> กรอกลูกค้าใหม่/เก่า</Button>
             </div>
           );
           const rets = wk.map(w => w.returningPct);
@@ -1425,49 +1445,49 @@ function SalesCustomers({ dateProps, md }) {
             </div>
           </>);
         })()}
-      </div>
+      </Card>
 
       {/* Cohort table — ซ่อนจนกว่าจะมี tmk_cohort จริง (กันการ์ดว่างถาวร) */}
       {/* eslint-disable-next-line no-constant-binary-expression */}
       {false && (
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-head"><h3>{'ตาราง'} Cohort Retention</h3></div>
-        <div className="table-wrap"><table className="table">
-          <thead>
-            <tr>
-              <th>{'เดือนเริ่มต้น'}</th>
-              <th style={{ textAlign: 'right' }}>{'เดือนที่'} 1</th>
-              <th style={{ textAlign: 'right' }}>{'เดือนที่'} 2</th>
-              <th style={{ textAlign: 'right' }}>{'เดือนที่'} 3</th>
-            </tr>
-          </thead>
-          <tbody>
+      <Card className="p-[22px] mb-4">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4"><CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'ตาราง'} Cohort Retention</CardTitle></CardHeader>
+        <div className="table-wrap"><Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{'เดือนเริ่มต้น'}</TableHead>
+              <TableHead style={{ textAlign: 'right' }}>{'เดือนที่'} 1</TableHead>
+              <TableHead style={{ textAlign: 'right' }}>{'เดือนที่'} 2</TableHead>
+              <TableHead style={{ textAlign: 'right' }}>{'เดือนที่'} 3</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {([]).map((row, i) => (  /* Cohort table — empty until tmk_cohort table is added */
-              <tr key={i}>
-                <td style={{ fontWeight: 600 }}>{row.month}</td>
-                <td className="num" style={{ textAlign: 'right' }}>
-                  <span className="chip chip-good">{row.m1}%</span>
-                </td>
-                <td className="num" style={{ textAlign: 'right' }}>
+              <TableRow key={i}>
+                <TableCell style={{ fontWeight: 600 }}>{row.month}</TableCell>
+                <TableCell className="num" style={{ textAlign: 'right' }}>
+                  <Badge variant="success">{row.m1}%</Badge>
+                </TableCell>
+                <TableCell className="num" style={{ textAlign: 'right' }}>
                   {row.m2 !== null
-                    ? <span className="badge badge-outline" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}>{row.m2}%</span>
+                    ? <Badge variant="warning">{row.m2}%</Badge>
                     : <span className="cap">—</span>}
-                </td>
-                <td className="num" style={{ textAlign: 'right' }}>
+                </TableCell>
+                <TableCell className="num" style={{ textAlign: 'right' }}>
                   {row.m3 !== null
-                    ? <span className="badge badge-outline" style={{ background: 'var(--bad-soft)', color: 'var(--bad)' }}>{row.m3}%</span>
+                    ? <Badge variant="danger">{row.m3}%</Badge>
                     : <span className="cap">—</span>}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table></div>
-      </div>
+          </TableBody>
+        </Table></div>
+      </Card>
       )}
 
       {/* New vs old by channel */}
-      <div className="card">
-        <div className="card-head"><h3>{'ลูกค้าใหม่'} vs {'เก่า แยกตามช่องทาง'}</h3></div>
+      <Card className="p-[22px]">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4"><CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'ลูกค้าใหม่'} vs {'เก่า แยกตามช่องทาง'}</CardTitle></CardHeader>
         {md.channels.map(ch => {
           const t = ch.newCust + ch.oldCust, nP = t > 0 ? (ch.newCust/t)*100 : 0;
           return (
@@ -1486,33 +1506,33 @@ function SalesCustomers({ dateProps, md }) {
             </div>
           );
         })}
-      </div>
+      </Card>
 
       {/* กลุ่มลูกค้า (ตั้งค่าเอง) — ไว้ล่างสุด: เป็นส่วนเสริม ไม่ใช่ข้อมูลสด */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-head"><h3>{'กลุ่มลูกค้า'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(รวมทุกเดือน · ตั้งค่าเอง)</span></h3></div>
+      <Card className="p-[22px] mt-4">
+        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4"><CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'กลุ่มลูกค้า'} <span className="cap" style={{ fontWeight: 400, color: 'var(--ink-4)' }}>(รวมทุกเดือน · ตั้งค่าเอง)</span></CardTitle></CardHeader>
         {getSegments().length === 0 ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีกลุ่มลูกค้า</div>
-            <button className="btn btn-sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="users" /> ตั้งกลุ่มลูกค้า</button>
+            <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="users" /> ตั้งกลุ่มลูกค้า</Button>
           </div>
         ) : (
           <div className="grid g4">
             {getSegments().map(seg => (
-              <div key={seg.name} className="card card-pad-sm" style={{ borderLeft: `3px solid ${seg.color}` }}>
+              <Card key={seg.name} className="p-4" style={{ borderLeft: `3px solid ${seg.color}` }}>
                 <div className="row between" style={{ marginBottom: 6 }}>
                   <span className="sm" style={{ fontWeight: 700 }}>{seg.name}</span>
-                  <span className="badge badge-default">{seg.revPct}% {'รายได้'}</span>
+                  <Badge variant="secondary">{seg.revPct}% {'รายได้'}</Badge>
                 </div>
                 <div className="num h1">{seg.count} <span className="cap">{'คน'}</span></div>
                 <div className="bar" style={{ marginTop: 8 }}>
                   <span style={{ width: `${seg.revPct}%`, background: seg.color }}></span>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

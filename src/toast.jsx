@@ -18,9 +18,10 @@ export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const idRef = useRef(0);
 
-  const toast = useCallback((message, type = 'success', duration = 3000) => {
+  // action (ไม่บังคับ): { label, onClick } — ปุ่ม เช่น "เลิกทำ"
+  const toast = useCallback((message, type = 'success', duration = 3000, action = null) => {
     const id = ++idRef.current;
-    setToasts(ts => [...ts, { id, message, type }]);
+    setToasts(ts => [...ts, { id, message, type, action }]);
     setTimeout(() => {
       setToasts(ts => ts.filter(t => t.id !== id));
     }, duration);
@@ -57,6 +58,15 @@ export function ToastProvider({ children }) {
               <span className="sm" style={{ flex: 1, fontWeight: 500, color: 'var(--ink)' }}>
                 {t.message}
               </span>
+              {t.action && (
+                <button onClick={() => { t.action.onClick(); dismiss(t.id); }} style={{
+                  background: 'none', border: `1px solid ${c.border}`, borderRadius: 'var(--r-sm)',
+                  padding: '3px 10px', cursor: 'pointer', flexShrink: 0,
+                  color: c.color, fontWeight: 700, fontSize: 12.5, fontFamily: 'var(--font)',
+                }}>
+                  {t.action.label}
+                </button>
+              )}
               <button onClick={() => dismiss(t.id)} style={{
                 background: 'none', border: 'none', padding: 2, cursor: 'pointer',
                 color: 'var(--ink-3)', flexShrink: 0, width: 16, height: 16,

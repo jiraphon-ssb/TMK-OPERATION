@@ -43,7 +43,7 @@ const _fin = n => typeof n === 'number' && isFinite(n);
 export const B  = n => _fin(n) ? '฿' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
 export const Bk = B; // เลิกย่อ k/M — ใช้รูปแบบเต็มเหมือน B (ค่าจริงทุกที่)
 export const P  = (n, d=1) => _fin(n) ? n.toFixed(d) + '%' : '—';
-export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—'; // จำนวนนับ (ออเดอร์/ชิ้น) = จำนวนเต็ม
+export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—'; // จำนวนนับ (ออเดอร์/ตัว) = จำนวนเต็ม
 // คอมแพกต์ k/M — ใช้เฉพาะ "ป้ายบนกราฟ" (กันล้นแท่งแคบ) ค่าเต็มดูได้ตอน hover
 export const Bc = n => { if (!_fin(n)) return '—'; const a = Math.abs(n), s = n < 0 ? '-' : ''; return a >= 1e6 ? '฿' + s + (a / 1e6).toFixed(1) + 'M' : a >= 1000 ? '฿' + s + Math.round(a / 1000) + 'k' : '฿' + Math.round(a); };
 
@@ -90,7 +90,7 @@ export function lotTotal(lot) {
   }
   return _q(lot.qty); // legacy fallback
 }
-// มูลค่าต้นทุนของล็อต = จำนวนรวม × ต้นทุน/ชิ้น
+// มูลค่าต้นทุนของล็อต = จำนวนรวม × ต้นทุน/ตัว
 export function lotValue(lot) { return lotTotal(lot) * (Number(lot?.cost) || 0); }
 
 // รวมจำนวนต่อไซส์ ข้ามทุกล็อต → { [size]: qty }
@@ -196,7 +196,9 @@ export const ICONS = {
   sun: 'M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8',
   moon: 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8',
   chevR: 'M9 6l6 6-6 6',
+  chevL: 'M15 6l-6 6 6 6',
   chevD: 'M6 9l6 6 6-6',
+  star: 'M12 2.6l2.8 5.7 6.3.9-4.55 4.43 1.07 6.27L12 17.9l-5.6 2.97 1.07-6.27L2.9 9.2l6.3-.9z',
   menu: 'M4 6h16M4 12h16M4 18h16',
   x: 'M6 6l12 12M18 6 6 18',
   target: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 12m-5 0a5 5 0 1 0 10 0a5 5 0 1 0-10 0M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0-2 0',
@@ -208,6 +210,9 @@ export const ICONS = {
   user: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
   userPlus: 'M15 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M8.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M19 8v6M22 11h-6',
   megaphone: 'M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1M10 6l9-3v18l-9-3M19 9a3 3 0 0 1 0 6',
+  phone: 'M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
+  store: 'M4 9h16M5 9l1-4h12l1 4M5 9v10h14V9M9 19v-5h6v5',
+  globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18',
   listChecks: 'M11 6h10M11 12h10M11 18h10M3 6l1.5 1.5L7 4M3 17l1.5 1.5L7 15',
   route: 'M6 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6M18 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M6 13V9a3 3 0 0 1 3-3h6M18 11v4a3 3 0 0 1-3 3H9',
   box: 'M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
@@ -229,6 +234,9 @@ export const ICONS = {
   layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2zM19 4v3M21 5h-3',
   help: 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01',
+  lightbulb: 'M9 18h6M10 21h4M8.5 14a5 5 0 1 1 7 0c-.7.7-1.5 1.3-1.5 2.5h-4c0-1.2-.8-1.8-1.5-2.5',
+  alertTriangle: 'M12 3 2 20h20zM12 9v5M12 17h.01',
+  upload: 'M12 15V4M8 8l4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2',
 };
 
 export function Icon({ name, className }) {
@@ -238,6 +246,22 @@ export function Icon({ name, className }) {
       stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {d.split('M').filter(Boolean).map((seg, i) => <path key={i} d={'M' + seg} />)}
     </svg>
+  );
+}
+
+/* ---------- หัวการ์ด: ไอคอนชิปมุมมน + ชื่อ + คำอธิบาย (ใช้ซ้ำทั้งแอป) ---------- */
+export function CardHead({ icon, title, sub, right, className = '' }) {
+  return (
+    <div className={`row between ${className}`} style={{ alignItems: 'flex-start', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div className="row" style={{ gap: 10, alignItems: 'center', minWidth: 0 }}>
+        {icon && <span className="grid size-9 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] flex-none"><Icon name={icon} /></span>}
+        <div style={{ minWidth: 0 }}>
+          <div className="text-base font-semibold" style={{ lineHeight: 1.25 }}>{title}</div>
+          {sub && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 2 }}>{sub}</div>}
+        </div>
+      </div>
+      {right}
+    </div>
   );
 }
 

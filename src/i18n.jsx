@@ -15,7 +15,7 @@ const T = {
     status: 'สถานะ', channel: 'ช่องทาง', campaign: 'แคมเปญ', team: 'ทีม',
     revenue: 'รายได้', orders: 'ออเดอร์', target: 'เป้าหมาย', actual: 'จริง',
     task: 'งาน', tasks: 'งาน', product: 'สินค้า', customer: 'ลูกค้า',
-    newCust: 'ลูกค้าใหม่', oldCust: 'ลูกค้าเก่า', person: 'คน', piece: 'ชิ้น',
+    newCust: 'ลูกค้าใหม่', oldCust: 'ลูกค้าเก่า', person: 'คน', piece: 'ตัว',
     day: 'วัน', days: 'วัน', minute: 'นาที', hour: 'ชม.', ago: 'ที่แล้ว',
     yesterday: 'เมื่อวาน', export: 'Export', unsavedTitle: 'ยังไม่ได้บันทึก',
     unsavedMsg: 'คุณมีข้อมูลที่ยังไม่ได้บันทึก ต้องการปิดหรือไม่?',

@@ -1,103 +1,129 @@
 /* ============================================================
    charts.jsx — ชุดคอมโพเนนต์กราฟ/การ์ดที่ใช้ซ้ำได้ทั้งระบบ
-   ใช้ Chart.js (lazy-load → แยก chunk ไม่บวม main) + รองรับ dark/light
+   recharts 2 + CSS variables → รองรับ dark/light อัตโนมัติ
    ============================================================ */
-import React, { useRef, useEffect, useState } from 'react';
+import React from 'react';
 import { B, N, Icon } from './components.jsx';
+import {
+  PieChart, Pie, Cell,
+  BarChart, Bar,
+  ComposedChart, Area, Line,
+  XAxis, YAxis, CartesianGrid,
+} from 'recharts';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 
-// อ่านสีธีมจาก CSS variable (canvas ใช้ var ตรงๆ ไม่ได้ ต้อง resolve เป็น hex/rgb)
-function readTheme() {
-  const s = getComputedStyle(document.documentElement);
-  const g = (n, fb) => { const v = (s.getPropertyValue(n) || '').trim(); return v || fb; };
-  return {
-    ink: g('--ink', '#16181d'), ink3: g('--ink-3', '#8a909c'), ink4: g('--ink-4', '#aab', ''),
-    line: g('--line', 'rgba(130,140,160,.18)'),
-    accent: g('--accent', '#4c7dff'), accent2: g('--accent-2', '#7c5cff'),
-    good: g('--good', '#1faf6b'), bad: g('--bad', '#e0514a'), warn: g('--warn', '#e39b2e'),
-    surface: g('--surface', '#ffffff'),
-  };
-}
-// จานสีหมวดหมู่ (categorical) — ช่องทาง/หมวด ใช้ชุดนี้ ให้สีคงที่สวยทั้ง 2 โหมด
-export const CAT_COLORS = ['#4c7dff', '#e2603a', '#1faf6b', '#7c5cff', '#e39b2e', '#3aa0c9', '#d6477e', '#73a127', '#8a909c'];
-export const channelColor = (name) => ({ Shopee: '#e2603a', Lazada: '#7c5cff', Facebook: '#4c7dff', LINE: '#1faf6b', Phone: '#3aa0c9', POS: '#e39b2e', Direct: '#8a909c', TikTok: '#d6477e' }[name]) || '#6b7280';
+// จานสีหมวดหมู่ (categorical) — indigo-led ตรงกับ --chart-1..5
+export const CAT_COLORS = ['#4f46e5', '#0ea5e9', '#14b8a6', '#f59e0b', '#8b5cf6', '#ec4899', '#84cc16', '#06b6d4', '#64748b'];
+export const channelColor = (name) => ({ Shopee: '#ee6a3a', Lazada: '#6b5ce0', Facebook: '#4a8be0', LINE: '#06c755', Phone: '#3aa0c9', POS: '#e39b2e', Direct: '#8a909c', TikTok: '#18a0ab' }[name]) || '#6b7280';
 
-// ---- ฐานกราฟ Chart.js: lazy-load + รีเฟรชเมื่อ data/ธีมเปลี่ยน ----
-function ChartBase({ make, deps = [], height = 200, ariaLabel = 'กราฟ', fallback = '' }) {
-  const elRef = useRef(null);
-  const chartRef = useRef(null);
-  const [tick, setTick] = useState(0); // ธีมเปลี่ยน → รีเฟรช
-  useEffect(() => {
-    const obs = new MutationObserver(() => setTick(t => t + 1));
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
-    return () => obs.disconnect();
-  }, []);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      const mod = await import('chart.js/auto');
-      const Chart = mod.default;
-      if (!alive || !elRef.current) return;
-      if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
-      const cfg = make(readTheme(), Chart);
-      cfg.options = cfg.options || {};
-      cfg.options.responsive = true; cfg.options.maintainAspectRatio = false;
-      cfg.options.animation = { duration: 320 };
-      chartRef.current = new Chart(elRef.current, cfg);
-    })();
-    return () => { alive = false; if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; } };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, tick]);
-  return <div style={{ position: 'relative', width: '100%', height }}><canvas ref={elRef} role="img" aria-label={ariaLabel}>{fallback}</canvas></div>;
+// -------- shared style helpers --------
+const TICK = { fill: 'var(--ink-3)', fontSize: 11 };
+const AXP = { axisLine: false, tickLine: false };
+const GRID = { strokeDasharray: '3 3', stroke: 'rgba(130,140,160,.18)' };
+const KFMT = v => '฿' + Math.round(v / 1000) + 'k';
+// formatter ให้ shadcn ChartTooltipContent: จุดสี + ชื่อชุด + ค่า (จัดรูปด้วย fmt) — รองรับ fmt ต่อชุดผ่าน map
+const tipRow = (fmt) => (value, name, item) => (
+  <>
+    <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: item?.color || item?.payload?.fill || 'var(--accent)' }} />
+    <div className="flex flex-1 items-center justify-between gap-3 leading-none">
+      <span className="text-muted-foreground">{name}</span>
+      <span className="font-semibold tabular-nums text-foreground">{(typeof fmt === 'function' ? fmt : (fmt && fmt[item?.dataKey]) || B)(value)}</span>
+    </div>
+  </>
+);
+// config ขั้นต่ำให้ ChartContainer (label lookup) จาก [key,label] คู่ๆ
+const mkCfg = (pairs) => Object.fromEntries(pairs.map(([k, label]) => [k, { label }]));
+const CC_CLS = '!aspect-auto w-full';
+
+// hex → rgba (used by Heatmap for alpha-varying cell backgrounds)
+function hexA(hex, a) {
+  const h = String(hex).replace('#', '');
+  if (h.length !== 6) return `rgba(120,120,140,${a})`;
+  return `rgba(${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)},${a})`;
 }
 
-// ---- โดนัท (สัดส่วน เช่น ช่องทาง) ----
-export function DonutChart({ data, height = 190, ariaLabel = 'กราฟวงแหวน' }) {
+// ---- โดนัท (สัดส่วน เช่น ช่องทาย) ----
+export function DonutChart({ data, height = 190, ariaLabel = 'กราฟวงแหวน', tooltip = true }) {
   const items = (data || []).filter(d => (d.value || 0) > 0);
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={items.map(d => `${d.label} ${Math.round(d.value)}`).join(', ')}
-    deps={[JSON.stringify(items)]}
-    make={(t) => ({
-      type: 'doughnut',
-      data: { labels: items.map(d => d.label), datasets: [{ data: items.map(d => d.value), backgroundColor: items.map(d => d.color || '#6b7280'), borderWidth: 2, borderColor: t.surface, hoverOffset: 6 }] },
-      options: { cutout: '62%', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.label}: ${B(c.raw)} (${Math.round(c.raw / c.dataset.data.reduce((a, b) => a + b, 0) * 100)}%)` } } } },
-    })} />;
+  const total = items.reduce((a, d) => a + d.value, 0);
+  const cfg = mkCfg(items.map(d => [d.label, d.label]));
+  return (
+    <ChartContainer config={cfg} className={CC_CLS} style={{ height }}>
+      <PieChart aria-label={ariaLabel}>
+        {tooltip && <ChartTooltip wrapperStyle={{ zIndex: 50 }} allowEscapeViewBox={{ x: true, y: true }} content={<ChartTooltipContent nameKey="label" formatter={tipRow(v => `${B(v)} (${Math.round(v / (total || 1) * 100)}%)`)} />} />}
+        <Pie data={items} dataKey="value" nameKey="label" innerRadius="62%" outerRadius="82%" paddingAngle={2} stroke="none">
+          {items.map((d, i) => <Cell key={i} fill={d.color || CAT_COLORS[i % CAT_COLORS.length]} />)}
+        </Pie>
+      </PieChart>
+    </ChartContainer>
+  );
 }
 
-// ---- เส้น/พื้นที่ (เทรนด์ + เส้นคาดการณ์ประ) ----
-export function AreaTrend({ labels, values, forecast = [], height = 190, color, ariaLabel = 'กราฟแนวโน้ม' }) {
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={(labels || []).map((l, i) => `${l} ${Math.round(values[i] || 0)}`).join(', ')}
-    deps={[JSON.stringify(labels), JSON.stringify(values), JSON.stringify(forecast)]}
-    make={(t) => {
-      const c = color || t.accent2;
-      const ds = [{ data: values, borderColor: c, backgroundColor: hexA(c, 0.14), fill: true, tension: 0.4, pointRadius: 3, pointBackgroundColor: c, borderWidth: 2 }];
-      if (forecast && forecast.some(v => v != null)) ds.push({ data: forecast, borderColor: c, borderDash: [5, 4], pointRadius: forecast.map(v => v != null ? 4 : 0), pointBackgroundColor: t.accent, borderWidth: 2, fill: false });
-      return { type: 'line', data: { labels, datasets: ds }, options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (x) => B(x.raw) } } }, scales: { y: { grid: { color: t.line }, ticks: { color: t.ink3, callback: (v) => '฿' + Math.round(v / 1000) + 'k' } }, x: { grid: { display: false }, ticks: { color: t.ink3 } } } } };
-    }} />;
+// ---- เส้น/พื้นที่ (เทรนด์ + เส้นคาดการณ์ประ) · compact=มินิไม่มีแกน (ใช้ใน hero) ----
+export function AreaTrend({ labels, values, forecast = [], height = 190, color, ariaLabel = 'กราฟแนวโน้ม', compact = false, valFmt }) {
+  const c = color || '#4338ca';
+  const hasForecast = forecast && forecast.some(v => v != null);
+  const chartData = (labels && labels.length ? labels : values.map((_, i) => i + 1)).map((label, i) => ({
+    label,
+    actual: values[i] ?? null,
+    forecast: hasForecast ? (forecast[i] ?? null) : undefined,
+  }));
+  return (
+    <ChartContainer config={mkCfg([['actual', 'ยอดขาย'], ['forecast', 'คาดการณ์']])} className={CC_CLS} style={{ height }}>
+      <ComposedChart data={chartData} margin={compact ? { top: 4, right: 4, bottom: 0, left: 4 } : { top: 4, right: 8, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+        {!compact && <CartesianGrid {...GRID} vertical={false} />}
+        {!compact && <XAxis dataKey="label" tick={TICK} {...AXP} />}
+        {!compact && <YAxis tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />}
+        <ChartTooltip cursor={{ stroke: 'var(--line)' }} content={<ChartTooltipContent hideLabel={compact} formatter={tipRow(valFmt || B)} />} />
+        <Area type="monotone" dataKey="actual" name="ยอดขาย" stroke={c} fill={c} fillOpacity={0.14} strokeWidth={2} dot={compact ? false : { r: 3, fill: c }} activeDot={{ r: 3.5 }} connectNulls />
+        {hasForecast && <Line type="monotone" dataKey="forecast" name="คาดการณ์" stroke={c} strokeDasharray="5 4" strokeWidth={2} dot={{ r: 4, fill: '#4f46e5' }} connectNulls />}
+      </ComposedChart>
+    </ChartContainer>
+  );
 }
 
 // ---- แท่งแนวนอน (เช่น ลายขายดี) ----
 export function HBars({ data, height = 240, unit = '', color, ariaLabel = 'กราฟแท่ง' }) {
   const items = data || [];
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={items.map(d => `${d.label} ${Math.round(d.value)}`).join(', ')}
-    deps={[JSON.stringify(items), color || '']}
-    make={(t) => ({
-      type: 'bar',
-      data: { labels: items.map(d => d.label), datasets: [{ data: items.map(d => d.value), backgroundColor: items.map(d => d.color || color || t.accent2), borderRadius: 5, barThickness: 'flex', maxBarThickness: 22 }] },
-      options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${Math.round(c.raw).toLocaleString()} ${unit}` } } }, scales: { x: { grid: { color: t.line }, ticks: { color: t.ink3 } }, y: { grid: { display: false }, ticks: { color: t.ink, font: { size: 12 } } } } },
-    })} />;
+  return (
+    <ChartContainer config={mkCfg([['value', unit || 'ค่า']])} className={CC_CLS} style={{ height }}>
+      <BarChart data={items} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+        <CartesianGrid {...GRID} horizontal={false} />
+        <XAxis type="number" tick={TICK} {...AXP} />
+        <YAxis dataKey="label" type="category" width={90} tick={{ fill: 'var(--ink)', fontSize: 12 }} {...AXP} />
+        <ChartTooltip content={<ChartTooltipContent hideLabel formatter={tipRow(v => `${Math.round(v).toLocaleString()}${unit ? ' ' + unit : ''}`)} />} />
+        <Bar dataKey="value" name={unit || 'ค่า'} radius={[0, 5, 5, 0]} maxBarSize={22}>
+          {items.map((d, i) => <Cell key={i} fill={d.color || color || '#4338ca'} />)}
+        </Bar>
+      </BarChart>
+    </ChartContainer>
+  );
 }
 
-// ---- แท่งแนวตั้งกลุ่ม (เช่น ลาย× ช่อง) — รับ datasets หลายชุด ----
+// ---- แท่งแนวตั้งกลุ่ม (เช่น ลาย × ช่อง) ----
 export function GroupBars({ labels, datasets, height = 240, fmt, ariaLabel = 'กราฟแท่ง' }) {
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={(labels || []).join(', ')}
-    deps={[JSON.stringify(labels), JSON.stringify(datasets)]}
-    make={(t) => ({
-      type: 'bar',
-      data: { labels, datasets: (datasets || []).map((d, i) => ({ label: d.label, data: d.data, backgroundColor: d.color || CAT_COLORS[i % CAT_COLORS.length], borderRadius: 4, maxBarThickness: 26 })) },
-      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(fmt || B)(c.raw)}` } } }, scales: { x: { grid: { display: false }, ticks: { color: t.ink3 }, stacked: false }, y: { grid: { color: t.line }, ticks: { color: t.ink3 } } } },
-    })} />;
+  const ds = datasets || [];
+  const chartData = (labels || []).map((label, i) => {
+    const row = { label };
+    ds.forEach((d, j) => { row[`d${j}`] = d.data[i]; });
+    return row;
+  });
+  return (
+    <ChartContainer config={mkCfg(ds.map((d, i) => [`d${i}`, d.label]))} className={CC_CLS} style={{ height }}>
+      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+        <CartesianGrid {...GRID} vertical={false} />
+        <XAxis dataKey="label" tick={TICK} {...AXP} />
+        <YAxis tick={TICK} {...AXP} width={48} />
+        <ChartTooltip content={<ChartTooltipContent formatter={tipRow(fmt || B)} />} />
+        {ds.map((d, i) => (
+          <Bar key={i} dataKey={`d${i}`} name={d.label} fill={d.color || CAT_COLORS[i % CAT_COLORS.length]} radius={4} maxBarSize={26} />
+        ))}
+      </BarChart>
+    </ChartContainer>
+  );
 }
 
-// ---- เกจครึ่งวงกลม (เป้า/pacing) ----
+// ---- เกจครึ่งวงกลม (เป้า/pacing) — SVG ล้วน ----
 export function Gauge({ value, max, label, sub, height = 150 }) {
   const pct = max > 0 ? Math.min(1.15, value / max) : 0;
   const ang = -Math.PI + Math.min(1, pct) * Math.PI;
@@ -119,90 +145,172 @@ export function Gauge({ value, max, label, sub, height = 150 }) {
   );
 }
 
-// ---- การ์ดตัวเลขสรุป (KPI) พร้อม delta + ไอคอน ----
-export function MetricCard({ label, value, delta, deltaUp, sub, tone, icon }) {
+// ---- เลขนับวิ่ง (count-up) ด้วย requestAnimationFrame · ease-out · เคารพ prefers-reduced-motion ----
+export function useCountUp(target, { duration = 900, decimals = 0 } = {}) {
+  const end = Number(target) || 0;
+  const [val, setVal] = React.useState(end);
+  const fromRef = React.useRef(end);
+  React.useEffect(() => {
+    const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const from = fromRef.current;
+    if (reduce || from === end || duration <= 0) { fromRef.current = end; setVal(end); return; }
+    let raf, start = null;
+    const m = Math.pow(10, decimals);
+    const step = (ts) => {
+      if (start == null) start = ts;
+      const p = Math.min(1, (ts - start) / duration);
+      const e = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      setVal(Math.round((from + (end - from) * e) * m) / m);
+      if (p < 1) raf = requestAnimationFrame(step);
+      else fromRef.current = end;
+    };
+    raf = requestAnimationFrame(step);
+    return () => raf && cancelAnimationFrame(raf);
+  }, [end, duration, decimals]);
+  return val;
+}
+
+// ---- ตัวเลขนับวิ่งพร้อม formatter (countTo=ตัวเลขดิบ, fmt=ฟังก์ชันจัดรูป) ----
+export function CountUp({ value, fmt = N, duration = 900, decimals = 0 }) {
+  const v = useCountUp(value, { duration, decimals });
+  return <>{(fmt || N)(v)}</>;
+}
+
+// ---- การ์ดตัวเลขสรุป (KPI) พร้อม delta + ไอคอน · countTo=นับวิ่ง, index=ลำดับ stagger ----
+export function MetricCard({ label, value, countTo, fmt, decimals, delta, deltaUp, sub, tone, icon, index, animate = true }) {
   return (
-    <div className="metric-card">
+    <div className={'metric-card' + (animate ? ' metric-anim' : '')} style={index != null ? { '--i': index } : undefined}>
       <div className="row between" style={{ alignItems: 'flex-start' }}>
         <div className="cap" style={{ color: 'var(--ink-3)' }}>{label}</div>
         {icon && <span style={{ color: tone || 'var(--ink-4)', opacity: 0.85 }}><Icon name={icon} /></span>}
       </div>
-      <div className="num" style={{ fontSize: 23, fontWeight: 700, marginTop: 4, color: tone || 'var(--ink)' }}>{value}</div>
+      <div className="num" style={{ fontSize: 23, fontWeight: 700, marginTop: 4, color: tone || 'var(--ink)' }}>
+        {countTo != null ? <CountUp value={countTo} fmt={fmt} decimals={decimals} /> : value}
+      </div>
       <div className="row" style={{ gap: 6, marginTop: 3 }}>
-        {delta != null && <span className="cap" style={{ fontWeight: 700, color: deltaUp ? 'var(--good)' : 'var(--bad)' }}>{deltaUp ? '▲' : '▼'}{delta}</span>}
+        {delta != null && <span className="cap" style={{ fontWeight: 700, color: deltaUp ? 'var(--good)' : 'var(--bad)', display: 'inline-flex', alignItems: 'center', gap: 2 }}><Icon name={deltaUp ? 'up' : 'down'} size={12} />{delta}</span>}
         {sub && <span className="cap" style={{ color: 'var(--ink-4)' }}>{sub}</span>}
       </div>
     </div>
   );
 }
 
-// ---- มินิบาร์แนวตั้ง (sparkbars เช่น ไซซ์) — เบา ไม่ต้องใช้ chart lib ----
+// ---- มินิบาร์แนวตั้ง (sparkbars เช่น ไซซ์) — HTML flex ----
 export function MiniBars({ data, color, height = 44 }) {
   const max = Math.max(1, ...(data || []).map(d => d.value));
   return (
     <div>
       <div className="row" style={{ gap: 5, alignItems: 'flex-end', height }}>
-        {(data || []).map((d, i) => <div key={i} title={`${d.label} ${N(d.value)}`} style={{ flex: 1, height: `${Math.max(5, (d.value / max) * 100)}%`, background: color || 'var(--accent)', borderRadius: '3px 3px 0 0', opacity: 1 - i * 0.07 }} />)}
+        {(data || []).map((d, i) => (
+          <div key={i} title={`${d.label} ${N(d.value)}`} style={{ flex: 1, height: `${Math.max(5, (d.value / max) * 100)}%`, background: color || 'var(--accent)', borderRadius: '3px 3px 0 0', opacity: 1 - i * 0.07 }} />
+        ))}
       </div>
-      <div className="row between" style={{ marginTop: 5 }}>{(data || []).map((d, i) => <span key={i} className="cap" style={{ fontSize: 10, flex: 1, textAlign: 'center' }}>{d.label}</span>)}</div>
+      <div className="row between" style={{ marginTop: 5 }}>
+        {(data || []).map((d, i) => <span key={i} className="cap" style={{ fontSize: 10, flex: 1, textAlign: 'center' }}>{d.label}</span>)}
+      </div>
     </div>
   );
 }
 
-function hexA(hex, a) {
-  const h = String(hex).replace('#', '');
-  if (h.length !== 6) return `rgba(120,120,140,${a})`;
-  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${a})`;
-}
-
-// ---- คอมโบ: แท่ง(ยอด) + เส้น(ออเดอร์) สองแกน + เส้นเทียบช่วงก่อน(ประ) ----
+// ---- คอมโบ: แท่ง(ยอด) + เส้น(ออเดอร์) สองแกน + เส้นเทียบช่วงก่อน ----
 export function ComboChart({ labels, bars, line, cmpBars, barLabel = 'ยอดขาย', lineLabel = 'ออเดอร์', barFmt, lineFmt, cmpLabel = 'ช่วงก่อน', height = 230, ariaLabel = 'กราฟยอดขายตามเวลา' }) {
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={(labels || []).join(', ')}
-    deps={[JSON.stringify(labels), JSON.stringify(bars), JSON.stringify(line), JSON.stringify(cmpBars)]}
-    make={(t) => {
-      const ds = [{ type: 'bar', label: barLabel, data: bars, backgroundColor: hexA(t.accent2, 0.85), borderRadius: 4, maxBarThickness: 34, order: 2, yAxisID: 'y' }];
-      if (cmpBars && cmpBars.some(v => v != null)) ds.push({ type: 'bar', label: cmpLabel, data: cmpBars, backgroundColor: hexA(t.ink3, 0.28), borderRadius: 4, maxBarThickness: 34, order: 3, yAxisID: 'y' });
-      if (line) ds.push({ type: 'line', label: lineLabel, data: line, borderColor: t.accent, backgroundColor: t.accent, tension: 0.35, pointRadius: 2, borderWidth: 2, order: 1, yAxisID: 'y1' });
-      return { data: { labels, datasets: ds }, options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${c.dataset.yAxisID === 'y1' ? (lineFmt || ((v) => v))(c.raw) : (barFmt || B)(c.raw)}` } } }, scales: { y: { position: 'left', grid: { color: t.line }, ticks: { color: t.ink3, callback: (v) => '฿' + Math.round(v / 1000) + 'k' } }, y1: { position: 'right', grid: { display: false }, ticks: { color: t.ink3 } }, x: { grid: { display: false }, ticks: { color: t.ink3, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } } } } };
-    }} />;
+  const hasCmp = cmpBars && cmpBars.some(v => v != null);
+  const hasLine = line != null;
+  const chartData = (labels || []).map((label, i) => ({
+    label,
+    bars: bars[i] ?? null,
+    line: hasLine ? (line[i] ?? null) : undefined,
+    cmpBars: hasCmp ? (cmpBars[i] ?? null) : undefined,
+  }));
+  const comboFmt = { bars: barFmt || B, cmpBars: barFmt || B, line: lineFmt || (v => v) };
+  return (
+    <ChartContainer config={mkCfg([['bars', barLabel], ['line', lineLabel], ['cmpBars', cmpLabel]])} className={CC_CLS} style={{ height }}>
+      <ComposedChart data={chartData} margin={{ top: 4, right: 40, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+        <CartesianGrid {...GRID} vertical={false} />
+        <XAxis dataKey="label" tick={TICK} {...AXP} interval="preserveStartEnd" />
+        <YAxis yAxisId="y" tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />
+        {hasLine && <YAxis yAxisId="y1" orientation="right" tick={TICK} {...AXP} width={32} />}
+        <ChartTooltip content={<ChartTooltipContent formatter={tipRow(comboFmt)} />} />
+        <Bar yAxisId="y" dataKey="bars" name={barLabel} fill="#4338ca" fillOpacity={0.85} radius={4} maxBarSize={34} />
+        {hasCmp && <Bar yAxisId="y" dataKey="cmpBars" name={cmpLabel} fill="rgba(130,140,160,.28)" radius={4} maxBarSize={34} />}
+        {hasLine && <Line type="monotone" yAxisId="y1" dataKey="line" name={lineLabel} stroke="#4f46e5" strokeWidth={2} dot={{ r: 2 }} connectNulls />}
+      </ComposedChart>
+    </ChartContainer>
+  );
 }
 
-// ---- แท่งซ้อน (channel × เวลา) — datasets หลายชุด stacked ----
+// ---- แท่งซ้อน (channel × เวลา) ----
 export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = 'กราฟแท่งซ้อน' }) {
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={(labels || []).join(', ')}
-    deps={[JSON.stringify(labels), JSON.stringify(datasets)]}
-    make={(t) => ({
-      type: 'bar',
-      data: { labels, datasets: (datasets || []).map((d, i) => ({ label: d.label, data: d.data, backgroundColor: d.color || CAT_COLORS[i % CAT_COLORS.length], borderRadius: 2, maxBarThickness: 40 })) },
-      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${(fmt || B)(c.raw)}` } } }, scales: { x: { stacked: true, grid: { display: false }, ticks: { color: t.ink3, maxRotation: 45, autoSkip: true, maxTicksLimit: 14 } }, y: { stacked: true, grid: { color: t.line }, ticks: { color: t.ink3, callback: (v) => '฿' + Math.round(v / 1000) + 'k' } } } },
-    })} />;
+  const ds = datasets || [];
+  const chartData = (labels || []).map((label, i) => {
+    const row = { label };
+    ds.forEach((d, j) => { row[`d${j}`] = d.data[i]; });
+    return row;
+  });
+  return (
+    <ChartContainer config={mkCfg(ds.map((d, i) => [`d${i}`, d.label]))} className={CC_CLS} style={{ height }}>
+      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+        <CartesianGrid {...GRID} vertical={false} />
+        <XAxis dataKey="label" tick={TICK} {...AXP} interval="preserveStartEnd" />
+        <YAxis tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />
+        <ChartTooltip content={<ChartTooltipContent formatter={tipRow(fmt || B)} />} />
+        {ds.map((d, i) => (
+          <Bar key={i} dataKey={`d${i}`} name={d.label} stackId="a" fill={d.color || CAT_COLORS[i % CAT_COLORS.length]} radius={i === ds.length - 1 ? [2, 2, 0, 0] : 0} maxBarSize={40} />
+        ))}
+      </BarChart>
+    </ChartContainer>
+  );
 }
 
 // ---- Pareto: แท่ง(ค่า) + เส้นสะสม%(80/20) ----
 export function ParetoChart({ items, valKey = 'sales', height = 230, fmt, ariaLabel = 'กราฟพาเรโต' }) {
   const it = items || [];
-  return <ChartBase height={height} ariaLabel={ariaLabel} fallback={it.map(x => x.key).join(', ')}
-    deps={[JSON.stringify(it), valKey]}
-    make={(t) => {
-      const total = it.reduce((a, x) => a + x[valKey], 0); let cum = 0; const cumPct = it.map(x => { cum += x[valKey]; return total ? Math.round(cum / total * 100) : 0; });
-      return { data: { labels: it.map(x => x.key), datasets: [{ type: 'bar', data: it.map(x => x[valKey]), backgroundColor: hexA(t.accent2, 0.85), borderRadius: 4, maxBarThickness: 30, order: 2, yAxisID: 'y' }, { type: 'line', data: cumPct, borderColor: t.warn, backgroundColor: t.warn, pointRadius: 2, borderWidth: 2, tension: 0.3, order: 1, yAxisID: 'y1' }] }, options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => c.dataset.yAxisID === 'y1' ? `สะสม ${c.raw}%` : (fmt || B)(c.raw) } } }, scales: { y: { grid: { color: t.line }, ticks: { color: t.ink3 } }, y1: { position: 'right', min: 0, max: 100, grid: { display: false }, ticks: { color: t.ink3, callback: (v) => v + '%' } }, x: { grid: { display: false }, ticks: { color: t.ink, font: { size: 11 }, maxRotation: 45 } } } } };
-    }} />;
+  const total = it.reduce((a, x) => a + (x[valKey] || 0), 0);
+  let cum = 0;
+  const chartData = it.map(x => {
+    cum += (x[valKey] || 0);
+    return { key: x.key, value: x[valKey] || 0, cumPct: total ? Math.round(cum / total * 100) : 0 };
+  });
+  const parFmt = { value: fmt || B, cumPct: v => `สะสม ${v}%` };
+  return (
+    <ChartContainer config={mkCfg([['value', 'ยอดขาย'], ['cumPct', 'สะสม %']])} className={CC_CLS} style={{ height }}>
+      <ComposedChart data={chartData} margin={{ top: 4, right: 40, bottom: 30, left: 0 }} aria-label={ariaLabel}>
+        <CartesianGrid {...GRID} vertical={false} />
+        <XAxis dataKey="key" tick={{ fill: 'var(--ink)', fontSize: 11 }} {...AXP} interval={0} angle={-30} textAnchor="end" height={50} />
+        <YAxis yAxisId="y" tick={TICK} {...AXP} width={52} />
+        <YAxis yAxisId="y1" orientation="right" domain={[0, 100]} tickFormatter={v => v + '%'} tick={TICK} {...AXP} width={36} />
+        <ChartTooltip content={<ChartTooltipContent formatter={tipRow(parFmt)} />} />
+        <Bar yAxisId="y" dataKey="value" name="ยอดขาย" fill="#4338ca" fillOpacity={0.85} radius={4} maxBarSize={30} />
+        <Line type="monotone" yAxisId="y1" dataKey="cumPct" name="สะสม %" stroke="#e39b2e" strokeWidth={2} dot={{ r: 2 }} />
+      </ComposedChart>
+    </ChartContainer>
+  );
 }
 
-// ---- Heatmap (matrix) — HTML grid, ความเข้ม = ค่าเทียบ max (เบา ไม่ใช้ chart lib) ----
-export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4c7dff', height: _height }) {
-  const all = []; (rows || []).forEach(r => (cols || []).forEach(c => all.push(cell(r, c) || 0)));
+// ---- Heatmap (matrix) — HTML grid ----
+export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4f46e5', height: _height }) {
+  const all = [];
+  (rows || []).forEach(r => (cols || []).forEach(c => all.push(cell(r, c) || 0)));
   const max = Math.max(1, ...all);
   return (
     <div style={{ overflowX: 'auto' }}>
       <div style={{ display: 'grid', gridTemplateColumns: `minmax(64px,auto) repeat(${(cols || []).length}, minmax(38px,1fr))`, gap: 3, minWidth: 'max-content' }}>
         <div />
-        {(cols || []).map((c, i) => <div key={i} className="cap" style={{ fontSize: 10, textAlign: 'center', color: 'var(--ink-3)', padding: '2px 0', whiteSpace: 'nowrap' }}>{c.label ?? c}</div>)}
+        {(cols || []).map((c, i) => (
+          <div key={i} className="cap" style={{ fontSize: 10, textAlign: 'center', color: 'var(--ink-3)', padding: '2px 0', whiteSpace: 'nowrap' }}>{c.label ?? c}</div>
+        ))}
         {(rows || []).map((r, ri) => (
           <React.Fragment key={ri}>
             <div className="cap" style={{ fontSize: 11, color: 'var(--ink)', display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', paddingRight: 6 }}>{r.label ?? r}</div>
-            {(cols || []).map((c, ci) => { const v = cell(r, c) || 0; const a = v / max; return <div key={ci} title={`${r.label ?? r} · ${c.label ?? c}: ${fmt(v)}`} style={{ aspectRatio: '1.4', minHeight: 26, borderRadius: 4, background: v ? hexA(color, 0.12 + a * 0.78) : 'var(--surface-2, rgba(130,140,160,.06))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: a > 0.55 ? '#fff' : 'var(--ink-3)', fontWeight: a > 0.55 ? 600 : 400 }}>{v ? fmt(v) : ''}</div>; })}
+            {(cols || []).map((c, ci) => {
+              const v = cell(r, c) || 0;
+              const a = v / max;
+              return (
+                <div key={ci} title={`${r.label ?? r} · ${c.label ?? c}: ${fmt(v)}`} style={{ aspectRatio: '1.4', minHeight: 26, borderRadius: 4, background: v ? hexA(color, 0.12 + a * 0.78) : 'var(--surface-2, rgba(130,140,160,.06))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: a > 0.55 ? '#fff' : 'var(--ink-3)', fontWeight: a > 0.55 ? 600 : 400 }}>
+                  {v ? fmt(v) : ''}
+                </div>
+              );
+            })}
           </React.Fragment>
         ))}
       </div>
@@ -210,7 +318,7 @@ export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4c7dff'
   );
 }
 
-// เส้นเทรนด์จิ๋วใน hero/KPI card — SVG ล้วน เบา ไม่พึ่ง Chart.js
+// ---- Sparkline — SVG ล้วน ----
 export function Sparkline({ data = [], w = 120, h = 30, color = 'var(--accent)', fill = true, strokeW = 1.7 }) {
   const v = (data || []).map(n => Number(n) || 0);
   if (v.length < 2) return <svg width={w} height={h} aria-hidden="true" />;
@@ -225,5 +333,27 @@ export function Sparkline({ data = [], w = 120, h = 30, color = 'var(--accent)',
       <polyline points={pts} fill="none" stroke={color} strokeWidth={strokeW} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
       <circle cx={x(last)} cy={y(v[last])} r="2.4" fill={color} />
     </svg>
+  );
+}
+
+// ---- Sparkline แบบ recharts gradient-fill (เฟี้ยวกว่า · ใช้ใน KPI hero / ตารางลาย) ----
+let _gradSeq = 0;
+export function GradientSparkline({ data = [], height = 36, color = '#4f46e5', strokeW = 2, ariaLabel = 'กราฟย่อแนวโน้ม' }) {
+  const v = (data || []).map(n => Number(n) || 0);
+  const gid = React.useMemo(() => `spark-grad-${_gradSeq++}`, []);
+  if (v.length < 2) return <div style={{ height }} aria-hidden="true" />;
+  const chartData = v.map((n, i) => ({ i, value: n }));
+  return (
+    <ChartContainer config={mkCfg([['value', 'ค่า']])} className={CC_CLS} style={{ height }}>
+      <ComposedChart data={chartData} margin={{ top: 2, right: 1, bottom: 1, left: 1 }} aria-label={ariaLabel}>
+        <defs>
+          <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.32} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="value" stroke={color} strokeWidth={strokeW} fill={`url(#${gid})`} dot={false} isAnimationActive={false} />
+      </ComposedChart>
+    </ChartContainer>
   );
 }

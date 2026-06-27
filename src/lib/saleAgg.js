@@ -7,6 +7,7 @@
    ============================================================ */
 import { bucketKey, inRange, diffDays } from './saleTime.js';
 import { codeType } from './catalogMeta.js';
+import { normalizeProvince, regionCodeOf, REGIONS } from './provinces.js';
 
 const num = (v) => Number(v) || 0;
 const has = (arr) => arr && arr.length > 0;
@@ -37,9 +38,18 @@ function groupBy(rows, keyFn, init) {
 
 // ---- คำนวณทุกอย่างของช่วงหนึ่ง ----
 export function compute(orders, skus, f) {
-  const ords = orders.filter(o => orderPass(o, f));
+  let ords = orders.filter(o => orderPass(o, f));
   const idSet = new Set(ords.map(o => o.order_no));
   const sk = skus.filter(s => idSet.has(s.order_no) && skuPass(s, f));
+
+  // ---- ตัวกรองระดับ SKU (ลาย/สี/ไซซ์/หมวด/รหัส) ----
+  // ถ้าเปิดใช้ → จำกัดออเดอร์เหลือเฉพาะที่มี SKU ผ่านฟิลเตอร์ ไม่งั้น KPI (ยอด/กำไร/ออเดอร์)
+  // จะคิดจากทั้งร้านทั้งที่ผู้ใช้เลือกดูเฉพาะบางลาย = เข้าใจผิด
+  const skuFilterActive = !!(f && (has(f.design) || has(f.product_code) || has(f.size) || has(f.color) || has(f.type)));
+  if (skuFilterActive) {
+    const keep = new Set(sk.map(s => s.order_no));
+    ords = ords.filter(o => keep.has(o.order_no));
+  }
 
   // ---- KPI หลัก ----
   const sum = (a, k) => a.reduce((x, r) => x + num(r[k]), 0);
@@ -55,15 +65,18 @@ export function compute(orders, skus, f) {
   // มาร์จิ้นที่เชื่อได้ = คิดเฉพาะออเดอร์ที่มีต้นทุนจริง (กันเฟ้อจากช่องที่ cost=0 แล้วกำไร=ยอดเต็ม)
   const costOrds = ords.filter(o => num(o.cost) > 0);
   const costSales = sum(costOrds, 'sales'), costProfit = sum(costOrds, 'profit');
+  // ยอด/จำนวนเชิงเส้น (attributed) จาก SKU ที่ผ่านฟิลเตอร์ — ใช้โชว์เมื่อกรองระดับลาย
+  const attrSales = sum(sk, 'line_sales'), attrQty = sum(sk, 'qty');
 
   const kpi = {
     sales, orders: ords.length, qty, profit, cost, commission,
+    skuFilterActive, attrSales, attrQty,
     aov: ords.length ? sales / ords.length : 0,
     ppu: qty ? sales / qty : 0,
     margin: sales ? profit / sales : 0,
     marginReal: costSales ? costProfit / costSales : 0, costSales, costOrders: costOrds.length,
     commPct: sales ? commission / sales : 0,
-    newC, oldC, newPct: ords.length ? newC / ords.length : 0,
+    newC, oldC, newPct: (newC + oldC) ? newC / (newC + oldC) : 0,
     codO, codPct: ords.length ? codO / ords.length : 0,
     mpSales, mpPct: sales ? mpSales / sales : 0,
     big, bigPct: ords.length ? big / ords.length : 0,
@@ -101,7 +114,7 @@ export function compute(orders, skus, f) {
     byJobType: ordDim(o => o.job_type),
     byCustomerType: ordDim(o => o.customer_type),
     byQtyBand: ordDim(o => o.qty_band),
-    byDesign: skuDim(s => s.design),
+    byDesign: skuDim(s => s.design || 'ไม่ระบุลาย'),
     byColor: skuDim(s => normColor(s.color)),
     bySize: skuDim(s => normSize(s.size)),
     byType: skuDim(s => codeType(s.product_code) || 'ไม่ระบุ'),
@@ -110,6 +123,82 @@ export function compute(orders, skus, f) {
 function finalize(m, total) {
   const arr = [...m.values()].map(g => ({ key: g.key, sales: g.sales, orders: g.orders, qty: g.qty, profit: g.profit, aov: g.orders ? g.sales / g.orders : 0, share: total ? g.sales / total : 0 }));
   return arr.sort((a, b) => b.sales - a.sales);
+}
+
+// ---- geo drill-down: จังหวัด → ลาย → สี (join skus→orders ด้วย order_no) ----
+// รับแถวที่ "ผ่านตัวกรองแล้ว" (ส่ง A._ords / A._skus) — ไม่ rerun orderPass/skuPass ซ้ำ
+// คืน { provinces:[{ key,orders,qty,sales,share, designs:[{ key,orders,qty,sales, colors:[{ key,orders,qty,sales }] }] }], noProvinceSales, total }
+export function geoBreakdown(ords, sks) {
+  const provOf = new Map();               // order_no → จังหวัด (normalized) | null
+  for (const o of ords) provOf.set(o.order_no, normalizeProvince(o.province));
+  const provs = new Map();                // th → { orders:Set, qty, sales, designs:Map }
+  let noProvinceSales = 0;
+  const totOrders = new Set(); let totQty = 0, totSales = 0;
+  for (const s of sks) {
+    const qty = num(s.qty), sales = num(s.line_sales);
+    totQty += qty; totSales += sales; totOrders.add(s.order_no);
+    const th = provOf.get(s.order_no);
+    if (!th) { noProvinceSales += sales; continue; }
+    let p = provs.get(th);
+    if (!p) { p = { key: th, orders: new Set(), qty: 0, sales: 0, designs: new Map() }; provs.set(th, p); }
+    p.orders.add(s.order_no); p.qty += qty; p.sales += sales;
+    const dk = s.design || 'ไม่ระบุลาย';
+    let d = p.designs.get(dk);
+    if (!d) { d = { key: dk, orders: new Set(), qty: 0, sales: 0, colors: new Map() }; p.designs.set(dk, d); }
+    d.orders.add(s.order_no); d.qty += qty; d.sales += sales;
+    const ck = normColor(s.color);
+    let c = d.colors.get(ck);
+    if (!c) { c = { key: ck, orders: new Set(), qty: 0, sales: 0 }; d.colors.set(ck, c); }
+    c.orders.add(s.order_no); c.qty += qty; c.sales += sales;
+  }
+  const provinces = [...provs.values()].map(p => ({
+    key: p.key, orders: p.orders.size, qty: p.qty, sales: p.sales,
+    share: totSales ? p.sales / totSales : 0,
+    designs: [...p.designs.values()].map(d => ({
+      key: d.key, orders: d.orders.size, qty: d.qty, sales: d.sales,
+      colors: [...d.colors.values()].map(c => ({ key: c.key, orders: c.orders.size, qty: c.qty, sales: c.sales }))
+        .sort((a, b) => b.sales - a.sales),
+    })).sort((a, b) => b.sales - a.sales),
+  })).sort((a, b) => b.sales - a.sales);
+  return { provinces, noProvinceSales, total: { orders: totOrders.size, qty: totQty, sales: totSales } };
+}
+
+// ---- rollup รายภาค: pure fold ของผล geoBreakdown (ไม่วน skus รอบสอง) ----
+// คืน { regions:[{ key,code,orders,qty,sales,share, designs:[ranked], colors:[flat ranked], topDesign, topColor }], total:{ sales } }
+// invariant: Σ regions.sales + bd.noProvinceSales === bd.total.sales (fold ตรง)
+// หมายเหตุ: region.orders = Σ province.orders (อาจ over-count ออเดอร์ที่ข้ามหลายจังหวัด — กรณีหายากมาก)
+export function regionBreakdown(bd) {
+  const regs = new Map();  // code → { orders, qty, sales, designs:Map, colors:Map }
+  for (const p of bd.provinces) {
+    const code = regionCodeOf(p.key);
+    if (!code) continue;   // จังหวัด match ไม่ได้ → ถือเป็น residual (ไม่เข้า region)
+    let r = regs.get(code);
+    if (!r) { r = { orders: 0, qty: 0, sales: 0, designs: new Map(), colors: new Map() }; regs.set(code, r); }
+    r.orders += p.orders; r.qty += p.qty; r.sales += p.sales;
+    for (const d of p.designs) {
+      let dd = r.designs.get(d.key);
+      if (!dd) { dd = { key: d.key, orders: 0, qty: 0, sales: 0 }; r.designs.set(d.key, dd); }
+      dd.orders += d.orders; dd.qty += d.qty; dd.sales += d.sales;
+      for (const c of d.colors) {   // รวมสีแบบแบน: สีเดียวกันข้ามทุกลาย/ทุกจังหวัดในภาค
+        let cc = r.colors.get(c.key);
+        if (!cc) { cc = { key: c.key, orders: 0, qty: 0, sales: 0 }; r.colors.set(c.key, cc); }
+        cc.orders += c.orders; cc.qty += c.qty; cc.sales += c.sales;
+      }
+    }
+  }
+  const totSales = bd.total.sales;
+  const regions = [...regs.entries()].map(([code, r]) => {
+    const designs = [...r.designs.values()].sort((a, b) => b.sales - a.sales);
+    const colors = [...r.colors.values()].sort((a, b) => b.sales - a.sales);
+    return {
+      key: REGIONS[code] || code, code,
+      orders: r.orders, qty: r.qty, sales: r.sales,
+      share: totSales ? r.sales / totSales : 0,
+      designs, colors,
+      topDesign: designs[0] || null, topColor: colors[0] || null,
+    };
+  }).sort((a, b) => b.sales - a.sales);
+  return { regions, total: { sales: totSales } };
 }
 
 // ---- time series (แท่ง/เส้นตามเวลา) ----
@@ -135,27 +224,37 @@ export function customerAgg(ords) {
   return Object.values(m).map(g => ({ ...g, channels: g.channels.size, aov: g.orders ? g.sales / g.orders : 0 }));
 }
 
-// ---- จัด TIER อัตโนมัติ (RFM) — เพชร/ทอง/เงิน/ทองแดง ตามยอดซื้อ + ป้าย ใหม่/เสี่ยงหลุด ----
+// ---- จัด TIER อัตโนมัติ (RFM จริง) — เพชร/ทอง/เงิน/ทองแดง ----
+// เกณฑ์เข้มขึ้น: ต้องผ่านทั้ง 3 มิติ (Recency ความสดใหม่ + Frequency ความถี่ + Monetary ยอดซื้อ)
+// ไม่ใช่ดูยอดซื้ออย่างเดียว — ลูกค้ายอดสูงแต่หายไป/ซื้อครั้งเดียว จะไม่ได้ tier สูง
 export const RFM_TIERS = [
-  { key: 'เพชร', color: '#7c5cff', icon: 'star', desc: 'ยอดสูงสุด · ดูแลพิเศษ' },
-  { key: 'ทอง', color: '#e39b2e', icon: 'star', desc: 'ลูกค้าคนสำคัญ' },
-  { key: 'เงิน', color: '#3aa0c9', icon: 'user', desc: 'ซื้อสม่ำเสมอ' },
-  { key: 'ทองแดง', color: '#8a909c', icon: 'user', desc: 'ทั่วไป' },
+  { key: 'เพชร', color: '#7c5cff', icon: 'star', desc: 'ยอดท็อป 10% · ซื้อ ≥4 ครั้ง · ยังเคลื่อนไหว ≤45 วัน' },
+  { key: 'ทอง', color: '#e39b2e', icon: 'star', desc: 'ยอดท็อป 30% · ซื้อซ้ำ ≥3 ครั้ง · ยังเคลื่อนไหว ≤75 วัน' },
+  { key: 'เงิน', color: '#3aa0c9', icon: 'user', desc: 'ยอดท็อป 60% · ซื้อซ้ำ ≥2 ครั้ง' },
+  { key: 'ทองแดง', color: '#8a909c', icon: 'user', desc: 'ทั่วไป · ซื้อครั้งเดียว / ยอดน้อย / ห่างหาย' },
 ];
 export function rfmTiers(custs, asOf) {
   const list = custs || [];
   if (!list.length) return { rows: [], summary: RFM_TIERS.map(t => ({ ...t, count: 0, sales: 0, avg: 0, share: 0, sharePct: 0 })) };
   const spends = list.map(c => c.sales).sort((a, b) => a - b);
   const q = (p) => spends[Math.min(spends.length - 1, Math.floor(spends.length * p))];
-  const p90 = q(0.9), p70 = q(0.7), p40 = q(0.4);
+  // เกณฑ์ยอดซื้อ (Monetary) เข้มขึ้น: ท็อป 10% / 30% / 60%
+  const m90 = q(0.9), m70 = q(0.7), m40 = q(0.4);
   const total = spends.reduce((a, b) => a + b, 0);
   const rows = list.map(c => {
     const recency = (asOf && c.last) ? diffDays(c.last, asOf) : null;
-    const tier = c.sales >= p90 ? 'เพชร' : c.sales >= p70 ? 'ทอง' : c.sales >= p40 ? 'เงิน' : 'ทองแดง';
+    // ถ้าไม่มีวันที่อ้างอิง ถือว่ายังเคลื่อนไหว (ไม่ลงโทษข้อมูลที่ขาด)
+    const within = (d) => recency == null ? true : recency <= d;
+    const M = c.sales, F = c.orders;
+    let tier;
+    if (M >= m90 && F >= 4 && within(45))      tier = 'เพชร';   // ยอดท็อป + ซื้อบ่อย + ยังสดใหม่
+    else if (M >= m70 && F >= 3 && within(75)) tier = 'ทอง';    // ยอดสูง + ซื้อซ้ำหลายครั้ง + ยังเคลื่อนไหว
+    else if (M >= m40 && F >= 2)               tier = 'เงิน';   // ยอดกลางบน + ซื้อซ้ำอย่างน้อย 2 ครั้ง
+    else                                       tier = 'ทองแดง'; // นอกเหนือจากนั้น
     let flag = '';
-    if (c.orders === 1 && recency != null && recency <= 21) flag = 'ใหม่';
-    else if (recency != null && recency >= 35 && c.orders >= 2) flag = 'เสี่ยงหลุด';
-    else if (c.orders >= 3) flag = 'ขาประจำ';
+    if (F === 1 && recency != null && recency <= 21) flag = 'ใหม่';
+    else if (recency != null && recency >= 35 && F >= 2) flag = 'เสี่ยงหลุด';
+    else if (F >= 3) flag = 'ขาประจำ';
     return { ...c, recency, tier, flag };
   }).sort((a, b) => b.sales - a.sales);
   const summary = RFM_TIERS.map(t => { const g = rows.filter(r => r.tier === t.key); const sales = g.reduce((a, r) => a + r.sales, 0); return { ...t, count: g.length, sales, avg: g.length ? sales / g.length : 0, share: list.length ? g.length / list.length : 0, sharePct: total ? sales / total : 0 }; });
@@ -182,5 +281,6 @@ export function normSize(s) {
   const t = String(s || '').toUpperCase().replace(/\(.*$/, '').replace(/ไซส์|ไซซ์/g, '').trim();
   const m = SIZE_ORDER.find(x => t === x || t === x.replace('X', 'X')); return m || (t || 'ไม่ระบุ');
 }
-export function normColor(c) { return String(c || '').replace(/\(ตราอปท\.?\)/g, '').trim() || 'ไม่ระบุ'; }
+const _COLOR_ALIAS = { 'กรม': 'กรมท่า', 'กรมม่า': 'กรมท่า', 'กรมม่วง': 'กรมท่า', 'กรมทา': 'กรมท่า' };
+export function normColor(c) { const t = String(c || '').replace(/\(ตราอปท\.?\)/g, '').trim() || 'ไม่ระบุ'; return _COLOR_ALIAS[t] || t; }
 export const sizeRank = (s) => { const i = SIZE_ORDER.indexOf(normSize(s)); return i < 0 ? 99 : i; };

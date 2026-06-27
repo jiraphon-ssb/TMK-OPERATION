@@ -63,7 +63,7 @@ const QUERIES = {
   campaigns:   () => supabase.from('tmk_campaigns').select('*').is('deleted_at', null).order('sort_order', { nullsFirst: false }).order('start_date'),
   tasks:       () => supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
   products:    () => supabase.from('tmk_products').select('id,name,price,actual_units,stock_on_hand,reorder_point,strategy,image_url,category,supplier,sku,barcode,lots,reservations').is('deleted_at', null).order('created_at'),
-  po:          () => supabase.from('tmk_purchase_orders').select('*').is('deleted_at', null).order('arrival_date'),
+  po:          () => supabase.from('tmk_purchase_orders').select('id,product,quantity,order_date,arrival_date,status').is('deleted_at', null).order('arrival_date'),
   audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at').order('created_at', { ascending: false }).limit(200),
   roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
   staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
@@ -79,7 +79,7 @@ const QUERIES = {
   // จำกัด 300 รายล่าสุด — ค้นหาฝั่ง server ในหน้า CustomersView ครอบคลุมลูกค้านอกชุดนี้
   customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(150),
   orders:      () => supabase.from('tmk_orders').select('id,code,customer_id,customer_name,items,subtotal,discount,total,status,channel,tracking_no,carrier,note,status_log,created_at').order('created_at', { ascending: false }).limit(200),
-  customerTotals: () => supabase.from('tmk_customer_totals').select('*'),
+  customerTotals: () => supabase.from('tmk_customer_totals').select('customer_id,order_count,total_spent'),
 };
 // ตาราง Supabase → key ใน raw/QUERIES (สำหรับแมป realtime event)
 const TABLE_KEY = {
