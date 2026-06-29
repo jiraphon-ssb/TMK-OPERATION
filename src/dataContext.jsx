@@ -29,6 +29,14 @@ function thaiDate(dateStr) {
 
 // แปลง array ของ user_roles + staff → roles + staff สำหรับ UI
 function mapRolesAndStaff(userRoles, staff) {
+  // dedupe รายชื่อทีม — กันคนซ้ำ (แถว tmk_staff ซ้ำ / คนเดียวกันหลายแถว) ที่ทำให้ "รายคน" ในตั้งค่าโครงการโผล่ซ้ำ
+  // คีย์: email (ตัวพิมพ์เล็ก) ก่อน · fallback ชื่อ · fallback id — เก็บแถวแรก
+  const _seen = new Set();
+  staff = (staff || []).filter(s => {
+    const k = String(s.email || '').trim().toLowerCase() || String(s.name || '').trim() || s.id;
+    if (!k || _seen.has(k)) return false;
+    _seen.add(k); return true;
+  });
   const byEmail = Object.fromEntries(staff.map(s => [s.email, s]));
   return {
     roles: userRoles.map(r => {
@@ -62,6 +70,8 @@ const QUERIES = {
   channels:    () => supabase.from('tmk_channels').select('*').is('deleted_at', null).order('sort_order'),
   campaigns:   () => supabase.from('tmk_campaigns').select('*').is('deleted_at', null).order('sort_order', { nullsFirst: false }).order('start_date'),
   tasks:       () => supabase.from('tmk_tasks').select('*').is('deleted_at', null).order('date'),
+  brands:      () => supabase.from('tmk_brands').select('*').is('deleted_at', null).order('sort_order'),
+  flows:       () => supabase.from('tmk_flows').select('*').is('deleted_at', null).order('sort_order'),
   products:    () => supabase.from('tmk_products').select('id,name,price,actual_units,stock_on_hand,reorder_point,strategy,image_url,category,supplier,sku,barcode,lots,reservations').is('deleted_at', null).order('created_at'),
   po:          () => supabase.from('tmk_purchase_orders').select('id,product,quantity,order_date,arrival_date,status').is('deleted_at', null).order('arrival_date'),
   audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at').order('created_at', { ascending: false }).limit(200),
@@ -80,10 +90,11 @@ const QUERIES = {
   customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(150),
   orders:      () => supabase.from('tmk_orders').select('id,code,customer_id,customer_name,items,subtotal,discount,total,status,channel,tracking_no,carrier,note,status_log,created_at').order('created_at', { ascending: false }).limit(200),
   customerTotals: () => supabase.from('tmk_customer_totals').select('customer_id,order_count,total_spent'),
+  commentCounts: () => supabase.from('tmk_task_comment_counts').select('task_id,comment_count'),
 };
 // ตาราง Supabase → key ใน raw/QUERIES (สำหรับแมป realtime event)
 const TABLE_KEY = {
-  tmk_channels: 'channels', tmk_campaigns: 'campaigns', tmk_tasks: 'tasks', tmk_products: 'products',
+  tmk_channels: 'channels', tmk_campaigns: 'campaigns', tmk_tasks: 'tasks', tmk_brands: 'brands', tmk_flows: 'flows', tmk_products: 'products',
   tmk_settings: 'settings', tmk_user_roles: 'roles', tmk_staff: 'staff', tmk_duties: 'duties',
   tmk_daily_sales: 'daily', tmk_ad_campaigns: 'adCamps', tmk_customer_segments: 'segments',
   tmk_fb_metrics: 'fbMetrics', tmk_monthly_history: 'monthly', tmk_color_mix: 'colorMix',
@@ -98,7 +109,7 @@ async function loadAllTables() {
     throw new Error('Supabase ยังไม่ได้ตั้งค่า (.env)');
   }
 
-  const mainKeys = Object.keys(QUERIES).filter(k => k !== 'customerTotals');
+  const mainKeys = Object.keys(QUERIES).filter(k => k !== 'customerTotals' && k !== 'commentCounts');
   const tables = Object.fromEntries(mainKeys.map(k => [k, QUERIES[k]()]));
 
   const keys = Object.keys(tables);
@@ -111,7 +122,8 @@ async function loadAllTables() {
     const key = keys[i];
     if (r.error) {
       console.warn(`⚠️ tmk_${key}: ${r.error.message}`);
-      failed.push(key);
+      // ตารางใหม่ (โครงการ/แบรนด์) = optional → ยังไม่รัน migration ก็ degrade เงียบ ไม่ขึ้น toast เตือน
+      if (key !== 'brands' && key !== 'flows') failed.push(key);
       result[key] = Array.isArray(r.data) ? [] : null;
     } else {
       result[key] = r.data;
@@ -123,6 +135,10 @@ async function loadAllTables() {
   // ถ้ายัง migration ไม่รันก็เงียบ (ไม่เข้า __errors) และ mapToTMK fallback ไปรวมจาก orders ที่โหลดมา
   const ctRes = await QUERIES.customerTotals();
   if (!ctRes.error && Array.isArray(ctRes.data)) result.customerTotals = ctRes.data;
+
+  // จำนวนคอมเมนต์ต่อ task (ป้าย 💬 บนการ์ด) — optional · ก่อนรัน migration view = เงียบ
+  const ccRes = await QUERIES.commentCounts();
+  if (!ccRes.error && Array.isArray(ccRes.data)) result.commentCounts = ccRes.data;
 
   return result;
 }
@@ -204,6 +220,8 @@ function mapToTMK(raw) {
   }));
 
   // Tasks
+  const _ccByTask = {}; // จำนวนคอมเมนต์ต่อ task (จาก view) → ป้าย 💬 บนการ์ด
+  (raw.commentCounts || []).forEach(c => { if (c.task_id) _ccByTask[c.task_id] = Number(c.comment_count || 0); });
   const tasks = (raw.tasks || []).map(t => ({
     id: t.id,
     title: t.title,
@@ -212,10 +230,38 @@ function mapToTMK(raw) {
     dateISO: t.date || '',        // ISO เต็ม (ใช้คำนวณ/แก้ไข — กันปีหายข้ามปี)
     responsible: String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean),
     camp: t.camp || '',
+    flow: t.flow_id || '',        // โครงการ/บอร์ดที่งานสังกัด ('' = โครงการทั่วไป built-in)
     status: t.status || 'todo',
     channel: t.channel || '',
+    priority: t.priority || 'medium',   // ความสำคัญ: low|medium|high
+    dateEnd: t.date_end || '',          // วันสิ้นสุด (ISO) — คู่กับ date = ช่วง
+    tags: Array.isArray(t.tags) ? t.tags : [],   // แท็กในงาน (ต้องรัน migration 20260712 ถึงจะเก็บได้)
     reminderDays: Number(t.reminder_days || 1),
+    subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],  // เช็คลิสต์/งานย่อย [{id,text,done}] (migration 20260730)
+    sortOrder: Number(t.sort_order || 0),         // ลำดับการ์ดในคอลัมน์ (migration 20260730)
+    commentCount: _ccByTask[t.id] || 0,           // จำนวนคอมเมนต์ (view · migration 20260801)
   }));
+
+  // Brands (ป้าย/จัดกลุ่มโครงการ) — เลียนแบบ channels (camelCase + sort)
+  const brands = (raw.brands || []).map(b => ({
+    id: b.id, name: b.name, color: b.color || '#6b5ce0',
+    logoUrl: b.logo_url || '', tagline: b.tagline || '', sortOrder: b.sort_order || 0,
+  })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+
+  // Flows (board วางแผนงานหลายอัน) — parse jsonb/array columns
+  const flows = (raw.flows || []).map(f => ({
+    id: f.id, name: f.name, color: f.color || '#6b5ce0', icon: f.icon || '',
+    description: f.description || '', brandId: f.brand_id || '',
+    brandIds: Array.isArray(f.brand_ids) && f.brand_ids.length ? f.brand_ids : (f.brand_id ? [f.brand_id] : []),
+    campaignIds: Array.isArray(f.campaign_ids) ? f.campaign_ids : [],
+    statuses: Array.isArray(f.statuses) ? f.statuses : [],   // ว่าง = ใช้ดีฟอลต์ kanbanMeta
+    members: Array.isArray(f.members) ? f.members : [],
+    visibility: f.visibility || 'shared', owner: f.owner || '',
+    defaultView: f.default_view || 'kanban', archived: !!f.archived,
+    coverUrl: f.cover_url || '',                       // รูปปกการ์ด (graceful ถ้าคอลัมน์ยังไม่มี)
+    shareToken: f.share_token || '', shareEnabled: !!f.share_enabled,  // แชร์ลิงก์อ่านอย่างเดียว
+    sortOrder: f.sort_order || 0,
+  })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
 
   // Products
   const products = (raw.products || []).map((p, i) => {
@@ -394,6 +440,7 @@ function mapToTMK(raw) {
       fields: Array.isArray(details.fields) ? details.fields : null,   // ค่าที่กรอก/บันทึก
       changes: Array.isArray(details.changes) ? details.changes : null, // สิ่งที่เปลี่ยน ก่อน→หลัง
       data: details.data || null, // ข้อมูลโครงสร้าง (machine-readable) — สำหรับรายงาน/กู้คืน
+      flowId: a.flow_id || details.flowId || '', // ผูกโครงการ (คอลัมน์ flow_id ใหม่ · fallback details · graceful)
     };
   });
 
@@ -499,7 +546,7 @@ function mapToTMK(raw) {
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
-    channels, campaigns, tasks, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw, dailyAll,
+    channels, campaigns, tasks, brands, flows, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw, dailyAll,
     colorMix, sizeMix, staff, poTracker, fb, audit, roles, duties, orders, customers,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
@@ -680,7 +727,7 @@ function mutateTMK(mapped) {
   Object.assign(TMK.computed, mapped.computed);
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
-  ['channels','campaigns','tasks','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
+  ['channels','campaigns','tasks','brands','flows','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
    'colorMix','sizeMix','staff','poTracker','audit','roles','duties','orders','customers',
    'adCampaigns','segments'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
@@ -758,7 +805,8 @@ export function DataProvider({ children }) {
   // — ไม่มี baseline หรือ list มี customers/orders ที่ตัวรวม view ต้องอัปเดต → fallback ไป full load
   const refreshTables = useCallback(async (tableNames) => {
     const keys = [...new Set((tableNames || []).map(t => TABLE_KEY[t]).filter(k => k && QUERIES[k]))];
-    if (!rawRef.current || !keys.length) { return load(); }
+    const needCounts = (tableNames || []).includes('tmk_task_comments'); // คอมเมนต์เปลี่ยน → รีเฟรชจำนวน 💬 บนการ์ด
+    if (!rawRef.current || (!keys.length && !needCounts)) { return load(); }
     if (inFlightRef.current) { pendingRef.current = true; return; }
     inFlightRef.current = true;
     try {
@@ -771,6 +819,10 @@ export function DataProvider({ children }) {
       if (keys.some(k => TOTALS_TRIGGERS.has(k))) {
         const ct = await QUERIES.customerTotals();
         if (!ct.error && Array.isArray(ct.data)) rawRef.current.customerTotals = ct.data;
+      }
+      if (needCounts) {
+        const cc = await QUERIES.commentCounts();
+        if (!cc.error && Array.isArray(cc.data)) rawRef.current.commentCounts = cc.data;
       }
       const mapped = mapToTMK(rawRef.current);
       mutateTMK(mapped);
@@ -790,28 +842,36 @@ export function DataProvider({ children }) {
 
     // Realtime subscription — ถ้าต่อ WS ไม่ได้ (เน็ตหลุด/ปิด realtime) → degrade เป็น polling (ไม่ retry รัวจน console รก)
     let timer = null, pollTimer = null, connectTimeout = null, usingPoll = false;
-    const onVis = () => { if (document.visibilityState === 'visible' && mountedRef.current) load(); };
+    const onVis = () => { if (document.visibilityState === 'visible' && mountedRef.current) refreshTables(POLL_TABLES); }; // กลับมาที่แท็บ (โหมด poll) → ดึงเฉพาะตารางหลัก (ไม่ full load · ลด egress)
     // ตารางที่เปลี่ยนบ่อยระหว่างทำงาน — poll fallback ดึงเฉพาะกลุ่มนี้ (ลด egress; ตารางตั้งค่าที่นิ่งจะรีเฟรชตอนสลับแท็บ/โหลดใหม่)
-    const POLL_TABLES = ['tmk_daily_sales', 'tmk_orders', 'tmk_customers', 'tmk_tasks', 'tmk_products', 'tmk_purchase_orders', 'tmk_channels', 'tmk_campaigns', 'tmk_ad_campaigns'];
+    const POLL_TABLES = ['tmk_daily_sales', 'tmk_orders', 'tmk_customers', 'tmk_tasks', 'tmk_products', 'tmk_purchase_orders', 'tmk_channels', 'tmk_campaigns', 'tmk_ad_campaigns', 'tmk_flows', 'tmk_task_comments'];
     const startPolling = () => {
       if (usingPoll || !mountedRef.current) return;
       usingPoll = true;
-      try { supabase?.realtime?.disconnect?.(); } catch { /* ignore */ } // หยุด WS reconnect storm
+      teardownChannel(); // เอาเฉพาะ channel ของ data-context ออก (อย่า disconnect ทั้ง socket — กระดิ่งแจ้งเตือน + แผงคอมเมนต์มี channel ของตัวเองที่ยังต้องใช้)
       pollTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshTables(POLL_TABLES); }, 120000); // ดึงเฉพาะตารางที่เปลี่ยนบ่อย ทุก 120 วิ
       document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ (ดึงครบ)
       console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (120 วิ เฉพาะตารางหลัก + ครบตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
     };
-    const channel = supabase?.channel('tmk-realtime');
     const pendingTables = new Set(); // ตารางที่เปลี่ยน — flush ทีเดียวด้วย refreshTables
-    if (channel) {
-      [
-        'tmk_channels','tmk_campaigns','tmk_tasks','tmk_products','tmk_settings',
-        'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
-        'tmk_customer_segments','tmk_fb_metrics','tmk_monthly_history',
-        'tmk_color_mix','tmk_size_mix','tmk_purchase_orders',
-        'tmk_orders','tmk_customers', // บอร์ดออเดอร์/ลูกค้าอัปเดตสดข้ามอุปกรณ์
-        // ไม่ subscribe tmk_audit_logs — การเขียน log ไม่ควร trigger reload เต็ม (ลด reload ซ้ำตอนเซฟ)
-      ].forEach(t => {
+    const channelTables = [
+      'tmk_channels','tmk_campaigns','tmk_tasks','tmk_brands','tmk_flows','tmk_products','tmk_settings',
+      'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
+      'tmk_customer_segments','tmk_fb_metrics','tmk_monthly_history',
+      'tmk_color_mix','tmk_size_mix','tmk_purchase_orders',
+      'tmk_orders','tmk_customers', // บอร์ดออเดอร์/ลูกค้าอัปเดตสดข้ามอุปกรณ์
+      'tmk_task_comments', // เปลี่ยน → รีเฟรชจำนวน 💬 บนการ์ด (needCounts ใน refreshTables · ไม่ full load)
+      // ไม่ subscribe tmk_audit_logs — การเขียน log ไม่ควร trigger reload เต็ม (ลด reload ซ้ำตอนเซฟ)
+    ];
+    // ต่อ realtime แบบทนทาน: WS blip/หลับเครื่อง (CLOSED/TIMED_OUT) → ลองต่อใหม่ backoff ก่อน · เฉพาะ error จริง → poll
+    let channel = null, reconnectAttempts = 0, reconnectTimer = null;
+    const MAX_RECONNECT = 3;
+    const teardownChannel = () => { if (channel) { try { supabase.removeChannel(channel); } catch { /* ignore */ } channel = null; } };
+    const connectRealtime = () => {
+      if (!supabase) { startPolling(); return; }
+      if (usingPoll || !mountedRef.current) return;
+      channel = supabase.channel('tmk-realtime');
+      channelTables.forEach(t => {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
           pendingTables.add(t);
           clearTimeout(timer);
@@ -822,28 +882,30 @@ export function DataProvider({ children }) {
         });
       });
       channel.subscribe((status) => {
-        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); }
-        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          clearTimeout(connectTimeout);
-          try { supabase.removeChannel(channel); } catch { /* ignore */ }
-          startPolling();
+        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); reconnectAttempts = 0; }
+        else if (status === 'CHANNEL_ERROR') { clearTimeout(connectTimeout); teardownChannel(); startPolling(); }
+        else if (status === 'CLOSED' || status === 'TIMED_OUT') {
+          clearTimeout(connectTimeout); teardownChannel();
+          if (mountedRef.current && !usingPoll && reconnectAttempts < MAX_RECONNECT) {
+            reconnectAttempts += 1;
+            reconnectTimer = setTimeout(connectRealtime, 1000 * reconnectAttempts); // backoff 1/2/3 วิ
+          } else { startPolling(); }
         }
       });
-      connectTimeout = setTimeout(() => { try { supabase.removeChannel(channel); } catch { /* ignore */ } startPolling(); }, 8000); // WS ค้าง → fallback
-    } else {
-      startPolling();
-    }
+      connectTimeout = setTimeout(() => { teardownChannel(); startPolling(); }, 8000); // WS ค้าง → fallback
+    };
+    connectRealtime();
 
     return () => {
       mountedRef.current = false;
-      clearTimeout(timer); clearTimeout(connectTimeout); clearInterval(pollTimer);
+      clearTimeout(timer); clearTimeout(connectTimeout); clearTimeout(reconnectTimer); clearInterval(pollTimer);
       document.removeEventListener('visibilitychange', onVis);
-      if (channel) { try { supabase.removeChannel(channel); } catch { /* ignore */ } }
+      teardownChannel();
     };
   }, [load, refreshTables]);
 
   return (
-    <DataContext.Provider value={{ loading, error, version, reload: load }}>
+    <DataContext.Provider value={{ loading, error, version, reload: load, refresh: refreshTables }}>
       {children}
     </DataContext.Provider>
   );

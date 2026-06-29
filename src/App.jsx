@@ -3,7 +3,8 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex, PageSkeleton, useMinSplash } from './components.jsx';
+import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
+import { ConfirmHost } from './ui-confirm.jsx';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -25,11 +26,14 @@ const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
 const StockSection = lazy(() => import('./views-stock.jsx').then(m => ({ default: m.StockSection })));
 const CrmSection   = lazy(() => import('./views-crm.jsx').then(m => ({ default: m.CrmSection })));
+const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
+const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
 import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, ImportProductsModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
+import { pushNotify, emailOfName } from './lib/notify.js';
 import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
@@ -140,7 +144,7 @@ function Spotlight({ onClose, onGo }) {
     // Tasks
     (TMK.tasks || []).filter(t => lc(t.title).includes(ql) || lc(t.detail).includes(ql)).slice(0, 5).forEach(t => {
       const c = (TMK.campaigns || []).find(x => x.id === t.camp);
-      results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, go: ['planner', 'kanban'] });
+      results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, go: ['flows', 'kanban'] });
     });
     // Products
     (TMK.products || []).filter(p => lc(p.name).includes(ql)).slice(0, 3).forEach(p => {
@@ -167,7 +171,7 @@ function Spotlight({ onClose, onGo }) {
       results.push({ cat: 'ลูกค้า', icon: 'users', label: c.name || c.code || 'ลูกค้า', sub: `${c.phone || ''}${c.orderCount ? ' · ' + c.orderCount + ' ออเดอร์' : ''}`, color: 'var(--info)', go: ['catalog', 'customers'] });
     });
     // Navigation
-    [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'planner', sub: 'calendar' }, { l: 'Kanban', s: 'planner', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'planner', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'settings', sub: 'campaigns' }]
+    [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'flows', sub: 'calendar' }, { l: 'Kanban', s: 'flows', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'flows', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'settings', sub: 'campaigns' }]
       .filter(n => lc(n.l).includes(ql)).forEach(n => {
         results.push({ cat: 'นำทาง', icon: 'arrowR', label: `ไปที่ ${n.l}`, sub: '', color: 'var(--ink-3)', go: [n.s, n.sub] });
       });
@@ -252,10 +256,15 @@ const NAV_DEF = [
     { id: 'customers', labelKey: 'subCustomers', icon: 'users' },
     { id: 'monthly', labelKey: 'subMonthly', icon: 'pencil' },
   ]},
-  { id: 'planner', labelKey: 'navPlanner', icon: 'planner', subs: [
+  // โครงการ (วางแผนงาน) — อยู่ใต้ยอดขาย
+  { id: 'flows', labelKey: 'navFlows', icon: 'grid', subs: [
+    { id: 'overview', labelKey: 'subFlowBoard', icon: 'grid' },
+    { id: 'mytasks', labelKey: 'subMyTasks', icon: 'user' },
     { id: 'calendar', labelKey: 'subCalendar', icon: 'calendarDays' },
     { id: 'kanban', labelKey: 'subKanban', icon: 'listChecks' },
     { id: 'timeline', labelKey: 'subTimeline', icon: 'route' },
+    { id: 'list', labelKey: 'subFlowList', icon: 'menu' },
+    { id: 'history', labelKey: 'subFlowHistory', icon: 'clock' },
   ]},
   { id: 'catalog', labelKey: 'navCatalog', icon: 'sales', subs: [
     { id: 'report', labelKey: 'subReport', icon: 'sales' },
@@ -297,7 +306,63 @@ function useNav() {
     subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
   }));
 }
-const DEFAULT_SUB = { sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
+const DEFAULT_SUB = { flows: 'overview', sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
+
+// รายการโครงการสำหรับ sidebar (งานทั่วไป + โครงการจริง · ไม่นับ config row/archived/private ของคนอื่น)
+function sidebarFlows() {
+  const me = window.__userEmail || '';
+  const r = (TMK.flows || []).find(f => f.id === '__general__');
+  const general = { id: '__general__', name: r?.name || 'งานทั่วไป', icon: r?.icon || '📋', defaultView: r?.defaultView || 'kanban', isGeneral: true };
+  const real = (TMK.flows || []).filter(f => f.id !== '__general__' && !f.archived && (f.visibility !== 'private' || f.owner === me))
+    .map(f => ({ id: f.id, name: f.name, icon: f.icon || '📋', defaultView: f.defaultView || 'kanban' }));
+  return [general, ...real];
+}
+// เมนู "โครงการ" ใน sidebar — โชว์โครงการเป็นรายการ (แบบ Projects ของ Oripio)
+function FlowsNav({ n, section, sub, go, activeFlow, pickFlow }) {
+  const flows = sidebarFlows();
+  const onBoard = section === 'flows' && sub !== 'overview' && sub !== 'mytasks';
+  return (
+    <Collapsible asChild defaultOpen={section === 'flows'} className="group/collapsible">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton tooltip={n.label} isActive={section === 'flows' && sub === 'overview'} onClick={() => go('flows', 'overview')}>
+            <Icon name={n.icon} /><span>{n.label}</span>
+            <Icon name="chevR" className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            <SidebarMenuSubItem>
+              <SidebarMenuSubButton asChild isActive={section === 'flows' && sub === 'overview'}>
+                <button onClick={() => go('flows', 'overview')}><Icon name="grid" className="size-3.5" /><span>ภาพรวมโครงการ</span></button>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+            <SidebarMenuSubItem>
+              <SidebarMenuSubButton asChild isActive={section === 'flows' && sub === 'mytasks'}>
+                <button onClick={() => go('flows', 'mytasks')}><Icon name="user" className="size-3.5" /><span>งานของฉัน</span></button>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+            {flows.map(f => (
+              <SidebarMenuSubItem key={f.id}>
+                <SidebarMenuSubButton asChild isActive={onBoard && activeFlow === f.id}>
+                  <button onClick={() => pickFlow(f)}>
+                    <FlowIcon icon={f.icon} className="size-4 shrink-0" />
+                    <span className="truncate">{f.name}</span>
+                  </button>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+            <SidebarMenuSubItem>
+              <SidebarMenuSubButton asChild>
+                <button onClick={() => { if (window.__createFlow) window.__createFlow(); else go('flows', 'overview'); }}><Icon name="plus" className="size-3.5" /><span>สร้างโครงการ</span></button>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
 const ACCENTS = { '#4f46e5': '#4338ca', '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
 
 const accent = '#4f46e5'; // indigo-600 — แบรนด์ active/selected/icon
@@ -434,6 +499,19 @@ export default function App() {
       </ErrorBoundary>
     );
   }
+  // เปิดลิงก์ ?share=<token> → หน้าโครงการสาธารณะ อ่านอย่างเดียว (ไม่ต้องล็อกอิน · ไม่โหลดข้อมูลร้านทั้งหมด)
+  const shareToken = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('share') : null;
+  if (shareToken) {
+    return (
+      <ErrorBoundary>
+        <LangProvider><ToastProvider>
+          <Suspense fallback={<div className="min-h-screen grid place-items-center text-muted-foreground text-sm">กำลังโหลด…</div>}>
+            <PublicFlowShare token={shareToken} />
+          </Suspense>
+        </ToastProvider></LangProvider>
+      </ErrorBoundary>
+    );
+  }
   return (
     <ErrorBoundary>
       <LangProvider>
@@ -459,7 +537,7 @@ function AppShellWithUser() {
 function AppInner() {
   const { t } = useLang();
   const { toast } = useToast();
-  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload } = useData();
+  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload, refresh: dataRefresh } = useData();
   const { user: currentUserCtx } = useUser() || {};
   // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
@@ -483,7 +561,7 @@ function AppInner() {
   const [spotlight, setSpotlight] = useState(false);
   // Persist section + subMap → กด refresh แล้วอยู่หน้าเดิม
   const [section, setSection] = useState(() => {
-    try { return localStorage.getItem('tmk-section') || 'home'; } catch { return 'home'; }
+    try { const s = localStorage.getItem('tmk-section') || 'home'; return s === 'planner' ? 'flows' : s; } catch { return 'home'; } // planner ถูกแทนด้วย flows (multi-flow)
   });
   const [subMap, setSubMap] = useState(() => {
     try {
@@ -495,6 +573,12 @@ function AppInner() {
       return merged;
     } catch { return DEFAULT_SUB; }
   });
+  // โครงการที่เปิดอยู่ — single source of truth ที่ App (ไม่พึ่ง window.__activeFlow ที่ lag) → sidebar/breadcrumb/board อัปเดตพร้อมกันคลิกเดียว
+  const [activeFlow, setActiveFlow] = useState(() => { try { return localStorage.getItem('tmk-flow') || '__general__'; } catch { return '__general__'; } });
+  useEffect(() => { try { localStorage.setItem('tmk-flow', activeFlow); } catch { /* ignore */ } if (typeof window !== 'undefined') window.__activeFlow = activeFlow; }, [activeFlow]);
+  useEffect(() => { if (typeof window !== 'undefined') window.__setFlow = (id) => setActiveFlow(id || '__general__'); }, []);
+  // โครงการที่เปิดอยู่หาย (ถูกลบ/archive/ซ่อน) → กลับ "งานทั่วไป"
+  useEffect(() => { if (activeFlow !== '__general__' && !sidebarFlows().find(f => f.id === activeFlow)) setActiveFlow('__general__'); }, [activeFlow, dataVersion]);
   const [tasks, setTasks] = useState(TMK.tasks);
   // Sync local tasks state เมื่อ Supabase data update (version bump)
   // ปรับ state ตอน render เมื่อ version เปลี่ยน (pattern ที่ React แนะนำ) แทน setState ใน effect → ไม่ render ซ้ำ
@@ -513,6 +597,7 @@ function AppInner() {
   }, [subMap]);
   const [drawer, setDrawer] = useState(false);
   const [notif, setNotif] = useState(false);
+  const [dbNotifs, setDbNotifs] = useState([]); // แจ้งเตือนจาก DB (ถูกแท็ก @ / มอบหมาย) — PART 27
   const [menu, setMenu] = useState(false);
   const contentRef = useRef(null);
 
@@ -554,7 +639,8 @@ function AppInner() {
       setModal({ type, data });
     };
     window.__toast = toast;
-    window.__reload = dataReload; // ให้โมดัลรีโหลดทันทีหลังบันทึก (กันค้างถ้า realtime ช้า/หลุด)
+    window.__reload = dataReload; // full reload (ใช้เฉพาะที่จำเป็นจริง — retry/มาแก้ทั้งระบบ)
+    window.__refresh = (tables) => (dataRefresh ? dataRefresh(tables) : dataReload?.()); // per-table refresh — ลด egress: หลังบันทึกดึงเฉพาะตารางที่เปลี่ยน
     window.__goSection = (sec, s) => go(sec, s);
   }, [toast]);
 
@@ -631,6 +717,8 @@ function AppInner() {
     setDrawer(false); setNotif(false); setMenu(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
+  // เลือกโครงการ + ไปบอร์ด (คลิกเดียว · setActiveFlow ทำให้ sidebar/breadcrumb/board re-render พร้อมกัน)
+  const pickFlow = (f) => { setActiveFlow(f.id); go('flows', f.defaultView && f.defaultView !== 'settings' ? f.defaultView : 'kanban'); };
 
   // ===== แจ้งเตือน — แยก 3 แบบ: วันนี้ / ตามวันที่ / เดือนที่แล้ว =====
   // เฉพาะงานของหน้าที่ผู้ใช้ปัจจุบัน (admin เห็นทั้งหมด) — memo เพื่อเลี่ยงคำนวณซ้ำทุก render
@@ -731,6 +819,38 @@ function AppInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- TMK เป็น mutable global → ใช้ dataVersion เป็น proxy
   }, [tasks, dataVersion, prefsBump, currentUserCtx, t]);
 
+  // แจ้งเตือนจาก DB (ถูกแท็ก @ / มอบหมายงาน) — โหลด + realtime · graceful ถ้าตารางยังไม่ migrate
+  const myEmail = session?.user?.email || '';
+  useEffect(() => {
+    if (!supabase || !myEmail) return;
+    let alive = true;
+    const load = async () => {
+      const { data, error } = await supabase.from('tmk_notifications').select('id,kind,title,body,flow_id,task_id,read,created_at').eq('user_email', myEmail).order('created_at', { ascending: false }).limit(40);
+      if (alive && !error && Array.isArray(data)) setDbNotifs(data);
+    };
+    load();
+    let ch = null;
+    try {
+      ch = supabase.channel('notif-' + myEmail)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_notifications', filter: `user_email=eq.${myEmail}` }, () => load())
+        .subscribe();
+    } catch { /* ignore */ }
+    return () => { alive = false; if (ch) { try { supabase.removeChannel(ch); } catch { /* ignore */ } } };
+  }, [myEmail]);
+  const dbUnread = dbNotifs.filter(n => !n.read).length;
+  // เปิดกระดิ่ง → ทำเครื่องหมายอ่านแล้วทั้งหมด
+  const markNotifsRead = () => {
+    if (!supabase || !dbUnread) return;
+    const ids = dbNotifs.filter(n => !n.read).map(n => n.id);
+    setDbNotifs(p => p.map(n => ({ ...n, read: true })));
+    supabase.from('tmk_notifications').update({ read: true }).in('id', ids).then(() => {}, () => {});
+  };
+  const onDbNotifClick = (n) => {
+    setNotif(false);
+    if (n.flow_id || n.flow_id === '') { window.__setFlow?.(n.flow_id || '__general__'); go('flows', 'kanban'); }
+    if (n.task_id) { const tk = (TMK.tasks || []).find(x => x.id === n.task_id); if (tk) setTimeout(() => window.__openModal?.('task', { ...tk, channel: Array.isArray(tk.channel) ? tk.channel : [tk.channel] }), 60); }
+  };
+
   const onNotifClick = (n) => {
     setNotif(false);
     if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
@@ -744,7 +864,7 @@ function AppInner() {
     if (n.kind === 'orders') { go('catalog', 'orders'); return; }
     if (n.kind === 'po') { go('catalog', 'po'); return; }
     if (n.kind === 'lastmonth') { go('sales', 'monthly'); setTimeout(() => window.__openModal('historical'), 100); return; }
-    go('planner', 'kanban');
+    go('flows', 'kanban');
     setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
   };
 
@@ -756,6 +876,7 @@ function AppInner() {
     return (
       <Suspense fallback={<PageSkeleton />}>
         {section === 'sales' ? <EntryView sub={sub} />
+          : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
           : section === 'stock' ? <StockSection sub={sub} />
           : section === 'crm' ? <CrmSection sub={sub} />
@@ -797,7 +918,9 @@ function AppInner() {
           <SidebarGroup label="เมนู">
             <SidebarMenu>
               {NAV.map(n => (
-                n.subs ? (
+                n.id === 'flows' ? (
+                  <FlowsNav key={n.id} n={n} section={section} sub={sub} go={go} activeFlow={activeFlow} pickFlow={pickFlow} />
+                ) : n.subs ? (
                   <Collapsible
                     key={n.id}
                     asChild
@@ -928,7 +1051,32 @@ function AppInner() {
               <Breadcrumb>
                 <BreadcrumbList>
                   <BreadcrumbItem>
-                    {nav?.subs ? (
+                    {section === 'flows' ? (() => {
+                      // breadcrumb ของ flows = สลับ "โครงการ + ภาพรวม" · อ่าน activeFlow จาก state (reactive · ไม่ lag)
+                      const flows = sidebarFlows();
+                      const cur = flows.find(f => f.id === activeFlow);
+                      const pick = (f) => pickFlow(f);
+                      return (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger className="flex items-center gap-1.5 focus:outline-none">
+                            {sub === 'overview' ? <Icon name="grid" className="size-4 opacity-70" /> : sub === 'mytasks' ? <Icon name="user" className="size-4 opacity-70" /> : <FlowIcon icon={cur?.icon} className="size-4" />}
+                            <span className="truncate max-w-[180px]">{sub === 'overview' ? 'โครงการทั้งหมด' : sub === 'mytasks' ? 'งานของฉัน' : (cur?.name || 'โครงการ')}</span>
+                            <Icon name="down" className="size-3 ml-0.5 opacity-50" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-56">
+                            <DropdownMenuItem onClick={() => go('flows', 'overview')} className="cursor-pointer gap-2"><Icon name="grid" className="size-4" /><span className="flex-1">ภาพรวมโครงการ</span>{sub === 'overview' && <Icon name="check" className="size-4 text-primary" />}</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => go('flows', 'mytasks')} className="cursor-pointer gap-2"><Icon name="user" className="size-4" /><span className="flex-1">งานของฉัน</span>{sub === 'mytasks' && <Icon name="check" className="size-4 text-primary" />}</DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {flows.map(f => (
+                              <DropdownMenuItem key={f.id} onClick={() => pick(f)} className="cursor-pointer gap-2">
+                                <FlowIcon icon={f.icon} className="size-4 shrink-0" /><span className="flex-1 truncate">{f.name}</span>
+                                {sub !== 'overview' && sub !== 'mytasks' && activeFlow === f.id && <Icon name="check" className="size-4 text-primary" />}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      );
+                    })() : nav?.subs ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger className="flex items-center gap-1 focus:outline-none">
                           {nav.label}
@@ -946,7 +1094,7 @@ function AppInner() {
                       <BreadcrumbPage>{nav?.label || SPECIAL_LABELS[section] || ''}</BreadcrumbPage>
                     )}
                   </BreadcrumbItem>
-                  {nav?.subs && subLabel && (
+                  {nav?.subs && subLabel && !(section === 'flows' && (sub === 'overview' || sub === 'mytasks')) && (
                     <>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>
@@ -973,15 +1121,18 @@ function AppInner() {
                 </kbd>
               </Button>
               
-              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full" onClick={() => setNotif(n => !n)}>
+              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full" onClick={() => setNotif(n => { const nv = !n; if (nv) markNotifsRead(); return nv; })}>
                 <Icon name="bell" className="size-5" />
-                {notifs.length > 0 && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-red-600 border-2 border-background"></span>}
+                {(notifs.length + dbUnread) > 0 && <span className="absolute top-1 right-1 min-w-4 h-4 px-1 grid place-items-center text-[9px] font-bold text-white rounded-full bg-red-600 border-2 border-background">{notifs.length + dbUnread > 9 ? '9+' : notifs.length + dbUnread}</span>}
               </Button>
             </div>
           </header>
 
           <div className={'content' + (section === 'catalog' ? ' sale-section' : '')} ref={contentRef}>
-            {renderView()}
+            {/* คอลัมน์เนื้อหากลางเดียว (max 1280 · จัดกึ่งกลาง) — ทุกหน้าอยู่ตรงกลางเท่ากันไม่ว่าจะพับ sidebar หรือไม่ */}
+            <div className="content-inner">
+              {renderView()}
+            </div>
           </div>
         </div>
       </SidebarInset>
@@ -992,10 +1143,25 @@ function AppInner() {
           <div className="scrim" style={{ background: 'transparent' }} onClick={() => setNotif(false)}></div>
           <div className="notif-pop">
             <div className="row between" style={{ padding: '6px 10px 10px' }}>
-              <span className="h3">{t('notifications')}</span><span className="badge badge-secondary">{notifs.length}</span>
+              <span className="h3">{t('notifications')}</span><span className="badge badge-secondary">{notifs.length + dbNotifs.length}</span>
             </div>
-            {notifGroups.length === 0 && (
+            {notifGroups.length === 0 && dbNotifs.length === 0 && (
               <div className="cap" style={{ padding: '16px 10px', textAlign: 'center', color: 'var(--ink-4)' }}>ไม่มีการแจ้งเตือน</div>
+            )}
+            {dbNotifs.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                <div className="cap" style={{ padding: '6px 10px 2px', fontWeight: 700, color: 'var(--accent-2)' }}>การแจ้งเตือน ({dbNotifs.length})</div>
+                {dbNotifs.slice(0, 15).map(n => (
+                  <div key={n.id} className="row" onClick={() => onDbNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', alignItems: 'flex-start', background: n.read ? 'transparent' : 'var(--accent-soft)' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: n.kind === 'assign' ? 'var(--good)' : 'var(--accent)', flexShrink: 0, marginTop: 5 }}></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="sm" style={{ fontWeight: 600 }}>{n.title}</div>
+                      {n.body && <div className="cap" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                    </div>
+                    <span className="cap" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>{n.kind === 'assign' ? 'มอบหมาย' : '@แท็ก'}</span>
+                  </div>
+                ))}
+              </div>
             )}
             {notifGroups.map(g => (
               <div key={g.key} style={{ marginBottom: 6 }}>
@@ -1070,7 +1236,7 @@ function AppInner() {
           window.__openModal(m); return;
         }
         if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }
-        go('planner', 'kanban'); setTimeout(() => window.__openModal('task'), 100);
+        go('flows', 'kanban'); setTimeout(() => window.__openModal('task'), 100);
       }}><Icon name="plus" /></button>}
     </SidebarProvider>
   );
@@ -1094,6 +1260,9 @@ function AppInner() {
       {/* แถบ "มีเวอร์ชันใหม่" — เด้งบนสุดเมื่อ deploy บิลด์ใหม่ (changelog ย้ายไปหน้า Settings > มีอะไรใหม่) */}
       {showShell && <UpdateBanner />}
 
+      {/* กล่องยืนยันแบบ shadcn (window.__confirm) — แทน window.confirm ทั้งแอป */}
+      <ConfirmHost />
+
       {authed && modal && (
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />
         : modal.type === 'task' ? <TaskModal data={modal.data} onClose={closeModal}
@@ -1103,15 +1272,15 @@ function AppInner() {
               try {
                 const { error } = await supabase.from('tmk_tasks').update({ deleted_at: new Date().toISOString() }).eq('id', task.id);
                 if (error) throw error;
-                logAudit({ action: 'delete', entityType: 'task', entityName: task.title, summary: `ลบงาน "${task.title}"` });
-                if (dataReload) await dataReload();
+                logAudit({ action: 'delete', entityType: 'task', entityName: task.title, summary: `ลบงาน "${task.title}"`, flowId: task.flow ?? task.flow_id ?? '' });
+                if (dataRefresh) await dataRefresh(['tmk_tasks']); else if (dataReload) await dataReload();
                 toast('ย้ายงานไปถังขยะแล้ว', 'success', 6000, {
                   label: 'เลิกทำ',
                   onClick: async () => {
                     try {
                       const { error: e2 } = await supabase.from('tmk_tasks').update({ deleted_at: null }).eq('id', task.id);
                       if (e2) throw e2;
-                      if (dataReload) await dataReload();
+                      if (dataRefresh) await dataRefresh(['tmk_tasks']); else if (dataReload) await dataReload();
                       toast('กู้คืนงานแล้ว', 'success');
                     } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
                   },
@@ -1119,7 +1288,7 @@ function AppInner() {
               } catch (err) {
                 console.error('Task delete failed:', err);
                 toast('ลบไม่สำเร็จ: ' + err.message, 'error');
-                if (dataReload) await dataReload(); // คืนงานที่ลบ optimistic กลับจาก DB (กันบอร์ดเพี้ยน)
+                if (dataRefresh) await dataRefresh(['tmk_tasks']); else if (dataReload) await dataReload(); // คืนงานที่ลบ optimistic กลับจาก DB (กันบอร์ดเพี้ยน)
               }
             }}
             onSubmit={async (task) => {
@@ -1137,6 +1306,7 @@ function AppInner() {
                 const dbTask = {
                   id: task.id,
                   date: isoDate,
+                  date_end: task.dateEnd || null,  // วันสิ้นสุด (ช่วง)
                   camp: task.camp || null,
                   title: task.title || '',
                   detail: task.detail || '',
@@ -1145,8 +1315,22 @@ function AppInner() {
                   status: task.status || 'todo',
                   priority: task.priority || 'medium',
                   reminder_days: Number(task.reminderDays || 1),
+                  flow_id: task.flow_id || null, // โครงการที่งานสังกัด (graceful ถ้าคอลัมน์ยังไม่ migrate)
+                  tags: Array.isArray(task.tags) ? task.tags : [], // แท็ก (graceful ถ้าคอลัมน์ tags ยังไม่ migrate)
+                  subtasks: Array.isArray(task.subtasks) ? task.subtasks : [], // เช็คลิสต์/งานย่อย (graceful · migration 20260730)
+                  sort_order: Number(task.sortOrder || 0), // ลำดับการ์ดในคอลัมน์ (graceful · migration 20260730)
                 };
-                const { error } = await supabase.from('tmk_tasks').upsert(dbTask);
+                let { error } = await supabase.from('tmk_tasks').upsert(dbTask);
+                // graceful: ถ้าคอลัมน์เสริม (flow_id/tags/date_end/subtasks/sort_order) ยังไม่ migrate → ตัดเฉพาะที่ขาดแล้วลองใหม่
+                if (error && /(flow_id|tags|date_end|subtasks|sort_order)/.test(error.message || '')) {
+                  const retry = { ...dbTask };
+                  if (/flow_id/.test(error.message)) delete retry.flow_id;
+                  if (/tags/.test(error.message)) delete retry.tags;
+                  if (/date_end/.test(error.message)) delete retry.date_end;
+                  if (/subtasks/.test(error.message)) delete retry.subtasks;
+                  if (/sort_order/.test(error.message)) delete retry.sort_order;
+                  ({ error } = await supabase.from('tmk_tasks').upsert(retry));
+                }
                 if (error) throw error;
                 // รายละเอียดประวัติ: สร้าง = ค่าที่กรอก / แก้ไข = ก่อน→หลัง
                 const _stTH = { todo: 'รอทำ', inprogress: 'กำลังทำ', review: 'รอตรวจ', done: 'เสร็จ' };
@@ -1168,9 +1352,16 @@ function AppInner() {
                   _fields = Object.entries(_after).map(([k, v]) => ({ label: k, value: v }));
                 }
                 logAudit({ action: modal.data?.id ? 'update' : 'create', entityType: 'task', entityName: task.title,
-                  summary: `${modal.data?.id ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"`, fields: _fields, changes: _changes });
+                  summary: `${modal.data?.id ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"`, fields: _fields, changes: _changes, flowId: task.flow_id ?? task.flow ?? '' });
+                // แจ้งเตือนผู้ที่เพิ่งถูกมอบหมาย (assignee ใหม่ที่ไม่มีในงานเดิม)
+                const _oldResp = modal.data?.id ? (Array.isArray(modal.data.responsible) ? modal.data.responsible : String(modal.data.responsible || '').split(',').map(s => s.trim()).filter(Boolean)) : [];
+                const _newAssignees = (Array.isArray(task.responsible) ? task.responsible : []).filter(n => !_oldResp.includes(n));
+                if (_newAssignees.length) {
+                  const _ems = [...new Set(_newAssignees.map(emailOfName).filter(Boolean))];
+                  pushNotify(_ems.map(em => ({ user_email: em, kind: 'assign', title: `คุณได้รับมอบหมายงาน "${task.title}"`, flow_id: task.flow_id ?? task.flow ?? '', task_id: task.id })));
+                }
                 // Reload data so calendar/kanban show latest from Supabase
-                if (dataReload) await dataReload();
+                if (dataRefresh) await dataRefresh(['tmk_tasks']); else if (dataReload) await dataReload();
                 toast(t('toastSaved'), 'success');
               } catch (err) {
                 console.error('Task save failed:', err);

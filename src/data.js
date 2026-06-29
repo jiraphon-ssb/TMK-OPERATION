@@ -18,6 +18,8 @@ export const TMK = {
   colorMix: [],
   sizeMix: [],
   campaigns: [],
+  brands: [],
+  flows: [],
   staff: [],
   tasks: [],
   kanbanMeta: [

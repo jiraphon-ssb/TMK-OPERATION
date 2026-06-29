@@ -357,7 +357,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
     const warn = toMode === 'daily'
       ? `เปลี่ยนเป็น "รายวัน"?\n\nระบบจะใช้ผลรวมจากการกรอกรายวันแทนยอดรวมรายเดือน\nยอดรวมเดิมยังเก็บไว้ — สลับกลับได้`
       : `เปลี่ยนเป็น "รายเดือน"?\n\nระบบจะใช้ยอดรวมรายเดือนแทนผลรวมรายวัน\nข้อมูลรายวันยังอยู่ครบ — สลับกลับได้`;
-    if (!window.confirm(warn)) return;
+    if (!await window.__confirm?.({ title: 'เปลี่ยนโหมดกรอก', body: warn, confirmText: 'เปลี่ยน' })) return;
     try {
       const newMeta = { ...selMeta, entryMode: toMode };
       const { data: upd, error } = await supabase.from('tmk_monthly_history').update({ meta: newMeta }).eq('month', month + 1).eq('year', year).select('id');
@@ -369,7 +369,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
         changes: [{ label: 'โหมดข้อมูล', from: entryMode === 'daily' ? 'รายวัน' : 'รายเดือน', to: toMode === 'daily' ? 'รายวัน' : 'รายเดือน' }],
         data: { month: month + 1, year, from: entryMode, to: toMode },
       });
-      window.__reload?.();
+      window.__refresh?.(['tmk_monthly_history']);
       window.__toast?.('เปลี่ยนโหมดข้อมูลแล้ว', 'success');
     } catch (e) {
       window.__toast?.('เปลี่ยนโหมดไม่สำเร็จ: ' + e.message, 'error');

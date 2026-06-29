@@ -22,8 +22,9 @@ const T = {
     discardClose: 'ปิดโดยไม่บันทึก', goBack: 'กลับไปแก้ไข',
 
     // ---- Nav ----
-    navHome: 'หน้าหลัก', navSales: 'ยอดขาย', navPlanner: 'วางแผน',
+    navHome: 'หน้าหลัก', navSales: 'ยอดขาย', navPlanner: 'วางแผน', navFlows: 'โครงการ',
     navCatalog: 'Sale', navSystem: 'ตั้งค่า', navStock: 'คลัง/สต็อก', navCrm: 'CRM', navWip: 'กำลังสร้าง',
+    subFlowBoard: 'โครงการทั้งหมด', subFlowList: 'รายการงาน', subFlowHistory: 'ประวัติกิจกรรม', subMyTasks: 'งานของฉัน',
     subOverview: 'ภาพรวมยอดขาย', subChannels: 'ช่องทางการขาย',
     subAds: 'โฆษณา & แชท', subCustomers: 'ลูกค้า',
     subDaily: 'บันทึกรายวัน', subMonthly: 'บันทึก & ภาพรวมเดือน', subStatus: 'สถานะการกรอก',
@@ -258,7 +259,7 @@ const T = {
     discardClose: 'Close without saving', goBack: 'Go back',
 
     // ---- Nav ----
-    navHome: 'Home', navSales: 'Sales', navPlanner: 'Planner',
+    navHome: 'Home', navSales: 'Sales', navPlanner: 'Planner', navFlows: 'Projects', subFlowBoard: 'All Projects', subFlowList: 'Task List', subFlowHistory: 'Activity', subMyTasks: 'My Tasks',
     navCatalog: 'Sale', navSystem: 'Settings', navStock: 'Stock', navCrm: 'CRM', navWip: 'WIP',
     subOverview: 'Sales Overview', subChannels: 'Sales Channels',
     subAds: 'Ads & Chat', subCustomers: 'Customers',

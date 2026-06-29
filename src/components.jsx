@@ -2,6 +2,19 @@
    TMK Operation — Shared components, icons, formatters, charts
    ============================================================ */
 import { useState, useEffect, useRef, createContext, useContext } from 'react';
+import {
+  ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
+  Shirt, Box, CalendarDays, Clock, Users, User, Heart, Zap, Briefcase, Folder,
+  FileText, Image as LImage, Camera, Video, Music, Mic, PenTool, Brush, Scissors, Truck,
+  Store, ShoppingBag, Tag, Tags, Gift, CreditCard, DollarSign, TrendingUp, BarChart3, PieChart,
+  Activity, Globe, MapPin, Mail, MessageCircle, MessageSquare, Phone, Send, Bell, Bookmark,
+  Flag, Award, Trophy, Crown, Gem, Sparkles, Sun as LSun, Moon as LMoon, Cloud, Leaf,
+  Coffee, Smile, ThumbsUp, Eye, Search as LSearch, Settings, Wrench, Hammer, Layers, LayoutGrid,
+  List as LList, Kanban, CheckCircle2, Hash, Link as LLink, Lock, Key, Shield, Code, Terminal,
+  Database, Server, Smartphone, Monitor, Printer, Headphones, Plane, Car, Home as LHome, Building2,
+  Factory, Warehouse, Map as LMap, Compass, Book, GraduationCap, Pencil, Archive, Inbox, Calendar as LCalendar,
+  Bug, Wand2, Beaker, Boxes, Sticker, Crosshair, Goal, Handshake, Wallet, Receipt,
+} from 'lucide-react';
 
 /* ---------- Image upload helper ---------- */
 // อ่านรูป + ย่อขนาด (canvas) → data URL เล็ก ป้องกันรูปใหญ่ทำให้บันทึกพัง/ช้า/เกิน quota
@@ -214,6 +227,10 @@ export const ICONS = {
   store: 'M4 9h16M5 9l1-4h12l1 4M5 9v10h14V9M9 19v-5h6v5',
   globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18',
   listChecks: 'M11 6h10M11 12h10M11 18h10M3 6l1.5 1.5L7 4M3 17l1.5 1.5L7 15',
+  chat: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z',
+  send: 'M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z',
+  smile: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01',
+  reply: 'M9 17l-6-5 6-5M3 12h10a6 6 0 0 1 6 6v2',
   route: 'M6 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6M18 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6M6 13V9a3 3 0 0 1 3-3h6M18 11v4a3 3 0 0 1-3 3H9',
   box: 'M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
   clock: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0M12 7v5l3 2',
@@ -247,6 +264,111 @@ export function Icon({ name, className }) {
       stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {d.split('M').filter(Boolean).map((seg, i) => <path key={i} d={'M' + seg} />)}
     </svg>
+  );
+}
+
+/* ---------- ColorPicker: เลือกสีอิสระ (presets + สีล่าสุด + เลือกอิสระ native + กรอก hex + คัดลอก) ---------- */
+const DEFAULT_SWATCHES = ['#6b5ce0', '#4a8be0', '#18a0ab', '#06c755', '#2f9e6e', '#c08a3e', '#ee6a3a', '#ec4899', '#cf4d5c', '#0a5aa0', '#64748b', '#000000'];
+const RECENT_COLORS_KEY = 'tmk-recent-colors';
+const loadRecentColors = () => { try { return (JSON.parse(localStorage.getItem(RECENT_COLORS_KEY) || '[]') || []).filter(x => /^#[0-9a-fA-F]{6}$/.test(x)).slice(0, 8); } catch { return []; } };
+export function ColorPicker({ value, onChange, presets = DEFAULT_SWATCHES, size = 'md' }) {
+  const v = value || '#6b5ce0';
+  const sw = size === 'sm' ? 'size-6' : 'size-7';
+  const [hex, setHex] = useState(v);
+  const [recent, setRecent] = useState(loadRecentColors);
+  useEffect(() => { setHex(v); }, [v]);
+  const recordRecent = (c) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(c)) return;
+    setRecent(prev => { const next = [c.toLowerCase(), ...prev.filter(x => x.toLowerCase() !== c.toLowerCase())].slice(0, 8); try { localStorage.setItem(RECENT_COLORS_KEY, JSON.stringify(next)); } catch { /* ignore */ } return next; });
+  };
+  const pick = (c) => { onChange(c); recordRecent(c); };
+  const commitHex = (raw) => {
+    let s = String(raw || '').trim();
+    if (s && s[0] !== '#') s = '#' + s;
+    setHex(s);
+    if (/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(s)) { onChange(s); if (s.length === 7) recordRecent(s); }
+  };
+  const copyHex = async () => { try { await navigator.clipboard.writeText(v); window.__toast?.('คัดลอกโค้ดสีแล้ว', 'success'); } catch { /* ignore */ } };
+  const isOn = (c) => (v || '').toLowerCase() === c.toLowerCase();
+  const recentShown = recent.filter(c => !presets.some(p => p.toLowerCase() === c.toLowerCase()));
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        {presets.map(c => (
+          <button key={c} type="button" title={c} aria-label={`สี ${c}`}
+            className={`${sw} rounded-full flex items-center justify-center transition-all ${isOn(c) ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`}
+            onClick={() => pick(c)} style={{ background: c }}>
+            {isOn(c) && <Icon name="check" className="size-3.5 text-white" />}
+          </button>
+        ))}
+        {/* เลือกอิสระ (native color input ซ่อนอยู่หลังวงสีรุ้ง) */}
+        <label className={`${sw} rounded-full cursor-pointer relative overflow-hidden ring-1 ring-border flex items-center justify-center`} title="เลือกสีอิสระ"
+          style={{ background: 'conic-gradient(from 0deg, #ef4444, #f59e0b, #eab308, #22c55e, #06b6d4, #3b82f6, #8b5cf6, #ec4899, #ef4444)' }}>
+          <Icon name="plus" className="size-3.5 text-white drop-shadow" />
+          <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(v) ? v : '#6b5ce0'} onChange={e => pick(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer" />
+        </label>
+      </div>
+      {recentShown.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground mr-0.5">ล่าสุด</span>
+          {recentShown.map(c => (
+            <button key={c} type="button" title={c} aria-label={`สีล่าสุด ${c}`} onClick={() => pick(c)}
+              className={`size-5 rounded-full ring-1 ring-border transition-transform hover:scale-110 ${isOn(c) ? 'ring-2 ring-ring' : ''}`} style={{ background: c }} />
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <span className="size-7 rounded-md border shrink-0" style={{ background: v }} />
+        <input value={hex} onChange={e => commitHex(e.target.value)} placeholder="#6b5ce0" spellCheck={false}
+          className="h-8 w-28 rounded-md border bg-background px-2 text-sm font-mono uppercase focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        <button type="button" onClick={copyHex} title="คัดลอกโค้ดสี" aria-label="คัดลอกโค้ดสี"
+          className="h-8 px-2 rounded-md border bg-background text-muted-foreground hover:text-foreground hover:bg-muted flex items-center"><Icon name="external" className="size-3.5" /></button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- ไอคอนโครงการ (lucide) — เลือกได้เยอะ + รองรับอีโมจิเก่า (back-compat) ---------- */
+const FLOW_ICON_MAP = {
+  ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
+  Shirt, Box, CalendarDays, Clock, Users, User, Heart, Zap, Briefcase, Folder,
+  FileText, Image: LImage, Camera, Video, Music, Mic, PenTool, Brush, Scissors, Truck,
+  Store, ShoppingBag, Tag, Tags, Gift, CreditCard, DollarSign, TrendingUp, BarChart3, PieChart,
+  Activity, Globe, MapPin, Mail, MessageCircle, MessageSquare, Phone, Send, Bell, Bookmark,
+  Flag, Award, Trophy, Crown, Gem, Sparkles, Sun: LSun, Moon: LMoon, Cloud, Leaf,
+  Coffee, Smile, ThumbsUp, Eye, Search: LSearch, Settings, Wrench, Hammer, Layers, LayoutGrid,
+  List: LList, Kanban, CheckCircle2, Hash, Link: LLink, Lock, Key, Shield, Code, Terminal,
+  Database, Server, Smartphone, Monitor, Printer, Headphones, Plane, Car, Home: LHome, Building2,
+  Factory, Warehouse, Map: LMap, Compass, Book, GraduationCap, Pencil, Archive, Inbox, Calendar: LCalendar,
+  Bug, Wand2, Beaker, Boxes, Sticker, Crosshair, Goal, Handshake, Wallet, Receipt,
+};
+export const FLOW_ICON_NAMES = Object.keys(FLOW_ICON_MAP);
+// แสดงไอคอนโครงการ: ชื่อ lucide → component · อีโมจิเก่า → text · ว่าง → default
+export function FlowIcon({ icon, className = 'size-5', style }) {
+  const C = FLOW_ICON_MAP[icon];
+  if (C) return <C className={className} style={style} />;
+  if (icon) return <span className={className} style={{ ...style, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, fontSize: '1em' }}>{icon}</span>;
+  return <ClipboardList className={className} style={style} />;
+}
+// ตัวเลือกไอคอน — ค้นหาได้ + grid (lucide ~110 แบบ)
+export function IconPicker({ value, onChange }) {
+  const [q, setQ] = useState('');
+  const names = FLOW_ICON_NAMES.filter(n => !q || n.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div className="flex flex-col gap-2">
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาไอคอน… (พิมพ์อังกฤษ เช่น rocket, cart)" spellCheck={false}
+        className="h-8 w-full rounded-md border bg-background px-2.5 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+      <div className="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-48 overflow-y-auto rounded-md border p-2">
+        {names.map(n => { const C = FLOW_ICON_MAP[n]; return (
+          <button key={n} type="button" title={n} onClick={() => onChange(n)}
+            className={`size-9 rounded-md flex items-center justify-center transition-all ${value === n ? 'bg-primary text-primary-foreground ring-2 ring-ring' : 'hover:bg-muted text-foreground'}`}>
+            <C className="size-5" />
+          </button>
+        ); })}
+        {names.length === 0 && <span className="col-span-full text-xs text-muted-foreground text-center py-3">ไม่พบไอคอน</span>}
+      </div>
+    </div>
   );
 }
 
@@ -305,7 +427,7 @@ export function useCountUp(target, ms = 900) {
 export function Avatar({ name, color, size = 28 }) {
   const safe = String(name || '?');
   const initials = safe.length <= 2 ? safe.toUpperCase() : safe.slice(0, 2).toUpperCase();
-  return <span className="avatar" style={{ background: color, width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
+  return <span className="avatar" style={{ background: color || 'var(--ink-3)', width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
 }
 
 /* ---------- User icon (แทนรูปโปรไฟล์) ---------- */
@@ -505,6 +627,36 @@ export function useBeat(ms = 350) {
   const [on, setOn] = useState(true);
   useEffect(() => { const t = setTimeout(() => setOn(false), ms); return () => clearTimeout(t); }, []);
   return on;
+}
+
+/* ---- เหมือน useBeat แต่ re-fire ทุกครั้งที่ dep เปลี่ยน (สลับหน้าย่อยในเซกชันเดียว) โดยไม่ remount ตัว dispatcher
+   → leaf view mount ครั้งเดียวต่อ sub (ไม่เพิ่ม fetch/egress) ---- */
+export function useBeatOn(dep, ms = 320) {
+  const [on, setOn] = useState(true);
+  useEffect(() => { setOn(true); const t = setTimeout(() => setOn(false), ms); return () => clearTimeout(t); }, [dep, ms]);
+  return on;
+}
+
+/* ---- การ์ดกริดจำลอง (overview โครงการ / รายการการ์ด) ---- */
+export function CardGridSkeleton({ cards = 6, header = true }) {
+  return (
+    <div className="content-inner rise" style={{ display: 'grid', gap: 14 }}>
+      {header && <div className="row between" style={{ marginBottom: 2 }}><Skel w={180} h={20} /><Skel w={120} h={34} r={10} /></div>}
+      <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+        {Array.from({ length: cards }).map((_, i) => (
+          <div key={i} className="card" style={{ padding: 0, overflow: 'hidden', opacity: Math.max(0.4, 1 - i * 0.06) }}>
+            <Skel w="100%" h={80} r={0} />
+            <div style={{ padding: 16, display: 'grid', gap: 10 }}>
+              <Skel w="62%" h={15} />
+              <Skel w="40%" h={11} />
+              <Skel w="100%" h={8} r={4} style={{ marginTop: 4 }} />
+              <div className="row" style={{ gap: 6, marginTop: 4 }}>{Array.from({ length: 3 }).map((_, j) => <Skel key={j} w={22} h={22} r={11} />)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ---- Skeleton primitives: บล็อก shimmer + ตารางจำลอง (ใช้ตอนดึงข้อมูลจริง) ---- */

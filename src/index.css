@@ -488,7 +488,7 @@ input, select, textarea { font-family: inherit; }
   border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; background: var(--surface-2);
 }
 
-.content { flex: 1; overflow-y: auto; padding: 26px; scroll-behavior: smooth; }
+.content { flex: 1; min-width: 0; overflow-y: auto; padding: 26px; scroll-behavior: smooth; }
 .content-inner { max-width: 1280px; margin: 0 auto; }
 
 /* Segmented sub-nav */
@@ -595,6 +595,9 @@ input, select, textarea { font-family: inherit; }
 .g2 { grid-template-columns: repeat(2, 1fr); }
 .g3 { grid-template-columns: repeat(3, 1fr); }
 .g4 { grid-template-columns: repeat(4, 1fr); }
+/* Kanban โฟลว์ — เลื่อนแนวนอน (desktop): คอลัมน์น้อย=ยืดเต็ม · คอลัมน์เยอะ=คงกว้าง 280px แล้วเลื่อนขวา (ไม่ตัดลงล่าง) */
+/* Kanban โฟลว์ — grid auto-flow column: คอลัมน์น้อย=ยืดเต็ม (1fr · กลาง) · คอลัมน์เยอะ=คง 280px แล้วเลื่อนขวา · grid เป็น definite-width ไม่ดันความกว้างหน้า */
+.planner-kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(280px, 1fr); overflow-x: auto; gap: 14px; align-items: start; scroll-behavior: smooth; padding-bottom: 4px; min-width: 0; max-width: 100%; }
 /* statgrid — กริดสถิติเล็กในการ์ด: คงหลายคอลัมน์บนมือถือ (ไม่ยุบเป็น 1 แถวยาว) */
 .statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .statgrid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -828,7 +831,7 @@ input, select, textarea { font-family: inherit; }
 /* ===== ปฏิทินรายเดือน — รองรับทุกหน้าจอ ===== */
 .cal-month-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 152px; gap: 5px; }
 .cal-cell-dots { display: none; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
-@media (max-width: 900px) { .cal-month-grid { grid-auto-rows: 118px; } }
+@media (max-width: 900px) { .cal-month-grid { grid-auto-rows: 118px; } .cal-layout { grid-template-columns: 1fr !important; } .cal-day-panel { border-left: none !important; border-top: 1px solid var(--line); } }
 @media (max-width: 600px) {
   .cal-month-grid { grid-auto-rows: 58px; gap: 3px; }
   .cal-cell-titles, .cal-day-icons, .cal-more-desktop { display: none !important; }
@@ -1284,9 +1287,8 @@ textarea.input { @apply min-h-[80px] resize-y; }
   .content { padding-left: 12px; padding-right: 12px; }
 }
 @media (max-width: 900px) {
-  /* Planner kanban — เลื่อนแนวนอนคอลัมน์ละ 240px (เหมือน Orders) แทนบีบ 2 คอลัมน์อัด */
-  .planner-kanban { display: flex; grid-template-columns: none; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 12px; }
-  .planner-kanban > * { flex: 0 0 240px; }
+  /* Planner kanban — มือถือคอลัมน์ละ 240px (เลื่อนแนวนอน) */
+  .planner-kanban { gap: 12px; grid-auto-columns: minmax(240px, 1fr); }
 }
 
 /* ============================================================
@@ -1549,6 +1551,7 @@ textarea.input { @apply min-h-[80px] resize-y; }
 }
 .dialog-content:focus, .dialog-content:focus-visible { outline: none; }
 .dialog-content-lg { max-width: 740px; }
+.dialog-content-xl { max-width: 1040px; }
 .dialog-header { @apply flex flex-col space-y-1.5 text-center sm:text-left mb-4; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
 .dialog-title { @apply text-lg font-semibold leading-none tracking-tight; }
 .dialog-description { @apply text-sm text-muted-foreground; }

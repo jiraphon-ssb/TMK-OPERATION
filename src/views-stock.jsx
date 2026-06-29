@@ -9,7 +9,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
-import { B, P, N, Icon, SIZES, stockMeta, ORDER_STATUSES, barcodeSVGString } from './components.jsx';
+import { B, P, N, Icon, SIZES, stockMeta, ORDER_STATUSES, barcodeSVGString, useBeatOn, PageSkeleton } from './components.jsx';
 import { mutateProductReservations, mutateProductRow, advanceOrderStatus } from './modals.jsx';
 import { deductLots, restockLots, lotsTotal } from './lib/lotOps.js';
 import { supabase } from './lib/supabaseClient.js';
@@ -228,7 +228,7 @@ function StockView() {
       const { ok, error } = await mutateProductReservations(p.id, (cur) => cur.filter(r => r.id !== rsvId));
       if (!ok) throw error || new Error('ปล่อยจองไม่สำเร็จ');
       logAudit({ action: 'release', entityType: 'product', entityName: p.name, summary: `ปล่อยจองสต็อก "${p.name}"` });
-      if (window.__reload) await window.__reload();
+      window.__refresh?.(['tmk_products']);
       window.__toast?.(alsoSell ? 'ปล่อยจองแล้ว — บันทึกการขายต่อได้เลย' : 'ปล่อยจองเรียบร้อย', 'success');
       if (alsoSell) window.__openModal('sell', p);
     } catch (err) { window.__toast?.('ปล่อยจองไม่สำเร็จ: ' + err.message, 'error'); }
@@ -481,12 +481,12 @@ function OrdersView() {
   const shippedHidden = orders.filter(o => o.status === 'shipped' && !isRecentShipped(o) && matchSearch(o)).length;
   const cancelled = orders.filter(o => o.status === 'cancelled' && matchSearch(o));
   const copyTrack = (o) => { try { navigator.clipboard.writeText(`${location.origin}${location.pathname}?track=${o.code}`); window.__toast?.('คัดลอกลิงก์ติดตามแล้ว — ส่งให้ลูกค้าได้เลย', 'success'); } catch { window.__toast?.('คัดลอกไม่ได้', 'error'); } };
-  const changeStatus = (o, status) => {
+  const changeStatus = async (o, status) => {
     if (!o || o.status === status) return;
     if (!guardEdit()) return;
-    if (o.status === 'shipped') { window.alert(`ออเดอร์ ${o.code} "ส่งแล้ว" — เปลี่ยนสถานะไม่ได้\nสต็อกถูกตัดไปแล้ว ถ้าต้องการคืนสต็อกให้ใช้ "ปรับสต็อก" ที่สินค้า`); return; }
-    if (status === 'shipped' && !window.confirm(`ยืนยัน "ส่งแล้ว" ออเดอร์ ${o.code}?\nระบบจะตัดสต็อกจริงตามออเดอร์นี้ (กู้คืนไม่ได้)`)) return;
-    if (status === 'cancelled' && !window.confirm(`ยกเลิกออเดอร์ ${o.code}?\nระบบจะปล่อยสต็อกที่จองคืน`)) return;
+    if (o.status === 'shipped') { window.__toast?.(`ออเดอร์ ${o.code} "ส่งแล้ว" — เปลี่ยนสถานะไม่ได้ (ถ้าต้องการคืนสต็อกใช้ "ปรับสต็อก")`, 'warn', 6000); return; }
+    if (status === 'shipped' && !await window.__confirm?.({ title: 'ยืนยันส่งแล้ว', body: `ยืนยัน "ส่งแล้ว" ออเดอร์ ${o.code}?\nระบบจะตัดสต็อกจริงตามออเดอร์นี้ (กู้คืนไม่ได้)`, danger: true, confirmText: 'ส่งแล้ว' })) return;
+    if (status === 'cancelled' && !await window.__confirm?.({ title: 'ยกเลิกออเดอร์', body: `ยกเลิกออเดอร์ ${o.code}?\nระบบจะปล่อยสต็อกที่จองคืน`, danger: true, confirmText: 'ยกเลิกออเดอร์' })) return;
     advanceOrderStatus(o, status);
   };
   const onDrop = (status) => { const o = orders.find(x => x.id === dragId); setDragId(null); changeStatus(o, status); };
@@ -850,7 +850,8 @@ function SuppliersView() {
     setEdit(null); load();
   };
   const del = async (s) => {
-    if (!guardEdit() || !window.confirm(`ลบซัพพลายเออร์ "${s.name}"?`)) return;
+    if (!guardEdit()) return;
+    if (!await window.__confirm?.({ title: 'ลบซัพพลายเออร์', body: `ลบซัพพลายเออร์ "${s.name}"?`, danger: true, confirmText: 'ลบ' })) return;
     const { error } = await supabase.from('tmk_suppliers').update({ deleted_at: new Date().toISOString() }).eq('id', s.id);
     if (error) { window.__toast?.('ลบไม่สำเร็จ', 'error'); return; }
     window.__toast?.('ลบแล้ว', 'success'); load();
@@ -1057,7 +1058,7 @@ function ReturnsView() {
       const { error } = await supabase.from('tmk_returns').insert(row);
       if (error && !isMissingTable(error)) throw error;
       logAudit({ action: 'return', entityType: 'product', entityName: p.name, summary: `รับคืน ${f.qty} ${f.color} ${f.size} (${f.action === 'restock' ? 'คืนสต็อก' : 'ตัดทิ้ง'})` });
-      window.__reload?.();
+      window.__refresh?.(['tmk_products']);
       window.__toast?.(error && isMissingTable(error) ? 'รับคืนแล้ว (สต็อกอัปเดต) — รัน migration 20260704 เพื่อเก็บประวัติ' : 'รับคืนเรียบร้อย', 'success');
       setF({ ...f, productId: '', color: '', size: '', qty: '', refund: '' }); load();
     } catch (e) { window.__toast?.('รับคืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
@@ -1183,7 +1184,7 @@ function MpDeductView() {
   const matched = (rows || []).filter(r => r.product && r.qty > 0);
   const run = async () => {
     if (!guardEdit() || !matched.length) return;
-    if (!window.confirm(`ยืนยันตัดสต็อก ${matched.length} รายการตามยอดขายมาร์เก็ตเพลส?\n(ตัดครั้งเดียว กันซ้ำด้วย idempotency)`)) return;
+    if (!await window.__confirm?.({ title: 'ตัดสต็อกจากยอดขาย', body: `ยืนยันตัดสต็อก ${matched.length} รายการตามยอดขายมาร์เก็ตเพลส?\n(ตัดครั้งเดียว กันซ้ำด้วย idempotency)`, danger: true, confirmText: 'ตัดสต็อก' })) return;
     setBusy(true);
     let ok = 0, short = 0;
     for (const r of matched) {
@@ -1196,7 +1197,7 @@ function MpDeductView() {
       } catch { /* ข้ามรายการที่พลาด */ }
     }
     logAudit({ action: 'update', entityType: 'data', entityName: 'ตัดสต็อกมาร์เก็ตเพลส', summary: `ตัดสต็อกจากยอดขาย ${ok} รายการ${short ? ` (ของไม่พอ ${short})` : ''}` });
-    window.__reload?.();
+    window.__refresh?.(['tmk_products']);
     window.__toast?.(`ตัดสต็อกแล้ว ${ok} รายการ${short ? ` · ของไม่พอ ${short}` : ''}`, 'success');
     setBusy(false); scan();
   };
@@ -1238,6 +1239,8 @@ function MpDeductView() {
 export function StockSection({ sub }) {
   // อ่าน data context เพื่อ re-render เมื่อข้อมูลอัปเดต (TMK เป็น mutable global ที่ provider sync)
   useData();
+  const beat = useBeatOn(sub); // skeleton สั้นๆ ตอนสลับหน้าย่อย
+  if (beat) return <PageSkeleton />;
   if (sub === 'stock') return <StockView />;
   if (sub === 'products') return <ProductsView />;
   if (sub === 'orders') return <OrdersView />;

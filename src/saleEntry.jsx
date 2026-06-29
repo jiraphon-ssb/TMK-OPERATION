@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SearchInput } from '@/components/ui/search-input';
@@ -113,7 +114,7 @@ export function SaleEntryView() {
     const ono = f.order_no.trim().toUpperCase().replace(/\s+/g, '');
     if (ono && !editId) {
       const dup = (rows || []).find(r => r.order_no === ono);
-      if (dup && !window.confirm(`เลขออเดอร์ ${ono} เคยกรอกแล้ว (${baht(dup.sales)}${dup.salesperson !== salesperson ? ' โดย ' + dup.salesperson : ''})\nบันทึกซ้ำ?`)) return;
+      if (dup && !await window.__confirm?.({ title: 'เลขออเดอร์ซ้ำ', body: `เลขออเดอร์ ${ono} เคยกรอกแล้ว (${baht(dup.sales)}${dup.salesperson !== salesperson ? ' โดย ' + dup.salesperson : ''})\nบันทึกซ้ำ?`, confirmText: 'บันทึกซ้ำ' })) return;
     }
     setBusy(true);
     const row = {
@@ -185,7 +186,7 @@ export function SaleEntryView() {
                 : <div className="input" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', color: 'var(--ink)' }}><Icon name="user" /> {myName || '—'}</div>}
               <datalist id="se-sp">{salespeople.map(s => <option key={s} value={s} />)}</datalist>
             </div>
-            <div className="field" style={{ flex: '0 0 150px', marginBottom: 0 }}><label>วันที่</label><Input type="date" max={todayISO()} value={f.order_date} onChange={e => set('order_date', e.target.value)} /></div>
+            <div className="field" style={{ flex: '0 0 160px', marginBottom: 0 }}><label>วันที่</label><DatePicker value={f.order_date} max={todayISO()} clearable={false} onChange={(v) => set('order_date', v)} /></div>
             <div className="field" style={{ flex: '0 0 130px', marginBottom: 0 }}><label>เลขออเดอร์</label><Input value={f.order_no} onChange={e => set('order_no', e.target.value)} placeholder="SIxxxx" /></div>
             <div className="field" style={{ flex: '0 0 120px', marginBottom: 0 }}><label>งาน</label><Select value={f.job_type} onValueChange={v => set('job_type', v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{JOBS.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent></Select></div>
             <div className="field" style={{ flex: '0 0 110px', marginBottom: 0 }}><label>ชำระ</label><Select value={f.payment_type} onValueChange={v => set('payment_type', v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{PAYS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
@@ -237,7 +238,7 @@ export function SaleEntryView() {
         <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
           <CardTitle className="m-0 text-base font-semibold">รายการที่กรอก <span className="dim">({N(filtered.length)} ออเดอร์ · {baht(sumSales)} · {N(sumQty)} ตัว)</span></CardTitle>
           <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <Input type="date" className="input-sm" style={{ width: 'auto' }} value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+            <DatePicker value={dateFilter} onChange={(v) => setDateFilter(v)} placeholder="กรองวันที่" className="h-8 w-[150px]" />
             <Button variant="outline" size="sm" onClick={() => setDateFilter('')}>ทุกวัน</Button>
             {isAdmin && <Select value={spFilter || undefined} onValueChange={v => setSpFilter(v)}><SelectTrigger className="input-sm w-auto"><SelectValue placeholder="ทุกเซลล์" /></SelectTrigger><SelectContent>{salespeople.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>}
             {filtered.length > 0 && <DensityToggle value={entryDensity} onChange={setEntryDensity} />}

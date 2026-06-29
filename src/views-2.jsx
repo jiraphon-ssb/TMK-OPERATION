@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, P, N, Icon, Avatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, CardHead } from './components.jsx';
+import { B, P, N, Icon, Avatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, CardHead, ColorPicker } from './components.jsx';
 import { Modal, MpImportModal, SideSheet } from './modals.jsx';
 import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, channelColor } from './charts.jsx';
 import { SaleDashboard } from './saleDashboard.jsx';
@@ -42,6 +42,7 @@ import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SearchInput } from '@/components/ui/search-input';
 import { Progress } from '@/components/ui/progress';
+import { DatePicker } from '@/components/ui/date-picker';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
@@ -62,6 +63,46 @@ const stLabel = { done: 'เสร็จ', review: 'รอตรวจ', inprogr
 const stCls = { done: 'chip-good', review: 'chip-warn', inprogress: 'chip-accent', todo: '' };
 const chipVar2 = (cls) => ({ 'chip-good': 'success', 'chip-warn': 'warning', 'chip-bad': 'danger', 'chip-accent': 'accent', '': 'secondary' }[cls || ''] || 'secondary');
 
+/* ---- DateRangePicker — ปุ่มช่วงเวลาเดียว (preset + ปฏิทินคู่) แบบหน้ายอดขาย · ใช้ helper _TH_MON/_isoToDate/_dateToIso/_fmtTh ร่วม (นิยามด้านล่าง) ---- */
+const fmtRange = (from, to) => {
+  if (!from || !to) return '';
+  const [fy, fm, fd] = from.split('-').map(Number), [ty, tm, td] = to.split('-').map(Number);
+  if (fy === ty && fm === tm) return `${fd}–${td} ${_TH_MON[fm - 1]} ${fy}`;
+  if (fy === ty) return `${fd} ${_TH_MON[fm - 1]} – ${td} ${_TH_MON[tm - 1]} ${ty}`;
+  return `${_fmtTh(from)} – ${_fmtTh(to)}`;
+};
+function DateRangePicker({ from, to, onChange, presets = [], activePreset, onPickPreset }) {
+  const [open, setOpen] = React.useState(false);
+  const [sel, setSel] = React.useState({ from: _isoToDate(from), to: _isoToDate(to) });
+  const presetLabel = (presets.find(([id]) => id === activePreset) || [])[1];
+  const main = presetLabel || (from || to ? 'กำหนดเอง' : 'ทุกช่วงเวลา');
+  const sub = activePreset === 'all' ? '' : fmtRange(from, to);
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setSel({ from: _isoToDate(from), to: _isoToDate(to) }); }}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-2 font-normal">
+          <Icon name="calendarDays" /><span className="font-semibold text-[var(--ink)]">{main}</span>
+          {sub && <span className="text-[var(--ink-4)]">· {sub}</span>}
+          <Icon name="down" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <div className="flex max-sm:flex-col">
+          <div className="flex shrink-0 flex-col gap-0.5 border-b p-2 sm:min-w-[128px] sm:border-b-0 sm:border-r">
+            <span className="px-2 pb-1 text-[11px] font-semibold text-[var(--ink-4)]">ช่วงเวลา</span>
+            {presets.map(([id, lb]) => (
+              <button key={id} onClick={() => { onPickPreset(id); setOpen(false); }}
+                className={'rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ' + (id === activePreset ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-2)]' : 'text-[var(--ink-2)] hover:bg-[var(--surface-2)]')}>{lb}</button>
+            ))}
+          </div>
+          <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from)} selected={sel}
+            onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(_dateToIso(r.from), _dateToIso(r.to)); setOpen(false); } }} />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // ดรอปดาวน์ฟิลเตอร์ — ใช้กับตัวเลือกเยอะ (แคมเปญ/หน้าที่) ให้แถบสะอาด ไม่กองพิลล์ · shadcn DropdownMenu
 // multi-select: value = array ของ id · เลือกได้หลายตัว (เมนูไม่ปิดตอนเลือก)
 function FilterDropdown({ label, icon, options, value, onChange }) {
@@ -74,12 +115,15 @@ function FilterDropdown({ label, icon, options, value, onChange }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className={'rounded-full font-medium' + (active ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
-          {sel.length === 1 ? <span className="dot-c" style={{ background: selOpts[0]?.color }} /> : <Icon name={icon} />}
+          {/* ไอคอน slot กว้างคงที่ — กันปุ่มขยับ/layout shift ตอนเลือก (dot) ↔ ไม่เลือก (icon) → dropdown เด้งสมูท */}
+          <span className="inline-flex w-4 items-center justify-center shrink-0">
+            {sel.length === 1 ? <span className="dot-c" style={{ background: selOpts[0]?.color }} /> : <Icon name={icon} />}
+          </span>
           <span className="max-w-[140px] truncate">{trigText}</span>
           <Icon name="down" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-auto">
+      <DropdownMenuContent align="start" sideOffset={6} className="max-h-72 w-52 overflow-auto">
         <DropdownMenuItem onSelect={(e) => { e.preventDefault(); onChange([]); }}>
           <span className="flex-1">ทั้งหมด</span>{sel.length === 0 && <Icon name="check" />}
         </DropdownMenuItem>
@@ -95,38 +139,109 @@ function FilterDropdown({ label, icon, options, value, onChange }) {
   );
 }
 
-function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStatus, filterResp, setFilterResp, search, setSearch, respOptions }) {
+function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStatus, filterResp, setFilterResp, search, setSearch, respOptions, campScope,
+  filterPriority, setFilterPriority, filterTags, setFilterTags, tagOptions, filterChannel, setFilterChannel,
+  filterDateFrom, setFilterDateFrom, filterDateTo, setFilterDateTo, datePreset, setDatePreset }) {
+  const [open, setOpen] = React.useState(false);
   const respColor = (name) => (DD.duties.find(d => d.name === name)?.color) || (DD.staff.find(s => s.name === name)?.color) || 'var(--ink-3)';
-  const anyActive = filterStatus !== 'all' || (filterCamp?.length) || (filterResp?.length) || search;
-  const clearAll = () => { setFilterStatus('all'); setFilterCamp([]); setFilterResp([]); setSearch(''); };
-  const campOpts = (DD.campaigns || []).map(c => ({ id: c.id, name: c.name, color: c.color }));
+  const dateActive = !!(filterDateFrom || filterDateTo);
+  // campScope = null (ไม่มีโครงการ = หน้ารวม) → ทุกแคมเปญ · array (ในโครงการ) → เฉพาะที่ติ๊ก/ใช้จริง (ไม่โชว์อันที่ไม่เกี่ยว)
+  const campOpts = (DD.campaigns || []).filter(c => campScope == null || campScope.includes(c.id)).map(c => ({ id: c.id, name: c.name, color: c.color }));
   const respOpts = respOptions.map(r => ({ id: r, name: r, color: respColor(r) }));
+  const prioOpts = [{ id: 'high', name: 'สูง', color: '#cf4d5c' }, { id: 'medium', name: 'กลาง', color: '#c08a3e' }, { id: 'low', name: 'ต่ำ', color: '#64748b' }];
+  const tagOpts = (tagOptions || []).map(tg => ({ id: tg, name: tg, color: 'var(--ink-3)' }));
+  const chanOpts = (DD.channels || []).map(c => ({ id: c.name, name: c.name, color: c.hex }));
+  const stOpts = [{ id: 'active', name: 'กำลังทำ', color: 'var(--info)' }, { id: 'done', name: 'เสร็จแล้ว', color: 'var(--good)' }];
+  // จำนวนตัวกรองที่เปิดอยู่ (ไม่นับวันที่/ค้นหา — โชว์แยก) + มีอะไรกรองไหม
+  const nFilters = (filterStatus !== 'all' ? 1 : 0) + (filterCamp?.length || 0) + (filterResp?.length || 0) + (filterPriority?.length || 0) + (filterTags?.length || 0) + (filterChannel?.length || 0);
+  const anyActive = nFilters > 0 || dateActive || search;
+  const clearAll = () => {
+    setFilterStatus('all'); setFilterCamp([]); setFilterResp([]); setSearch('');
+    setFilterPriority?.([]); setFilterTags?.([]); setFilterChannel?.([]);
+    setFilterDateFrom?.(''); setFilterDateTo?.(''); setDatePreset?.('all');
+  };
+  // ปุ่มช่วงวันที่ (แบบหน้ายอดขาย): preset → presetRange · เลือกเอง → กำหนดเอง
+  const pickPreset = (id) => { const r = presetRange(id, todayISO()); setDatePreset?.(id); setFilterDateFrom?.(r.from || ''); setFilterDateTo?.(r.to || ''); };
+  const pickRange = (f, t) => { setDatePreset?.(''); setFilterDateFrom?.(f || ''); setFilterDateTo?.(t || ''); };
+  // ชิปตัวกรองที่เลือก (ถอดได้) — รวมสถานะ/แคมเปญ/หน้าที่/ความสำคัญ/แท็ก/ช่องทาง
+  const chips = [];
+  if (filterStatus !== 'all') chips.push({ k: 'st', label: (stOpts.find(o => o.id === filterStatus)?.name) || filterStatus, color: stOpts.find(o => o.id === filterStatus)?.color, remove: () => setFilterStatus('all') });
+  (filterCamp || []).forEach(id => { const o = campOpts.find(x => x.id === id); chips.push({ k: 'c' + id, label: o?.name || id, color: o?.color, remove: () => setFilterCamp(filterCamp.filter(x => x !== id)) }); });
+  (filterResp || []).forEach(id => { const o = respOpts.find(x => x.id === id); chips.push({ k: 'r' + id, label: id, color: o?.color, remove: () => setFilterResp(filterResp.filter(x => x !== id)) }); });
+  (filterPriority || []).forEach(id => { const o = prioOpts.find(x => x.id === id); chips.push({ k: 'p' + id, label: o?.name || id, color: o?.color, remove: () => setFilterPriority(filterPriority.filter(x => x !== id)) }); });
+  (filterTags || []).forEach(id => chips.push({ k: 't' + id, label: '#' + id, remove: () => setFilterTags(filterTags.filter(x => x !== id)) }));
+  (filterChannel || []).forEach(id => { const o = chanOpts.find(x => x.id === id); chips.push({ k: 'ch' + id, label: id, color: o?.color, remove: () => setFilterChannel(filterChannel.filter(x => x !== id)) }); });
   return (
     <Card className="p-3" style={{ marginBottom: 12 }}>
-      <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
-        {/* สถานะ — segmented control (shadcn ToggleGroup) */}
-        <ToggleGroup type="single" value={filterStatus} onValueChange={(v) => v && setFilterStatus(v)} className="gap-0.5 rounded-full border border-[var(--line)] bg-[var(--surface-2)] p-1">
-          {[['all','ทั้งหมด'],['active','กำลังทำ'],['done','เสร็จแล้ว']].map(([s, l]) => (
-            <ToggleGroupItem key={s} value={s} size="sm" className="rounded-full px-3.5 text-[var(--ink-3)] hover:text-[var(--ink)] data-[state=on]:bg-[var(--ink)] data-[state=on]:text-white">{l}</ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        {/* แคมเปญ + หน้าที่ — dropdown */}
-        <FilterDropdown label="แคมเปญ" icon="megaphone" options={campOpts} value={filterCamp} onChange={setFilterCamp} />
-        {respOpts.length > 0 && <FilterDropdown label="หน้าที่" icon="shield" options={respOpts} value={filterResp} onChange={setFilterResp} />}
-        <div style={{ flex: 1 }} />
+      {/* แถวบน: ช่วงวันที่ · ตัวกรอง · ชิป · ล้าง · ค้นหา(ขวา) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <DateRangePicker from={filterDateFrom} to={filterDateTo} onChange={pickRange} presets={PRESETS} activePreset={dateActive ? datePreset : 'all'} onPickPreset={pickPreset} />
+        <span className="h-6 w-px bg-[var(--line)] mx-0.5 hidden sm:block" />
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => setOpen(o => !o)} title="ตัวกรอง">
+          <Icon name="filter" /> ตัวกรอง {nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>} <Icon name={open ? 'up' : 'down'} className="size-3.5 opacity-60" />
+        </Button>
+        {chips.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+            {chips.map(ch => (
+              <Badge key={ch.k} variant="secondary" className="gap-1 pl-2 pr-1 font-normal">
+                {ch.color && <span className="size-2 rounded-full shrink-0" style={{ background: ch.color }} />}
+                <span className="truncate max-w-[120px]">{ch.label}</span>
+                <button onClick={ch.remove} className="ml-0.5 rounded-full p-0.5 hover:bg-foreground/10" aria-label="เอาออก"><Icon name="x" className="size-3" /></button>
+              </Badge>
+            ))}
+          </div>
+        ) : <span className="text-xs text-muted-foreground hidden md:inline">ยังไม่ได้กรอง — แสดงทุกงาน</span>}
         {anyActive && <Button variant="ghost" size="sm" onClick={clearAll} title="ล้างตัวกรองทั้งหมด"><Icon name="x" /> ล้าง</Button>}
-        <SearchInput placeholder="ค้นหางาน..." value={search} onChange={e => setSearch(e.target.value)} wrapperClassName="w-[180px]" />
+        <div className="flex-1" />
+        <SearchInput placeholder="ค้นหางาน..." value={search} onChange={e => setSearch(e.target.value)} wrapperClassName="w-full sm:w-[200px] shrink-0" />
       </div>
+      {/* พาเนลตัวกรอง (กางออก) — สถานะ + แคมเปญ/หน้าที่/ความสำคัญ/แท็ก/ช่องทาง */}
+      {open && (
+        <div className="mt-3 pt-3 border-t border-[var(--line)] flex flex-col gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs font-medium text-muted-foreground w-16 shrink-0">สถานะ</span>
+            <ToggleGroup type="single" value={filterStatus} onValueChange={(v) => v && setFilterStatus(v)} className="gap-0.5 rounded-full border border-[var(--line)] bg-[var(--surface-2)] p-1">
+              {[['all','ทั้งหมด'],['active','กำลังทำ'],['done','เสร็จแล้ว']].map(([s, l]) => (
+                <ToggleGroupItem key={s} value={s} size="sm" className="rounded-full px-3.5 text-[var(--ink-3)] hover:text-[var(--ink)] data-[state=on]:bg-[var(--ink)] data-[state=on]:text-white">{l}</ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+          <div className="flex items-start gap-3 flex-wrap">
+            <span className="text-xs font-medium text-muted-foreground w-16 shrink-0 pt-1.5">ตัวกรอง</span>
+            <div className="row wrap flex-1 min-w-0" style={{ gap: 8, alignItems: 'center' }}>
+              {campOpts.length > 0 && <FilterDropdown label="แคมเปญ" icon="megaphone" options={campOpts} value={filterCamp} onChange={setFilterCamp} />}
+              {respOpts.length > 0 && <FilterDropdown label="หน้าที่" icon="shield" options={respOpts} value={filterResp} onChange={setFilterResp} />}
+              <FilterDropdown label="ความสำคัญ" icon="target" options={prioOpts} value={filterPriority} onChange={setFilterPriority} />
+              {tagOpts.length > 0 && <FilterDropdown label="แท็ก" icon="star" options={tagOpts} value={filterTags} onChange={setFilterTags} />}
+              {chanOpts.length > 0 && <FilterDropdown label="ช่องทาง" icon="layers" options={chanOpts} value={filterChannel} onChange={setFilterChannel} />}
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
 
-function filterTasks(tasks, filterCamp, filterStatus, search, filterResp) {
+function filterTasks(tasks, opts) {
+  const { filterCamp, filterStatus, search, filterResp, doneIds,
+    filterPriority, filterTags, filterChannel, filterDateFrom, filterDateTo } = opts || {};
+  const isDone = (s) => doneIds ? doneIds.has(s) : s === 'done';
   return (tasks || []).filter(t => {
     if (filterCamp?.length && !filterCamp.includes(t.camp)) return false;
     if (filterResp?.length && !(t.responsible || []).some(r => filterResp.includes(r))) return false;
-    if (filterStatus === 'active' && t.status === 'done') return false;
-    if (filterStatus === 'done' && t.status !== 'done') return false;
+    if (filterPriority?.length && !filterPriority.includes(t.priority || 'medium')) return false;
+    if (filterTags?.length && !(t.tags || []).some(tg => filterTags.includes(tg))) return false;
+    if (filterChannel?.length && !tokenizeCh(t.channel).some(tok => filterChannel.includes(tok))) return false;
+    if (filterStatus === 'active' && isDone(t.status)) return false;
+    if (filterStatus === 'done' && !isDone(t.status)) return false;
+    // ช่วงวันที่ — overlap งาน [start..end] กับช่วงที่เลือก [from..to] (เทียบ ISO ตรงๆ ได้)
+    if (filterDateFrom || filterDateTo) {
+      const start = t.dateISO || '';
+      const end = t.dateEnd || t.dateISO || '';
+      if (!start) return false;
+      if (filterDateFrom && end < filterDateFrom) return false;
+      if (filterDateTo && start > filterDateTo) return false;
+    }
     if (search) {
       const ql = String(search).toLowerCase();
       const title = String(t.title || '').toLowerCase();
@@ -135,6 +250,15 @@ function filterTasks(tasks, filterCamp, filterStatus, search, filterResp) {
     return true;
   });
 }
+
+// คอลัมน์สถานะของโครงการ — ถ้าโครงการตั้ง statuses เอง ใช้ของโครงการ ไม่งั้นใช้ดีฟอลต์ kanbanMeta (ธง done = คอลัมน์ 'done')
+function flowColumns(flow) {
+  if (flow && Array.isArray(flow.statuses) && flow.statuses.length) {
+    return flow.statuses.map(s => ({ id: s.id, label: s.label, color: s.color || null, done: !!s.done }));
+  }
+  return (DD.kanbanMeta || []).map(k => ({ id: k.id, label: k.label, color: null, done: k.id === 'done' }));
+}
+const doneIdsOf = (flow) => new Set(flowColumns(flow).filter(c => c.done).map(c => c.id));
 
 /* Skeleton วางแผน: แถบกรอง + บอร์ดคอลัมน์ (การ์ดงาน) */
 function PlannerSkeleton() {
@@ -154,21 +278,41 @@ function PlannerSkeleton() {
   );
 }
 
-export function PlannerView({ sub, tasks, setTasks }) {
+export function PlannerView({ sub, tasks, setTasks, flow, readOnly }) {
   const [filterCamp, setFilterCamp] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterResp, setFilterResp] = useState([]);
   const [search, setSearch] = useState('');
+  // ตัวกรองเพิ่ม (PART 18) — ความสำคัญ / แท็ก / ช่องทาง / ช่วงวันที่
+  const [filterPriority, setFilterPriority] = useState([]);
+  const [filterTags, setFilterTags] = useState([]);
+  const [filterChannel, setFilterChannel] = useState([]);
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [datePreset, setDatePreset] = useState('all'); // preset ของปุ่มช่วงวันที่ (แบบหน้ายอดขาย)
+  // โครงการ — จำกัดงานเฉพาะของโครงการนี้ (scopeId: ปกติ=id · "งานทั่วไป"='' → งานที่ flow ว่าง)
+  const sid = flow ? (flow.scopeId ?? flow.id ?? '') : null;
+  const scoped = flow ? (tasks || []).filter(t => (t.flow || '') === sid) : tasks;
+  const doneIds = useMemo(() => doneIdsOf(flow), [flow]);
   // ตัวเลือก "หน้าที่" — ดึงจากผู้รับผิดชอบจริงในงาน (ครอบคลุมทั้งชื่อหน้าที่/คน)
-  const respOptions = useMemo(() => [...new Set((tasks || []).flatMap(t => t.responsible || []))].filter(Boolean).sort(), [tasks]);
-  const fProps = { filterCamp, setFilterCamp, filterStatus, setFilterStatus, filterResp, setFilterResp, search, setSearch, respOptions };
-  const filtered = filterTasks(tasks, filterCamp, filterStatus, search, filterResp);
+  const respOptions = useMemo(() => [...new Set((scoped || []).flatMap(t => t.responsible || []))].filter(Boolean).sort(), [scoped]);
+  // ตัวเลือกแท็ก — ดึงจากแท็กจริงในงานของโครงการนี้
+  const tagOptions = useMemo(() => [...new Set((scoped || []).flatMap(t => t.tags || []))].filter(Boolean).sort(), [scoped]);
+  // แคมเปญที่เลือกได้ — ถ้าโครงการติ๊ก campaignIds ใช้เฉพาะนั้น · ไม่งั้นดึงจากแคมเปญที่งานจริงใช้ (ไม่โชว์ทุกแคมเปญในระบบ)
+  const campsInTasks = useMemo(() => [...new Set((scoped || []).map(t => t.camp))].filter(Boolean), [scoped]);
+  const campScope = (flow && flow.campaignIds && flow.campaignIds.length) ? flow.campaignIds : (flow ? campsInTasks : null);
+  const fProps = { filterCamp, setFilterCamp, filterStatus, setFilterStatus, filterResp, setFilterResp, search, setSearch, respOptions, campScope,
+    filterPriority, setFilterPriority, filterTags, setFilterTags, tagOptions, filterChannel, setFilterChannel,
+    filterDateFrom, setFilterDateFrom, filterDateTo, setFilterDateTo, datePreset, setDatePreset };
+  const filtered = filterTasks(scoped, { filterCamp, filterStatus, search, filterResp, doneIds,
+    filterPriority, filterTags, filterChannel, filterDateFrom, filterDateTo });
   const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
   if (beat) return <PlannerSkeleton />;
 
-  if (sub === 'kanban') return <KanbanBoard tasks={tasks} setTasks={setTasks} filtered={filtered} fProps={fProps} />;
-  if (sub === 'timeline') return <TimelineView filtered={filtered} fProps={fProps} />;
-  return <CalendarView tasks={tasks} filtered={filtered} fProps={fProps} />;
+  if (sub === 'kanban') return <KanbanBoard tasks={scoped} setTasks={setTasks} filtered={filtered} fProps={fProps} flow={flow} readOnly={readOnly} />;
+  if (sub === 'timeline') return <TimelineView filtered={filtered} fProps={fProps} flow={flow} readOnly={readOnly} />;
+  if (sub === 'list') return <TaskListView filtered={filtered} fProps={fProps} flow={flow} readOnly={readOnly} />;
+  return <CalendarView tasks={scoped} filtered={filtered} fProps={fProps} flow={flow} readOnly={readOnly} />;
 }
 
 /* ---- Calendar (month navigation + week view) — ชื่อเดือนใช้ร่วมจาก lib/dateUtils ---- */
@@ -232,7 +376,94 @@ function TaskChannels({ channel, size = 16 }) {
   return <span className="row" style={{ gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>{m.map((x, i) => <span key={i} title={x.label} style={{ display: 'inline-flex' }}><ChIcon info={x.info} size={size} /></span>)}</span>;
 }
 
-function CalendarView({ filtered, fProps }) {
+/* ---- TaskCard: การ์ดงานใช้ซ้ำ (shadcn Card) — Kanban / My Tasks / read-only share ----
+   props: task · onClick · draggable+onDragStart/onDragEnd · statusColumns+onStatusChange (มือถือ) · readOnly · showFlow (ชิปโครงการ) */
+export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, statusColumns, onStatusChange, readOnly, showFlow }) {
+  const c = DD.campaigns.find(x => x.id === t.camp) || null;
+  const taskFlow = (DD.flows || []).find(fl => (fl.scopeId ?? fl.id ?? '') === (t.flow || '')) || null;
+  const flowChip = showFlow ? (taskFlow || (t.flow ? null : { name: 'งานทั่วไป', color: 'var(--ink-3)' })) : null;
+  // แบรนด์ของโครงการที่งานสังกัด → ชิปต่อจากแคมเปญ
+  const brandChips = ((taskFlow?.brandIds) || []).map(bid => (DD.brands || []).find(b => b.id === bid)).filter(Boolean).slice(0, 2);
+  const clickable = !readOnly && !!onClick;
+  // เช็คลิสต์ (E1) + แจ้งเตือนครบกำหนด (E3) — คำนวณ client จาก dateEnd/reminderDays
+  const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
+  const subDone = subs.filter(s => s.done).length;
+  const dueISO = t.dateEnd || t.dateISO || '';
+  const dueState = (() => {
+    if (!dueISO || t.status === 'done') return null;
+    const today = todayISO();
+    if (dueISO < today) return 'overdue';
+    const days = Math.round((new Date(dueISO) - new Date(today)) / 86400000);
+    return (days >= 0 && days <= (t.reminderDays || 1)) ? 'soon' : null;
+  })();
+  // ชิปหมวดบนซ้าย (สไตล์ ClickUp): แคมเปญ > โครงการ(showFlow) > แท็กแรก
+  const chip = c ? { name: c.name, color: c.color || '#6b5ce0' }
+    : (flowChip ? { name: flowChip.name, color: flowChip.color || '#6b5ce0' }
+      : ((t.tags || [])[0] ? { name: t.tags[0], color: '#6b5ce0' } : null));
+  const assignees = t.responsible || [];
+  const dateLabel = t.date + (t.dateEnd && t.dateEnd !== t.dateISO ? ' → ' + thaiDate(t.dateEnd) : '');
+  const hasChannel = Array.isArray(t.channel) ? t.channel.length > 0 : !!String(t.channel || '').trim();
+  const avatarEl = assignees.length > 0 ? (
+    <div className="flex items-center shrink-0">
+      {assignees.slice(0, 3).map((r, i) => { const s = DD.staff.find(x => x.name === r) || { color: 'var(--ink-3)' }; return <span key={r} className="rounded-lg ring-2 ring-card" style={{ marginLeft: i ? -6 : 0 }}><Avatar name={r} color={s.color} size={22} /></span>; })}
+      {assignees.length > 3 && <span className="text-[10px] text-muted-foreground pl-1">+{assignees.length - 3}</span>}
+    </div>
+  ) : null;
+  return (
+    <Card draggable={!!draggable && !readOnly} role={clickable ? 'button' : undefined} tabIndex={clickable ? 0 : undefined} onKeyDown={clickable ? onCardKey : undefined}
+      onDragStart={draggable && !readOnly ? onDragStart : undefined}
+      onDragEnd={draggable && !readOnly ? onDragEnd : undefined}
+      onClick={clickable ? onClick : undefined}
+      className="p-3" style={{ borderRadius: 'var(--r)', cursor: readOnly ? 'default' : (draggable ? 'grab' : (onClick ? 'pointer' : 'default')), boxShadow: 'var(--sh-sm)', padding: '12px 14px', borderLeft: `3px solid ${c?.color || 'var(--line)'}` }}>
+      {/* หัว: มีชิป → แถวชิป(แคมเปญ+แบรนด์)+avatar แล้วค่อยชื่อ · ไม่มีชิป → ชื่อ+avatar บรรทัดเดียว (ไม่มีแถวว่าง) */}
+      {chip ? (
+        <>
+          <div className="row between" style={{ gap: 6, alignItems: 'center', marginBottom: 6 }}>
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 shrink-0" style={{ background: chip.color + '1f', color: chip.color, maxWidth: 168 }}><span className="size-1.5 rounded-full shrink-0" style={{ background: chip.color }} /><span className="truncate">{chip.name}</span></span>
+              {brandChips.map(b => <span key={b.id} className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1 shrink-0 border" style={{ borderColor: (b.color || '#888') + '55', color: b.color || 'var(--ink-3)' }}><span className="size-1.5 rounded-full shrink-0" style={{ background: b.color || '#888' }} /><span className="truncate max-w-[88px]">{b.name}</span></span>)}
+            </div>
+            {avatarEl}
+          </div>
+          <div className="sm" style={{ fontWeight: 600, lineHeight: 1.35 }}>{t.title}</div>
+        </>
+      ) : (
+        <div className="row between" style={{ gap: 8, alignItems: 'flex-start' }}>
+          <div className="sm" style={{ fontWeight: 600, lineHeight: 1.35, flex: 1, minWidth: 0 }}>{t.title}</div>
+          {avatarEl}
+        </div>
+      )}
+      {/* meta: วันที่ + เลยกำหนด/ใกล้ครบ + เช็คลิสต์ + ความสำคัญ */}
+      <div className="row wrap" style={{ gap: 6, alignItems: 'center', marginTop: 7 }}>
+        <span className="cap inline-flex items-center gap-1"><Icon name="calendarDays" className="size-3.5" />{dateLabel}</span>
+        {dueState === 'overdue' && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-500/15 text-red-600 dark:text-red-400">เลยกำหนด</span>}
+        {dueState === 'soon' && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">ใกล้ครบ</span>}
+        {subs.length > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-1 ${subDone === subs.length ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-muted text-muted-foreground'}`}><Icon name="listChecks" className="size-3" />{subDone}/{subs.length}</span>}
+        {t.priority && t.priority !== 'medium' && <PriorityTag value={t.priority} />}
+      </div>
+      {/* แท็ก */}
+      {(t.tags || []).length > 0 && <div className="row wrap" style={{ gap: 4, marginTop: 6 }}>{t.tags.slice(0, 4).map(tg => <span key={tg} className="text-[10px] px-1.5 rounded-full bg-muted text-muted-foreground">{tg}</span>)}</div>}
+      {/* ล่าง: ช่องทาง (ซ้าย) + จำนวนคอมเมนต์ (ขวา) */}
+      {(hasChannel || t.commentCount > 0) && (
+        <div className="row" style={{ gap: 6, alignItems: 'center', marginTop: 8 }}>
+          {hasChannel && <TaskChannels channel={t.channel} size={16} />}
+          {t.commentCount > 0 && <span className="cap inline-flex items-center gap-1" style={{ marginLeft: 'auto' }} title={`${t.commentCount} ความคิดเห็น`}><Icon name="chat" className="size-3.5" />{t.commentCount}</span>}
+        </div>
+      )}
+      {statusColumns && onStatusChange && !readOnly && (
+        <select className="mobile-only" value={t.status} aria-label="ย้ายสถานะงาน"
+          onClick={e => e.stopPropagation()}
+          onChange={e => { e.stopPropagation(); onStatusChange(t.id, e.target.value); }}
+          style={{ marginTop: 7, maxWidth: '100%', padding: '3px 6px', fontSize: 'var(--fs-cap)', height: 'auto', color: 'var(--ink-3)', fontFamily: 'var(--font)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', background: 'transparent', cursor: 'pointer' }}>
+          {statusColumns.map(k => <option key={k.id} value={k.id}>ย้ายไป {k.label}</option>)}
+        </select>
+      )}
+    </Card>
+  );
+}
+
+function CalendarView({ filtered, fProps, flow, readOnly }) {
+  const newTaskBase = flow ? { flow_id: (flow.scopeId ?? flow.id) } : {};
   const T = getToday();                       // วันจริง
   const curY = T.yearBE, curM = T.month - 1;  // เดือนปัจจุบัน (0-indexed)
   const [ym, setYm] = useState({ y: curY, m: curM });
@@ -266,10 +497,39 @@ function CalendarView({ filtered, fProps }) {
 
   const selTasks = byDay[sel] || [];
 
-  const DayCell = ({ d }) => {
-    if (!d) return <div style={{ borderRadius: 'var(--r-sm)' }}></div>;
+  // ลากงานเปลี่ยนวัน (E3) — ลากการ์ดมาวางที่ช่องวัน → อัปเดต date
+  const dragId = React.useRef(null);
+  const [dropDay, setDropDay] = useState(null);
+  const [dragActive, setDragActive] = useState(false); // ไฮไลต์ช่องวันเฉพาะตอนกำลังลากจริง (กัน border ค้าง)
+  const dayRef = React.useRef(null); // เลื่อนมาที่ส่วน "งานวันที่เลือก" เมื่อกดวัน
+  // กันไฮไลต์ค้าง: ปล่อยลากนอกกริด/บางเบราว์เซอร์ไม่ยิง dragend ที่การ์ด → รีเซ็ตที่ระดับ window เสมอ
+  React.useEffect(() => {
+    const reset = () => { dragId.current = null; setDragActive(false); setDropDay(null); };
+    window.addEventListener('dragend', reset);
+    window.addEventListener('drop', reset);
+    return () => { window.removeEventListener('dragend', reset); window.removeEventListener('drop', reset); };
+  }, []);
+  const reschedule = async (id, day) => {
+    const wasDay = dropDay; dragId.current = null; setDropDay(null);
+    if (!id || readOnly) return;
+    if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
+    const iso = `${greg}-${String(ym.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const task = filtered.find(t => t.id === id);
+    if (task && (task.dateISO || parseTaskDate(task.date)) === iso) return;
+    void wasDay;
+    try {
+      const { error } = await supabase.from('tmk_tasks').update({ date: iso }).eq('id', id);
+      if (error) throw error;
+      logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `เลื่อนวันงาน "${task?.title || ''}" → ${day} ${MONTHS_TH_SHORT[ym.m]}`, flowId: task?.flow ?? '' });
+      window.__refresh?.(['tmk_tasks']);
+    } catch (err) { window.__toast?.('เลื่อนวันไม่สำเร็จ: ' + (err?.message || ''), 'error'); }
+  };
+
+  // เรนเดอร์เป็น "ฟังก์ชัน" (ไม่ใช่ <Component/>) — JSX inline reconcile ตาม key แทนที่จะ unmount/remount ทุกครั้งที่ตั้ง dropDay (กัน flicker + drag event หลุดตอนลาก)
+  const renderCell = (d, i) => {
+    if (!d) return <div key={i} style={{ borderRadius: 'var(--r-sm)' }}></div>;
     const ts = byDay[d] || [];
-    const isSel = d === sel, isToday = d === todayDay;
+    const isSel = d === sel, isToday = d === todayDay, isDrop = dragActive && dropDay === d;
     const show = ts.slice(0, 3);
     const more = ts.length - 3;
     // ไอคอนแพลตฟอร์มของวันนี้ — แตกครบทุกช่องทางจากทุกงาน + dedup
@@ -279,9 +539,13 @@ function CalendarView({ filtered, fProps }) {
       if (seen.has(key)) return; seen.add(key); dayInfos.push(info);
     }));
     return (
-      <button onClick={() => setSel(d)} style={{
-        border: isSel ? '2px solid var(--accent)' : isToday ? '1px solid var(--accent-ring)' : '1px solid var(--line)',
-        background: isSel ? 'var(--accent-soft)' : 'var(--surface)',
+      <button key={i} onClick={() => setSel(d)}
+        onDragOver={readOnly ? undefined : (e) => { e.preventDefault(); if (dropDay !== d) setDropDay(d); }}
+        onDragLeave={readOnly ? undefined : () => setDropDay(dd => dd === d ? null : dd)}
+        onDrop={readOnly ? undefined : () => { setDragActive(false); reschedule(dragId.current, d); }}
+        style={{
+        border: isDrop ? '2px dashed var(--accent)' : isSel ? '2px solid var(--accent)' : isToday ? '1px solid var(--accent-ring)' : '1px solid var(--line)',
+        background: isDrop ? 'var(--accent-soft)' : isSel ? 'var(--accent-soft)' : 'var(--surface)',
         borderRadius: 'var(--r-sm)', padding: '6px', display: 'flex', flexDirection: 'column',
         gap: 2, textAlign: 'left', alignItems: 'stretch', height: '100%',
         boxShadow: isSel ? '0 0 0 2px var(--accent-ring)' : 'none',
@@ -318,68 +582,62 @@ function CalendarView({ filtered, fProps }) {
   return (
     <div className="content-inner rise">
       <PlannerFilters {...fProps} />
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) 240px', gap: 14, alignItems: 'start' }}>
-        <Card className="p-[22px]">
-          <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4 flex-wrap gap-[10px]">
-            <div className="row" style={{ gap: 8 }}>
-              <button className="icon-btn" onClick={() => shiftMonth(-1)} title="เดือนก่อน"><span style={{ transform: 'rotate(180deg)', display: 'grid' }}><Icon name="chevR" /></span></button>
-              <h3 style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>{MONTHS_TH[ym.m]} {ym.y}</h3>
-              <button className="icon-btn" onClick={() => shiftMonth(1)} title="เดือนถัดไป"><Icon name="chevR" /></button>
-              <Button variant="outline" size="sm" onClick={goToday}>วันนี้</Button>
-            </div>
-          </CardHeader>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5 }}>
-            {DAY_LABELS.map(d => <div key={d} className="cap" style={{ textAlign: 'center', padding: '6px 0', fontWeight: 'var(--fw-sem)' }}>{d}</div>)}
-          </div>
-          <div className="cal-month-grid">
-            {cells.map((d, i) => <DayCell key={i} d={d} />)}
-          </div>
-        </Card>
-
-        <Card className="p-[22px]">
-          <div className="eyebrow" style={{ marginBottom: 4 }}>{sel} {MONTHS_TH_SHORT[ym.m]} {ym.y}</div>
-          <div className="row between" style={{ marginBottom: 14 }}>
-            <h3>{selTasks.length} งาน</h3>
-            <Button size="sm" onClick={() => window.__openModal('task', { date: `${greg}-${String(ym.m + 1).padStart(2, '0')}-${String(sel).padStart(2, '0')}` })}><Icon name="plus" /> เพิ่ม</Button>
-          </div>
-          {selTasks.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}>
-              <span style={{ display: 'inline-block', width: 36, height: 36 }}><Icon name="calendarDays" /></span>
-              <div className="cap" style={{ marginTop: 8 }}>ไม่มีงานในวันที่เลือก</div>
-            </div>
-          ) : selTasks.map(t => {
-            const c = DD.campaigns.find(x => x.id === t.camp);
-            const stLabel = { done: 'เสร็จ', review: 'รอตรวจ', inprogress: 'กำลังทำ', todo: 'รอ' };
-            const stCls = { done: 'chip-good', review: 'chip-warn', inprogress: 'chip-accent', todo: '' };
-            return (
-              <div key={t.id} role="button" tabIndex={0} onKeyDown={onCardKey} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', marginBottom: 8, borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
-                <div style={{ marginBottom: 6, minWidth: 0 }}>
-                  <div className="h3" style={{ wordBreak: 'break-word' }}>{t.title}</div>
-                  {t.detail && <div className="cap" style={{ marginTop: 1, wordBreak: 'break-word' }}>{t.detail}</div>}
-                </div>
-                <div className="row wrap" style={{ gap: 10, marginBottom: 8 }}>
-                  <div style={{ minWidth: 0 }}><div className="cap">แคมเปญ</div><Badge variant="outline" style={{ background: `color-mix(in srgb, ${c?.color || '#888'} 16%, transparent)`, color: `color-mix(in srgb, ${c?.color || '#888'} 72%, var(--ink))`, maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block', verticalAlign: 'bottom' }}>{c?.name || '-'}</Badge></div>
-                  <div><div className="cap">ช่องทาง</div><TaskChannels channel={t.channel} size={16} /></div>
-                  <div><div className="cap">สถานะ</div><Badge variant={chipVar2(stCls[t.status] || '')} style={{ whiteSpace: 'nowrap' }}>{stLabel[t.status]}</Badge></div>
-                </div>
-                <div className="row wrap" style={{ gap: 6, alignItems: 'center' }}>
-                  <span className="cap" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>ผู้รับผิดชอบ:</span>
-                  {(t.responsible || []).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Badge key={r} variant="outline" style={{ background: `color-mix(in srgb, ${s.color} 16%, transparent)`, color: `color-mix(in srgb, ${s.color} 72%, var(--ink))`, whiteSpace: 'nowrap' }}>{r}</Badge>; })}
-                </div>
+      {/* การ์ดเดียว: ปฏิทิน (ซ้าย) + งานวันที่เลือก (ขวา) รวมในกล่องเดียว */}
+      <Card className="p-0 overflow-hidden">
+        <div className="grid cal-layout" style={{ gridTemplateColumns: 'minmax(0, 1fr) 320px', alignItems: 'stretch' }}>
+          {/* ฝั่งปฏิทิน */}
+          <div className="p-[22px]">
+            <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4 flex-wrap gap-[10px]">
+              <div className="row" style={{ gap: 8 }}>
+                <button className="icon-btn" onClick={() => shiftMonth(-1)} title="เดือนก่อน"><span style={{ transform: 'rotate(180deg)', display: 'grid' }}><Icon name="chevR" /></span></button>
+                <h3 style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>{MONTHS_TH[ym.m]} {ym.y}</h3>
+                <button className="icon-btn" onClick={() => shiftMonth(1)} title="เดือนถัดไป"><Icon name="chevR" /></button>
+                <Button variant="outline" size="sm" onClick={goToday}>วันนี้</Button>
               </div>
-            );
-          })}
-        </Card>
-      </div>
+            </CardHeader>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5 }}>
+              {DAY_LABELS.map(d => <div key={d} className="cap" style={{ textAlign: 'center', padding: '6px 0', fontWeight: 'var(--fw-sem)' }}>{d}</div>)}
+            </div>
+            <div className="cal-month-grid">
+              {cells.map((d, i) => renderCell(d, i))}
+            </div>
+          </div>
+
+          {/* ฝั่งงานวันที่เลือก — เส้นแบ่งในการ์ดเดียวกัน */}
+          <div ref={dayRef} className="cal-day-panel p-[22px]" style={{ borderLeft: '1px solid var(--line)', background: 'var(--surface-2, transparent)' }}>
+            <div className="eyebrow" style={{ marginBottom: 4 }}>{sel} {MONTHS_TH_SHORT[ym.m]} {ym.y}</div>
+            <div className="row between" style={{ marginBottom: 14 }}>
+              <h3>{selTasks.length} งาน</h3>
+              {!readOnly && <Button size="sm" onClick={() => window.__openModal('task', { ...newTaskBase, date: `${greg}-${String(ym.m + 1).padStart(2, '0')}-${String(sel).padStart(2, '0')}` })}><Icon name="plus" /> เพิ่ม</Button>}
+            </div>
+            {selTasks.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-4)' }}>
+                <span style={{ display: 'inline-block', width: 36, height: 36 }}><Icon name="calendarDays" /></span>
+                <div className="cap" style={{ marginTop: 8 }}>ไม่มีงานในวันที่เลือก</div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {selTasks.map(t => (
+                  <TaskCard key={t.id} task={t} showFlow={!flow} readOnly={readOnly}
+                    draggable={!readOnly} onDragStart={() => { dragId.current = t.id; setDragActive(true); }} onDragEnd={() => { dragId.current = null; setDragActive(false); setDropDay(null); }}
+                    onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
 
 /* ---- Kanban with drag & drop ---- */
-function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
+function KanbanBoard({ tasks, setTasks, filtered, fProps, flow, readOnly }) {
   const [over, setOver] = React.useState(null);
   const dragId = React.useRef(null);
+  const columns = flowColumns(flow);
+  const newTaskBase = flow ? { flow_id: (flow.scopeId ?? flow.id) } : {};
   // ย้ายสถานะงาน — ใช้ทั้ง drag (desktop) และ select (มือถือ ที่ลากไม่ได้)
   const moveTask = async (id, status) => {
     if (!id) return;
@@ -391,27 +649,51 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
     try {
       const { error } = await supabase.from('tmk_tasks').update({ status }).eq('id', id);
       if (error) throw error;
-      const stLabel = (DD.kanbanMeta.find(k => k.id === status) || {}).label || status;
-      logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}` });
-      window.__reload?.(); // sync TMK.tasks (notif/profile/export) ไม่ต้องรอ realtime
+      const stLabel = (columns.find(k => k.id === status) || {}).label || status;
+      logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}`, flowId: task?.flow ?? '' });
+      window.__refresh?.(['tmk_tasks']); // sync TMK.tasks (notif/profile/export) ไม่ต้องรอ realtime
     } catch (err) {
       setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t));
       if (window.__toast) window.__toast('ย้ายไม่สำเร็จ: ' + err.message, 'error');
     }
   };
-  const onDrop = (status) => { const id = dragId.current; dragId.current = null; setOver(null); moveTask(id, status); };
+  // ลากจัดลำดับในคอลัมน์ + ย้ายข้ามคอลัมน์ (E3) — reindex sort_order · graceful ถ้าคอลัมน์ sort_order ยังไม่ migrate
+  const reorder = async (id, targetId, status) => {
+    setOver(null);
+    if (!id || id === targetId) return;
+    if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
+    const dragged = tasks.find(t => t.id === id); if (!dragged) return;
+    const col = tasks.filter(t => t.status === status && t.id !== id).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    let at = targetId ? col.findIndex(t => t.id === targetId) : col.length;
+    if (at < 0) at = col.length;
+    col.splice(at, 0, dragged);
+    const updates = col.map((t, i) => ({ id: t.id, sort_order: (i + 1) * 10 }));
+    setTasks(ts => ts.map(t => { const u = updates.find(x => x.id === t.id); return (u || t.id === id) ? { ...t, sortOrder: u ? u.sort_order : t.sortOrder, status: t.id === id ? status : t.status } : t; }));
+    const changed = updates.filter(u => { const o = tasks.find(t => t.id === u.id); return o && (o.sortOrder !== u.sort_order || (u.id === id && o.status !== status)); });
+    try {
+      for (const u of changed) {
+        const patch = (u.id === id) ? { sort_order: u.sort_order, status } : { sort_order: u.sort_order };
+        let { error } = await supabase.from('tmk_tasks').update(patch).eq('id', u.id);
+        if (error && /sort_order/.test(error.message || '')) { ({ error } = u.id === id ? await supabase.from('tmk_tasks').update({ status }).eq('id', u.id) : { error: null }); } // graceful: ยังไม่ migrate sort_order → ย้ายสถานะอย่างเดียว
+        if (error) throw error;
+      }
+      if (dragged.status !== status) { const stLabel = (columns.find(k => k.id === status) || {}).label || status; logAudit({ action: 'move', entityType: 'task', entityName: dragged.title, summary: `ย้ายงาน "${dragged.title}" → ${stLabel}`, flowId: dragged.flow ?? '' }); }
+      window.__refresh?.(['tmk_tasks']);
+    } catch (err) { window.__refresh?.(['tmk_tasks']); window.__toast?.('จัดลำดับไม่สำเร็จ: ' + (err?.message || ''), 'error'); }
+  };
+  const onDrop = (status) => { const id = dragId.current; dragId.current = null; reorder(id, null, status); };
   return (
     <div className="content-inner rise">
       <PlannerFilters {...fProps} />
-      <div className="grid g4 planner-kanban" style={{ gap: 14, alignItems: 'start' }}>
-        {DD.kanbanMeta.map(col => {
-          const list = filtered.filter(t => t.status === col.id);
-          const tone = { todo: 'var(--ink-3)', inprogress: 'var(--info)', review: 'var(--warn)', done: 'var(--good)' }[col.id];
+      <div className="planner-kanban" style={{ gap: 14, alignItems: 'start' }}>
+        {columns.map(col => {
+          const list = filtered.filter(t => t.status === col.id).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+          const tone = col.color || { todo: 'var(--ink-3)', inprogress: 'var(--info)', review: 'var(--warn)', done: 'var(--good)' }[col.id] || 'var(--ink-3)';
           return (
             <div key={col.id}
-              onDragOver={e => { e.preventDefault(); if (over !== col.id) setOver(col.id); }}
-              onDragLeave={() => setOver(o => o === col.id ? null : o)}
-              onDrop={() => onDrop(col.id)}
+              onDragOver={readOnly ? undefined : e => { e.preventDefault(); if (over !== col.id) setOver(col.id); }}
+              onDragLeave={readOnly ? undefined : () => setOver(o => o === col.id ? null : o)}
+              onDrop={readOnly ? undefined : () => onDrop(col.id)}
               style={{ background: over === col.id ? 'var(--accent-soft)' : 'var(--surface-2)', borderRadius: 'var(--r-lg)', padding: 12, minHeight: 200, transition: 'background 0.15s', border: over===col.id?'1.5px dashed var(--accent)':'1.5px dashed transparent' }}>
               <div className="row between" style={{ padding: '2px 4px 12px' }}>
                 <span className="row" style={{ gap: 8, fontWeight: 700, fontSize: 'var(--fs-sm)' }}>
@@ -419,47 +701,26 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
                 <Badge variant="secondary">{list.length}</Badge>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                {list.map(t => {
-                  const c = DD.campaigns.find(x => x.id === t.camp) || { name: '', color: '#888' };
-                  return (
-                    <Card key={t.id} draggable role="button" tabIndex={0} onKeyDown={onCardKey}
+                {list.map(t => (
+                  <div key={t.id}
+                    onDragOver={readOnly ? undefined : e => { e.preventDefault(); if (over !== col.id) setOver(col.id); }}
+                    onDrop={readOnly ? undefined : e => { e.stopPropagation(); const id = dragId.current; dragId.current = null; reorder(id, t.id, col.id); }}>
+                    <TaskCard task={t} draggable={!readOnly} readOnly={readOnly}
+                      onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
                       onDragStart={() => { dragId.current = t.id; }}
                       onDragEnd={() => { dragId.current = null; setOver(null); }}
-                      onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
-                      className="p-3" style={{ borderRadius: 'var(--r)', cursor: 'grab', boxShadow: 'var(--sh-sm)', padding: '12px 14px', borderLeft: `3px solid ${c.color}` }}>
-                      <div className="row between" style={{ marginBottom: 4 }}>
-                        <div>
-                          <div className="sm" style={{ fontWeight: 600, lineHeight: 1.35 }}>{t.title}</div>
-                          {t.detail && <div className="cap" style={{ marginTop: 2 }}>{t.detail}</div>}
-                        </div>
-                      </div>
-                      <div className="row wrap" style={{ gap: 6 }}>
-                        <Badge variant="outline" style={{ background: c.color+'22', color: c.color }}>{c.name}</Badge>
-                        <TaskChannels channel={t.channel} size={16} />
-                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span className="cap">{t.date}</span>
-                          {(t.responsible || []).slice(0,2).map(r => { const s = DD.staff.find(x=>x.name===r)||{color:'#888'}; return <Avatar key={r} name={r} color={s.color} size={20} />; })}
-                        </div>
-                      </div>
-                      {/* มือถือลากไม่ได้ → select ย้ายสถานะ (คอนโทรลเล็ก กว้างตามเนื้อหา ไม่เต็มแถว · select ไม่ทำ iOS ซูม) */}
-                      <select className="mobile-only" value={t.status} aria-label="ย้ายสถานะงาน"
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => { e.stopPropagation(); moveTask(t.id, e.target.value); }}
-                        style={{ marginTop: 7, maxWidth: '100%', padding: '3px 6px', fontSize: 'var(--fs-cap)', height: 'auto', color: 'var(--ink-3)', fontFamily: 'var(--font)', border: '1px solid var(--line)', borderRadius: 'var(--r-xs)', background: 'transparent', cursor: 'pointer' }}>
-                        {DD.kanbanMeta.map(k => <option key={k.id} value={k.id}>ย้ายไป {k.label}</option>)}
-                      </select>
-                    </Card>
-                  );
-                })}
-                {list.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: '16px 0', opacity: 0.6 }}>ลากการ์ดมาที่นี่</div>}
-                <button onClick={() => window.__openModal('task', { status: col.id })} style={{
+                      statusColumns={columns} onStatusChange={moveTask} />
+                  </div>
+                ))}
+                {list.length === 0 && <div className="cap" style={{ textAlign: 'center', padding: '16px 0', opacity: 0.6 }}>{readOnly ? 'ไม่มีงาน' : 'ลากการ์ดมาที่นี่'}</div>}
+                {!readOnly && <button onClick={() => window.__openModal('task', { ...newTaskBase, status: col.id })} style={{
                   width: '100%', padding: '10px', border: '1.5px dashed var(--line)', borderRadius: 'var(--r-sm)',
                   background: 'transparent', cursor: 'pointer', color: 'var(--ink-3)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   fontSize: 'var(--fs-sm)', fontFamily: 'var(--font)', marginTop: 4,
                 }}>
                   <Icon name="plus" /> เพิ่มงาน
-                </button>
+                </button>}
               </div>
             </div>
           );
@@ -470,12 +731,15 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps }) {
 }
 
 /* ---- Smart Planner Timeline (vertical) ---- */
-function TimelineView({ filtered, fProps }) {
+function TimelineView({ filtered, fProps, flow, readOnly }) {
   const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, cancelled: { l: 'ยกเลิก', cls: '' }, done: { l: 'จบแล้ว', cls: '' } };
+  const doneIds = doneIdsOf(flow);
+  const newTaskBase = flow ? { flow_id: (flow.scopeId ?? flow.id) } : {};
+  const campScope = fProps.campScope;
 
-  // Campaign progress
+  // Campaign progress — นับเฉพาะงานในขอบเขตโครงการ (ถ้ามี)
   const campTasks = {};
-  DD.tasks.forEach(t => { campTasks[t.camp] = campTasks[t.camp] || []; campTasks[t.camp].push(t); });
+  (flow ? (DD.tasks || []).filter(t => (t.flow || '') === (flow.scopeId ?? flow.id ?? '')) : (DD.tasks || [])).forEach(t => { campTasks[t.camp] = campTasks[t.camp] || []; campTasks[t.camp].push(t); });
 
   // Stats
   // เทียบด้วยวันที่จริง (รองรับงานข้ามเดือน) — ไม่ใช่แค่เลขวัน
@@ -493,13 +757,14 @@ function TimelineView({ filtered, fProps }) {
 
       {/* Campaign progress cards */}
       <div className="grid g3" style={{ marginBottom: 14, gap: 10 }}>
-        {DD.campaigns.filter(c => !fProps.filterCamp || c.id === fProps.filterCamp).map(c => {
+        {DD.campaigns.filter(c => (!campScope || campScope.includes(c.id)) && (!fProps.filterCamp?.length || fProps.filterCamp.includes(c.id))).map(c => {
           const tasks = campTasks[c.id] || [];
-          const done = tasks.filter(t => t.status === 'done').length;
+          const done = tasks.filter(t => doneIds.has(t.status)).length;
           const pct = tasks.length > 0 ? Math.round((done / tasks.length) * 100) : 0;
           const st = stMeta[c.status] || stMeta.done; // กัน status แปลก → จอขาว
+          const campSel = (fProps.filterCamp || []).includes(c.id);
           return (
-            <Card key={c.id} className="p-3" style={{ display: 'flex', alignItems: 'center', gap: 14, borderLeft: `3px solid ${c.color}`, cursor: 'pointer' }} onClick={() => fProps.setFilterCamp(fProps.filterCamp === c.id ? null : c.id)}>
+            <Card key={c.id} className="p-3" style={{ display: 'flex', alignItems: 'center', gap: 14, borderLeft: `3px solid ${c.color}`, cursor: 'pointer' }} onClick={() => fProps.setFilterCamp(campSel ? (fProps.filterCamp || []).filter(x => x !== c.id) : [...(fProps.filterCamp || []), c.id])}>
               <Ring pct={pct} size={48} stroke={5} color={c.color}><span className="num" style={{ fontSize: 'var(--fs-micro)', fontWeight: 700 }}>{pct}%</span></Ring>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
@@ -515,7 +780,7 @@ function TimelineView({ filtered, fProps }) {
       <Card className="p-[22px]">
         <div className="row between" style={{ marginBottom: 12 }}>
           <span></span>
-          <Button size="sm" onClick={() => window.__openModal('task')}><Icon name="plus" /> เพิ่มงาน</Button>
+          {!readOnly && <Button size="sm" onClick={() => window.__openModal('task', { ...newTaskBase })}><Icon name="plus" /> เพิ่มงาน</Button>}
         </div>
         {dateKeys.length === 0 && <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-3)' }}><Icon name="search" /><div className="cap" style={{ marginTop: 6 }}>ไม่พบงานตามเงื่อนไข</div></div>}
         <div style={{ position: 'relative', paddingLeft: 32 }}>
@@ -544,36 +809,126 @@ function TimelineView({ filtered, fProps }) {
                 </div>
                 {/* Task cards */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {tasks.map(t => {
-                    const c = DD.campaigns.find(x => x.id === t.camp);
-                    const isDone = t.status === 'done';
-                    const isOverdue = isPast && !isDone;
-                    return (
-                      <div key={t.id} role="button" tabIndex={0} onKeyDown={onCardKey} onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ padding: '12px 14px', borderRadius: 'var(--r-sm)', background: 'var(--surface)', border: '1px solid var(--line)', borderLeft: `3px solid ${c?.color || '#888'}`, cursor: 'pointer' }}>
-                        <div className="row between" style={{ marginBottom: 6 }}>
-                          <div>
-                            <div className="h3" style={{ textDecoration: isDone ? 'line-through' : 'none', color: isDone ? 'var(--ink-3)' : 'var(--ink)' }}>{t.title}</div>
-                            {t.detail && <div className="cap" style={{ marginTop: 1 }}>{t.detail}</div>}
-                          </div>
-                          {isOverdue && <Badge variant="danger">เกินกำหนด</Badge>}
-                        </div>
-                        <div className="row wrap" style={{ gap: 8 }}>
-                          <Badge variant="outline" style={{ background: (c?.color || '#888') + '22', color: c?.color || '#888' }}>{c?.name || '-'}</Badge>
-                          <TaskChannels channel={t.channel} size={16} />
-                          <Badge variant={chipVar2(stCls[t.status] || '')}>{stLabel[t.status]}</Badge>
-                          <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
-                            {(t.responsible || []).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Avatar key={r} name={r} color={s.color} size={22} />; })}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {tasks.map(t => (
+                    <TaskCard key={t.id} task={t} showFlow={!flow} readOnly={readOnly}
+                      onClick={() => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} />
+                  ))}
                 </div>
               </div>
             );
           })}
         </div>
       </Card>
+    </div>
+  );
+}
+
+/* ---- ความสำคัญงาน (priority) — ป้าย/สี ใช้ร่วมทุกวิว ---- */
+const PRIORITY_META = { high: { label: 'สูง', color: '#cf4d5c', bg: 'rgba(207,77,92,0.12)' }, medium: { label: 'กลาง', color: '#c08a3e', bg: 'rgba(192,138,62,0.12)' }, low: { label: 'ต่ำ', color: '#64748b', bg: 'rgba(100,116,139,0.12)' } };
+function PriorityTag({ value }) {
+  const m = PRIORITY_META[value] || PRIORITY_META.medium;
+  return <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums" style={{ color: m.color, background: m.bg }}><span className="size-1.5 rounded-full" style={{ background: m.color }} />{m.label}</span>;
+}
+
+/* ---- List view (วิวที่ 5 · จัดกลุ่มตามสถานะ + ตาราง · เลือกหลายงาน+จัดกลุ่ม E2) ---- */
+function TaskListView({ filtered, fProps, flow, readOnly }) {
+  const cols = flowColumns(flow);
+  const newTaskBase = flow ? { flow_id: (flow.scopeId ?? flow.id) } : {};
+  const [sel, setSel] = useState(() => new Set());
+  const selArr = [...sel];
+  const canEdit = !readOnly && !!window.__canEdit; // bulk เลือก/ลบ ต้องมีสิทธิ์แก้ไข (ไม่ใช่แค่ไม่ใช่โหมดแชร์)
+  const toggle = (id) => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleGroup = (list) => setSel(s => { const n = new Set(s); const ids = list.map(t => t.id); const allOn = ids.every(id => n.has(id)); ids.forEach(id => allOn ? n.delete(id) : n.add(id)); return n; });
+  const clearSel = () => setSel(new Set());
+  const members = ((flow?.members?.length ? flow.members : (DD.staff || []).map(s => s.name)) || []).filter(Boolean);
+  const bulkStatus = async (status) => {
+    const ids = selArr; if (!ids.length || !window.__canEdit) return;
+    try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ status }).eq('id', id))); ids.forEach(id => { const t = filtered.find(x => x.id === id); logAudit({ action: 'move', entityType: 'task', entityName: t?.title || id, summary: `ย้ายงาน "${t?.title || ''}" → ${(cols.find(k => k.id === status) || {}).label || status}`, flowId: t?.flow ?? '' }); }); window.__refresh?.(['tmk_tasks']); window.__toast?.(`เปลี่ยนสถานะ ${ids.length} งาน`, 'success'); clearSel(); }
+    catch (e) { window.__toast?.('ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+  };
+  const bulkAssign = async (name) => {
+    const ids = selArr; if (!ids.length || !window.__canEdit) return;
+    try {
+      await Promise.all(ids.map(id => { const t = filtered.find(x => x.id === id); const cur = t?.responsible || []; return cur.includes(name) ? Promise.resolve() : supabase.from('tmk_tasks').update({ responsible: [...cur, name].join(', ') }).eq('id', id); }));
+      window.__refresh?.(['tmk_tasks']); window.__toast?.(`มอบหมาย "${name}" ให้ ${ids.length} งาน`, 'success'); clearSel();
+    } catch (e) { window.__toast?.('ไม่สำเร็จ', 'error'); }
+  };
+  const bulkDelete = async () => {
+    const ids = selArr; if (!ids.length || !window.__canEdit) return;
+    if (!await window.__confirm?.({ title: `ลบ ${ids.length} งาน`, body: 'ย้ายงานที่เลือกไปถังขยะ (กู้คืนได้)?', danger: true, confirmText: 'ลบ' })) return;
+    try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id))); window.__refresh?.(['tmk_tasks']); window.__toast?.(`ลบ ${ids.length} งานแล้ว`, 'success'); clearSel(); }
+    catch (e) { window.__toast?.('ลบไม่สำเร็จ', 'error'); }
+  };
+  return (
+    <div className="content-inner rise">
+      <PlannerFilters {...fProps} />
+      <div className="flex flex-col gap-5">
+        {cols.map(col => {
+          const list = filtered.filter(t => t.status === col.id);
+          const tone = col.color || { todo: 'var(--ink-3)', inprogress: 'var(--info)', review: 'var(--warn)', done: 'var(--good)' }[col.id] || 'var(--ink-3)';
+          const allOn = list.length > 0 && list.every(t => sel.has(t.id));
+          return (
+            <div key={col.id} className="rounded-lg border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b">
+                <span className="flex items-center gap-2 font-bold text-sm"><span className="size-2.5 rounded-full" style={{ background: tone }} />{col.label}</span>
+                <Badge variant="secondary">{list.length}</Badge>
+              </div>
+              {list.length === 0 ? (
+                <div className="px-4 py-3 text-xs text-muted-foreground">ไม่มีงานในสถานะนี้</div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      {canEdit && <TableHead className="w-9"><ShadcnCheckbox checked={allOn} onCheckedChange={() => toggleGroup(list)} aria-label="เลือกทั้งหมด" /></TableHead>}
+                      <TableHead className="w-[40%]">งาน</TableHead>
+                      <TableHead className="hidden md:table-cell">รายละเอียด</TableHead>
+                      <TableHead className="w-24">วันที่</TableHead>
+                      <TableHead className="w-20">สำคัญ</TableHead>
+                      <TableHead className="w-28">ทีม</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {list.map(t => {
+                      const c = DD.campaigns.find(x => x.id === t.camp);
+                      return (
+                        <TableRow key={t.id} data-state={sel.has(t.id) ? 'selected' : undefined} className={readOnly ? '' : 'cursor-pointer'} onClick={readOnly ? undefined : () => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}>
+                          {canEdit && <TableCell onClick={e => e.stopPropagation()}><ShadcnCheckbox checked={sel.has(t.id)} onCheckedChange={() => toggle(t.id)} aria-label="เลือกงาน" /></TableCell>}
+                          <TableCell>
+                            <div className="font-medium text-[13px] flex items-center gap-2" style={{ borderLeft: `3px solid ${c?.color || '#888'}`, paddingLeft: 8 }}>{t.title}</div>
+                            {(t.tags || []).length > 0 && <div className="flex flex-wrap gap-1 mt-1 pl-2">{t.tags.slice(0, 4).map(tg => <span key={tg} className="text-[10px] px-1.5 rounded-full bg-muted text-muted-foreground">{tg}</span>)}</div>}
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell"><span className="text-xs text-muted-foreground line-clamp-1 max-w-[260px]">{t.detail || '—'}</span></TableCell>
+                          <TableCell className="text-xs tabular-nums whitespace-nowrap">{t.date}{t.dateEnd ? <span className="text-muted-foreground"> – {thaiDate(t.dateEnd)}</span> : ''}</TableCell>
+                          <TableCell><PriorityTag value={t.priority} /></TableCell>
+                          <TableCell><div className="flex items-center -space-x-1.5">{(t.responsible || []).slice(0, 3).map(r => { const s = DD.staff.find(x => x.name === r) || { color: '#888' }; return <Avatar key={r} name={r} color={s.color} size={20} />; })}</div></TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+              {!readOnly && <button onClick={() => window.__openModal('task', { ...newTaskBase, status: col.id })} className="w-full px-4 py-2 text-xs text-muted-foreground hover:bg-muted/30 flex items-center gap-1.5 border-t"><Icon name="plus" className="size-3.5" /> เพิ่มงานใน "{col.label}"</button>}
+            </div>
+          );
+        })}
+      </div>
+      {/* แถบจัดการกลุ่ม — ลอยล่างจอเมื่อเลือก ≥1 งาน */}
+      {sel.size > 0 && canEdit && (
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-6 z-40 flex items-center gap-1.5 rounded-xl border bg-popover shadow-lg px-3 py-2">
+          <span className="text-sm font-semibold px-1">เลือก {sel.size}</span>
+          <span className="w-px h-5 bg-border mx-1" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8"><Icon name="circle" className="size-4 mr-1" /> สถานะ</Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="center" side="top">{cols.map(k => <DropdownMenuItem key={k.id} onClick={() => bulkStatus(k.id)}><span className="size-2 rounded-full mr-2" style={{ background: k.color || '#94a3b8' }} />{k.label}</DropdownMenuItem>)}</DropdownMenuContent>
+          </DropdownMenu>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-8"><Icon name="users" className="size-4 mr-1" /> มอบหมาย</Button></DropdownMenuTrigger>
+            <DropdownMenuContent align="center" side="top" className="max-h-64 overflow-auto">{members.length === 0 ? <DropdownMenuItem disabled>ไม่มีสมาชิก</DropdownMenuItem> : members.map(n => <DropdownMenuItem key={n} onClick={() => bulkAssign(n)}>{n}</DropdownMenuItem>)}</DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="ghost" size="sm" className="h-8 text-destructive hover:bg-destructive/10" onClick={bulkDelete}><Icon name="trash" className="size-4 mr-1" /> ลบ</Button>
+          <Button variant="ghost" size="icon" className="size-8" onClick={clearSel} title="ยกเลิกเลือก"><Icon name="x" className="size-4" /></Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1525,7 +1880,7 @@ function OrdersHub() {
 }
 
 function CampaignsView() {
-  const { reload } = useData() || {};
+  const { reload, refresh } = useData() || {};
   const stMeta = { live: { l: 'กำลังดำเนินการ', cls: 'chip-good' }, upcoming: { l: 'กำลังจะมา', cls: 'chip-accent' }, paused: { l: 'หยุดชั่วคราว', cls: 'chip-warn' }, cancelled: { l: 'ยกเลิก', cls: '' }, done: { l: 'จบแล้ว', cls: '' } };
   const [busy, setBusy] = useState(false);
   const [dragId, setDragId] = useState(null);
@@ -1540,7 +1895,7 @@ function CampaignsView() {
     const msg = linkedTasks > 0
       ? `แคมเปญ "${c.name}" มี ${linkedTasks} งานผูกอยู่ — ลบจะปลด link ไปไม่มีแคมเปญ ยืนยัน?`
       : `ลบแคมเปญ "${c.name}"?`;
-    if (!confirm(msg)) return;
+    if (!await window.__confirm?.({ title: 'ลบแคมเปญ', body: msg, danger: true, confirmText: 'ลบ' })) return;
     setBusy(true);
     try {
       // ปลด link tasks (set camp = NULL) ก่อน
@@ -1551,13 +1906,13 @@ function CampaignsView() {
       const { error } = await supabase.from('tmk_campaigns').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
       if (error) throw error;
       logAudit({ action: 'delete', entityType: 'campaign', entityName: c.name, summary: `ลบแคมเปญ "${c.name}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_campaigns', 'tmk_tasks']); else if (reload) await reload();
       if (window.__toast) window.__toast('ย้ายแคมเปญไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
         onClick: async () => {
           try {
             await supabase.from('tmk_campaigns').update({ deleted_at: null }).eq('id', c.id);
-            if (reload) await reload();
+            if (refresh) await refresh(['tmk_campaigns']); else if (reload) await reload();
             window.__toast?.('กู้คืนแคมเปญแล้ว', 'success');
           } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
         },
@@ -1593,7 +1948,7 @@ function CampaignsView() {
           if (window.__toast) window.__toast('ต้อง alter table เพิ่ม sort_order ก่อน — รัน SQL migration ใหม่', 'warn');
         } else throw failed.error;
       } else if (window.__toast) window.__toast('เรียงลำดับใหม่เรียบร้อย', 'success');
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_campaigns']); else if (reload) await reload();
     } catch (err) {
       if (window.__toast) window.__toast('เลื่อนไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -1740,6 +2095,7 @@ export function SettingsView({ sub, dark, setDark }) {
   const TABS = [
     { id: 'general', label: 'ทั่วไป', icon: 'system' },
     { id: 'channels', label: 'ช่องทาง', icon: 'layers' },
+    { id: 'brands', label: 'แบรนด์', icon: 'store' },
     { id: 'campaigns', label: 'แคมเปญ', icon: 'megaphone' },
     { id: 'duties', label: 'หน้าที่', icon: 'shield' },
     { id: 'targets', label: 'เป้า & คอม', icon: 'target' },
@@ -1782,6 +2138,9 @@ export function SettingsView({ sub, dark, setDark }) {
         </TabsContent>
         <TabsContent value="channels" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           <ChannelsView />
+        </TabsContent>
+        <TabsContent value="brands" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          <BrandsView />
         </TabsContent>
         <TabsContent value="campaigns" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           <CampaignsView />
@@ -2275,6 +2634,7 @@ function AuditView() {
       summary: d.summary || '',
       changes: Array.isArray(d.changes) ? d.changes : null, // guard: log ผิดรูป (string) จะทำ .map() throw → ErrorBoundary จอขาวทั้งแอป
       fields: Array.isArray(d.fields) ? d.fields : null,
+      flowId: r.flow_id ?? d.flowId ?? null, // ผูกโครงการ (null = ไม่เกี่ยวกับโครงการ · '' = งานทั่วไป) — โชว์ชิป
       time: new Date(r.created_at).toLocaleString('th-TH', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'short' }),
     };
   });
@@ -2321,9 +2681,9 @@ function AuditView() {
             
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 bg-background border rounded-md p-1 h-10">
-                <Input type="date" className="h-8 border-0 bg-transparent py-0 px-2 w-[130px] shadow-none focus-visible:ring-0 text-sm" value={dateFrom} onChange={e => setRange(e.target.value, dateTo)} title="ตั้งแต่" />
+                <DatePicker value={dateFrom} onChange={(v) => setRange(v, dateTo)} placeholder="ตั้งแต่" className="h-8 w-[140px] text-sm" />
                 <span className="text-muted-foreground text-sm">→</span>
-                <Input type="date" className="h-8 border-0 bg-transparent py-0 px-2 w-[130px] shadow-none focus-visible:ring-0 text-sm" value={dateTo} onChange={e => setRange(dateFrom, e.target.value)} title="ถึง" />
+                <DatePicker value={dateTo} onChange={(v) => setRange(dateFrom, v)} placeholder="ถึง" className="h-8 w-[140px] text-sm" />
               </div>
             </div>
             
@@ -2369,9 +2729,14 @@ function AuditView() {
                     <Avatar name={a.user} color={s.color} size={36} />
                   </div>
                   <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-foreground text-sm">{a.user}</span>
                       <span className="text-muted-foreground text-xs font-medium">· {ENTITY_TH[a.entity] || a.entity}</span>
+                      {a.flowId !== null && (() => {
+                        const fl = a.flowId === '' ? { name: 'งานทั่วไป', color: '#64748b' } : (TMK.flows || []).find(f => f.id === a.flowId);
+                        if (!fl) return null;
+                        return <Badge variant="outline" className="gap-1 text-[10px] h-5 px-1.5"><span className="size-1.5 rounded-full" style={{ background: fl.color || '#64748b' }} />{fl.name}</Badge>;
+                      })()}
                     </div>
                     <div className="text-sm text-foreground/90">{a.summary}</div>
                     
@@ -2431,9 +2796,295 @@ function AuditView() {
   );
 }
 
+/* ====================  BRANDS VIEW (แบรนด์ — จัดกลุ่ม/ป้ายกำกับโครงการ)  ==================== */
+// เลียนแบบ ChannelsView (CRUD + logo upload + color + drag-reorder + soft-delete+undo + graceful)
+// ตาราง tmk_brands ยังไม่ migrate → โชว์ป้ายเตือน (MigrationNotice) แทน
+function BrandsView() {
+  const { reload, refresh } = useData() || {};
+  const PALETTE = ['#6b5ce0', '#4a8be0', '#18a0ab', '#06c755', '#2f9e6e', '#c08a3e', '#ee6a3a', '#ec4899', '#cf4d5c', '#0a5aa0'];
+  const brands = (TMK.brands || []);
+
+  const [busy, setBusy] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const [dragOver, setDragOver] = useState(null);
+  // add
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newLogo, setNewLogo] = useState('');
+  const [newTagline, setNewTagline] = useState('');
+  const [newColor, setNewColor] = useState(PALETTE[0]);
+  // edit
+  const [editing, setEditing] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editLogo, setEditLogo] = useState('');
+  const [editTagline, setEditTagline] = useState('');
+  const [editColor, setEditColor] = useState('');
+
+  const isMissing = (err) => /relation .* does not exist|does not exist|schema cache|PGRST205|42P01/i.test(err?.message || err?.code || '');
+  const [need, setNeed] = useState(false);
+
+  const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
+    if (!file) return reject('no file');
+    if (file.size > 500 * 1024) return reject('ไฟล์ใหญ่เกิน 500KB');
+    const r = new FileReader();
+    r.onload = ev => resolve(ev.target.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+
+  const addBrand = async () => {
+    if (!guardEdit()) return;
+    const name = newName.trim();
+    if (!name) return;
+    setBusy(true);
+    try {
+      const baseId = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || ('brand-' + Date.now());
+      let id = baseId, counter = 1;
+      while (brands.find(b => b.id === id)) id = `${baseId}_${counter++}`;
+      const maxOrder = Math.max(0, ...brands.map(b => b.sortOrder || 0));
+      const { error } = await supabase.from('tmk_brands').insert({ id, name, color: newColor, logo_url: newLogo, tagline: newTagline.trim(), sort_order: maxOrder + 1 });
+      if (error) { if (isMissing(error)) { setNeed(true); throw new Error('ยังไม่ได้รัน migration — รัน 20260710-flows-brands.sql ก่อน'); } throw error; }
+      logAudit({ action: 'create', entityType: 'brand', entityName: name, summary: `เพิ่มแบรนด์ "${name}"` });
+      if (refresh) await refresh(['tmk_brands']); else if (reload) await reload();
+      setNewName(''); setNewLogo(''); setNewTagline(''); setNewColor(PALETTE[0]); setShowAdd(false);
+      window.__toast?.('เพิ่มแบรนด์เรียบร้อย', 'success');
+    } catch (err) { window.__toast?.('เพิ่มไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }
+  };
+
+  const startEdit = (b) => { setEditing(b.id); setEditName(b.name); setEditLogo(b.logoUrl || ''); setEditTagline(b.tagline || ''); setEditColor(b.color || PALETTE[0]); };
+
+  const saveEdit = async () => {
+    if (!guardEdit()) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('tmk_brands').update({ name: editName.trim(), color: editColor, logo_url: editLogo, tagline: editTagline.trim() }).eq('id', editing);
+      if (error) throw error;
+      logAudit({ action: 'update', entityType: 'brand', entityName: editName.trim(), summary: `แก้ไขแบรนด์ "${editName.trim()}"` });
+      if (refresh) await refresh(['tmk_brands']); else if (reload) await reload();
+      setEditing(null);
+      window.__toast?.('อัปเดตแบรนด์เรียบร้อย', 'success');
+    } catch (err) { window.__toast?.('บันทึกไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }
+  };
+
+  const deleteBrand = async (b) => {
+    if (!guardEdit()) return;
+    const linked = (TMK.flows || []).filter(f => f.brandId === b.id).length;
+    if (!await window.__confirm?.({ title: 'ลบแบรนด์', body: linked > 0 ? `แบรนด์ "${b.name}" ผูกกับ ${linked} โครงการ — ลบจะปลดป้ายแบรนด์ออก` : `ลบแบรนด์ "${b.name}"?`, danger: true, confirmText: 'ลบ' })) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('tmk_brands').update({ deleted_at: new Date().toISOString() }).eq('id', b.id);
+      if (error) throw error;
+      logAudit({ action: 'delete', entityType: 'brand', entityName: b.name, summary: `ลบแบรนด์ "${b.name}"` });
+      if (refresh) await refresh(['tmk_brands']); else if (reload) await reload();
+      setEditing(null);
+      window.__toast?.('ย้ายแบรนด์ไปถังขยะแล้ว', 'success', 6000, {
+        label: 'เลิกทำ',
+        onClick: async () => {
+          try { await supabase.from('tmk_brands').update({ deleted_at: null }).eq('id', b.id); if (refresh) await refresh(['tmk_brands']); else if (reload) await reload(); window.__toast?.('กู้คืนแบรนด์แล้ว', 'success'); }
+          catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+        },
+      });
+    } catch (err) { window.__toast?.('ลบไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }
+  };
+
+  const reorderBrand = async (fromId, toId) => {
+    if (!guardEdit()) return;
+    if (fromId === toId) return;
+    const fromIdx = brands.findIndex(b => b.id === fromId), toIdx = brands.findIndex(b => b.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...brands];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    setBusy(true);
+    try {
+      const results = await Promise.all(reordered.map((b, i) => supabase.from('tmk_brands').update({ sort_order: i + 1 }).eq('id', b.id)));
+      const failed = results.find(r => r.error);
+      if (failed) throw failed.error;
+      if (refresh) await refresh(['tmk_brands']); else if (reload) await reload();
+      window.__toast?.('เรียงลำดับใหม่เรียบร้อย', 'success');
+    } catch (err) { window.__toast?.('เลื่อนไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }
+  };
+
+  if (need || (brands.length === 0)) {
+    // ยังไม่มีแบรนด์ — ถ้าตารางหาย โชว์ป้าย migration, ถ้าตารางมีแต่ว่าง โชว์ empty + ปุ่มเพิ่ม
+    // (เรนเดอร์ต่อ — empty state อยู่ในลิสต์ด้านล่างแล้ว ยกเว้นตารางหายจริง)
+  }
+
+  return (
+    <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
+      <Card className="bg-primary/5 border-l-4 border-l-primary shadow-none">
+        <CardContent className="p-5 flex gap-4 items-start">
+          <Icon name="store" className="size-6 text-primary mt-1" />
+          <div>
+            <h3 className="text-lg font-bold mb-1 text-foreground">แบรนด์</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              จัดการรายชื่อแบรนด์ — แต่ละโครงการ (board วางแผนงาน) เลือกแบรนด์มาใช้เป็นป้ายกำกับได้ · เพิ่ม/ลบ/แก้โลโก้/สี และจัดเรียงลำดับ
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {need ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center gap-2">
+            <Icon name="store" className="size-12 opacity-20" />
+            <div className="font-semibold">ยังไม่ได้รัน migration</div>
+            <div className="text-sm text-muted-foreground">รัน <code className="px-1.5 py-0.5 rounded bg-muted">20260710-flows-brands.sql</code> ใน Supabase → SQL Editor ก่อน แล้วรีเฟรช</div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-border/50 bg-muted/20">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Icon name="store" className="size-5 text-muted-foreground" /> แบรนด์ทั้งหมด ({brands.length})
+            </CardTitle>
+            <Button size="sm" onClick={() => setShowAdd(true)}>
+              <Icon name="plus" className="size-4 mr-2" /> เพิ่มแบรนด์
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="flex flex-col">
+              {brands.length === 0 && (
+                <div className="p-10 text-center text-muted-foreground">
+                  <p className="text-sm">ยังไม่มีแบรนด์ — กด "เพิ่มแบรนด์" เพื่อเริ่ม</p>
+                </div>
+              )}
+              {brands.map((b, idx) => {
+                const isOver = dragOver === b.id;
+                return (
+                  <div key={b.id}
+                    draggable
+                    onDragStart={() => setDragId(b.id)}
+                    onDragEnd={() => { setDragId(null); setDragOver(null); }}
+                    onDragOver={(e) => { e.preventDefault(); if (dragId && dragId !== b.id) setDragOver(b.id); }}
+                    onDragLeave={() => setDragOver(o => o === b.id ? null : o)}
+                    onDrop={() => { if (dragId) reorderBrand(dragId, b.id); setDragId(null); setDragOver(null); }}
+                    className="flex items-center gap-3 p-4 border-b border-border/50 last:border-b-0 cursor-move transition-colors"
+                    style={{ background: isOver ? 'hsl(var(--accent)/0.1)' : 'transparent', opacity: dragId === b.id ? 0.4 : 1 }}>
+                    <div className="hidden sm:flex shrink-0 text-muted-foreground/50" title="ลากเพื่อเรียงลำดับ">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
+                        <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
+                      </svg>
+                    </div>
+                    <div className="flex sm:hidden flex-col gap-1 shrink-0 px-1" onClick={e => e.stopPropagation()}>
+                      <button className="text-muted-foreground disabled:opacity-30 p-1" disabled={idx === 0 || busy} onClick={() => reorderBrand(b.id, brands[idx - 1].id)}>▲</button>
+                      <button className="text-muted-foreground disabled:opacity-30 p-1" disabled={idx === brands.length - 1 || busy} onClick={() => reorderBrand(b.id, brands[idx + 1].id)}>▼</button>
+                    </div>
+                    {b.logoUrl ? (
+                      <img src={b.logoUrl} alt={b.name} className="w-10 h-10 rounded-lg object-contain shrink-0 border bg-white" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-bold shrink-0" style={{ background: (b.color || '#666') + '18', color: b.color || '#666' }}>
+                        {b.name?.[0] || '?'}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-foreground text-base truncate">{b.name}</div>
+                      {b.tagline && <div className="text-xs text-muted-foreground truncate">{b.tagline}</div>}
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => startEdit(b)} title="แก้ไข">
+                      <Icon name="pencil" className="size-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Add Dialog */}
+      <Dialog open={showAdd} onOpenChange={(open) => { if (!open) { setShowAdd(false); setNewName(''); setNewLogo(''); setNewTagline(''); setNewColor(PALETTE[0]); } }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Icon name="store" className="size-5" /> เพิ่มแบรนด์</DialogTitle>
+            <DialogDescription>แบรนด์ใช้เป็นป้ายกำกับ/จัดกลุ่มโครงการ</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-6 py-4">
+            <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20">
+              {newLogo ? <img src={newLogo} alt="" className="size-10 rounded object-contain bg-white" /> : <div className="size-10 rounded flex items-center justify-center shrink-0 text-white font-bold" style={{ background: newColor }}>{newName.trim()?.[0] || '?'}</div>}
+              <div className="min-w-0"><div className="font-semibold text-base truncate">{newName.trim() || 'ชื่อแบรนด์'}</div>{newTagline.trim() && <div className="text-xs text-muted-foreground truncate">{newTagline.trim()}</div>}</div>
+            </div>
+            <div className="grid gap-2">
+              <Label>ชื่อแบรนด์ <span className="text-destructive">*</span></Label>
+              <Input placeholder="เช่น TMK, สายเกรซ, OEM" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && newName.trim() && !busy) addBrand(); }} />
+            </div>
+            <div className="grid gap-2">
+              <Label>คำโปรย (ออปชัน)</Label>
+              <Input placeholder="เช่น เสื้อยืดพรีเมียม" value={newTagline} onChange={e => setNewTagline(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label>โลโก้ (PNG/SVG)</Label>
+              <div className="flex items-start gap-4">
+                <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 overflow-hidden relative" style={newLogo ? { background: '#fff' } : {}}>
+                  {newLogo ? <img src={newLogo} alt="" className="w-full h-full object-contain" /> : (
+                    <div className="flex flex-col items-center justify-center text-muted-foreground"><Icon name="image" className="size-6 mb-1 opacity-50" /><span className="text-[10px] uppercase font-semibold">Upload</span></div>
+                  )}
+                  <input type="file" accept="image/*" className="hidden" onChange={async e => { try { setNewLogo(await readFileAsBase64(e.target.files?.[0])); } catch (err) { window.__toast?.(String(err), 'error'); } }} />
+                </label>
+                {newLogo && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setNewLogo('')}>ลบรูป</Button>}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label>สีประจำแบรนด์</Label>
+              <ColorPicker value={newColor} onChange={setNewColor} presets={PALETTE} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAdd(false)} disabled={busy}>ยกเลิก</Button>
+            <Button onClick={addBrand} disabled={!newName.trim() || busy}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) setEditing(null); }}>
+        <DialogContent className="sm:max-w-[425px]">
+          {editing && (() => {
+            const b = brands.find(x => x.id === editing);
+            if (!b) return null;
+            return (
+              <>
+                <DialogHeader><DialogTitle className="flex items-center gap-2"><Icon name="store" className="size-5" /> แก้ไขแบรนด์: {b.name}</DialogTitle></DialogHeader>
+                <div className="grid gap-6 py-4">
+                  <div className="grid gap-2"><Label>ชื่อแบรนด์ <span className="text-destructive">*</span></Label><Input value={editName} onChange={e => setEditName(e.target.value)} /></div>
+                  <div className="grid gap-2"><Label>คำโปรย</Label><Input value={editTagline} onChange={e => setEditTagline(e.target.value)} /></div>
+                  <div className="grid gap-2">
+                    <Label>โลโก้</Label>
+                    <div className="flex items-start gap-4">
+                      <label className="flex flex-col items-center justify-center w-20 h-20 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 overflow-hidden relative" style={editLogo ? { background: '#fff' } : {}}>
+                        {editLogo ? <img src={editLogo} alt="" className="w-full h-full object-contain" /> : (
+                          <div className="flex flex-col items-center justify-center text-muted-foreground"><Icon name="image" className="size-6 mb-1 opacity-50" /><span className="text-[10px] uppercase font-semibold">Upload</span></div>
+                        )}
+                        <input type="file" accept="image/*" className="hidden" onChange={async e => { try { setEditLogo(await readFileAsBase64(e.target.files?.[0])); } catch (err) { window.__toast?.(String(err), 'error'); } }} />
+                      </label>
+                      {editLogo && <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => setEditLogo('')}>ลบรูป</Button>}
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>สีประจำแบรนด์</Label>
+                    <ColorPicker value={editColor} onChange={setEditColor} presets={PALETTE} />
+                  </div>
+                </div>
+                <DialogFooter className="flex-row justify-between sm:justify-between">
+                  <Button variant="ghost" className="text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => deleteBrand(b)} disabled={busy}><Icon name="trash" className="size-4 mr-1" /> ลบ</Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setEditing(null)} disabled={busy}>ยกเลิก</Button>
+                    <Button onClick={saveEdit} disabled={!editName.trim() || busy}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+                  </div>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 /* ====================  CHANNELS VIEW (ช่องทางการขาย)  ==================== */
 function ChannelsView() {
-  const { reload } = useData() || {};
+  const { reload, refresh } = useData() || {};
   const PALETTE = ['#ee6a3a', '#18a0ab', '#6b5ce0', '#4a8be0', '#06c755', '#c08a3e', '#ec4899', '#2f9e6e', '#cf4d5c', '#0a5aa0'];
 
   const channels = (TMK.channels || []);
@@ -2497,7 +3148,7 @@ function ChannelsView() {
         }
       }
       logAudit({ action: 'update', entityType: 'channel', entityName: editName.trim(), summary: `แก้ไขช่องทาง "${editName.trim()}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_channels']); else if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตช่องทางเรียบร้อย', 'success');
     } catch (err) {
@@ -2510,20 +3161,20 @@ function ChannelsView() {
     // กันยอดหาย: ถ้าช่องทางมีประวัติยอดขาย การลบจะทำให้ยอดเก่าหายจากรายงาน → บล็อก
     const hasHistory = (TMK.dailyAll || []).some(r => { const cc = r.ch?.[c.id]; return cc && ((cc.rev || 0) > 0 || (cc.ord || 0) > 0); });
     if (hasHistory) { if (window.__toast) window.__toast(`ลบ "${c.name}" ไม่ได้ — มีประวัติยอดขายอยู่ (ยอดเก่าจะหายจากรายงาน) ถ้าไม่ใช้แล้วให้เปลี่ยนชื่อ/ลดลำดับแทน`, 'error'); return; }
-    if (!confirm(`ลบช่องทาง "${c.name}"?`)) return;
+    if (!await window.__confirm?.({ title: 'ลบช่องทาง', body: `ลบช่องทาง "${c.name}"?`, danger: true, confirmText: 'ลบ' })) return;
     setBusy(true);
     try {
       const { error } = await supabase.from('tmk_channels').update({ deleted_at: new Date().toISOString() }).eq('id', c.id);
       if (error) throw error;
       logAudit({ action: 'delete', entityType: 'channel', entityName: c.name, summary: `ลบช่องทาง "${c.name}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_channels']); else if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('ย้ายช่องทางไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
         onClick: async () => {
           try {
             await supabase.from('tmk_channels').update({ deleted_at: null }).eq('id', c.id);
-            if (reload) await reload();
+            if (refresh) await refresh(['tmk_channels']); else if (reload) await reload();
             window.__toast?.('กู้คืนช่องทางแล้ว', 'success');
           } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
         },
@@ -2565,7 +3216,7 @@ function ChannelsView() {
         if (window.__toast) window.__toast('บางค่าไม่ได้บันทึก — ต้องรัน SQL migration', 'warn');
       } else if (error) throw error;
       logAudit({ action: 'create', entityType: 'channel', entityName: name, summary: `เพิ่มช่องทาง "${name}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_channels']); else if (reload) await reload();
       setNewName(''); setNewLogo(''); setNewColor(PALETTE[0]); setNewHasAd(false); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มช่องทางเรียบร้อย', 'success');
     } catch (err) {
@@ -2590,7 +3241,7 @@ function ChannelsView() {
       const results = await Promise.all(updates);
       const failed = results.find(r => r.error);
       if (failed) throw failed.error;
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_channels']); else if (reload) await reload();
       if (window.__toast) window.__toast('เรียงลำดับใหม่เรียบร้อย', 'success');
     } catch (err) {
       if (window.__toast) window.__toast('เลื่อนไม่สำเร็จ: ' + err.message, 'error');
@@ -2734,14 +3385,7 @@ function ChannelsView() {
 
             <div className="grid gap-2">
               <Label>สีประจำช่องทาง</Label>
-              <div className="flex flex-wrap gap-2">
-                {PALETTE.map(c => (
-                  <button key={c} type="button" className={`size-8 rounded-full flex items-center justify-center transition-all ${newColor === c ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`} 
-                    onClick={() => setNewColor(c)} style={{ background: c }}>
-                    {newColor === c && <Icon name="check" className="size-4 text-white" />}
-                  </button>
-                ))}
-              </div>
+              <ColorPicker value={newColor} onChange={setNewColor} presets={PALETTE} />
             </div>
 
             <div className="flex items-center space-x-2">
@@ -2816,14 +3460,7 @@ function ChannelsView() {
 
                   <div className="grid gap-2">
                     <Label>สีประจำช่องทาง</Label>
-                    <div className="flex flex-wrap gap-2">
-                      {PALETTE.map(col => (
-                        <button key={col} type="button" className={`size-8 rounded-full flex items-center justify-center transition-all ${editColor === col ? 'ring-2 ring-offset-2 ring-ring' : 'hover:scale-110'}`} 
-                          onClick={() => setEditColor(col)} style={{ background: col }}>
-                          {editColor === col && <Icon name="check" className="size-4 text-white" />}
-                        </button>
-                      ))}
-                    </div>
+                    <ColorPicker value={editColor} onChange={setEditColor} presets={PALETTE} />
                   </div>
 
                   <div className="grid gap-2">
@@ -2861,7 +3498,7 @@ function ChannelsView() {
 
 /* ====================  DUTIES VIEW (หน้าที่/ตำแหน่ง)  ==================== */
 function DutiesView() {
-  const { reload } = useData() || {};
+  const { reload, refresh } = useData() || {};
   const PALETTE = ['#b07d33', '#0a5aa0', '#2f9e6e', '#4a8be0', '#6b5ce0', '#c08a3e', '#ee6a3a', '#cf4d5c'];
   const [editing, setEditing] = useState(null); // duty id
   const [editName, setEditName] = useState('');
@@ -2898,7 +3535,7 @@ function DutiesView() {
       }).eq('id', editing);
       if (error) throw error;
       logAudit({ action: 'update', entityType: 'duty', entityName: editName.trim(), summary: `แก้ไขหน้าที่ "${editName.trim()}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_duties', 'tmk_user_roles']); else if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตหน้าที่เรียบร้อย', 'success');
     } catch (err) {
@@ -2913,20 +3550,20 @@ function DutiesView() {
       if (window.__toast) window.__toast(`ลบไม่ได้ — ยังมีผู้ใช้ ${count} คนใช้หน้าที่นี้`, 'warn');
       return;
     }
-    if (!confirm(`ลบหน้าที่ "${duty.name}"?`)) return;
+    if (!await window.__confirm?.({ title: 'ลบหน้าที่', body: `ลบหน้าที่ "${duty.name}"?`, danger: true, confirmText: 'ลบ' })) return;
     setBusy(true);
     try {
       const { error } = await supabase.from('tmk_duties').update({ deleted_at: new Date().toISOString() }).eq('id', duty.id);
       if (error) throw error;
       logAudit({ action: 'delete', entityType: 'duty', entityName: duty.name, summary: `ลบหน้าที่ "${duty.name}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_duties', 'tmk_user_roles']); else if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('ย้ายหน้าที่ไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
         onClick: async () => {
           try {
             await supabase.from('tmk_duties').update({ deleted_at: null }).eq('id', duty.id);
-            if (reload) await reload();
+            if (refresh) await refresh(['tmk_duties', 'tmk_user_roles']); else if (reload) await reload();
             window.__toast?.('กู้คืนหน้าที่แล้ว', 'success');
           } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
         },
@@ -2959,7 +3596,7 @@ function DutiesView() {
       });
       if (error) throw error;
       logAudit({ action: 'create', entityType: 'duty', entityName: name, summary: `เพิ่มหน้าที่ "${name}"` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_duties', 'tmk_user_roles']); else if (reload) await reload();
       setNewName(''); setNewColor(PALETTE[0]); setNewDesc(''); setShowAdd(false);
       if (window.__toast) window.__toast('เพิ่มหน้าที่เรียบร้อย', 'success');
     } catch (err) {
@@ -3147,7 +3784,7 @@ function DutiesView() {
 }
 
 function RolesView() {
-  const { reload } = useData() || {};
+  const { reload, refresh } = useData() || {};
   const roleMeta = {
     admin: { l: 'ผู้ดูแลระบบ', cls: 'chip-accent', icon: 'shield', d: 'จัดการได้ทุกอย่าง รวมถึงสิทธิ์ผู้ใช้' },
     editor: { l: 'แก้ไขได้', cls: 'chip-good', icon: 'pencil', d: 'บันทึกยอดขาย จัดการงาน แก้ไขข้อมูล' },
@@ -3270,7 +3907,7 @@ function RolesView() {
       logAudit({ action: 'update', entityType: 'user', entityName: editing, summary: `แก้ไขผู้ใช้ ${editName} (${editing})` });
 
       // === 3. Force reload data (in case realtime doesn't fire) ===
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
 
       setEditing(null);
       if (window.__toast) window.__toast('อัปเดตผู้ใช้เรียบร้อย', 'success');
@@ -3287,7 +3924,7 @@ function RolesView() {
   // Delete user ลบจาก Supabase
   const deleteUser = async (email) => {
     if (!guardAdmin()) return;
-    if (!confirm(`ลบผู้ใช้ ${email}?`)) return;
+    if (!await window.__confirm?.({ title: 'ลบผู้ใช้', body: `ลบผู้ใช้ ${email}?`, danger: true, confirmText: 'ลบ' })) return;
     setBusy(true);
     try {
       const ts = new Date().toISOString();
@@ -3295,7 +3932,7 @@ function RolesView() {
       if (er1) throw er1;
       await supabase.from('tmk_staff').update({ deleted_at: ts }).eq('email', email);
       logAudit({ action: 'delete', entityType: 'user', entityName: email, summary: `ลบผู้ใช้ ${email}` });
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
       setEditing(null);
       if (window.__toast) window.__toast('ย้ายผู้ใช้ไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
@@ -3304,7 +3941,7 @@ function RolesView() {
           try {
             await supabase.from('tmk_user_roles').update({ deleted_at: null }).eq('email', email);
             await supabase.from('tmk_staff').update({ deleted_at: null }).eq('email', email);
-            if (reload) await reload();
+            if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
             window.__toast?.('กู้คืนผู้ใช้แล้ว', 'success');
           } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
         },
@@ -3359,7 +3996,7 @@ function RolesView() {
 
       logAudit({ action: 'create', entityType: 'user', entityName: email, summary: `เพิ่มผู้ใช้ ${name} (${email})` });
       setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); setShowAdd(false);
-      if (reload) await reload();
+      if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
     } catch (err) {
       console.error(err);
@@ -3640,7 +4277,7 @@ const TRASH_TABLES = [
 ];
 
 function TrashView() {
-  const { reload } = useData() || {};
+  const { reload, refresh } = useData() || {};
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -3696,7 +4333,7 @@ function TrashView() {
       logAudit({ action: 'restore', entityType: it.meta.type, entityName: it.name, summary: `กู้คืน${it.meta.type} "${it.name}"` });
       if (window.__toast) window.__toast(`กู้คืน "${it.name}" แล้ว`, 'success');
       await load();
-      if (reload) await reload();
+      if (refresh) await refresh(it.meta.table === 'tmk_user_roles' ? [it.meta.table, 'tmk_staff'] : [it.meta.table]); else if (reload) await reload();
     } catch (err) {
       if (window.__toast) window.__toast('กู้คืนไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -3706,7 +4343,7 @@ function TrashView() {
     if (!guardEdit()) return;
     if ((it.meta.table === 'tmk_user_roles' || it.meta.table === 'tmk_staff') && !guardAdmin()) return; // ผู้ใช้/สิทธิ์ = admin
     if (busy) return;
-    if (!confirm(`ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`)) return;
+    if (!await window.__confirm?.({ title: 'ลบถาวร', body: `ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`, danger: true, confirmText: 'ลบถาวร' })) return;
     setBusy(true);
     try {
       const { error } = await supabase.from(it.meta.table).delete().eq(it.meta.key, it.id);

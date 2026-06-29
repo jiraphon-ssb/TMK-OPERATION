@@ -313,7 +313,7 @@ export function HomeView({ go }) {
   const pendingOrders = (D.orders || []).filter(o => o.status !== 'shipped' && o.status !== 'cancelled');
   const todos = [];
   if (!enteredToday) todos.push({ c: 'var(--bad)', t: 'ยังไม่บันทึกยอดขายวันนี้', d: 'กดเพื่อกรอกยอดรายวัน', act: () => go('sales', 'monthly') });
-  if (dueTasks.length) todos.push({ c: 'var(--warn)', t: `งานครบกำหนด/ค้าง ${dueTasks.length} งาน`, d: dueTasks.slice(0, 2).map(t => t.title).join(', '), act: () => go('planner', 'kanban') });
+  if (dueTasks.length) todos.push({ c: 'var(--warn)', t: `งานครบกำหนด/ค้าง ${dueTasks.length} งาน`, d: dueTasks.slice(0, 2).map(t => t.title).join(', '), act: () => go('flows', 'kanban') });
   if (lowStock.length) todos.push({ c: 'var(--info)', t: `สินค้าใกล้/หมดสต็อก ${lowStock.length} รายการ`, d: lowStock.slice(0, 2).map(p => p.name).join(', '), act: () => go('catalog', 'stock') });
   if (pendingOrders.length) todos.push({ c: 'var(--accent-2)', t: `ออเดอร์รอจัดการ ${pendingOrders.length} รายการ`, d: 'จัดการบนบอร์ดออเดอร์', act: () => go('catalog', 'orders') });
 
@@ -375,7 +375,7 @@ export function HomeView({ go }) {
         <Card className="p-[22px]">
           <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
             <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> {'โฟกัสวันนี้'}</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => go('planner', 'kanban')}>{'งานทั้งหมด'} <Icon name="arrowR" /></Button>
+            <Button variant="ghost" size="sm" onClick={() => go('flows', 'kanban')}>{'งานทั้งหมด'} <Icon name="arrowR" /></Button>
           </CardHeader>
           {todos.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: todayTasks.length ? 16 : 0 }}>

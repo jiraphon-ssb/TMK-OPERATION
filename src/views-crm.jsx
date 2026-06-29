@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
-import { B, N, Icon } from './components.jsx';
+import { B, N, Icon, useBeatOn, PageSkeleton } from './components.jsx';
 import { SideSheet } from './modals.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
@@ -20,6 +20,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
@@ -172,7 +174,7 @@ function CustomerDrawer({ cust, onClose }) {
             ))}
             <div className="flex gap-2">
               <Input value={fu.title} onChange={e => setFu({ ...fu, title: e.target.value })} placeholder="นัดติดตาม เช่น โทรเสนอโปร" className="h-8 flex-1" />
-              <Input type="date" value={fu.due_date} onChange={e => setFu({ ...fu, due_date: e.target.value })} className="h-8 w-[150px]" />
+              <DatePicker value={fu.due_date} onChange={(v) => setFu({ ...fu, due_date: v })} placeholder="วันครบกำหนด" className="h-8 w-[160px]" />
               <Button size="sm" variant="outline" onClick={addFollowup}>เพิ่ม</Button>
             </div>
           </CardContent>
@@ -183,9 +185,10 @@ function CustomerDrawer({ cust, onClose }) {
           <CardHeader className="pb-2"><CardTitle className="text-sm">บันทึกกิจกรรม (timeline)</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             <div className="flex gap-2">
-              <select value={act.kind} onChange={e => setAct({ ...act, kind: e.target.value })} className="h-8 rounded-md border bg-background px-2 text-sm">
-                {Object.entries(ACT_KINDS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-              </select>
+              <Select value={act.kind} onValueChange={v => setAct({ ...act, kind: v })}>
+                <SelectTrigger className="h-8 w-28"><SelectValue /></SelectTrigger>
+                <SelectContent>{Object.entries(ACT_KINDS).map(([k, l]) => <SelectItem key={k} value={k}>{l}</SelectItem>)}</SelectContent>
+              </Select>
               <Input value={act.body} onChange={e => setAct({ ...act, body: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') addActivity(); }} placeholder="รายละเอียด เช่น โทรเสนอโปรโมชั่น" className="h-8 flex-1" />
               <Button size="sm" variant="outline" onClick={addActivity}>เพิ่ม</Button>
             </div>
@@ -488,7 +491,7 @@ function CrmBroadcast({ data }) {
   const send = async () => {
     if (!guardEdit()) return;
     if (!msg.trim()) { window.__toast?.('พิมพ์ข้อความก่อน', 'warn'); return; }
-    if (!window.confirm('ส่งบรอดแคสต์ถึงผู้ติดตาม LINE OA ทั้งหมด?')) return;
+    if (!await window.__confirm?.({ title: 'ส่งบรอดแคสต์', body: 'ส่งบรอดแคสต์ถึงผู้ติดตาม LINE OA ทั้งหมด?', confirmText: 'ส่ง' })) return;
     setSending(true);
     try {
       const { data: res, error } = await supabase.functions.invoke('line-broadcast', { body: { message: msg.trim() } });
@@ -538,6 +541,8 @@ export function CrmSection({ sub }) {
     if (found) setSel(found); else window.__toast?.('ไม่พบลูกค้านี้ใน CRM', 'info');
   }, [data]);
 
+  const beat = useBeatOn(sub); // skeleton สั้นๆ ตอนสลับหน้าย่อย
+  if (beat) return <PageSkeleton />;
   return (
     <div className="p-4 md:p-6 max-w-[1300px] mx-auto w-full rise">
       {sub === 'directory' ? <CrmDirectory data={data} onPick={setSel} />
