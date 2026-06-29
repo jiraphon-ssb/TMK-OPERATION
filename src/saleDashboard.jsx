@@ -15,6 +15,7 @@ import { PROVINCES, REGIONS, normalizeProvince, TH_BBOX } from './lib/provinces.
 import { TH_PATHS } from './lib/thMapPaths.js';
 import { entriesToOrders } from './lib/saleRecon.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
+import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL } from './lib/saleData.js';
@@ -1092,6 +1093,19 @@ function ExportBtn({ filename, rows, columns }) {
 // ===== D2 — ลีดเดอร์บอร์ดเซลล์ (podium + คอลัมน์ครบ + run-rate) =====
 function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLabel }) {
   const [humanOnly, setHumanOnly] = useState(true);
+  // เป้า/คอมต่อเซลล์ (PART 12/T3) — โชว์เฉพาะช่วงที่เป็น "เดือนปฏิทินเดียว" (เป้าตั้งรายเดือน)
+  const monthOfRange = (range.from && range.to && range.from.slice(0, 7) === range.to.slice(0, 7)) ? range.from.slice(0, 7) : null;
+  const [targets, setTargets] = useState({});
+  useEffect(() => {
+    let alive = true;
+    if (!monthOfRange) { setTargets({}); return; }
+    fetchTargets(monthOfRange).then(rows => {
+      if (!alive) return;
+      const m = {}; (rows || []).forEach(t => { m[t.salesperson] = t; }); setTargets(m);
+    });
+    return () => { alive = false; };
+  }, [monthOfRange]);
+  const anyTargets = Object.keys(targets).length > 0;
   // เสริมข้อมูลรายเซลล์จากออเดอร์: ลูกค้าใหม่ + ค่าคอม + จำนวนตัว
   const enrich = useMemo(() => {
     const m = {};
@@ -1133,6 +1147,11 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
             { label: 'AOV', map: (s) => Math.round(s.aov) },
             { label: 'ลูกค้าใหม่', key: 'newC' },
             { label: 'ค่าคอม', key: 'comm' },
+            ...(anyTargets ? [
+              { label: 'เป้า', map: (s) => Math.round(targets[s.key]?.sales_target || 0) },
+              { label: '% เป้า', map: (s) => (targets[s.key]?.sales_target > 0 ? Math.round(s.sales / targets[s.key].sales_target * 100) : '') },
+              { label: 'คอมคำนวณ', map: (s) => Math.round(commissionFor(s.sales, targets[s.key])) },
+            ] : []),
           ]} />
           <Toggle variant="outline" size="sm" pressed={humanOnly} onPressedChange={setHumanOnly} title="ซ่อนยอดมาร์เก็ตเพลสอัตโนมัติ"><Icon name="users" /> เฉพาะเซลล์คน</Toggle>
         </div>
@@ -1169,6 +1188,9 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
           <TableHead style={{ textAlign: 'right' }}>AOV</TableHead>
           <TableHead style={{ textAlign: 'right' }}>ลูกค้าใหม่</TableHead>
           {hasComm && <TableHead style={{ textAlign: 'right' }}>ค่าคอม</TableHead>}
+          {anyTargets && <TableHead style={{ textAlign: 'right' }}>เป้า</TableHead>}
+          {anyTargets && <TableHead style={{ minWidth: 120 }}>% เป้า</TableHead>}
+          {anyTargets && <TableHead style={{ textAlign: 'right' }}>คอมคำนวณ</TableHead>}
           <TableHead style={{ minWidth: 130 }}>คาดสิ้นช่วง</TableHead>
           {cmp && <TableHead style={{ textAlign: 'right' }}>%Δ</TableHead>}
         </TableRow></TableHeader>
@@ -1176,6 +1198,9 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
           const d = cmp && pm && pm.get(s.key) > 0 ? (s.sales - pm.get(s.key)) / pm.get(s.key) : null;
           const name = s.auto ? s.key.replace(/[()]/g, '') : s.key;
           const projected = elapsedDays ? s.sales / elapsedDays * totalDays : s.sales;
+          const tgt = targets[s.key];
+          const pctTarget = tgt && tgt.sales_target > 0 ? Math.min(100, Math.round(s.sales / tgt.sales_target * 100)) : null;
+          const commCalc = tgt ? commissionFor(s.sales, tgt) : 0;
           return (
             <TableRow key={s.key} onClick={() => onFilter('salesperson', s.key)} style={{ cursor: 'pointer' }}>
               <TableCell className="num" style={{ fontWeight: 800, color: i < 3 ? medal[i] : 'var(--ink-4)' }}>{i + 1}</TableCell>
@@ -1186,6 +1211,14 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
               <TableCell className="num" style={{ textAlign: 'right' }}>{baht(s.aov)}</TableCell>
               <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.newC)}</TableCell>
               {hasComm && <TableCell className="num" style={{ textAlign: 'right' }}>{baht(s.comm)}</TableCell>}
+              {anyTargets && <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-3)' }}>{tgt && tgt.sales_target > 0 ? baht(tgt.sales_target) : '—'}</TableCell>}
+              {anyTargets && <TableCell>{pctTarget == null ? <span className="dim">—</span> : (
+                <div className="row" style={{ gap: 7, alignItems: 'center' }}>
+                  <Progress value={pctTarget} indicatorColor={pctTarget >= 100 ? 'var(--good)' : 'var(--accent)'} style={{ flex: 1, minWidth: 50 }} />
+                  <span className="cap num" style={{ flexShrink: 0, fontWeight: 700, color: pctTarget >= 100 ? 'var(--good)' : 'var(--ink-3)' }}>{pctTarget}%</span>
+                </div>
+              )}</TableCell>}
+              {anyTargets && <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{commCalc > 0 ? baht(commCalc) : '—'}</TableCell>}
               <TableCell>
                 <div className="row" style={{ gap: 7, alignItems: 'center' }}>
                   <Progress value={periodPct} indicatorColor={s.auto ? 'var(--ink-4)' : 'var(--accent)'} style={{ flex: 1 }} />

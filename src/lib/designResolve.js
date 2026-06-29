@@ -11,6 +11,7 @@
      5) sku.design (frozen)                              — fallback สุดท้าย
    ============================================================ */
 import { GOLDEN_DESIGNS } from './shirtCatalog.js';
+import { fetchAllVersions, buildVersionIndex, asOfCatalog } from './catalogVersions.js';
 
 // normalize ข้อความให้เทียบกันได้ (ตัดช่องว่าง/วงเล็บ/ตัวพิมพ์) — ตรงกับ _norm ใน shirtCatalog
 export const normTerm = (s) => (s || '').toString().trim().toLowerCase().replace(/\s+/g, '').replace(/[()"']/g, '');
@@ -54,7 +55,15 @@ export function indexSkuOverrides(rows) {
 
 // สร้างฟังก์ชัน resolve จาก map สด (ทุก map optional → graceful ถ้ายังไม่มีตาราง)
 // คืน (sku) => { design, product_code, source }
-export function makeSkuResolver({ catalogByCode = {}, aliasMap = {}, skuOverrides = {} } = {}) {
+export function makeSkuResolver({ catalogByCode = {}, aliasMap = {}, skuOverrides = {}, versionIndex = null } = {}) {
+  // as-of-date pinning (PART 12/T2): ถ้ามีประวัติเวอร์ชัน + วันออเดอร์ → ใช้ "ชื่อ" ที่ effective ณ วันนั้น
+  // (pin ชื่อเท่านั้น — ยอด/ราคา frozen บน order อยู่แล้ว กันยอดเพี้ยน) · ไม่ override รายบรรทัด (ผู้ใช้ตั้งใจแก้)
+  const pinName = (res, sku) => {
+    if (!versionIndex || versionIndex.empty || res.source === 'override' || !sku.order_date) return res;
+    const asof = asOfCatalog(versionIndex, res.product_code, sku.order_date);
+    if (asof && asof.name && asof.name.trim()) return { ...res, design: asof.name.trim(), source: res.source + '+asof' };
+    return res;
+  };
   return (sku) => {
     const raw = sku.raw_sku_or_name || '';
     const code = (sku.product_code || '').toString().trim();
@@ -68,15 +77,15 @@ export function makeSkuResolver({ catalogByCode = {}, aliasMap = {}, skuOverride
     }
     // 2) catalog สด ผ่าน product_code (ลอง full code ก่อน แล้ว base)
     const cat = catalogByCode[up] || catalogByCode[bc];
-    if (cat && (cat.name || '').trim()) return { design: cat.name.trim(), product_code: cat.code || code || bc, source: 'catalog' };
+    if (cat && (cat.name || '').trim()) return pinName({ design: cat.name.trim(), product_code: cat.code || code || bc, source: 'catalog' }, sku);
     // 3) alias สด ผ่านข้อความ raw
     const al = aliasMap[normTerm(raw)];
-    if (al && al.design) return { design: al.design, product_code: al.code || code, source: 'alias' };
+    if (al && al.design) return pinName({ design: al.design, product_code: al.code || code, source: 'alias' }, sku);
     // 4) golden by code
     const g = GOLDEN_BY_CODE[bc] || GOLDEN_BY_CODE[up];
-    if (g) return { design: g.name, product_code: g.code, source: 'golden' };
+    if (g) return pinName({ design: g.name, product_code: g.code, source: 'golden' }, sku);
     // 5) frozen fallback
-    return { design: sku.design || '', product_code: code, source: 'frozen' };
+    return pinName({ design: sku.design || '', product_code: code, source: 'frozen' }, sku);
   };
 }
 
@@ -84,15 +93,17 @@ export function makeSkuResolver({ catalogByCode = {}, aliasMap = {}, skuOverride
 // คืน { catalogByCode, aliasMap, skuOverrides } — ตารางที่ error → map ว่าง
 export async function loadResolverMaps(supabase) {
   const safe = async (fn) => { try { const { data, error } = await fn(); return error ? [] : (data || []); } catch { return []; } };
-  const [cat, ali, ov] = await Promise.all([
+  const [cat, ali, ov, vers] = await Promise.all([
     safe(() => supabase.from('tmk_shirt_catalog').select('code,name,job_type').limit(5000)),
     safe(() => supabase.from('tmk_mp_aliases').select('kind,term,code,design').limit(5000)),
     safe(() => supabase.from('tmk_sku_overrides').select('key,design,product_code').limit(20000)),
+    fetchAllVersions(),   // graceful: ตาราง versions ยังไม่มี → []
   ]);
   return {
     catalogByCode: indexCatalog(cat),
     aliasMap: indexAliases(ali),
     skuOverrides: indexSkuOverrides(ov),
+    versionIndex: buildVersionIndex(vers),   // as-of-date pinning (empty ถ้าไม่มีประวัติ → overhead 0)
     _catalogRows: cat,   // เก็บไว้ใช้ job_type ต่อ
   };
 }

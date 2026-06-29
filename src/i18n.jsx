@@ -23,12 +23,12 @@ const T = {
 
     // ---- Nav ----
     navHome: 'หน้าหลัก', navSales: 'ยอดขาย', navPlanner: 'วางแผน',
-    navCatalog: 'Sale', navSystem: 'ตั้งค่า',
+    navCatalog: 'Sale', navSystem: 'ตั้งค่า', navStock: 'คลัง/สต็อก', navCrm: 'CRM', navWip: 'กำลังสร้าง',
     subOverview: 'ภาพรวมยอดขาย', subChannels: 'ช่องทางการขาย',
     subAds: 'โฆษณา & แชท', subCustomers: 'ลูกค้า',
     subDaily: 'บันทึกรายวัน', subMonthly: 'บันทึก & ภาพรวมเดือน', subStatus: 'สถานะการกรอก',
     subCalendar: 'ปฏิทินปฏิบัติงาน', subKanban: 'บอร์ดคุมงาน', subTimeline: 'ไทม์ไลน์แคมเปญ',
-    subProducts: 'สินค้า', subCampaigns: 'แคมเปญ', subPO: 'PO / สต็อก', subStock: 'สต็อก/คลัง', subReport: 'รายงานขาย', subOrders: 'ออเดอร์', subEntry: 'บันทึกขาย', subShirts: 'แคตตาล็อกเสื้อ', subCrm: 'ลูกค้า (CRM)', subHealth: 'สุขภาพข้อมูล', subImport: 'ข้อมูล', subCustomers2: 'ลูกค้า',
+    subProducts: 'สินค้า', subCampaigns: 'แคมเปญ', subPO: 'PO / สต็อก', subStock: 'สต็อก/คลัง', subReport: 'รายงานขาย', subOrders: 'ออเดอร์', subEntry: 'บันทึกขาย', subShirts: 'แคตตาล็อกเสื้อ', subCrm: 'ลูกค้า (CRM)', subHealth: 'สุขภาพข้อมูล', subImport: 'ข้อมูล', subCustomers2: 'ลูกค้า', subFulfill: 'ออเดอร์จัดส่ง', subShopCust: 'ลูกค้าร้าน', subOpsBoard: 'แดชบอร์ดคลัง', subMovements: 'ความเคลื่อนไหว', subOpsReports: 'รายงานคลัง', subStockTake: 'ตรวจนับสต็อก', subSuppliers: 'ซัพพลายเออร์', subReturns: 'รับคืน/RMA', subMpDeduct: 'ตัดสต็อกจากยอดขาย', subLocations: 'ที่เก็บสินค้า', subCrmBoard: 'ภาพรวม CRM', subCrmDir: 'ลูกค้า 360', subCrmFollow: 'งานติดตาม', subCrmPipe: 'Pipeline ขาย', subCrmDedup: 'ลูกค้าซ้ำ', subCrmCast: 'บรอดแคสต์',
     subAudit: 'ประวัติการใช้งาน', subRoles: 'สิทธิ์ผู้ใช้', subTrash: 'ถังขยะ',
     panelSalesSub: 'ดูตัวเลข บันทึกยอด และตั้งค่า',
     panelPlannerSub: 'งาน แคมเปญ และปฏิทินทีม',
@@ -259,12 +259,12 @@ const T = {
 
     // ---- Nav ----
     navHome: 'Home', navSales: 'Sales', navPlanner: 'Planner',
-    navCatalog: 'Sale', navSystem: 'Settings',
+    navCatalog: 'Sale', navSystem: 'Settings', navStock: 'Stock', navCrm: 'CRM', navWip: 'WIP',
     subOverview: 'Sales Overview', subChannels: 'Sales Channels',
     subAds: 'Ads & Chat', subCustomers: 'Customers',
     subDaily: 'Daily Entry', subMonthly: 'Daily & Monthly', subStatus: 'Entry Status',
     subCalendar: 'Calendar', subKanban: 'Kanban Board', subTimeline: 'Timeline',
-    subProducts: 'Products', subCampaigns: 'Campaigns', subPO: 'PO / Stock', subStock: 'Stock / Inventory', subReport: 'Sales report', subOrders: 'Orders', subEntry: 'Sale entry', subShirts: 'Shirt catalog', subCrm: 'Customers', subHealth: 'Data health', subImport: 'Data', subCustomers2: 'Customers',
+    subProducts: 'Products', subCampaigns: 'Campaigns', subPO: 'PO / Stock', subStock: 'Stock / Inventory', subReport: 'Sales report', subOrders: 'Orders', subEntry: 'Sale entry', subShirts: 'Shirt catalog', subCrm: 'Customers', subHealth: 'Data health', subImport: 'Data', subCustomers2: 'Customers', subFulfill: 'Fulfillment', subShopCust: 'Shop customers', subOpsBoard: 'Stock dashboard', subMovements: 'Movements', subOpsReports: 'Stock reports', subStockTake: 'Stock count', subSuppliers: 'Suppliers', subReturns: 'Returns/RMA', subMpDeduct: 'Deduct from sales', subLocations: 'Locations', subCrmBoard: 'CRM overview', subCrmDir: 'Customers 360', subCrmFollow: 'Follow-ups', subCrmPipe: 'Pipeline', subCrmDedup: 'Duplicates', subCrmCast: 'Broadcast',
     subAudit: 'Activity Log', subRoles: 'User Roles', subTrash: 'Trash',
     panelSalesSub: 'View metrics, record sales & configure',
     panelPlannerSub: 'Tasks, campaigns & team calendar',

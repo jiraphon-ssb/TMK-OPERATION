@@ -23,6 +23,8 @@ const PlannerView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.
 const CatalogView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.CatalogView  })));
 const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
+const StockSection = lazy(() => import('./views-stock.jsx').then(m => ({ default: m.StockSection })));
+const CrmSection   = lazy(() => import('./views-crm.jsx').then(m => ({ default: m.CrmSection })));
 import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, ImportProductsModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
@@ -263,12 +265,35 @@ const NAV_DEF = [
     { id: 'crm', labelKey: 'subCrm', icon: 'users' },
     { id: 'io', labelKey: 'subImport', icon: 'external' },
   ]},
+  // ระบบใหม่ — ย้ายลงล่างสุด + ป้าย "กำลังสร้าง"
+  { id: 'stock', labelKey: 'navStock', icon: 'box', badgeKey: 'navWip', subs: [
+    { id: 'overview', labelKey: 'subOpsBoard', icon: 'grid' },
+    { id: 'stock', labelKey: 'subStock', icon: 'layers' },
+    { id: 'products', labelKey: 'subProducts', icon: 'bag' },
+    { id: 'orders', labelKey: 'subFulfill', icon: 'listChecks' },
+    { id: 'movements', labelKey: 'subMovements', icon: 'route' },
+    { id: 'stocktake', labelKey: 'subStockTake', icon: 'box' },
+    { id: 'returns', labelKey: 'subReturns', icon: 'box' },
+    { id: 'mpdeduct', labelKey: 'subMpDeduct', icon: 'wallet' },
+    { id: 'po', labelKey: 'subPO', icon: 'box' },
+    { id: 'suppliers', labelKey: 'subSuppliers', icon: 'users' },
+    { id: 'locations', labelKey: 'subLocations', icon: 'layers' },
+    { id: 'reports', labelKey: 'subOpsReports', icon: 'sales' },
+  ]},
+  { id: 'crm', labelKey: 'navCrm', icon: 'users', badgeKey: 'navWip', subs: [
+    { id: 'overview', labelKey: 'subCrmBoard', icon: 'grid' },
+    { id: 'directory', labelKey: 'subCrmDir', icon: 'users' },
+    { id: 'pipeline', labelKey: 'subCrmPipe', icon: 'route' },
+    { id: 'followups', labelKey: 'subCrmFollow', icon: 'clock' },
+    { id: 'broadcast', labelKey: 'subCrmCast', icon: 'megaphone' },
+    { id: 'dedup', labelKey: 'subCrmDedup', icon: 'layers' },
+  ]},
 ];
 // Resolve labels from i18n at render time
 function useNav() {
   const { t } = useLang();
   return NAV_DEF.map(n => ({
-    ...n, label: t(n.labelKey),
+    ...n, label: t(n.labelKey), badge: n.badgeKey ? t(n.badgeKey) : undefined,
     subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
   }));
 }
@@ -520,6 +545,7 @@ function AppInner() {
   if (typeof window !== 'undefined') {
     window.__canEdit = canEdit; // ให้ view อื่น (kanban drag, settings) เช็คได้
     window.__isAdmin = currentUserCtx?.role === 'admin'; // จัดการผู้ใช้/สิทธิ์ = admin เท่านั้น
+    window.__userEmail = currentUserCtx?.email || ''; // ผู้ทำรายการ (created_by/by) ในระบบคลัง/CRM
   }
 
   useEffect(() => {
@@ -731,6 +757,8 @@ function AppInner() {
       <Suspense fallback={<PageSkeleton />}>
         {section === 'sales' ? <EntryView sub={sub} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
+          : section === 'stock' ? <StockSection sub={sub} />
+          : section === 'crm' ? <CrmSection sub={sub} />
           : section === 'catalog' ? <CatalogView sub={sub} />
           : section === 'settings' ? <SettingsView sub={sub} dark={dark} setDark={setDark} />
           : null}
@@ -781,6 +809,7 @@ function AppInner() {
                         <SidebarMenuButton tooltip={n.label} isActive={section === n.id && !sub} onClick={() => go(n.id)}>
                           <Icon name={n.icon} />
                           <span>{n.label}</span>
+                          {n.badge && <span className="ml-2 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">{n.badge}</span>}
                           <Icon name="chevR" className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
@@ -1076,7 +1105,17 @@ function AppInner() {
                 if (error) throw error;
                 logAudit({ action: 'delete', entityType: 'task', entityName: task.title, summary: `ลบงาน "${task.title}"` });
                 if (dataReload) await dataReload();
-                toast('ย้ายงานไปถังขยะแล้ว', 'success');
+                toast('ย้ายงานไปถังขยะแล้ว', 'success', 6000, {
+                  label: 'เลิกทำ',
+                  onClick: async () => {
+                    try {
+                      const { error: e2 } = await supabase.from('tmk_tasks').update({ deleted_at: null }).eq('id', task.id);
+                      if (e2) throw e2;
+                      if (dataReload) await dataReload();
+                      toast('กู้คืนงานแล้ว', 'success');
+                    } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+                  },
+                });
               } catch (err) {
                 console.error('Task delete failed:', err);
                 toast('ลบไม่สำเร็จ: ' + err.message, 'error');

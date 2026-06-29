@@ -11,6 +11,8 @@ import { supabase } from './lib/supabaseClient.js';
 import { parseTaskDate, getToday, todayISO, thaiDate } from './lib/dateUtils.js';
 import { ScanButton } from './ScanButton.jsx';
 import { buildMaster, buildSku, summarize, detectFileKind, buildMatchers, auditImport, auditColumns } from './lib/mpReport.js';
+import { writeMonthlyRollup } from './lib/monthlyRollup.js';
+import { invalidateSaleCache } from './lib/saleData.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,7 +30,7 @@ import { logAudit } from './lib/audit.js';
 import { computeMonth } from './dataContext.jsx';
 
 // Toast helper
-const toast = (m, k = 'success') => window.__toast?.(m, k);
+const toast = (m, k = 'success', duration, action) => window.__toast?.(m, k, duration, action);
 
 // แปลงเลข + กันค่าติดลบ + clamp เพดาน 1e12 (กันเลขมหาศาล 1e308 ทำลายกราฟ/ยอดรวม)
 const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
@@ -100,7 +102,17 @@ async function deleteRow(table, id, label, audit = null) {
     }
     if (audit) logAudit(audit);
     window.__reload?.();
-    toast(`ย้าย${label}ไปถังขยะแล้ว`, 'success');
+    toast(`ย้าย${label}ไปถังขยะแล้ว`, 'success', 6000, {
+      label: 'เลิกทำ',
+      onClick: async () => {
+        try {
+          const { error: e2 } = await supabase.from(table).update({ deleted_at: null }).eq('id', id);
+          if (e2) throw e2;
+          window.__reload?.();
+          toast(`กู้คืน${label}แล้ว`, 'success');
+        } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+      },
+    });
     return true;
   } catch (err) { toast('ลบไม่สำเร็จ: ' + err.message, 'error'); return false; }
 }
@@ -428,7 +440,17 @@ export function RecordSalesModal({ data, onClose }) {
       if (note) delFields.push({ label: 'โน้ต', value: note });
       logAudit({ action: 'delete', entityType: 'daily', entityName: date, summary: `ลบยอดขายรายวันวันที่ ${date} (รวม ${bahtStr(_totRev)})`, fields: delFields, data: { date, channels: beforeRef.current?.channels || null, note: note || '', chatTime: _nz(chatTime) } });
       window.__reload?.();
-      toast('ย้ายข้อมูลรายวันไปถังขยะแล้ว', 'success');
+      toast('ย้ายข้อมูลรายวันไปถังขยะแล้ว', 'success', 6000, {
+        label: 'เลิกทำ',
+        onClick: async () => {
+          try {
+            const { error: e2 } = await supabase.from('tmk_daily_sales').update({ deleted_at: null }).eq('id', 'd-' + date);
+            if (e2) throw e2;
+            window.__reload?.();
+            toast('กู้คืนข้อมูลรายวันแล้ว', 'success');
+          } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+        },
+      });
       onClose();
     } catch (err) { toast('ลบไม่สำเร็จ: ' + err.message, 'error'); }
     finally { setSaving(false); }
@@ -1632,6 +1654,10 @@ export function MpImportModal({ onClose, onDone }) {
         const chans = [...new Set(master.map(m => m.channel))].join(', ');
         await supabase.from('tmk_mp_import_batches').insert({ id: batch, source_files: files.map(f => f.name).join(', '), row_orders: master.length, row_skus: sku.length, sales_total: result.sum.sales, qty_total: result.sum.qty, channels: chans, month_span: overall, status: 'active' });
       } catch { /* ledger optional */ }
+      // 4) monthly rollup (PART 12/T4) — สรุปรายเดือนจาก master (order-level, dedup แล้ว) · non-blocking
+      await writeMonthlyRollup(master);
+      // 5) ล้างแคช sale เฉพาะตารางที่เพิ่งเขียน → dashboard เห็นข้อมูลใหม่โดยไม่ต้อง hard-reload
+      invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
       logAudit({ action: 'create', entityType: 'data', entityName: 'รายงานรวมข้ามช่อง', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }] });
       toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} SKU · ${customers?.length || 0} ลูกค้า`, 'success');
       onDone?.(); onClose();

@@ -43,6 +43,58 @@ export async function logCatalogVersion(row) {
  * @param {number} [limit=20]
  * @returns {Promise<Array>} แถวประวัติ หรือ [] ถ้าตารางยังไม่มี/error
  */
+/**
+ * ดึงเวอร์ชันทั้งหมด (ทุกรายการ) สำหรับ build index as-of-date → [] ถ้าตารางยังไม่มี/error
+ * เบา: select เฉพาะ code/name/price/changed_at (ไม่ดึง snapshot jsonb หนัก)
+ */
+export async function fetchAllVersions(limit = 20000) {
+  try {
+    const { data, error } = await supabase
+      .from('tmk_catalog_versions')
+      .select('code,name,price,price_wholesale,changed_at')
+      .order('code', { ascending: true })
+      .order('changed_at', { ascending: true })
+      .limit(limit);
+    if (error) return [];
+    return data || [];
+  } catch { return []; }
+}
+
+/**
+ * จัดกลุ่มเวอร์ชันตาม code (uppercase) → { byCode: Map<CODE, versionsAsc[]>, empty }
+ * versionsAsc เรียงจากเก่า→ใหม่ (ใช้หา "เวอร์ชันที่ effective ณ วันที่")
+ */
+export function buildVersionIndex(rows) {
+  const byCode = new Map();
+  for (const r of (rows || [])) {
+    const c = (r.code || '').toString().trim().toUpperCase();
+    if (!c) continue;
+    if (!byCode.has(c)) byCode.set(c, []);
+    byCode.get(c).push(r);
+  }
+  // rows มาเรียง changed_at asc แล้วจาก query แต่ group แล้วยังคงลำดับ
+  return { byCode, empty: byCode.size === 0 };
+}
+
+/**
+ * หา catalog state (name/price) ที่ effective ณ วัน order
+ * = snapshot ล่าสุดที่ changed_at (เทียบ date-prefix กัน TZ) <= isoDate
+ * คืน { name, price, price_wholesale } หรือ null ถ้า order เก่ากว่า snapshot แรก (→ caller fallback catalog ปัจจุบัน)
+ */
+export function asOfCatalog(index, code, isoDate) {
+  if (!index || index.empty || !code || !isoDate) return null;
+  const c = code.toString().trim().toUpperCase();
+  const versions = index.byCode.get(c);
+  if (!versions || !versions.length) return null;
+  const day = isoDate.toString().slice(0, 10);
+  let hit = null;
+  for (const v of versions) {                 // เรียง asc → ตัวสุดท้ายที่ <= day คือ effective
+    const vd = (v.changed_at || '').toString().slice(0, 10);
+    if (vd && vd <= day) hit = v; else break;
+  }
+  return hit ? { name: hit.name || '', price: hit.price, price_wholesale: hit.price_wholesale } : null;
+}
+
 export async function fetchCatalogVersions(catalogId, limit = 20) {
   if (!catalogId) return [];
   try {

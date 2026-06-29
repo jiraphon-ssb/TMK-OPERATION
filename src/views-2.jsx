@@ -24,6 +24,7 @@ import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
+import { fetchTargets, saveTarget, commissionFor } from './lib/targets.js';
 import { APP_VERSION } from './changelog.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -40,6 +41,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SearchInput } from '@/components/ui/search-input';
+import { Progress } from '@/components/ui/progress';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
@@ -61,26 +63,31 @@ const stCls = { done: 'chip-good', review: 'chip-warn', inprogress: 'chip-accent
 const chipVar2 = (cls) => ({ 'chip-good': 'success', 'chip-warn': 'warning', 'chip-bad': 'danger', 'chip-accent': 'accent', '': 'secondary' }[cls || ''] || 'secondary');
 
 // ดรอปดาวน์ฟิลเตอร์ — ใช้กับตัวเลือกเยอะ (แคมเปญ/หน้าที่) ให้แถบสะอาด ไม่กองพิลล์ · shadcn DropdownMenu
+// multi-select: value = array ของ id · เลือกได้หลายตัว (เมนูไม่ปิดตอนเลือก)
 function FilterDropdown({ label, icon, options, value, onChange }) {
-  const sel = options.find(o => o.id === value);
+  const sel = Array.isArray(value) ? value : (value ? [value] : []);
+  const active = sel.length > 0;
+  const selOpts = options.filter(o => sel.includes(o.id));
+  const trigText = sel.length === 0 ? label : sel.length === 1 ? (selOpts[0]?.name || label) : `${label} (${sel.length})`;
+  const toggle = (id) => onChange(sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className={'rounded-full font-medium' + (value ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
-          {sel ? <span className="dot-c" style={{ background: sel.color }} /> : <Icon name={icon} />}
-          <span className="max-w-[140px] truncate">{sel ? sel.name : label}</span>
+        <Button variant="outline" size="sm" className={'rounded-full font-medium' + (active ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
+          {sel.length === 1 ? <span className="dot-c" style={{ background: selOpts[0]?.color }} /> : <Icon name={icon} />}
+          <span className="max-w-[140px] truncate">{trigText}</span>
           <Icon name="down" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-auto">
-        <DropdownMenuItem onClick={() => onChange(null)}>
-          <span className="flex-1">ทั้งหมด</span>{!value && <Icon name="check" />}
+        <DropdownMenuItem onSelect={(e) => { e.preventDefault(); onChange([]); }}>
+          <span className="flex-1">ทั้งหมด</span>{sel.length === 0 && <Icon name="check" />}
         </DropdownMenuItem>
         {options.map(o => (
-          <DropdownMenuItem key={o.id} onClick={() => onChange(value === o.id ? null : o.id)}>
+          <DropdownMenuItem key={o.id} onSelect={(e) => { e.preventDefault(); toggle(o.id); }}>
             <span className="dot-c" style={{ background: o.color }} />
             <span className="min-w-0 flex-1 truncate">{o.name}</span>
-            {value === o.id && <Icon name="check" />}
+            {sel.includes(o.id) && <Icon name="check" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -90,8 +97,8 @@ function FilterDropdown({ label, icon, options, value, onChange }) {
 
 function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStatus, filterResp, setFilterResp, search, setSearch, respOptions }) {
   const respColor = (name) => (DD.duties.find(d => d.name === name)?.color) || (DD.staff.find(s => s.name === name)?.color) || 'var(--ink-3)';
-  const anyActive = filterStatus !== 'all' || filterCamp || filterResp || search;
-  const clearAll = () => { setFilterStatus('all'); setFilterCamp(null); setFilterResp(null); setSearch(''); };
+  const anyActive = filterStatus !== 'all' || (filterCamp?.length) || (filterResp?.length) || search;
+  const clearAll = () => { setFilterStatus('all'); setFilterCamp([]); setFilterResp([]); setSearch(''); };
   const campOpts = (DD.campaigns || []).map(c => ({ id: c.id, name: c.name, color: c.color }));
   const respOpts = respOptions.map(r => ({ id: r, name: r, color: respColor(r) }));
   return (
@@ -116,8 +123,8 @@ function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStat
 
 function filterTasks(tasks, filterCamp, filterStatus, search, filterResp) {
   return (tasks || []).filter(t => {
-    if (filterCamp && t.camp !== filterCamp) return false;
-    if (filterResp && !(t.responsible || []).includes(filterResp)) return false;
+    if (filterCamp?.length && !filterCamp.includes(t.camp)) return false;
+    if (filterResp?.length && !(t.responsible || []).some(r => filterResp.includes(r))) return false;
     if (filterStatus === 'active' && t.status === 'done') return false;
     if (filterStatus === 'done' && t.status !== 'done') return false;
     if (search) {
@@ -148,9 +155,9 @@ function PlannerSkeleton() {
 }
 
 export function PlannerView({ sub, tasks, setTasks }) {
-  const [filterCamp, setFilterCamp] = useState(null);
+  const [filterCamp, setFilterCamp] = useState([]);
   const [filterStatus, setFilterStatus] = useState('all');
-  const [filterResp, setFilterResp] = useState(null);
+  const [filterResp, setFilterResp] = useState([]);
   const [search, setSearch] = useState('');
   // ตัวเลือก "หน้าที่" — ดึงจากผู้รับผิดชอบจริงในงาน (ครอบคลุมทั้งชื่อหน้าที่/คน)
   const respOptions = useMemo(() => [...new Set((tasks || []).flatMap(t => t.responsible || []))].filter(Boolean).sort(), [tasks]);
@@ -1545,7 +1552,16 @@ function CampaignsView() {
       if (error) throw error;
       logAudit({ action: 'delete', entityType: 'campaign', entityName: c.name, summary: `ลบแคมเปญ "${c.name}"` });
       if (reload) await reload();
-      if (window.__toast) window.__toast('ย้ายแคมเปญไปถังขยะแล้ว', 'success');
+      if (window.__toast) window.__toast('ย้ายแคมเปญไปถังขยะแล้ว', 'success', 6000, {
+        label: 'เลิกทำ',
+        onClick: async () => {
+          try {
+            await supabase.from('tmk_campaigns').update({ deleted_at: null }).eq('id', c.id);
+            if (reload) await reload();
+            window.__toast?.('กู้คืนแคมเปญแล้ว', 'success');
+          } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+        },
+      });
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -1603,7 +1619,33 @@ function CampaignsView() {
         {campaigns.map((c, idx) => {
           const isOver = dragOver === c.id;
           const statusMeta = stMeta[c.status] || stMeta.done;
-          
+
+          // ความคืบหน้างาน — นับงานที่เสร็จ / ทั้งหมด ของแคมเปญนี้
+          const linked = (DD.tasks || []).filter(t => t.camp === c.id);
+          const total = linked.length;
+          const done = linked.filter(t => t.status === 'done').length;
+          const pct = total ? Math.round((done / total) * 100) : 0;
+
+          // สถานะเวลา — นับถอยหลังจากวันเริ่ม/วันจบ เทียบวันนี้
+          const today = todayISO();
+          const diffDays = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+          let time;
+          if (c.endISO && today > c.endISO) {
+            time = { label: 'จบแล้ว', tone: 'done' };
+          } else if (c.startISO && today < c.startISO) {
+            const d = diffDays(today, c.startISO);
+            time = { label: d <= 1 ? 'เริ่มพรุ่งนี้' : `เริ่มในอีก ${d} วัน`, tone: 'upcoming' };
+          } else if (c.endISO) {
+            const d = diffDays(today, c.endISO);
+            time = d === 0 ? { label: 'วันสุดท้าย', tone: 'urgent' } : { label: `เหลืออีก ${d} วัน`, tone: d <= 3 ? 'urgent' : 'live' };
+          } else {
+            time = { label: 'กำลังดำเนินการ', tone: 'live' };
+          }
+          const timeCls = time.tone === 'upcoming' ? 'bg-primary/10 text-primary'
+            : time.tone === 'urgent' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+            : time.tone === 'live' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+            : 'bg-muted text-muted-foreground';
+
           return (
             <Card key={c.id}
               draggable
@@ -1622,67 +1664,67 @@ function CampaignsView() {
                 background: isOver ? 'hsl(var(--accent)/0.1)' : undefined,
                 opacity: dragId === c.id ? 0.4 : 1,
               }}>
-              <CardContent className="p-4 flex-1 flex flex-col">
-                <div className="flex items-start justify-between gap-3 mb-4">
+              <CardContent className="p-4 flex-1 flex flex-col gap-3">
+                {/* หัวการ์ด: handle + ชื่อเต็ม + ป้ายสถานะ */}
+                <div className="flex items-start justify-between gap-2">
                   <div className="flex gap-2 min-w-0 flex-1">
-                    <div className="hidden sm:flex shrink-0 text-muted-foreground/50 mt-1" title="ลากเพื่อเรียงลำดับ">
+                    <div className="hidden sm:flex shrink-0 text-muted-foreground/40 mt-0.5" title="ลากเพื่อเรียงลำดับ">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                         <circle cx="9" cy="6" r="1.5" fill="currentColor" /><circle cx="9" cy="12" r="1.5" fill="currentColor" /><circle cx="9" cy="18" r="1.5" fill="currentColor" />
                         <circle cx="15" cy="6" r="1.5" fill="currentColor" /><circle cx="15" cy="12" r="1.5" fill="currentColor" /><circle cx="15" cy="18" r="1.5" fill="currentColor" />
                       </svg>
                     </div>
                     {/* สำหรับมือถือ */}
-                    <div className="flex sm:hidden flex-col gap-1 shrink-0 px-1 mt-1" onClick={e => e.stopPropagation()}>
-                      <button className="text-muted-foreground disabled:opacity-30 p-1 text-[10px]" disabled={idx === 0 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx - 1].id)}>▲</button>
-                      <button className="text-muted-foreground disabled:opacity-30 p-1 text-[10px]" disabled={idx === campaigns.length - 1 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx + 1].id)}>▼</button>
+                    <div className="flex sm:hidden flex-col gap-1 shrink-0 mt-0.5" onClick={e => e.stopPropagation()}>
+                      <button className="text-muted-foreground disabled:opacity-30 p-0.5 text-[10px] leading-none" disabled={idx === 0 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx - 1].id)}>▲</button>
+                      <button className="text-muted-foreground disabled:opacity-30 p-0.5 text-[10px] leading-none" disabled={idx === campaigns.length - 1 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx + 1].id)}>▼</button>
                     </div>
-                    
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-bold text-base truncate hover:underline cursor-pointer" onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>
-                        {c.name}
-                      </h3>
-                      <div className="text-xs text-muted-foreground mt-1 tabular-nums">
-                        {c.start} – {c.end}
-                      </div>
-                    </div>
+                    <h3 className="font-bold text-[15px] leading-snug line-clamp-2 hover:underline cursor-pointer min-w-0 flex-1" title={c.name} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>
+                      {c.name}
+                    </h3>
                   </div>
-                  
                   <Badge variant="outline" className={`shrink-0 ${statusMeta.cls === 'chip-good' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : statusMeta.cls === 'chip-accent' ? 'bg-primary/10 text-primary border-primary/20' : statusMeta.cls === 'chip-warn' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : ''}`}>
                     {statusMeta.l}
                   </Badge>
                 </div>
-                
-                <div className="mt-auto flex items-center justify-between pt-3 border-t border-border/50">
-                  <div className="flex gap-1.5 flex-wrap">
-                    {(c.channels || []).map(id => { 
-                      const ch = DD.channels.find(x=>x.id===id); 
-                      return ch ? <div key={id} className="size-3 rounded-sm" style={{ background: ch.hex }} title={ch.name}></div> : null; 
-                    })}
+
+                {/* ช่วงเวลา + นับถอยหลัง */}
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="text-muted-foreground tabular-nums">{c.start} – {c.end}</span>
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-medium ${timeCls}`}>
+                    <Icon name="clock" className="size-3" />{time.label}
+                  </span>
+                </div>
+
+                {/* ความคืบหน้างาน */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1.5 text-muted-foreground"><Icon name="listChecks" className="size-3.5" />ความคืบหน้างาน</span>
+                    <span className="font-semibold tabular-nums">{total ? <>{done}/{total} <span className="text-muted-foreground font-normal">({pct}%)</span></> : <span className="text-muted-foreground font-normal">ยังไม่มีงาน</span>}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Icon name="listChecks" className="size-3.5" />
-                    <span>{c.tasks} งาน</span>
+                  <Progress value={pct} className="h-1.5" />
+                </div>
+
+                {/* ฐานการ์ด: ช่องทาง + ปุ่มแก้/ลบ */}
+                <div className="mt-auto flex items-center justify-between gap-2 pt-3 border-t border-border/50">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                    {(c.channels || []).length === 0
+                      ? <span className="text-[11px] text-muted-foreground/60">ไม่มีช่องทาง</span>
+                      : (c.channels || []).map(id => {
+                          const ch = DD.channels.find(x => x.id === id);
+                          return ch ? <span key={id} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-2.5 rounded-full" style={{ background: ch.hex }} />{ch.name}</span> : null;
+                        })}
+                  </div>
+                  <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                    <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }} title="แก้ไขแคมเปญ">
+                      <Icon name="pencil" className="size-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy} title="ลบแคมเปญ">
+                      <Icon name="trash" className="size-3.5" />
+                    </Button>
                   </div>
                 </div>
               </CardContent>
-              <div className="absolute top-2 right-2 flex opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
-                  <Icon name="pencil" className="size-3" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy}>
-                  <Icon name="trash" className="size-3" />
-                </Button>
-              </div>
-              
-              {/* always show buttons on mobile */}
-              <div className="flex sm:hidden absolute top-2 right-2">
-                 <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }}>
-                  <Icon name="pencil" className="size-3" />
-                </Button>
-                 <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy}>
-                  <Icon name="trash" className="size-3" />
-                </Button>
-              </div>
             </Card>
           );
         })}
@@ -1700,11 +1742,12 @@ export function SettingsView({ sub, dark, setDark }) {
     { id: 'channels', label: 'ช่องทาง', icon: 'layers' },
     { id: 'campaigns', label: 'แคมเปญ', icon: 'megaphone' },
     { id: 'duties', label: 'หน้าที่', icon: 'shield' },
+    { id: 'targets', label: 'เป้า & คอม', icon: 'target' },
     { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'users' },
     { id: 'audit', label: 'ประวัติการใช้งาน', icon: 'clock' },
     { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
     { id: 'updates', label: 'มีอะไรใหม่', icon: 'sparkle' },
-  ].filter(t => (t.id === 'roles' ? _isAdmin : t.id === 'trash' ? _canEdit : true)); // สิทธิ์ผู้ใช้=admin, ถังขยะ=ผู้แก้ไขขึ้นไป
+  ].filter(t => (t.id === 'roles' ? _isAdmin : (t.id === 'trash' || t.id === 'targets') ? _canEdit : true)); // สิทธิ์ผู้ใช้=admin, ถังขยะ/เป้า=ผู้แก้ไขขึ้นไป
   // ใช้ sub prop โดยตรง — ถ้า sub ไม่ถูกต้อง fallback เป็น 'general' (กันหน้าว่าง)
   const active = TABS.some(t => t.id === sub) ? sub : 'general';
   const setActive = (id) => window.__goSection?.('settings', id);
@@ -1746,6 +1789,9 @@ export function SettingsView({ sub, dark, setDark }) {
         <TabsContent value="duties" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           <DutiesView />
         </TabsContent>
+        <TabsContent value="targets" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          {_canEdit && <TargetsView />}
+        </TabsContent>
         <TabsContent value="roles" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           {_isAdmin && <RolesView />}
         </TabsContent>
@@ -1761,6 +1807,125 @@ export function SettingsView({ sub, dark, setDark }) {
         </div>
       </Tabs>
     </div>
+  );
+}
+
+// ===== เป้าขาย + คอมมิชชั่นต่อเซลล์ (PART 12 / T3) =====
+// graceful: ตาราง tmk_targets ยังไม่ migrate → Save แจ้งให้รัน migration (ไม่พัง)
+function TargetsView() {
+  const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+  const [month, setMonth] = useState(thisMonth);
+  const [people, setPeople] = useState([]);     // ชื่อเซลล์ (display name หลัง alias)
+  const [rows, setRows] = useState({});          // name -> { sales_target, commission_rate }
+  const [loading, setLoading] = useState(true);
+  const [savingKey, setSavingKey] = useState(null);
+  const [addName, setAddName] = useState('');
+
+  const load = async () => {
+    setLoading(true);
+    let names = [];
+    try {
+      const { data } = await supabase.from('tmk_sales_aliases').select('display_name');
+      names = [...new Set((data || []).map(r => r.display_name).filter(Boolean))];
+    } catch { /* ตาราง alias ยังไม่มี → รายชื่อว่าง เพิ่มเองได้ */ }
+    const targets = await fetchTargets(month);
+    const map = {};
+    targets.forEach(t => {
+      map[t.salesperson] = { sales_target: t.sales_target ?? 0, commission_rate: t.commission_rate ?? 0 };
+      if (!names.includes(t.salesperson)) names.push(t.salesperson); // เซลล์ที่เคยตั้งเป้าแต่ไม่อยู่ใน alias
+    });
+    names.sort((a, b) => a.localeCompare(b, 'th'));
+    setPeople(names);
+    setRows(map);
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [month]);
+
+  const setField = (name, field, val) => setRows(p => ({ ...p, [name]: { ...(p[name] || {}), [field]: val } }));
+
+  const saveRow = async (name) => {
+    setSavingKey(name);
+    const r = rows[name] || {};
+    const { error } = await saveTarget({ salesperson: name, month, sales_target: r.sales_target, commission_rate: r.commission_rate });
+    setSavingKey(null);
+    if (error) {
+      const miss = /relation .* does not exist|tmk_targets|schema cache/i.test(error.message || '');
+      window.__toast?.(miss ? 'ต้องรัน migration 20260701-targets.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error');
+      return;
+    }
+    logAudit({ action: 'update', entityType: 'target', entityName: name, summary: `ตั้งเป้า/คอม ${name} เดือน ${month}` });
+    window.__toast?.(`บันทึกเป้า ${name} แล้ว`, 'success');
+  };
+
+  const addPerson = () => {
+    const n = addName.trim();
+    if (!n) return;
+    if (!people.includes(n)) setPeople(p => [...p, n].sort((a, b) => a.localeCompare(b, 'th')));
+    setAddName('');
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Icon name="target" className="size-5" /> เป้าขาย & คอมมิชชั่นต่อเซลล์</CardTitle>
+        <CardDescription>ตั้งเป้ายอดขาย (บาท) และอัตราคอม (%) รายคน รายเดือน → โชว์ความคืบหน้า + คอมคำนวณในหน้า “ยอดขาย → เซลล์”</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">เดือน</Label>
+            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-[160px]" />
+          </div>
+          <div className="flex items-end gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">เพิ่มเซลล์เอง (ถ้าไม่อยู่ในรายชื่อ)</Label>
+              <Input value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPerson(); }} placeholder="ชื่อเซลล์" className="w-[200px]" />
+            </div>
+            <Button variant="outline" size="sm" onClick={addPerson}><Icon name="plus" className="size-4" /> เพิ่ม</Button>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">กำลังโหลด…</p>
+        ) : people.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground text-sm">
+            ยังไม่มีรายชื่อเซลล์ — ตั้งชื่อย่อ→ชื่อจริงที่ “นำเข้า → จับคู่ชื่อเซลล์” ก่อน หรือเพิ่มเซลล์เองด้านบน
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>เซลล์</TableHead>
+                <TableHead className="text-right">เป้ายอดขาย (บาท)</TableHead>
+                <TableHead className="text-right">คอม (%)</TableHead>
+                <TableHead className="text-right w-[110px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {people.map(name => {
+                const r = rows[name] || {};
+                return (
+                  <TableRow key={name}>
+                    <TableCell className="font-medium">{name}</TableCell>
+                    <TableCell className="text-right">
+                      <Input type="number" inputMode="numeric" value={r.sales_target ?? ''} onChange={e => setField(name, 'sales_target', e.target.value)} className="w-[140px] ml-auto text-right" placeholder="0" />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input type="number" inputMode="decimal" step="0.1" value={r.commission_rate ?? ''} onChange={e => setField(name, 'commission_rate', e.target.value)} className="w-[90px] ml-auto text-right" placeholder="0" />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="secondary" disabled={savingKey === name} onClick={() => saveRow(name)}>
+                        {savingKey === name ? 'กำลังบันทึก…' : 'บันทึก'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -2353,7 +2518,16 @@ function ChannelsView() {
       logAudit({ action: 'delete', entityType: 'channel', entityName: c.name, summary: `ลบช่องทาง "${c.name}"` });
       if (reload) await reload();
       setEditing(null);
-      if (window.__toast) window.__toast('ย้ายช่องทางไปถังขยะแล้ว', 'success');
+      if (window.__toast) window.__toast('ย้ายช่องทางไปถังขยะแล้ว', 'success', 6000, {
+        label: 'เลิกทำ',
+        onClick: async () => {
+          try {
+            await supabase.from('tmk_channels').update({ deleted_at: null }).eq('id', c.id);
+            if (reload) await reload();
+            window.__toast?.('กู้คืนช่องทางแล้ว', 'success');
+          } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+        },
+      });
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -2747,7 +2921,16 @@ function DutiesView() {
       logAudit({ action: 'delete', entityType: 'duty', entityName: duty.name, summary: `ลบหน้าที่ "${duty.name}"` });
       if (reload) await reload();
       setEditing(null);
-      if (window.__toast) window.__toast('ย้ายหน้าที่ไปถังขยะแล้ว', 'success');
+      if (window.__toast) window.__toast('ย้ายหน้าที่ไปถังขยะแล้ว', 'success', 6000, {
+        label: 'เลิกทำ',
+        onClick: async () => {
+          try {
+            await supabase.from('tmk_duties').update({ deleted_at: null }).eq('id', duty.id);
+            if (reload) await reload();
+            window.__toast?.('กู้คืนหน้าที่แล้ว', 'success');
+          } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+        },
+      });
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
@@ -3114,7 +3297,18 @@ function RolesView() {
       logAudit({ action: 'delete', entityType: 'user', entityName: email, summary: `ลบผู้ใช้ ${email}` });
       if (reload) await reload();
       setEditing(null);
-      if (window.__toast) window.__toast('ย้ายผู้ใช้ไปถังขยะแล้ว', 'success');
+      if (window.__toast) window.__toast('ย้ายผู้ใช้ไปถังขยะแล้ว', 'success', 6000, {
+        label: 'เลิกทำ',
+        onClick: async () => {
+          if (!guardAdmin()) return;
+          try {
+            await supabase.from('tmk_user_roles').update({ deleted_at: null }).eq('email', email);
+            await supabase.from('tmk_staff').update({ deleted_at: null }).eq('email', email);
+            if (reload) await reload();
+            window.__toast?.('กู้คืนผู้ใช้แล้ว', 'success');
+          } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+        },
+      });
     } catch (err) {
       if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally {
@@ -3456,9 +3650,11 @@ function TrashView() {
   const load = async () => {
     try {
       const results = await Promise.all(
-        TRASH_TABLES.map(t =>
-          supabase.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false })
-        )
+        TRASH_TABLES.map(t => {
+          // ดึงเฉพาะคอลัมน์ที่ list ใช้จริง (key + ชื่อ + deleted_at) — ตัด jsonb หนัก (lots/items/status_log…) ออกจาก egress
+          const sel = [...new Set([t.key, t.nameCol, 'deleted_at'])].join(',');
+          return supabase.from(t.table).select(sel).not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+        })
       );
       if (!aliveRef.current) return; // กัน setState หลัง unmount
       const all = [];

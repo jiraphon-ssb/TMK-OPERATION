@@ -367,6 +367,26 @@ export function buildMaster({ shipnity, tiktok } = {}) {
 }
 
 /* ============================ STEP 2: SKU master (SKU-level) ============================ */
+// schema-tolerant: เก็บคอลัมน์ที่ "ไม่ได้ map" ลง attrs (กันไฟล์ต้นทางเพิ่มคอลัมน์ใหม่แล้วข้อมูลหาย)
+// - cap จำนวน + ความยาวค่า กัน attrs บวม (egress: attrs ไม่อยู่ใน SKUS_SEL → ไม่กระทบ read ปกติ)
+// - prefix 'src_' กันชนกับ key ระบบ (flag ฯลฯ)
+function pickExtras(headerRow, row, knownIdx, cap = 10) {
+  const out = {};
+  if (!Array.isArray(headerRow) || !Array.isArray(row)) return out;
+  let n = 0;
+  for (let i = 0; i < headerRow.length && n < cap; i++) {
+    if (knownIdx.has(i)) continue;
+    const h = String(headerRow[i] ?? '').trim();
+    if (!h) continue;
+    const val = row[i];
+    if (val == null || String(val).trim() === '') continue;
+    out['src_' + h] = String(val).slice(0, 120);
+    n++;
+  }
+  return out;
+}
+const knownIdxSet = (cmap) => new Set(Object.values(cmap).filter(i => typeof i === 'number' && i >= 0));
+
 // opts.shipnityAllChannels=true → แกะ 'รายการขาย' ทุกออเดอร์ (โหมด base-only ไม่มี Shopee file)
 export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = {}) {
   const M = catalogGrid ? buildMatchers(catalogGrid, opts.aliases) : { code2: {}, name2: {}, kw: [], colors: new Set() };
@@ -389,6 +409,7 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
   if (hasShopee) {
     const { get } = indexer(shopee);
     const c = { status: get('สถานะการสั่งซื้อ'), order: get('หมายเลขคำสั่งซื้อ'), par: get('เลขอ้างอิง Parent SKU'), full: get('เลขอ้างอิง SKU (SKU Reference No.)', 'เลขอ้างอิง SKU'), opt: get('ชื่อตัวเลือก'), pname: get('ชื่อสินค้า'), qty: get('จำนวน'), price: get('ราคาขายสุทธิ') };
+    const known = knownIdxSet(c);
     for (let r = 1; r < shopee.length; r++) {
       const row = shopee[r] || [];
       if (String(row[c.status] ?? '').includes('ยกเลิก')) continue;
@@ -401,7 +422,9 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
       const design = v.design || (byCode ? byCode.design : '');
       const code = v.code || (byCode ? byCode.code : '') || par || full;
       const rawOno = String(row[c.order] ?? '').trim();
-      rows.push({ channel: 'Shopee', source: 'shopee', order_no: mid2ono.get(rawOno) || rawOno, product_code: code, design, color: v.color, size: v.size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.price]), raw_sku_or_name: full, match_how: design ? (v.how || (byCode ? 'code' : '')) : '', attrs: v.flag ? { flag: v.flag } : undefined });
+      const extra = pickExtras(shopee[0], row, known);
+      const attrs = { ...(v.flag ? { flag: v.flag } : {}), ...extra };
+      rows.push({ channel: 'Shopee', source: 'shopee', order_no: mid2ono.get(rawOno) || rawOno, product_code: code, design, color: v.color, size: v.size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.price]), raw_sku_or_name: full, match_how: design ? (v.how || (byCode ? 'code' : '')) : '', attrs: Object.keys(attrs).length ? attrs : undefined });
     }
   }
 
@@ -409,6 +432,7 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
   if (tiktok && tiktok.length > 2) {
     const { get } = indexer(tiktok);
     const c = { status: get('Order Status'), oid: get('Order ID'), seller: get('Seller SKU'), skuid: get('SKU ID'), pname: get('Product Name'), variation: get('Variation'), qty: get('Quantity'), sub: get('SKU Subtotal After Discount') };
+    const known = knownIdxSet(c);
     for (let r = 1; r < tiktok.length; r++) {
       const row = tiktok[r] || [];
       const ono = String(row[c.oid] ?? '').trim();
@@ -416,7 +440,9 @@ export function buildSku({ shipnity, shopee, tiktok } = {}, catalogGrid, opts = 
       if (String(row[c.status] ?? '').trim() === 'ยกเลิกแล้ว') continue;
       const seller = String(row[c.seller] || row[c.skuid] || '').trim();
       const v = resolveMpVariant({ name: row[c.pname], variation: row[c.variation] }, M, { code: embedCode(seller) });
-      rows.push({ channel: 'TikTok', source: 'tiktok', order_no: ono, product_code: v.code, design: v.design, color: v.color, size: v.size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.sub]), raw_sku_or_name: seller, match_how: v.design ? v.how : '', attrs: v.flag ? { flag: v.flag } : undefined });
+      const extra = pickExtras(tiktok[0], row, known);
+      const attrs = { ...(v.flag ? { flag: v.flag } : {}), ...extra };
+      rows.push({ channel: 'TikTok', source: 'tiktok', order_no: ono, product_code: v.code, design: v.design, color: v.color, size: v.size, qty: mpNum(row[c.qty]), line_sales: mpNum(row[c.sub]), raw_sku_or_name: seller, match_how: v.design ? v.how : '', attrs: Object.keys(attrs).length ? attrs : undefined });
     }
   }
 

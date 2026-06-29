@@ -231,6 +231,7 @@ export const ICONS = {
   external: 'M14 4h6v6M20 4l-9 9M18 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5',
   refresh: 'M21 12a9 9 0 1 1-3-6.7L21 8M21 4v4h-4',
   check: 'M5 12l5 5L20 6',
+  circle: 'M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0',
   layers: 'M12 3 3 8l9 5 9-5zM3 13l9 5 9-5',
   sparkle: 'M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2zM19 4v3M21 5h-3',
   help: 'M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01',
