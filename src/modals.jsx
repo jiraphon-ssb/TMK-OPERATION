@@ -726,7 +726,8 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
       const nf = nv ? flowOptions.find(fl => fl.id === nv) : genCfg;
       const camps = nf?.campaignIds?.length ? nf.campaignIds : null;
       const sts = nf?.statuses?.length ? nf.statuses.map(s => s.id) : null;
-      return { ...p, flow_id: nv, camp: (camps && !camps.includes(p.camp)) ? '' : p.camp, status: (sts && !sts.includes(p.status)) ? sts[0] : p.status };
+      const brs = nf?.brandIds?.length ? nf.brandIds : null; // โครงการใหม่กำหนดแบรนด์ → คงเฉพาะที่อยู่ในโครงการใหม่ (กันแบรนด์โครงการเก่าติดไป)
+      return { ...p, flow_id: nv, camp: (camps && !camps.includes(p.camp)) ? '' : p.camp, status: (sts && !sts.includes(p.status)) ? sts[0] : p.status, brandIds: (brs && Array.isArray(p.brandIds)) ? p.brandIds.filter(b => brs.includes(b)) : p.brandIds };
     });
   };
   // popup (Relay-style field grid · เปิดจากทุกวิว) — ปุ่มอยู่ฝั่งซ้าย (รายละเอียด) ปักล่าง

@@ -402,7 +402,7 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
   const headerChips = [];
   if (flowChip) headerChips.push({ kind: 'flow', name: flowChip.name, color: flowChip.color || 'var(--ink-3)' });
   if (c) headerChips.push({ kind: 'camp', name: c.name, color: c.color || '#6b5ce0' });
-  taskBrands.forEach(b => headerChips.push({ kind: 'brand', name: b.name, color: b.color || '#6b5ce0' }));
+  taskBrands.forEach(b => headerChips.push({ kind: 'brand', name: b.name, color: b.color || '#6b5ce0', logoUrl: b.logoUrl }));
   if (!headerChips.length && !showFlow && (t.tags || [])[0]) headerChips.push({ kind: 'tag', name: t.tags[0], color: '#6b5ce0' });
   const assignees = t.responsible || [];
   const dateLabel = t.date + (t.dateEnd && t.dateEnd !== t.dateISO ? ' → ' + thaiDate(t.dateEnd) : '');
@@ -425,7 +425,12 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
           <div className="row between" style={{ gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
             <div className="flex items-center gap-1 min-w-0 flex-wrap">
               {headerChips.map((h, i) => h.kind === 'brand'
-                ? <span key={'b' + i} className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1 shrink-0 border" style={{ borderColor: h.color + '55', color: h.color }}><span className="size-1.5 rounded-full shrink-0" style={{ background: h.color }} /><span className="truncate max-w-[88px]">{h.name}</span></span>
+                ? <span key={'b' + i} title={`แบรนด์: ${h.name}`} className="text-[11px] font-semibold pl-1 pr-2 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0 border" style={{ borderColor: h.color + '66', background: h.color + '14', color: h.color }}>
+                    {h.logoUrl
+                      ? <img src={h.logoUrl} alt="" className="size-4 rounded-full object-contain bg-white shrink-0 ring-1" style={{ '--tw-ring-color': h.color + '40' }} />
+                      : <span className="size-4 rounded-full shrink-0 inline-flex items-center justify-center text-white text-[9px] font-bold" style={{ background: h.color }}>{(h.name || '?').slice(0, 1).toUpperCase()}</span>}
+                    <span className="truncate max-w-[92px]">{h.name}</span>
+                  </span>
                 : <span key={'c' + i} className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 shrink-0" style={{ background: h.color + '1f', color: h.color, maxWidth: 168 }}><span className="size-1.5 rounded-full shrink-0" style={{ background: h.color }} /><span className="truncate">{h.name}</span></span>
               )}
             </div>
