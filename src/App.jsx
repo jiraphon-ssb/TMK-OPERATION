@@ -35,7 +35,9 @@ import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
 import { pushNotify, emailOfName, notify, stableNotifId, emailsForAudience } from './lib/notify.js';
-import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
+import { initNotifStore, teardownNotifStore, prefOn as notifPrefOn } from './lib/notifStore.js';
+import { NotifBell, NotifNavBadge } from './notif-bell.jsx';
+import { parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
 import { UpdateBanner, useUnseenVersion } from './WhatsNew.jsx';
@@ -247,16 +249,6 @@ function Spotlight({ onClose, onGo }) {
     </div>
   );
 }
-
-// ไอคอน/สีต่อชนิดแจ้งเตือน (ใช้ในกระดิ่ง · ให้เข้าชุดกับศูนย์แจ้งเตือน)
-const NOTIF_KIND = {
-  mention: { icon: 'chat', color: 'var(--accent)' }, assign: { icon: 'user', color: 'var(--good)' },
-  reply: { icon: 'reply', color: 'var(--info)' }, comment: { icon: 'chat', color: 'var(--info)' },
-  status: { icon: 'circle', color: 'var(--accent)' }, due: { icon: 'clock', color: 'var(--warn)' },
-  overdue: { icon: 'zap', color: 'var(--bad)' }, flow_member: { icon: 'users', color: 'var(--accent)' },
-};
-const notifKind = (n) => { const b = NOTIF_KIND[n?.kind] || { icon: 'bell', color: 'var(--accent)' }; const sev = { urgent: 'var(--bad)', warn: 'var(--warn)', success: 'var(--good)' }[n?.severity]; return { icon: b.icon, color: sev || b.color }; };
-function notifTimeAgo(iso) { if (!iso) return ''; const s = (Date.now() - new Date(iso).getTime()) / 1000; if (s < 60) return 'เมื่อสักครู่'; if (s < 3600) return Math.floor(s / 60) + ' นาที'; if (s < 86400) return Math.floor(s / 3600) + ' ชม.'; return Math.floor(s / 86400) + ' วัน'; }
 
 const NAV_DEF = [
   { id: 'home', labelKey: 'navHome', icon: 'home' },
@@ -607,8 +599,6 @@ function AppInner() {
     try { localStorage.setItem('tmk-submap', JSON.stringify(subMap)); } catch { /* ignore */ }
   }, [subMap]);
   const [drawer, setDrawer] = useState(false);
-  const [notif, setNotif] = useState(false);
-  const [dbNotifs, setDbNotifs] = useState([]); // แจ้งเตือนจาก DB (ถูกแท็ก @ / มอบหมาย) — PART 27
   const [menu, setMenu] = useState(false);
   const contentRef = useRef(null);
 
@@ -624,15 +614,6 @@ function AppInner() {
     root.style.setProperty('--accent-2', dark ? `color-mix(in srgb, ${accent} 40%, white)` : (ACCENTS[accent] || accent));
     try { localStorage.setItem('tmk-dark', dark ? 'true' : 'false'); } catch { /* ignore */ }
   }, [dark]);
-
-  // รีเฟรชเมื่อสลับ toggle แจ้งเตือน (NotifToggle dispatch 'tmk-prefs') → กระดิ่งอัปเดตทันที
-  // เก็บค่า bump ไว้เป็น dep ของ useMemo notifications (Phase F memoization)
-  const [prefsBump, setPrefsBump] = useState(0);
-  useEffect(() => {
-    const h = () => setPrefsBump(n => n + 1);
-    window.addEventListener('tmk-prefs', h);
-    return () => window.removeEventListener('tmk-prefs', h);
-  }, []);
 
   // สิทธิ์แก้ไข: 'viewer' = ดูอย่างเดียว (เจ้าของ/แอดมิน/ผู้แก้ไข = แก้ได้) — default viewer ถ้าไม่อยู่ในระบบ
   const canEdit = (currentUserCtx?.role || 'viewer') !== 'viewer';
@@ -726,118 +707,23 @@ function AppInner() {
   const go = (sec, s) => {
     setSection(sec);
     if (s) setSubMap(m => ({ ...m, [sec]: s }));
-    setDrawer(false); setNotif(false); setMenu(false);
+    setDrawer(false); setMenu(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
   // เลือกโครงการ + ไปบอร์ด (คลิกเดียว · setActiveFlow ทำให้ sidebar/breadcrumb/board re-render พร้อมกัน)
   const pickFlow = (f) => { setActiveFlow(f.id); go('flows', f.defaultView && f.defaultView !== 'settings' ? f.defaultView : 'kanban'); };
 
-  // ===== แจ้งเตือน — แยก 3 แบบ: วันนี้ / ตามวันที่ / เดือนที่แล้ว =====
-  // เฉพาะงานของหน้าที่ผู้ใช้ปัจจุบัน (admin เห็นทั้งหมด) — memo เพื่อเลี่ยงคำนวณซ้ำทุก render
-  // dep: tasks, dataVersion (TMK เปลี่ยน), prefsBump (toggle เตือน), currentUserCtx (สิทธิ์/หน้าที่)
-  const { notifs, notifGroups } = useMemo(() => {
-    const readFlag = (k) => { try { return localStorage.getItem(k) !== 'false'; } catch { return true; } };
-    const notifOn = readFlag('tmk-notif-overdue');
-    const todayDay = TMK.consts.DAY;
-    const myDuty = currentUserCtx?.name || '';
-    const myDept = currentUserCtx?.department || '';
-    const isMine = (tk) => (tk.responsible || []).some(r => r === myDuty || r === myDept); // เตือน "งาน" เฉพาะที่ตัวเอง (ชื่อ/แผนก) ได้รับมอบหมาย — admin ไม่เห็นงานคนอื่น (กลุ่มระบบ stock/sales/orders/po คงเห็นภาพรวม)
-    const _todayIso = todayISO();
-    const diffOf = (x) => { const iso = x.dateISO || parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
-    const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
-    const notifsToday = openTasks.filter(x => diffOf(x) === 0)
-      .map(x => ({ ...x, kind: 'task', sev: 'today', txt: t('dueToday') }));
-    const notifsDated = openTasks.filter(x => { const d = diffOf(x); return d != null && d !== 0; })
-      .map(x => { const diff = diffOf(x); return { ...x, kind: 'task', sev: diff < 0 ? 'overdue' : 'soon', txt: diff < 0 ? t('overdueBy', -diff) : t('dueIn', diff), _diff: diff }; })
-      .filter(n => n.sev === 'overdue' || n._diff <= (n.reminderDays || 1))
-      .sort((a, b) => a._diff - b._diff);
-    const dailyNotifOn = readFlag('tmk-notif-daily');
-    const notifsTodaySales = (dailyNotifOn && !((TMK.dailyMonth || []).some(d => d.d === todayDay)))
-      ? [{ id: 'today-sales', kind: 'todaysales', title: 'ยังไม่ได้กรอกยอดขายวันนี้', txt: 'กรอกเลย' }]
-      : [];
-    const notifsLastMonth = (() => {
-      if (!notifOn) return [];
-      const cm = TMK.consts.current_month, cy = TMK.consts.current_year;
-      const pm = cm === 1 ? 12 : cm - 1;
-      const py = cm === 1 ? cy - 1 : cy;
-      const rec = (TMK.monthly || []).find(m => m.month === pm && m.year === py);
-      // มียอดรวมรายเดือน หรือ มีข้อมูลรายวันของเดือนนั้น = ถือว่าสรุปแล้ว (กันเตือนหลอกเมื่อกรอกแบบรายวันล้วน)
-      const hasDaily = (TMK.dailyAll || []).some(d => d.year === py && d.month === pm);
-      if ((rec && rec.actual > 0) || hasDaily) return [];
-      return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
-    })();
-    const notifsStock = readFlag('tmk-notif-stock')
-      ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low')
-          .map(p => ({ id: 'stock-' + p.id, kind: 'stock', title: `${p.name} ${p.stock === 'out' ? 'หมดสต็อก' : 'ใกล้หมด'}`, txt: 'ดูสินค้า' }))
-      : [];
-    const notifsSales = readFlag('tmk-notif-sales') ? (() => {
-      const out = [];
-      const ceil = TMK.consts.ACOS_CEIL || 25;
-      (TMK.channels || []).forEach(c => {
-        if (c.actual > 0 && c.ad > 0) {
-          const acos = (c.ad / c.actual) * 100;
-          if (acos > ceil) out.push({ id: 'acos-' + c.id, kind: 'sales', title: `${c.name}: ค่าแอด ${acos.toFixed(0)}% ของยอด (เพดาน ${ceil}%)`, txt: 'ดูภาพรวม' });
-        }
-      });
-      const Cm = TMK.computed || {};
-      if ((TMK.consts.TARGET || 0) > 0 && typeof Cm.PACE_PCT === 'number' && Cm.PACE_PCT < 90) {
-        out.push({ id: 'pace', kind: 'sales', title: `ยอดช้ากว่าแผน — จังหวะทำยอด ${Cm.PACE_PCT.toFixed(0)}%`, txt: 'ดูภาพรวม' });
-      }
-      // งบโฆษณาเกิน — เตือนเมื่อใช้จริง > งบที่ตั้ง (ของเดิมมีแค่หน้าโฆษณา ไม่เด้งกระดิ่ง)
-      const adBudget = Number(TMK.consts.AD_BUDGET || 0);
-      if (adBudget > 0 && Number(Cm.AD || 0) > adBudget) {
-        out.push({ id: 'ad-over', kind: 'sales', title: `ใช้งบโฆษณาเกินที่ตั้ง (${B(Cm.AD)} / ${B(adBudget)})`, txt: 'ดูภาพรวม' });
-      }
-      // pace ลูกค้าใหม่ช้ากว่าแผน — เทียบ NEW_C MTD กับเป้าตามวันที่ผ่านไป (โครงเดียวกับยอดขาย)
-      const cm = TMK.consts.current_month, cy = TMK.consts.current_year;
-      const curMonthRow = (TMK.monthly || []).find(m => m.month === cm && m.year === cy);
-      const newCTarget = Number(curMonthRow?.meta?.newCustTarget || 0);
-      if (newCTarget > 0 && TMK.consts.DAYS > 0) {
-        const expected = (TMK.consts.DAY / TMK.consts.DAYS) * newCTarget;
-        const newCPace = expected > 0 ? (Number(Cm.NEW_C || 0) / expected) * 100 : 100;
-        if (newCPace < 90) out.push({ id: 'newc-pace', kind: 'sales', title: `ลูกค้าใหม่ช้ากว่าแผน — pace ${newCPace.toFixed(0)}% (เป้า ${N(newCTarget)} คน/เดือน)`, txt: 'ดูลูกค้า' });
-      }
-      return out;
-    })() : [];
-    // ออเดอร์ค้าง — pending/processing เกิน 2 วัน
-    const notifsOrders = readFlag('tmk-notif-orders') ? (() => {
-      const out = [];
-      const cutoff = new Date(Date.now() - 2 * 86400000).toISOString();
-      (TMK.orders || []).filter(o => ['pending','processing'].includes(o.status) && o.createdAt && o.createdAt < cutoff).forEach(o => {
-        const days = Math.floor((Date.now() - new Date(o.createdAt).getTime()) / 86400000);
-        out.push({ id: 'order-' + o.id, kind: 'orders', title: `ออเดอร์ ${o.code} ค้าง ${days} วัน (${o.customerName || '—'})`, txt: 'ไปบอร์ดออเดอร์' });
-      });
-      return out.slice(0, 10); // จำกัด 10 รายการต่อกระดิ่ง
-    })() : [];
-    // PO ถึง/เลยกำหนด — arrivalDate <= วันนี้ และยังไม่รับเข้า
-    const notifsPO = readFlag('tmk-notif-po') ? (() => {
-      const todayStr = _todayIso;
-      return (TMK.poTracker || []).filter(p => p.arrivalISO && p.arrivalISO <= todayStr && p.status !== 'received' && p.status !== 'done')
-        .map(p => ({ id: 'po-' + p.id, kind: 'po', title: `PO ${p.product || ''} ${p.arrivalISO === todayStr ? 'ถึงกำหนดวันนี้' : 'เลยกำหนดแล้ว'}`, txt: 'ดู PO' }));
-    })() : [];
-    const groups = [
-      { key: 'todaysales', label: 'บันทึกวันนี้', items: notifsTodaySales, color: 'var(--accent)' },
-      { key: 'sales', label: 'ยอดขาย/แอด', items: notifsSales, color: 'var(--warn)' },
-      { key: 'orders', label: 'ออเดอร์ค้าง', items: notifsOrders, color: 'var(--warn)' },
-      { key: 'po', label: 'PO ถึงกำหนด', items: notifsPO, color: 'var(--bad)' },
-      { key: 'today', label: 'วันนี้', items: notifsToday, color: 'var(--warn)' },
-      { key: 'dated', label: 'ตามวันที่', items: notifsDated, color: 'var(--info)' },
-      { key: 'stock', label: 'สต็อก', items: notifsStock, color: 'var(--info)' },
-      { key: 'lastmonth', label: 'เดือนที่แล้ว', items: notifsLastMonth, color: 'var(--bad)' },
-    ].filter(g => g.items.length > 0);
-    const all = [...notifsTodaySales, ...notifsSales, ...notifsOrders, ...notifsPO, ...notifsToday, ...notifsDated, ...notifsStock, ...notifsLastMonth];
-    return { notifs: all, notifGroups: groups };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- TMK เป็น mutable global → ใช้ dataVersion เป็น proxy
-  }, [tasks, dataVersion, prefsBump, currentUserCtx, t]);
-
-  // แจ้งเตือนจาก DB (ถูกแท็ก @ / มอบหมายงาน) — โหลด + realtime · graceful ถ้าตารางยังไม่ migrate
   const myEmail = session?.user?.email || '';
 
-  // due-sweep (PART 29/33): บันทึก "ใกล้ครบ/เลยกำหนด" ถาวร 1 ครั้ง/เซสชัน — เฉพาะงานที่ "ฉัน" (resolve ตาม staff/duty/role) ได้รับมอบหมายเท่านั้น
-  // แต่ละ client ยิงเฉพาะของตัวเอง → ไม่สแปม + low egress · stable id กันซ้ำข้ามวัน
+  // เปิด store แจ้งเตือน (list + prefs + realtime "ช่องเดียว") ครั้งเดียวต่ออีเมล — กระดิ่ง+ศูนย์ใช้ store นี้ร่วมกัน
+  useEffect(() => { if (myEmail) initNotifStore(myEmail); else teardownNotifStore(); }, [myEmail]);
+
+  // due-sweep (PART 34): บันทึก "ใกล้ครบ/เลยกำหนด" ลง Inbox ถาวร 1 ครั้ง/เซสชัน — เฉพาะงานที่ "ฉัน" ได้รับมอบหมาย
+  // เคารพ pref 'overdue' (ฝั่งผู้รับ) · stable id กันซ้ำข้ามวัน · งาน due ย้ายมาอยู่ Inbox แล้ว (เลิกซ้ำกับสัญญาณ)
   const dueSweptRef = useRef(false);
   useEffect(() => {
     if (dueSweptRef.current || dataVersion < 1 || !myEmail) return;
+    if (!notifPrefOn('overdue')) return; // ปิดเตือนงาน → ไม่ต้องเขียน
     const allTasks = TMK.tasks || [];
     if (!allTasks.length) return;
     dueSweptRef.current = true;
@@ -867,54 +753,6 @@ function AppInner() {
     if (dataVersion < 1) return;
     if (section === 'sales' || section === 'catalog' || section === 'settings') dataEnsure?.(['adCamps', 'colorMix', 'sizeMix', 'fbMetrics']);
   }, [section, dataVersion, dataEnsure]);
-
-  useEffect(() => {
-    if (!supabase || !myEmail) return;
-    let alive = true;
-    const load = async () => {
-      const { data, error } = await supabase.from('tmk_notifications').select('id,kind,title,body,flow_id,task_id,read,created_at').eq('user_email', myEmail).order('created_at', { ascending: false }).limit(40);
-      if (alive && !error && Array.isArray(data)) setDbNotifs(data);
-    };
-    load();
-    let ch = null;
-    try {
-      ch = supabase.channel('notif-' + myEmail)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_notifications', filter: `user_email=eq.${myEmail}` }, () => load())
-        .subscribe();
-    } catch { /* ignore */ }
-    return () => { alive = false; if (ch) { try { supabase.removeChannel(ch); } catch { /* ignore */ } } };
-  }, [myEmail]);
-  const dbUnread = dbNotifs.filter(n => !n.read).length;
-  // เปิดกระดิ่ง → ทำเครื่องหมายอ่านแล้วทั้งหมด
-  const markNotifsRead = () => {
-    if (!supabase || !dbUnread) return;
-    const ids = dbNotifs.filter(n => !n.read).map(n => n.id);
-    setDbNotifs(p => p.map(n => ({ ...n, read: true })));
-    supabase.from('tmk_notifications').update({ read: true }).in('id', ids).then(() => {}, () => {});
-  };
-  const onDbNotifClick = (n) => {
-    setNotif(false);
-    if (!n.read && supabase) { setDbNotifs(p => p.map(x => x.id === n.id ? { ...x, read: true } : x)); supabase.from('tmk_notifications').update({ read: true }).eq('id', n.id).then(() => {}, () => {}); } // อ่านรายตัว (ไม่ใช่ทั้งหมด)
-    if (n.task_id) { const tk = (TMK.tasks || []).find(x => x.id === n.task_id); if (tk) { window.__setFlow?.(tk.flow || '__general__'); go('flows', 'kanban'); setTimeout(() => window.__openModal?.('task', { ...tk, channel: Array.isArray(tk.channel) ? tk.channel : [tk.channel] }), 60); return; } }
-    if (n.flow_id || n.flow_id === '') { window.__setFlow?.(n.flow_id || '__general__'); go('flows', 'kanban'); }
-  };
-
-  const onNotifClick = (n) => {
-    setNotif(false);
-    if (n.kind === 'todaysales') { window.__openModal('record', { date: todayISO() }); return; }
-    if (n.kind === 'sales') {
-      // pace ลูกค้าใหม่ → ไปหน้าลูกค้า; อื่นๆ → ภาพรวม
-      if (n.id === 'newc-pace') go('sales', 'customers');
-      else go('sales', 'overview');
-      return;
-    }
-    if (n.kind === 'stock') { go('catalog', 'products'); return; }
-    if (n.kind === 'orders') { go('catalog', 'orders'); return; }
-    if (n.kind === 'po') { go('catalog', 'po'); return; }
-    if (n.kind === 'lastmonth') { go('sales', 'monthly'); setTimeout(() => window.__openModal('historical'), 100); return; }
-    go('flows', 'kanban');
-    setTimeout(() => window.__openModal('task', { ...n, channel: Array.isArray(n.channel) ? n.channel : [n.channel] }), 100);
-  };
 
   const renderView = () => {
     // Home + Sales (views-1) ไม่ lazy เพราะเป็นหน้าแรกหลัง login — ต้องเร็ว
@@ -1021,7 +859,7 @@ function AppInner() {
               <SidebarMenuButton isActive={section === 'notifications'} tooltip={t('navNotif')} onClick={() => go('notifications')}>
                 <Icon name="bell" />
                 <span>{t('navNotif')}</span>
-                {dbUnread > 0 && <span className="ml-auto min-w-4 h-4 px-1 grid place-items-center text-[9px] font-bold text-white rounded-full" style={{ background: 'var(--bad, #ef4444)' }}>{dbUnread > 9 ? '9+' : dbUnread}</span>}
+                <NotifNavBadge />
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -1184,10 +1022,7 @@ function AppInner() {
                 </kbd>
               </Button>
               
-              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full" aria-label={dbUnread > 0 ? `การแจ้งเตือน ${dbUnread} ใหม่` : 'การแจ้งเตือน'} onClick={() => setNotif(n => !n)}>
-                <Icon name="bell" className="size-5" />
-                {dbUnread > 0 && <span aria-live="polite" className="absolute top-1 right-1 min-w-4 h-4 px-1 grid place-items-center text-[9px] font-bold text-white rounded-full bg-red-600 border-2 border-background">{dbUnread > 9 ? '9+' : dbUnread}</span>}
-              </Button>
+              <NotifBell />
             </div>
           </header>
 
@@ -1200,57 +1035,6 @@ function AppInner() {
         </div>
       </SidebarInset>
 
-      {/* notifications */}
-      {notif && (
-        <>
-          <div className="scrim" style={{ background: 'transparent' }} onClick={() => setNotif(false)}></div>
-          <div className="notif-pop">
-            <div className="row between" style={{ padding: '6px 10px 10px' }}>
-              <span className="h3">{t('notifications')}</span><span className="badge badge-secondary">{notifs.length + dbNotifs.length}</span>
-            </div>
-            {notifGroups.length === 0 && dbNotifs.length === 0 && (
-              <div className="cap" style={{ padding: '16px 10px', textAlign: 'center', color: 'var(--ink-4)' }}>ไม่มีการแจ้งเตือน</div>
-            )}
-            {dbNotifs.length > 0 && (
-              <div style={{ marginBottom: 6 }}>
-                <div className="cap" style={{ padding: '6px 10px 2px', fontWeight: 700, color: 'var(--accent-2)' }}>การแจ้งเตือน ({dbNotifs.length})</div>
-                {dbNotifs.slice(0, 15).map(n => { const km = notifKind(n); return (
-                  <div key={n.id} className="row" onClick={() => onDbNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', alignItems: 'flex-start', background: n.read ? 'transparent' : 'var(--accent-soft)' }}>
-                    <span style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', flexShrink: 0, background: `color-mix(in srgb, ${km.color} 16%, transparent)`, color: km.color }}><Icon name={km.icon} className="size-4" /></span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="sm" style={{ fontWeight: 600, lineHeight: 1.3 }}>{n.title}</div>
-                      {n.body && <div className="cap" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
-                      <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 1 }}>{notifTimeAgo(n.created_at)}{!n.read ? ' · ใหม่' : ''}</div>
-                    </div>
-                    {!n.read && <span style={{ width: 7, height: 7, borderRadius: '50%', background: km.color, flexShrink: 0, marginTop: 6 }} />}
-                  </div>
-                ); })}
-              </div>
-            )}
-            {notifGroups.map(g => (
-              <div key={g.key} style={{ marginBottom: 6 }}>
-                <div className="cap" style={{ padding: '6px 10px 2px', fontWeight: 700, color: g.color }}>{g.label} ({g.items.length})</div>
-                {g.items.map(n => (
-                  <div key={n.id} className="row" onClick={() => onNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', transition: 'background 0.1s' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: g.color, flexShrink: 0 }}></span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.title}</div>
-                      {Array.isArray(n.responsible) && n.responsible.length > 0 && <div className="cap">{n.responsible.join(', ')}</div>}
-                    </div>
-                    <span className="cap" style={{ color: g.color, fontWeight: 600 }}>{n.txt}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
-            <div className="row between" style={{ padding: '8px 6px 2px', borderTop: '1px solid var(--line)', marginTop: 4, gap: 8 }}>
-              <button className="cap" style={{ color: 'var(--ink-3)', fontWeight: 600, background: 'none', border: 'none', cursor: dbUnread ? 'pointer' : 'default', opacity: dbUnread ? 1 : 0.5, padding: '4px 6px' }} disabled={!dbUnread} onClick={markNotifsRead}>อ่านทั้งหมด</button>
-              <button className="cap" style={{ color: 'var(--accent-2)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px' }} onClick={() => { setNotif(false); go('notifications'); }}>ดูทั้งหมด →</button>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* mobile drawer */}
       {drawer && (

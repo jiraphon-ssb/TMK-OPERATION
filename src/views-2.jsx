@@ -25,6 +25,7 @@ import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
+import { useNotifications, prefOn as notifStorePrefOn, setPref as notifStoreSetPref } from './lib/notifStore.js';
 import { fetchTargets, saveTarget, commissionFor } from './lib/targets.js';
 import { APP_VERSION } from './changelog.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
@@ -2309,14 +2310,12 @@ function TargetsView() {
   );
 }
 
+// เปิด/ปิดแจ้งเตือน — เก็บลง DB ผ่าน store (sync ทุกเครื่อง) · ตรงกับ panel ในศูนย์แจ้งเตือน
 function NotifToggle({ storeKey, label }) {
-  const [on, setOn] = useState(() => { try { return localStorage.getItem(storeKey) !== 'false'; } catch { return true; } });
-  const flip = (checked) => {
-    setOn(checked);
-    try { localStorage.setItem(storeKey, checked ? 'true' : 'false'); } catch { /* ignore */ }
-    try { window.dispatchEvent(new Event('tmk-prefs')); } catch { /* ignore */ }
-  };
-  return <ShadcnSwitch checked={on} onCheckedChange={flip} aria-label={label || "เปิด/ปิดการแจ้งเตือน"} />;
+  const kind = storeKey.replace(/^tmk-notif-/, '');
+  const { prefs } = useNotifications(); // re-render เมื่อ pref เปลี่ยน
+  void prefs;
+  return <ShadcnSwitch checked={notifStorePrefOn(kind)} onCheckedChange={(v) => notifStoreSetPref(kind, v)} aria-label={label || 'เปิด/ปิดการแจ้งเตือน'} />;
 }
 
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)

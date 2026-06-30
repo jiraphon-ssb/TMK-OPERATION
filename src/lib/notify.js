@@ -1,21 +1,24 @@
-// แจ้งเตือนในแอป (PART 27/29) — engine กลาง · graceful (ตาราง/คอลัมน์ยังไม่ migrate → เงียบ/degrade)
+// แจ้งเตือนในแอป — engine ฝั่ง "ผู้ผลิต" (PART 34, ปรับใหม่)
+// หน้าที่เดียว: resolve ผู้รับ → เขียน tmk_notifications (upsert กัน id ซ้ำ)
+// การกรองเปิด/ปิด (prefs) ย้ายไปฝั่ง "ผู้รับ" แล้ว (notifStore.prefOn) → ผู้ผลิตไม่ต้องรู้ pref คนอื่น
+// อ่าน/เก็บ/ลบ/snooze ย้ายไป notifStore.js · meta/นำทาง อยู่ notifRegistry.js
 import { supabase } from './supabaseClient.js';
 import { TMK } from '../data.js';
 
 const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const BASE_COLS = ['id', 'user_email', 'kind', 'title', 'body', 'flow_id', 'task_id', 'actor', 'read', 'created_at'];
+const COL_ERR = /(severity|entity_type|action|url|read_at|archived_at|snooze_until|column|PGRST204|42703)/i;
 
 const me = () => (typeof window !== 'undefined' && window.__userEmail) || '';
 
-// insert แบบ graceful: คอลัมน์ใหม่ยังไม่ migrate (42703/PGRST204) → ตัดเหลือ base แล้วลองใหม่ ·
-// duplicate key (stable id) → เงียบ (กันแจ้งซ้ำ) · ตารางหาย → เงียบ
 // upsert + ignoreDuplicates (ON CONFLICT DO NOTHING) → stable id ซ้ำ = ข้ามเงียบ (กัน 409)
+// คอลัมน์ใหม่ยังไม่ migrate → ตัดเหลือ base แล้ว upsert ใหม่ · ตารางหาย → เงียบ
 async function _insert(rows) {
   if (!supabase || !Array.isArray(rows) || !rows.length) return;
   const opt = { onConflict: 'id', ignoreDuplicates: true };
   try {
     const { error } = await supabase.from('tmk_notifications').upsert(rows, opt);
-    if (error && /(severity|entity_type|action|url|read_at|archived_at|column|PGRST204)/i.test(error.message || error.code || '')) {
+    if (error && COL_ERR.test(error.message || error.code || '')) {
       const base = rows.map(r => { const o = {}; BASE_COLS.forEach(k => { if (r[k] !== undefined) o[k] = r[k]; }); return o; });
       await supabase.from('tmk_notifications').upsert(base, opt);
     }
@@ -44,17 +47,8 @@ export function emailOfName(name) {
 // id แบบกำหนดได้ → กันแจ้งซ้ำ (เช่น 'due', taskId, dueISO)
 export function stableNotifId(...parts) { return parts.filter(Boolean).join(':').slice(0, 200); }
 
-// preference per-ชนิด (localStorage · รูปแบบเดียวกับ flag เดิม tmk-notif-*) · ดีฟอลต์เปิด
-const PREF_ALIAS = { due: 'overdue' }; // ใกล้ครบ + เลยกำหนด = สวิตช์เดียว
-export function notifPrefOn(kind) {
-  if (typeof localStorage === 'undefined') return true;
-  const k = PREF_ALIAS[kind] || kind;
-  try { return localStorage.getItem('tmk-notif-' + k) !== 'false'; } catch { return true; }
-}
-
-// แจ้งเตือนรวม — recipients = email/ชื่อคน/ชื่อบทบาท (resolve → emails) · ตัดตัวเอง (เว้น selfOk) · graceful
+// แจ้งเตือนรวม — recipients = email/ชื่อคน/ชื่อบทบาท (resolve → emails) · ตัดตัวเอง (เว้น selfOk)
 export async function notify({ recipients, id, kind = 'mention', severity, title = '', body = '', flowId, taskId, entityType, action, url, actor, selfOk }) {
-  if (!notifPrefOn(kind)) return; // ผู้ลงมือปิดชนิดนี้ → ไม่ยิง
   const skip = selfOk ? null : me();
   const emails = [...new Set(emailsForAudience(recipients))].filter(e => e && e !== skip);
   if (!emails.length) return;
@@ -70,29 +64,7 @@ export async function notify({ recipients, id, kind = 'mention', severity, title
   await _insert(rows);
 }
 
-// update แบบ graceful: คอลัมน์ใหม่หาย → ลองใหม่ด้วย base
-async function _update(ids, full, base) {
-  if (!supabase || !ids || !ids.length) return;
-  try {
-    const { error } = await supabase.from('tmk_notifications').update(full).in('id', ids);
-    if (error && /(read_at|archived_at|column|PGRST204)/i.test(error.message || error.code || '')) {
-      await supabase.from('tmk_notifications').update(base).in('id', ids);
-    }
-  } catch { /* เงียบ */ }
-}
-export async function setNotifRead(ids, read = true) {
-  await _update(ids, { read, read_at: read ? new Date().toISOString() : null }, { read });
-}
-export async function archiveNotif(ids) { // เก็บเข้าคลัง (+อ่านแล้ว) · ถ้าไม่มี archived_at → อย่างน้อย mark read
-  await _update(ids, { archived_at: new Date().toISOString(), read: true, read_at: new Date().toISOString() }, { read: true });
-}
-export async function unarchiveNotif(ids) { await _update(ids, { archived_at: null }, {}); }
-export async function deleteNotif(ids) {
-  if (!supabase || !ids || !ids.length) return;
-  try { await supabase.from('tmk_notifications').delete().in('id', ids); } catch { /* เงียบ */ }
-}
-
-// back-compat — รับ rows ตรงๆ (callers เดิม) · ตัดตัวเอง · graceful + รองรับ field ใหม่
+// back-compat — รับ rows ตรงๆ (callers เดิม เช่น modals @แท็ก) · ตัดตัวเอง
 export async function pushNotify(rows) {
   if (!Array.isArray(rows) || !rows.length) return;
   const m = me();
