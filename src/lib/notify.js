@@ -9,13 +9,15 @@ const me = () => (typeof window !== 'undefined' && window.__userEmail) || '';
 
 // insert แบบ graceful: คอลัมน์ใหม่ยังไม่ migrate (42703/PGRST204) → ตัดเหลือ base แล้วลองใหม่ ·
 // duplicate key (stable id) → เงียบ (กันแจ้งซ้ำ) · ตารางหาย → เงียบ
+// upsert + ignoreDuplicates (ON CONFLICT DO NOTHING) → stable id ซ้ำ = ข้ามเงียบ (กัน 409)
 async function _insert(rows) {
   if (!supabase || !Array.isArray(rows) || !rows.length) return;
+  const opt = { onConflict: 'id', ignoreDuplicates: true };
   try {
-    const { error } = await supabase.from('tmk_notifications').insert(rows);
+    const { error } = await supabase.from('tmk_notifications').upsert(rows, opt);
     if (error && /(severity|entity_type|action|url|read_at|archived_at|column|PGRST204)/i.test(error.message || error.code || '')) {
       const base = rows.map(r => { const o = {}; BASE_COLS.forEach(k => { if (r[k] !== undefined) o[k] = r[k]; }); return o; });
-      await supabase.from('tmk_notifications').insert(base);
+      await supabase.from('tmk_notifications').upsert(base, opt);
     }
   } catch { /* ตารางยังไม่ migrate → เงียบ */ }
 }
