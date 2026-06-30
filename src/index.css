@@ -789,6 +789,49 @@ input, select, textarea { font-family: inherit; }
 .skel::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface) 75%, transparent), transparent); animation: skelShimmer 1.25s ease-in-out infinite; }
 @keyframes skelShimmer { 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .skel::after { animation: none; } }
+
+/* ===== ฉลองทะลุเป้ายอดขาย (CelebrationOverlay) ===== */
+.celebrate-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: color-mix(in srgb, var(--ink) 38%, transparent); backdrop-filter: blur(3px); animation: celebFade 0.3s var(--ease) both; padding: 20px; }
+@keyframes celebFade { from { opacity: 0; } to { opacity: 1; } }
+.celebrate-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.celebrate-confetti > span { position: absolute; top: -24px; display: block; animation-name: confettiFall; animation-timing-function: linear; animation-iteration-count: infinite; }
+@keyframes confettiFall { 0% { transform: translateY(-10vh) rotate(0deg); opacity: 1; } 100% { transform: translateY(112vh) rotate(720deg); opacity: 0.85; } }
+.celebrate-card { position: relative; background: var(--surface); border: 1px solid rgba(245,180,35,0.55); border-radius: var(--r-lg); padding: 34px 44px 28px; text-align: center; box-shadow: 0 24px 60px rgba(245,180,35,0.22), var(--sh-pop); animation: celebPop 0.55s var(--ease) both; max-width: 92vw; }
+@keyframes celebPop { 0% { transform: scale(0.82); opacity: 0; } 60% { transform: scale(1.04); } 100% { transform: scale(1); opacity: 1; } }
+.celebrate-glow { position: absolute; inset: -40% -10%; background: radial-gradient(circle at 50% 30%, rgba(245,180,35,0.28), transparent 60%); pointer-events: none; animation: celebGlow 2.4s ease-in-out infinite; }
+@keyframes celebGlow { 0%,100% { opacity: 0.5; transform: scale(1); } 50% { opacity: 1; transform: scale(1.08); } }
+.celebrate-trophy { width: 84px; height: 84px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(135deg, #ffd86b, #f5a623); box-shadow: 0 8px 24px rgba(245,180,35,0.45); animation: celebBounce 1.6s var(--ease) infinite; position: relative; }
+@keyframes celebBounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.celebrate-spark { position: absolute; color: #f5a623; animation: celebTwinkle 1.8s ease-in-out infinite; }
+.celebrate-spark-l { top: 26px; left: calc(50% - 86px); }
+.celebrate-spark-r { top: 54px; left: calc(50% + 70px); animation-delay: 0.6s; }
+@keyframes celebTwinkle { 0%,100% { opacity: 0.2; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+.celebrate-title { font-size: 22px; font-weight: 800; color: var(--ink); margin-bottom: 6px; }
+.celebrate-amount { font-size: 50px; font-weight: 800; line-height: 1.02; letter-spacing: -0.5px; background: linear-gradient(90deg, #f5a623, #ffd86b, #f5a623); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; font-variant-numeric: tabular-nums; animation: celebShine 2s linear infinite; }
+@keyframes celebShine { to { background-position: 200% 0; } }
+.celebrate-amount-hot { animation: celebShine 2s linear infinite, celebPulseAmt 0.7s var(--ease) infinite; }
+@keyframes celebPulseAmt { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.celebrate-card-crossed { box-shadow: 0 0 0 2px rgba(245,180,35,0.6), 0 30px 80px rgba(245,180,35,0.35), var(--sh-pop) !important; }
+.celebrate-track { position: relative; height: 9px; margin: 16px auto 2px; width: 86%; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.celebrate-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ffd86b, #f5a623); transition: width 0.12s linear; box-shadow: 0 0 10px rgba(245,180,35,0.6); }
+.celebrate-target-mark { position: absolute; top: -3px; bottom: -3px; right: 0; width: 3px; border-radius: 2px; background: var(--ink); opacity: 0.55; }
+.celebrate-ribbon { position: absolute; top: 0; width: 5px; height: 70px; border-radius: 3px; opacity: 0.85; animation: celebRibbon 1.4s var(--ease) infinite; }
+.celebrate-ribbon-l { left: 16%; background: linear-gradient(#ec4899, transparent); }
+.celebrate-ribbon-r { right: 16%; background: linear-gradient(#06b6d4, transparent); animation-delay: 0.4s; }
+@keyframes celebRibbon { 0% { transform: translateY(-80px) scaleY(0.4); opacity: 0; } 30% { opacity: 0.85; } 100% { transform: translateY(6px) scaleY(1); opacity: 0; } }
+.celebrate-sub { font-size: var(--fs-sm); color: var(--ink-3); margin-top: 10px; font-weight: 600; }
+.celebrate-close { margin-top: 20px; padding: 9px 22px; border-radius: var(--r-pill); border: none; cursor: pointer; font-weight: 700; font-size: var(--fs-sm); color: #fff; background: linear-gradient(135deg, #f5a623, #e08e10); box-shadow: 0 6px 18px rgba(245,180,35,0.4); transition: transform 0.12s var(--ease); }
+.celebrate-close:hover { transform: translateY(-1px); } .celebrate-close:active { transform: scale(0.97); }
+/* แถบเป้า shimmer + ขอบเรือง pulse (การ์ดทะลุเป้าที่อยู่จอตลอด) */
+.target-bar-hit { background: linear-gradient(90deg, #ffd86b, #f5a623, #ffd86b) !important; background-size: 200% 100% !important; animation: targetShimmer 2.2s linear infinite; }
+@keyframes targetShimmer { to { background-position: 200% 0; } }
+.target-card-hit { animation: targetGlowPulse 2.6s ease-in-out infinite; }
+@keyframes targetGlowPulse { 0%,100% { box-shadow: 0 0 0 1px rgba(245,180,35,0.28), 0 10px 34px rgba(245,180,35,0.14); } 50% { box-shadow: 0 0 0 1px rgba(245,180,35,0.5), 0 12px 40px rgba(245,180,35,0.28); } }
+@media (prefers-reduced-motion: reduce) {
+  .celebrate-card, .celebrate-trophy, .celebrate-glow, .celebrate-spark, .celebrate-amount, .celebrate-amount-hot, .celebrate-ribbon, .celebrate-fill { animation: none; }
+  .target-bar-hit { animation: none; } .target-card-hit { animation: none; }
+}
+
 .page-loading-ring { width: 44px; height: 44px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--accent); animation: spin360 0.75s linear infinite; }
 .page-loading-title { font-size: var(--fs-h3); font-weight: 700; color: var(--ink-2); }
 .page-loading-sub { font-size: var(--fs-cap); color: var(--ink-4); }

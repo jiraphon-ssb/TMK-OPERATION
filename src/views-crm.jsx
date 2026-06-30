@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
-import { B, N, Icon, useBeatOn, PageSkeleton } from './components.jsx';
+import { B, N, Icon, useBeatOn, PageSkeleton, SkelTable } from './components.jsx';
 import { SideSheet } from './modals.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
@@ -225,7 +225,7 @@ function CustomerDrawer({ cust, onClose }) {
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm">ประวัติซื้อ (ทุกช่อง)</CardTitle></CardHeader>
           <CardContent>
-            {orders === null ? <div className="text-sm text-muted-foreground py-2 text-center">กำลังโหลด…</div>
+            {orders === null ? <div className="py-1"><SkelTable cols={4} rows={4} /></div>
               : orders.length === 0 ? <div className="text-sm text-muted-foreground py-2 text-center">ไม่มีประวัติ</div>
               : <div className="rounded-md border overflow-x-auto max-h-[260px] overflow-y-auto">
                   <Table>

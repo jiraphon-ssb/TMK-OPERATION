@@ -3,7 +3,7 @@
    ============================================================ */
 import { useState, useMemo, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, Skel, useBeat } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, Skel, useBeat, CelebrationOverlay } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
@@ -692,8 +692,17 @@ function MomDelta({ current, previous, label }) {
 function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
   const C = md.computed, consts = md.consts, channels = md.channels, pnl = md.pnl;
   const prevC = prevMd.computed;
-  // ถึงเป้าเดือนนี้ → การ์ด MTD โชว์สถานะ "ทะลุเป้า" แบบ minimal (ป้าย + แถบทอง + ขอบเรือง)
+  // ถึงเป้าเดือนนี้ → การ์ด MTD โชว์สถานะ "ทะลุเป้า" + ฉลองอลังการครั้งแรกของเดือน
   const targetHit = md.isCurrent && consts.TARGET > 0 && C.MTD >= consts.TARGET;
+  const overAmt = targetHit ? Math.max(0, C.MTD - consts.TARGET) : 0;
+  const overPct = targetHit && consts.TARGET > 0 ? (overAmt / consts.TARGET) * 100 : 0;
+  const [celebrate, setCelebrate] = useState(false);
+  const celebKey = `tmk-target-celebrated-${consts.current_year}-${consts.current_month}`;
+  useEffect(() => {
+    if (!targetHit) return;
+    let done = false; try { done = localStorage.getItem(celebKey) === '1'; } catch { /* ignore */ }
+    if (!done) { try { localStorage.setItem(celebKey, '1'); } catch { /* ignore */ } setCelebrate(true); }
+  }, [targetHit, celebKey]);
   const st = paceStatus(C.PACE_PCT);
   const pace = useCountUp(C.PACE_PCT);
   const ABBR = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -722,13 +731,14 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
   }
   return (
     <div className="content-inner rise">
+      {celebrate && <CelebrationOverlay amount={C.MTD} target={consts.TARGET} pct={consts.TARGET > 0 ? (C.MTD / consts.TARGET) * 100 : 100} onClose={() => setCelebrate(false)} />}
       <SalesDateBar {...dateProps} />
 
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginBottom: 16 }}>
-        <Card className="p-[22px]" style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)', boxShadow: '0 0 0 1px rgba(245,180,35,0.28), 0 10px 34px rgba(245,180,35,0.14)' } : undefined}>
+        <Card className={'p-[22px]' + (targetHit ? ' target-card-hit' : '')} style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)' } : undefined}>
           <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
             <span className="eyebrow">{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</span>
-            {targetHit && <Badge variant="outline" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap' }}>🎉 ทะลุเป้าแล้ว</Badge>}
+            {targetHit && <Badge variant="outline" onClick={() => setCelebrate(true)} title="กดเพื่อฉลองอีกครั้ง" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer' }}>🎉 ทะลุเป้าแล้ว</Badge>}
           </div>
           <div className="num display">{B(C.MTD)}</div>
           {/* เดือนปัจจุบัน: เทียบ MTD กับ "วันที่เดียวกัน" ของเดือนก่อน — กันแดงหลอกตากลางเดือน */}
@@ -741,12 +751,15 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             return <MomDelta current={C.MTD} previous={prevSameDay} label={lbl} />;
           })()}
           <div className="bar" style={{ marginTop: 14 }}>
-            <span style={{ width: `${consts.TARGET > 0 ? Math.min((C.MTD/consts.TARGET)*100,100) : 0}%`, background: targetHit ? 'linear-gradient(90deg,#ffd86b,#f5a623)' : st.c }}></span>
+            <span className={targetHit ? 'target-bar-hit' : ''} style={{ width: `${consts.TARGET > 0 ? Math.min((C.MTD/consts.TARGET)*100,100) : 0}%`, background: targetHit ? undefined : st.c }}></span>
           </div>
           <div className="row between" style={{ marginTop: 8 }}>
             <span className="cap">{'เป้า'} {consts.TARGET ? B(consts.TARGET) : '— ยังไม่ตั้ง'}</span>
             <span className="cap num" style={targetHit ? { color: 'var(--warn)', fontWeight: 700 } : undefined}>{consts.TARGET > 0 ? P((C.MTD/consts.TARGET)*100) : '—'} {'ของเป้า'}</span>
           </div>
+          {targetHit && overAmt > 0 && (
+            <div className="cap" style={{ marginTop: 6, color: 'var(--warn)', fontWeight: 600 }}>🏆 เกินเป้า {B(overAmt)} (+{P(overPct, 0)})</div>
+          )}
           <div className="grid g4" style={{ marginTop: 18, gap: 12 }}>
             {(() => {
               const curAbbr = ABBR[dateProps.month];

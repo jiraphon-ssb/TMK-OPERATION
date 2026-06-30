@@ -2,6 +2,7 @@
    TMK Operation — Shared components, icons, formatters, charts
    ============================================================ */
 import { useState, useEffect, useRef, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
   Shirt, Box, CalendarDays, Clock, Users, User, Heart, Zap, Briefcase, Folder,
@@ -204,6 +205,9 @@ export const ICONS = {
   system: 'M12 3 4 6v5c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6zM9.5 12l1.8 1.8 3.4-3.6',
   search: 'M11 11m-7 0a7 7 0 1 0 14 0a7 7 0 1 0-14 0M21 21l-4.3-4.3',
   bell: 'M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0',
+  archive: 'M4 8v11a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8M2 4h20v4H2zM10 12h4',
+  tag: 'M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.41l8.7 8.71a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42zM7.5 7.5h.01',
+  checkCheck: 'M18 6 7 17l-5-5M22 10l-7.5 7.5L13 16',
   plus: 'M12 5v14M5 12h14',
   image: 'M4 4 L20 4 L20 20 L4 20 ZM4 16 L9 11 L13 15 L16 12 L20 16M9 9 m-1.3 0 a1.3 1.3 0 1 0 2.6 0 a1.3 1.3 0 1 0 -2.6 0',
   sun: 'M12 3v2M12 19v2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M3 12h2M19 12h2M5.6 18.4 7 17M17 7l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8',
@@ -656,6 +660,57 @@ export function CardGridSkeleton({ cards = 6, header = true }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/* ---- ฉลองทะลุเป้ายอดขาย (อลังการสุด · ยอดวิ่งนับ · ไม่พึ่ง dep · CSS confetti + portal) ---- */
+const CONFETTI_COLORS = ['#f5a623', '#ffd86b', '#4f46e5', '#16a34a', '#ec4899', '#06b6d4', '#ef4444', '#8b5cf6'];
+const CELEBRATE_HEADLINES = ['🎉 ทะลุเป้าแล้ว!', '🔥 ทุบเป้ากระจุย!', '🏆 ปังไม่ไหวแล้ว!', '🚀 พุ่งทะลุเป้า!', '🥳 โหดมากกก!'];
+export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose }) {
+  const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const shown = useCountUp(amount, 1700); // ยอดวิ่งนับช้าๆ ให้เห็นพุ่งเข้าหาเป้า
+  const headline = useRef(CELEBRATE_HEADLINES[Math.floor(Math.random() * CELEBRATE_HEADLINES.length)]).current;
+  useEffect(() => {
+    const t = setTimeout(() => onClose && onClose(), 8000);
+    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { clearTimeout(t); window.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  if (typeof document === 'undefined') return null;
+  const over = Math.max(0, amount - target);
+  const fillPct = target > 0 ? Math.min((shown / target) * 100, 100) : 100;
+  const livePct = target > 0 ? (shown / target) * 100 : 100;
+  const crossed = target > 0 && shown >= target;
+  const pieces = reduce ? [] : Array.from({ length: 130 });
+  return createPortal(
+    <div className="celebrate-overlay" role="dialog" aria-modal="true" aria-label="ฉลองทะลุเป้ายอดขาย" onClick={() => onClose && onClose()}>
+      <div className="celebrate-confetti" aria-hidden="true">
+        {pieces.map((_, i) => {
+          const left = Math.random() * 100, dur = 2.6 + Math.random() * 2.6, delay = (i % 2 ? 0 : 1.2) + Math.random() * 0.9, size = 7 + Math.random() * 10;
+          return <span key={i} style={{ left: left + '%', width: size, height: size * 0.6, background: CONFETTI_COLORS[i % CONFETTI_COLORS.length], animationDuration: dur + 's', animationDelay: delay + 's', borderRadius: i % 3 === 0 ? '50%' : '2px' }} />;
+        })}
+      </div>
+      <div className={'celebrate-card' + (crossed ? ' celebrate-card-crossed' : '')} onClick={e => e.stopPropagation()}>
+        <div className="celebrate-glow" aria-hidden="true" />
+        <div className="celebrate-ribbon celebrate-ribbon-l" aria-hidden="true" />
+        <div className="celebrate-ribbon celebrate-ribbon-r" aria-hidden="true" />
+        <div className="celebrate-trophy"><Trophy size={50} strokeWidth={1.6} /></div>
+        <div className="celebrate-spark celebrate-spark-l" aria-hidden="true"><Sparkles size={22} /></div>
+        <div className="celebrate-spark celebrate-spark-r" aria-hidden="true"><Sparkles size={16} /></div>
+        <div className="celebrate-title">{headline}</div>
+        <div className={'celebrate-amount' + (crossed ? ' celebrate-amount-hot' : '')}>{B(shown)}</div>
+        {/* แถบยอดวิ่งเข้าหาเป้า + จุดเป้า + ข้ามเป้าแฟลช */}
+        {target > 0 && (
+          <div className="celebrate-track" aria-hidden="true">
+            <div className="celebrate-fill" style={{ width: fillPct + '%' }} />
+            <div className="celebrate-target-mark" title="เป้า" />
+          </div>
+        )}
+        <div className="celebrate-sub">{crossed ? `ทะลุเป้า ${B(over)} (+${P(target > 0 ? (over / target) * 100 : 0, 0)})` : `กำลังพุ่งเข้าเป้า… ${P(livePct, 0)}`}</div>
+        <button className="celebrate-close" onClick={() => onClose && onClose()} autoFocus>เยี่ยมไปเลย! 🙌</button>
+      </div>
+    </div>,
+    document.body
   );
 }
 

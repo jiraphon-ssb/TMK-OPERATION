@@ -102,6 +102,9 @@ const TABLE_KEY = {
 };
 // ตารางที่กระทบ derived (orderCount/totalSpent) → ต้อง refresh view ด้วย
 const TOTALS_TRIGGERS = new Set(['orders']);
+// ตารางที่ใช้เฉพาะหน้า Sales/แคตตาล็อก — ไม่โหลดตอนเปิดแอป · โหลดเมื่อกดเข้า section (ensureLoaded) · mapToTMK null-safe (raw.X || [])
+// หมายเหตุ: audit ไม่ defer (หน้าหลักโชว์ "อัพเดทล่าสุด") · monthly ไม่ defer (เป็นเป้ายอด)
+const DEFERRED = new Set(['adCamps', 'colorMix', 'sizeMix', 'fbMetrics']);
 
 // โหลดทุกตารางพร้อมกัน (ครั้งแรก) — เรียก QUERIES ทั้งชุด
 async function loadAllTables() {
@@ -109,7 +112,7 @@ async function loadAllTables() {
     throw new Error('Supabase ยังไม่ได้ตั้งค่า (.env)');
   }
 
-  const mainKeys = Object.keys(QUERIES).filter(k => k !== 'customerTotals' && k !== 'commentCounts');
+  const mainKeys = Object.keys(QUERIES).filter(k => k !== 'customerTotals' && k !== 'commentCounts' && !DEFERRED.has(k));
   const tables = Object.fromEntries(mainKeys.map(k => [k, QUERIES[k]()]));
 
   const keys = Object.keys(tables);
@@ -230,6 +233,7 @@ function mapToTMK(raw) {
     dateISO: t.date || '',        // ISO เต็ม (ใช้คำนวณ/แก้ไข — กันปีหายข้ามปี)
     responsible: String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean),
     camp: t.camp || '',
+    brandIds: Array.isArray(t.brand_ids) ? t.brand_ids : [],   // แบรนด์ของงาน (เลือกหลายอันจากแบรนด์โครงการ · migration 20260808)
     flow: t.flow_id || '',        // โครงการ/บอร์ดที่งานสังกัด ('' = โครงการทั่วไป built-in)
     status: t.status || 'todo',
     channel: t.channel || '',
@@ -836,6 +840,25 @@ export function DataProvider({ children }) {
     }
   }, [load]);
 
+  // โหลดตาราง deferred ตอนกดเข้า section ที่ใช้ (ครั้งเดียว/แคช) → ลด egress ตอนเปิดแอป
+  const deferredLoadedRef = useRef(new Set());
+  const ensureLoaded = useCallback(async (wantKeys) => {
+    if (!rawRef.current) return; // ยังโหลดครั้งแรกไม่เสร็จ — section จะเรียกซ้ำเมื่อ version ขยับ
+    const keys = (wantKeys || []).filter(k => QUERIES[k] && !deferredLoadedRef.current.has(k));
+    if (!keys.length) return;
+    keys.forEach(k => deferredLoadedRef.current.add(k)); // mark ก่อน กัน race โหลดซ้ำ
+    // fetch เฉพาะที่ยังไม่มีใน rawRef (realtime/refreshTables อาจโหลดให้แล้ว → ไม่ดึงซ้ำ/ไม่ทับของใหม่)
+    const toFetch = keys.filter(k => rawRef.current[k] === undefined);
+    if (!toFetch.length) return;
+    try {
+      const results = await Promise.all(toFetch.map(k => QUERIES[k]()));
+      if (!mountedRef.current) return;
+      let any = false;
+      results.forEach((r, i) => { if (!r.error) { rawRef.current[toFetch[i]] = r.data; any = true; } else { deferredLoadedRef.current.delete(toFetch[i]); } });
+      if (any) { mutateTMK(mapToTMK(rawRef.current)); setVersion(v => v + 1); }
+    } catch { toFetch.forEach(k => deferredLoadedRef.current.delete(k)); }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     load();
@@ -905,7 +928,7 @@ export function DataProvider({ children }) {
   }, [load, refreshTables]);
 
   return (
-    <DataContext.Provider value={{ loading, error, version, reload: load, refresh: refreshTables }}>
+    <DataContext.Provider value={{ loading, error, version, reload: load, refresh: refreshTables, ensureLoaded }}>
       {children}
     </DataContext.Provider>
   );

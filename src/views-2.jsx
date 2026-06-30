@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, P, N, Icon, Avatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, CardHead, ColorPicker } from './components.jsx';
+import { B, P, N, Icon, Avatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, useBeatOn, CardHead, ColorPicker } from './components.jsx';
 import { Modal, MpImportModal, SideSheet } from './modals.jsx';
 import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, channelColor } from './charts.jsx';
 import { SaleDashboard } from './saleDashboard.jsx';
@@ -24,6 +24,7 @@ import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
+import { notify } from './lib/notify.js';
 import { fetchTargets, saveTarget, commissionFor } from './lib/targets.js';
 import { APP_VERSION } from './changelog.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
@@ -382,8 +383,8 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
   const c = DD.campaigns.find(x => x.id === t.camp) || null;
   const taskFlow = (DD.flows || []).find(fl => (fl.scopeId ?? fl.id ?? '') === (t.flow || '')) || null;
   const flowChip = showFlow ? (taskFlow || (t.flow ? null : { name: 'งานทั่วไป', color: 'var(--ink-3)' })) : null;
-  // แบรนด์ของโครงการที่งานสังกัด → ชิปต่อจากแคมเปญ
-  const brandChips = ((taskFlow?.brandIds) || []).map(bid => (DD.brands || []).find(b => b.id === bid)).filter(Boolean).slice(0, 2);
+  // แบรนด์ของ "งาน" เอง (เลือกในงาน · ไม่ใช่ของโครงการ) → งานไม่มีแบรนด์ = ไม่โชว์
+  const taskBrands = ((t.brandIds) || []).map(bid => (DD.brands || []).find(b => b.id === bid)).filter(Boolean).slice(0, 2);
   const clickable = !readOnly && !!onClick;
   // เช็คลิสต์ (E1) + แจ้งเตือนครบกำหนด (E3) — คำนวณ client จาก dateEnd/reminderDays
   const subs = Array.isArray(t.subtasks) ? t.subtasks : [];
@@ -396,10 +397,13 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
     const days = Math.round((new Date(dueISO) - new Date(today)) / 86400000);
     return (days >= 0 && days <= (t.reminderDays || 1)) ? 'soon' : null;
   })();
-  // ชิปหมวดบนซ้าย (สไตล์ ClickUp): แคมเปญ > โครงการ(showFlow) > แท็กแรก
-  const chip = c ? { name: c.name, color: c.color || '#6b5ce0' }
-    : (flowChip ? { name: flowChip.name, color: flowChip.color || '#6b5ce0' }
-      : ((t.tags || [])[0] ? { name: t.tags[0], color: '#6b5ce0' } : null));
+  // หัวการ์ด = ชุดชิป: โครงการ(เมื่อ showFlow) + แคมเปญ + แบรนด์ของงาน · ไม่มีเลย & ไม่ showFlow → แท็กแรก
+  // → งานของฉัน (showFlow): โครงการ + แคมเปญ/แบรนด์ที่มีในงานเท่านั้น
+  const headerChips = [];
+  if (flowChip) headerChips.push({ kind: 'flow', name: flowChip.name, color: flowChip.color || 'var(--ink-3)' });
+  if (c) headerChips.push({ kind: 'camp', name: c.name, color: c.color || '#6b5ce0' });
+  taskBrands.forEach(b => headerChips.push({ kind: 'brand', name: b.name, color: b.color || '#6b5ce0' }));
+  if (!headerChips.length && !showFlow && (t.tags || [])[0]) headerChips.push({ kind: 'tag', name: t.tags[0], color: '#6b5ce0' });
   const assignees = t.responsible || [];
   const dateLabel = t.date + (t.dateEnd && t.dateEnd !== t.dateISO ? ' → ' + thaiDate(t.dateEnd) : '');
   const hasChannel = Array.isArray(t.channel) ? t.channel.length > 0 : !!String(t.channel || '').trim();
@@ -415,13 +419,15 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
       onDragEnd={draggable && !readOnly ? onDragEnd : undefined}
       onClick={clickable ? onClick : undefined}
       className="p-3" style={{ borderRadius: 'var(--r)', cursor: readOnly ? 'default' : (draggable ? 'grab' : (onClick ? 'pointer' : 'default')), boxShadow: 'var(--sh-sm)', padding: '12px 14px', borderLeft: `3px solid ${c?.color || 'var(--line)'}` }}>
-      {/* หัว: มีชิป → แถวชิป(แคมเปญ+แบรนด์)+avatar แล้วค่อยชื่อ · ไม่มีชิป → ชื่อ+avatar บรรทัดเดียว (ไม่มีแถวว่าง) */}
-      {chip ? (
+      {/* หัว: มีชิป → แถวชิป(โครงการ/แคมเปญ/แบรนด์)+avatar แล้วค่อยชื่อ · ไม่มีชิป → ชื่อ+avatar บรรทัดเดียว */}
+      {headerChips.length ? (
         <>
-          <div className="row between" style={{ gap: 6, alignItems: 'center', marginBottom: 6 }}>
-            <div className="flex items-center gap-1 min-w-0">
-              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 shrink-0" style={{ background: chip.color + '1f', color: chip.color, maxWidth: 168 }}><span className="size-1.5 rounded-full shrink-0" style={{ background: chip.color }} /><span className="truncate">{chip.name}</span></span>
-              {brandChips.map(b => <span key={b.id} className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1 shrink-0 border" style={{ borderColor: (b.color || '#888') + '55', color: b.color || 'var(--ink-3)' }}><span className="size-1.5 rounded-full shrink-0" style={{ background: b.color || '#888' }} /><span className="truncate max-w-[88px]">{b.name}</span></span>)}
+          <div className="row between" style={{ gap: 6, alignItems: 'flex-start', marginBottom: 6 }}>
+            <div className="flex items-center gap-1 min-w-0 flex-wrap">
+              {headerChips.map((h, i) => h.kind === 'brand'
+                ? <span key={'b' + i} className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1 shrink-0 border" style={{ borderColor: h.color + '55', color: h.color }}><span className="size-1.5 rounded-full shrink-0" style={{ background: h.color }} /><span className="truncate max-w-[88px]">{h.name}</span></span>
+                : <span key={'c' + i} className="text-[11px] font-medium px-2 py-0.5 rounded-md inline-flex items-center gap-1.5 shrink-0" style={{ background: h.color + '1f', color: h.color, maxWidth: 168 }}><span className="size-1.5 rounded-full shrink-0" style={{ background: h.color }} /><span className="truncate">{h.name}</span></span>
+              )}
             </div>
             {avatarEl}
           </div>
@@ -649,8 +655,10 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps, flow, readOnly }) {
     try {
       const { error } = await supabase.from('tmk_tasks').update({ status }).eq('id', id);
       if (error) throw error;
-      const stLabel = (columns.find(k => k.id === status) || {}).label || status;
+      const stCol = columns.find(k => k.id === status) || {};
+      const stLabel = stCol.label || status;
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}`, flowId: task?.flow ?? '' });
+      notify({ recipients: task?.responsible || [], kind: 'status', severity: stCol.done ? 'success' : undefined, title: `งาน "${task?.title || ''}" → ${stLabel}`, flowId: task?.flow ?? '', taskId: id, entityType: 'task', action: 'move' });
       window.__refresh?.(['tmk_tasks']); // sync TMK.tasks (notif/profile/export) ไม่ต้องรอ realtime
     } catch (err) {
       setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t));
@@ -843,13 +851,14 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
   const members = ((flow?.members?.length ? flow.members : (DD.staff || []).map(s => s.name)) || []).filter(Boolean);
   const bulkStatus = async (status) => {
     const ids = selArr; if (!ids.length || !window.__canEdit) return;
-    try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ status }).eq('id', id))); ids.forEach(id => { const t = filtered.find(x => x.id === id); logAudit({ action: 'move', entityType: 'task', entityName: t?.title || id, summary: `ย้ายงาน "${t?.title || ''}" → ${(cols.find(k => k.id === status) || {}).label || status}`, flowId: t?.flow ?? '' }); }); window.__refresh?.(['tmk_tasks']); window.__toast?.(`เปลี่ยนสถานะ ${ids.length} งาน`, 'success'); clearSel(); }
+    const stCol = cols.find(k => k.id === status) || {};
+    try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ status }).eq('id', id))); ids.forEach(id => { const t = filtered.find(x => x.id === id); logAudit({ action: 'move', entityType: 'task', entityName: t?.title || id, summary: `ย้ายงาน "${t?.title || ''}" → ${stCol.label || status}`, flowId: t?.flow ?? '' }); notify({ recipients: t?.responsible || [], kind: 'status', severity: stCol.done ? 'success' : undefined, title: `งาน "${t?.title || ''}" → ${stCol.label || status}`, flowId: t?.flow ?? '', taskId: id, entityType: 'task', action: 'move' }); }); window.__refresh?.(['tmk_tasks']); window.__toast?.(`เปลี่ยนสถานะ ${ids.length} งาน`, 'success'); clearSel(); }
     catch (e) { window.__toast?.('ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
   };
   const bulkAssign = async (name) => {
     const ids = selArr; if (!ids.length || !window.__canEdit) return;
     try {
-      await Promise.all(ids.map(id => { const t = filtered.find(x => x.id === id); const cur = t?.responsible || []; return cur.includes(name) ? Promise.resolve() : supabase.from('tmk_tasks').update({ responsible: [...cur, name].join(', ') }).eq('id', id); }));
+      await Promise.all(ids.map(id => { const t = filtered.find(x => x.id === id); const cur = t?.responsible || []; if (cur.includes(name)) return Promise.resolve(); notify({ recipients: [name], kind: 'assign', title: `คุณได้รับมอบหมายงาน "${t?.title || ''}"`, flowId: t?.flow ?? '', taskId: id, entityType: 'task' }); return supabase.from('tmk_tasks').update({ responsible: [...cur, name].join(', ') }).eq('id', id); }));
       window.__refresh?.(['tmk_tasks']); window.__toast?.(`มอบหมาย "${name}" ให้ ${ids.length} งาน`, 'success'); clearSel();
     } catch (e) { window.__toast?.('ไม่สำเร็จ', 'error'); }
   };
@@ -2089,7 +2098,14 @@ function CampaignsView() {
 }
 
 /* ====================  SETTINGS (replaces System)  ==================== */
-export function SettingsView({ sub, dark, setDark }) {
+// wrapper บางๆ (hook เดียว) → โชว์ skeleton ตอนเข้า/สลับแท็บ โดยไม่ชน hook-order ของ body
+export function SettingsView(props) {
+  // skeleton ครั้งเดียวตอนเข้า (ไม่ remount ตอนสลับแท็บ → ฟอร์มไม่รีเซ็ต)
+  const beat = useBeat();
+  if (beat) return <PageSkeleton />;
+  return <SettingsBody {...props} />;
+}
+function SettingsBody({ sub, dark, setDark }) {
   const _isAdmin = window.__isAdmin === true;
   const _canEdit = window.__canEdit !== false;
   const TABS = [
@@ -2868,7 +2884,7 @@ function BrandsView() {
 
   const deleteBrand = async (b) => {
     if (!guardEdit()) return;
-    const linked = (TMK.flows || []).filter(f => f.brandId === b.id).length;
+    const linked = (TMK.flows || []).filter(f => (f.brandIds || []).includes(b.id) || f.brandId === b.id).length;
     if (!await window.__confirm?.({ title: 'ลบแบรนด์', body: linked > 0 ? `แบรนด์ "${b.name}" ผูกกับ ${linked} โครงการ — ลบจะปลดป้ายแบรนด์ออก` : `ลบแบรนด์ "${b.name}"?`, danger: true, confirmText: 'ลบ' })) return;
     setBusy(true);
     try {

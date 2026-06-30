@@ -3,7 +3,7 @@
    ============================================================ */
 import { useState, useRef, useLayoutEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, N, Icon, Ring } from './components.jsx';
+import { B, Bk, Bc, N, Icon, Ring, useBeat, PageSkeleton } from './components.jsx';
 import { getToday, THAI_MONTHS as MONTH_SHORT, THAI_MONTHS_FULL as MONTH_FULL } from './lib/dateUtils.js';
 import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
 import { Button } from '@/components/ui/button';
@@ -242,6 +242,7 @@ function QuarterView({ year }) {
 
 /* ====================  ENTRY VIEW ROUTER  ==================== */
 export function EntryView() {
+  const beat = useBeat();
   const { NOW_MONTH, NOW_YEAR } = _now();
   const [month, setMonth] = useState(NOW_MONTH);
   const [year, setYear]   = useState(NOW_YEAR);
@@ -251,6 +252,7 @@ export function EntryView() {
   const monthLabel = MONTH_SHORT[month];
   const monthFull  = MONTH_FULL[month];
 
+  if (beat) return <PageSkeleton />;
   return (
     <>
       <div className="content-inner">

@@ -27,13 +27,14 @@ const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default
 const StockSection = lazy(() => import('./views-stock.jsx').then(m => ({ default: m.StockSection })));
 const CrmSection   = lazy(() => import('./views-crm.jsx').then(m => ({ default: m.CrmSection })));
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
+const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
 const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
 import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, ImportProductsModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { pushNotify, emailOfName } from './lib/notify.js';
+import { pushNotify, emailOfName, notify, stableNotifId, emailsForAudience } from './lib/notify.js';
 import { THAI_MONTHS, parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
@@ -247,6 +248,16 @@ function Spotlight({ onClose, onGo }) {
   );
 }
 
+// ไอคอน/สีต่อชนิดแจ้งเตือน (ใช้ในกระดิ่ง · ให้เข้าชุดกับศูนย์แจ้งเตือน)
+const NOTIF_KIND = {
+  mention: { icon: 'chat', color: 'var(--accent)' }, assign: { icon: 'user', color: 'var(--good)' },
+  reply: { icon: 'reply', color: 'var(--info)' }, comment: { icon: 'chat', color: 'var(--info)' },
+  status: { icon: 'circle', color: 'var(--accent)' }, due: { icon: 'clock', color: 'var(--warn)' },
+  overdue: { icon: 'zap', color: 'var(--bad)' }, flow_member: { icon: 'users', color: 'var(--accent)' },
+};
+const notifKind = (n) => { const b = NOTIF_KIND[n?.kind] || { icon: 'bell', color: 'var(--accent)' }; const sev = { urgent: 'var(--bad)', warn: 'var(--warn)', success: 'var(--good)' }[n?.severity]; return { icon: b.icon, color: sev || b.color }; };
+function notifTimeAgo(iso) { if (!iso) return ''; const s = (Date.now() - new Date(iso).getTime()) / 1000; if (s < 60) return 'เมื่อสักครู่'; if (s < 3600) return Math.floor(s / 60) + ' นาที'; if (s < 86400) return Math.floor(s / 3600) + ' ชม.'; return Math.floor(s / 86400) + ' วัน'; }
+
 const NAV_DEF = [
   { id: 'home', labelKey: 'navHome', icon: 'home' },
   { id: 'sales', labelKey: 'navSales', icon: 'sales', subs: [
@@ -306,7 +317,7 @@ function useNav() {
     subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
   }));
 }
-const DEFAULT_SUB = { flows: 'overview', sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
+const DEFAULT_SUB = { flows: 'overview', sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general', notifications: 'all' };
 
 // รายการโครงการสำหรับ sidebar (งานทั่วไป + โครงการจริง · ไม่นับ config row/archived/private ของคนอื่น)
 function sidebarFlows() {
@@ -537,7 +548,7 @@ function AppShellWithUser() {
 function AppInner() {
   const { t } = useLang();
   const { toast } = useToast();
-  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload, refresh: dataRefresh } = useData();
+  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload, refresh: dataRefresh, ensureLoaded: dataEnsure } = useData();
   const { user: currentUserCtx } = useUser() || {};
   // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
@@ -641,6 +652,7 @@ function AppInner() {
     window.__toast = toast;
     window.__reload = dataReload; // full reload (ใช้เฉพาะที่จำเป็นจริง — retry/มาแก้ทั้งระบบ)
     window.__refresh = (tables) => (dataRefresh ? dataRefresh(tables) : dataReload?.()); // per-table refresh — ลด egress: หลังบันทึกดึงเฉพาะตารางที่เปลี่ยน
+    window.__ensureLoaded = (keys) => dataEnsure?.(keys); // โหลดตาราง deferred (Sales/Settings) ตอนกดเข้า section
     window.__goSection = (sec, s) => go(sec, s);
   }, [toast]);
 
@@ -729,8 +741,7 @@ function AppInner() {
     const todayDay = TMK.consts.DAY;
     const myDuty = currentUserCtx?.name || '';
     const myDept = currentUserCtx?.department || '';
-    const seeAll = currentUserCtx?.role === 'admin';
-    const isMine = (tk) => seeAll || (tk.responsible || []).some(r => r === myDuty || r === myDept);
+    const isMine = (tk) => (tk.responsible || []).some(r => r === myDuty || r === myDept); // เตือน "งาน" เฉพาะที่ตัวเอง (ชื่อ/แผนก) ได้รับมอบหมาย — admin ไม่เห็นงานคนอื่น (กลุ่มระบบ stock/sales/orders/po คงเห็นภาพรวม)
     const _todayIso = todayISO();
     const diffOf = (x) => { const iso = x.dateISO || parseTaskDate(x.date); if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(_todayIso + 'T00:00:00')) / 86400000); };
     const openTasks = notifOn ? tasks.filter(x => x.status !== 'done' && isMine(x)) : [];
@@ -821,6 +832,42 @@ function AppInner() {
 
   // แจ้งเตือนจาก DB (ถูกแท็ก @ / มอบหมายงาน) — โหลด + realtime · graceful ถ้าตารางยังไม่ migrate
   const myEmail = session?.user?.email || '';
+
+  // due-sweep (PART 29/33): บันทึก "ใกล้ครบ/เลยกำหนด" ถาวร 1 ครั้ง/เซสชัน — เฉพาะงานที่ "ฉัน" (resolve ตาม staff/duty/role) ได้รับมอบหมายเท่านั้น
+  // แต่ละ client ยิงเฉพาะของตัวเอง → ไม่สแปม + low egress · stable id กันซ้ำข้ามวัน
+  const dueSweptRef = useRef(false);
+  useEffect(() => {
+    if (dueSweptRef.current || dataVersion < 1 || !myEmail) return;
+    const allTasks = TMK.tasks || [];
+    if (!allTasks.length) return;
+    dueSweptRef.current = true;
+    const today = todayISO();
+    // เสร็จแล้ว = ตามสถานะ "done" ของโฟลว์นั้น (custom statuses) ไม่ใช่ hardcode 'done'
+    const isDone = (t) => {
+      const flow = (TMK.flows || []).find(f => (f.scopeId ?? f.id) === (t.flow || ''));
+      const statuses = (flow?.statuses && flow.statuses.length) ? flow.statuses : null;
+      return statuses ? statuses.filter(s => s.done).some(s => s.id === t.status) : t.status === 'done';
+    };
+    allTasks.forEach(t => {
+      if (isDone(t)) return;
+      const dueISO = t.dateEnd || t.dateISO || '';
+      if (!dueISO) return;
+      const diff = Math.round((new Date(dueISO + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
+      const sev = diff < 0 ? 'overdue' : (diff >= 0 && diff <= (t.reminderDays || 1) ? 'due' : null);
+      if (!sev) return;
+      // เฉพาะงานที่ฉัน (ตามชื่อ/บทบาท/หน้าที่ที่ resolve เป็นอีเมล) ได้รับมอบหมาย
+      if (!emailsForAudience(t.responsible || []).includes(myEmail)) return;
+      const txt = sev === 'overdue' ? `เลยกำหนด ${-diff} วัน` : (diff === 0 ? 'ครบกำหนดวันนี้' : `ใกล้ครบ อีก ${diff} วัน`);
+      notify({ recipients: [myEmail], selfOk: true, actor: '', id: stableNotifId('due', t.id, dueISO), kind: sev, severity: sev === 'overdue' ? 'urgent' : 'warn', title: `${t.title} — ${txt}`, flowId: t.flow ?? '', taskId: t.id, entityType: 'task' });
+    });
+  }, [dataVersion, myEmail]);
+
+  // lazy-load (PART 33): โหลดตาราง deferred (adCamps/colorMix/sizeMix/fbMetrics) ตอนกดเข้า section ที่ใช้ — Sales/แคตตาล็อก/ตั้งค่า(export+คุมแอด)
+  useEffect(() => {
+    if (dataVersion < 1) return;
+    if (section === 'sales' || section === 'catalog' || section === 'settings') dataEnsure?.(['adCamps', 'colorMix', 'sizeMix', 'fbMetrics']);
+  }, [section, dataVersion, dataEnsure]);
+
   useEffect(() => {
     if (!supabase || !myEmail) return;
     let alive = true;
@@ -847,8 +894,9 @@ function AppInner() {
   };
   const onDbNotifClick = (n) => {
     setNotif(false);
+    if (!n.read && supabase) { setDbNotifs(p => p.map(x => x.id === n.id ? { ...x, read: true } : x)); supabase.from('tmk_notifications').update({ read: true }).eq('id', n.id).then(() => {}, () => {}); } // อ่านรายตัว (ไม่ใช่ทั้งหมด)
+    if (n.task_id) { const tk = (TMK.tasks || []).find(x => x.id === n.task_id); if (tk) { window.__setFlow?.(tk.flow || '__general__'); go('flows', 'kanban'); setTimeout(() => window.__openModal?.('task', { ...tk, channel: Array.isArray(tk.channel) ? tk.channel : [tk.channel] }), 60); return; } }
     if (n.flow_id || n.flow_id === '') { window.__setFlow?.(n.flow_id || '__general__'); go('flows', 'kanban'); }
-    if (n.task_id) { const tk = (TMK.tasks || []).find(x => x.id === n.task_id); if (tk) setTimeout(() => window.__openModal?.('task', { ...tk, channel: Array.isArray(tk.channel) ? tk.channel : [tk.channel] }), 60); }
   };
 
   const onNotifClick = (n) => {
@@ -876,6 +924,7 @@ function AppInner() {
     return (
       <Suspense fallback={<PageSkeleton />}>
         {section === 'sales' ? <EntryView sub={sub} />
+          : section === 'notifications' ? <NotificationsCenter />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
           : section === 'stock' ? <StockSection sub={sub} />
@@ -890,7 +939,7 @@ function AppInner() {
   const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
 
   // Special sections not in NAV (settings)
-  const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
+  const SPECIAL_LABELS = { settings: 'ตั้งค่า', notifications: 'การแจ้งเตือน' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
 
   const isMobile = useIsMobile();
@@ -968,6 +1017,20 @@ function AppInner() {
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton isActive={section === 'notifications'} tooltip={t('navNotif')} onClick={() => go('notifications')}>
+                <Icon name="bell" />
+                <span>{t('navNotif')}</span>
+                {dbUnread > 0 && <span className="ml-auto min-w-4 h-4 px-1 grid place-items-center text-[9px] font-bold text-white rounded-full" style={{ background: 'var(--bad, #ef4444)' }}>{dbUnread > 9 ? '9+' : dbUnread}</span>}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton isActive={section === 'settings' && sub === 'updates'} tooltip="มีอะไรใหม่" onClick={() => go('settings', 'updates')}>
+                <Icon name="sparkle" />
+                <span>มีอะไรใหม่</span>
+                {unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1121,9 +1184,9 @@ function AppInner() {
                 </kbd>
               </Button>
               
-              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full" onClick={() => setNotif(n => { const nv = !n; if (nv) markNotifsRead(); return nv; })}>
+              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full" aria-label={dbUnread > 0 ? `การแจ้งเตือน ${dbUnread} ใหม่` : 'การแจ้งเตือน'} onClick={() => setNotif(n => !n)}>
                 <Icon name="bell" className="size-5" />
-                {(notifs.length + dbUnread) > 0 && <span className="absolute top-1 right-1 min-w-4 h-4 px-1 grid place-items-center text-[9px] font-bold text-white rounded-full bg-red-600 border-2 border-background">{notifs.length + dbUnread > 9 ? '9+' : notifs.length + dbUnread}</span>}
+                {dbUnread > 0 && <span aria-live="polite" className="absolute top-1 right-1 min-w-4 h-4 px-1 grid place-items-center text-[9px] font-bold text-white rounded-full bg-red-600 border-2 border-background">{dbUnread > 9 ? '9+' : dbUnread}</span>}
               </Button>
             </div>
           </header>
@@ -1151,16 +1214,17 @@ function AppInner() {
             {dbNotifs.length > 0 && (
               <div style={{ marginBottom: 6 }}>
                 <div className="cap" style={{ padding: '6px 10px 2px', fontWeight: 700, color: 'var(--accent-2)' }}>การแจ้งเตือน ({dbNotifs.length})</div>
-                {dbNotifs.slice(0, 15).map(n => (
+                {dbNotifs.slice(0, 15).map(n => { const km = notifKind(n); return (
                   <div key={n.id} className="row" onClick={() => onDbNotifClick(n)} style={{ gap: 10, padding: '9px 10px', borderRadius: 'var(--r-sm)', cursor: 'pointer', alignItems: 'flex-start', background: n.read ? 'transparent' : 'var(--accent-soft)' }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: n.kind === 'assign' ? 'var(--good)' : 'var(--accent)', flexShrink: 0, marginTop: 5 }}></span>
+                    <span style={{ width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', flexShrink: 0, background: `color-mix(in srgb, ${km.color} 16%, transparent)`, color: km.color }}><Icon name={km.icon} className="size-4" /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="sm" style={{ fontWeight: 600 }}>{n.title}</div>
+                      <div className="sm" style={{ fontWeight: 600, lineHeight: 1.3 }}>{n.title}</div>
                       {n.body && <div className="cap" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.body}</div>}
+                      <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 1 }}>{notifTimeAgo(n.created_at)}{!n.read ? ' · ใหม่' : ''}</div>
                     </div>
-                    <span className="cap" style={{ color: 'var(--ink-4)', flexShrink: 0 }}>{n.kind === 'assign' ? 'มอบหมาย' : '@แท็ก'}</span>
+                    {!n.read && <span style={{ width: 7, height: 7, borderRadius: '50%', background: km.color, flexShrink: 0, marginTop: 6 }} />}
                   </div>
-                ))}
+                ); })}
               </div>
             )}
             {notifGroups.map(g => (
@@ -1180,6 +1244,10 @@ function AppInner() {
                 ))}
               </div>
             ))}
+            <div className="row between" style={{ padding: '8px 6px 2px', borderTop: '1px solid var(--line)', marginTop: 4, gap: 8 }}>
+              <button className="cap" style={{ color: 'var(--ink-3)', fontWeight: 600, background: 'none', border: 'none', cursor: dbUnread ? 'pointer' : 'default', opacity: dbUnread ? 1 : 0.5, padding: '4px 6px' }} disabled={!dbUnread} onClick={markNotifsRead}>อ่านทั้งหมด</button>
+              <button className="cap" style={{ color: 'var(--accent-2)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px' }} onClick={() => { setNotif(false); go('notifications'); }}>ดูทั้งหมด →</button>
+            </div>
           </div>
         </>
       )}
@@ -1319,16 +1387,18 @@ function AppInner() {
                   tags: Array.isArray(task.tags) ? task.tags : [], // แท็ก (graceful ถ้าคอลัมน์ tags ยังไม่ migrate)
                   subtasks: Array.isArray(task.subtasks) ? task.subtasks : [], // เช็คลิสต์/งานย่อย (graceful · migration 20260730)
                   sort_order: Number(task.sortOrder || 0), // ลำดับการ์ดในคอลัมน์ (graceful · migration 20260730)
+                  brand_ids: Array.isArray(task.brandIds) ? task.brandIds : [], // แบรนด์ของงาน (graceful · migration 20260808)
                 };
                 let { error } = await supabase.from('tmk_tasks').upsert(dbTask);
-                // graceful: ถ้าคอลัมน์เสริม (flow_id/tags/date_end/subtasks/sort_order) ยังไม่ migrate → ตัดเฉพาะที่ขาดแล้วลองใหม่
-                if (error && /(flow_id|tags|date_end|subtasks|sort_order)/.test(error.message || '')) {
+                // graceful: ถ้าคอลัมน์เสริม (flow_id/tags/date_end/subtasks/sort_order/brand_ids) ยังไม่ migrate → ตัดเฉพาะที่ขาดแล้วลองใหม่
+                if (error && /(flow_id|tags|date_end|subtasks|sort_order|brand_ids)/.test(error.message || '')) {
                   const retry = { ...dbTask };
                   if (/flow_id/.test(error.message)) delete retry.flow_id;
                   if (/tags/.test(error.message)) delete retry.tags;
                   if (/date_end/.test(error.message)) delete retry.date_end;
                   if (/subtasks/.test(error.message)) delete retry.subtasks;
                   if (/sort_order/.test(error.message)) delete retry.sort_order;
+                  if (/brand_ids/.test(error.message)) delete retry.brand_ids;
                   ({ error } = await supabase.from('tmk_tasks').upsert(retry));
                 }
                 if (error) throw error;

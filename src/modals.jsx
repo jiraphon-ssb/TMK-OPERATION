@@ -38,7 +38,7 @@ import * as RDialog from '@radix-ui/react-dialog';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
 import { parseShipnityCustomers } from './lib/shipnityCustomers.js';
 import { logAudit } from './lib/audit.js';
-import { pushNotify, emailOfName } from './lib/notify.js';
+import { pushNotify, emailOfName, notify, emailsForAudience } from './lib/notify.js';
 import { computeMonth } from './dataContext.jsx';
 
 // Toast helper
@@ -675,12 +675,12 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
     // ใช้ dateISO เต็ม (กันปีหายตอนแก้งานข้ามปี); fallback parse จากไทย/ค่าที่ส่งมา
     const isoDate = data?.dateISO || (data?.date ? (parseTaskDate(data.date) || data.date) : todayISO());
     const flow_id = data?.flow_id ?? data?.flow ?? '';
-    if (!data?.id) return { title: '', detail: '', date: isoDate, dateEnd: '', responsible: [], channel: [], camp: '', status: data?.status || 'todo', flow_id, priority: 'medium', tags: [], subtasks: [] };
+    if (!data?.id) return { title: '', detail: '', date: isoDate, dateEnd: '', responsible: [], channel: [], camp: '', brandIds: [], status: data?.status || 'todo', flow_id, priority: 'medium', tags: [], subtasks: [] };
     const validNames = new Set((MD.channels || []).map(c => c.name));
     const chanPieces = splitToArr(data.channel);
     // เก็บเฉพาะช่องทางที่มีจริงในระบบ — ตัดข้อความอิสระเก่า (เช่น "FB Post") ที่ map ไม่ได้ทิ้ง
     const channel = chanPieces.filter(c => validNames.has(c));
-    return { ...data, date: isoDate, dateEnd: data.dateEnd || data.date_end || '', responsible: splitToArr(data.responsible), channel, flow_id, priority: data.priority || 'medium', tags: Array.isArray(data.tags) ? data.tags : [], subtasks: Array.isArray(data.subtasks) ? data.subtasks : [] };
+    return { ...data, date: isoDate, dateEnd: data.dateEnd || data.date_end || '', responsible: splitToArr(data.responsible), channel, flow_id, priority: data.priority || 'medium', tags: Array.isArray(data.tags) ? data.tags : [], subtasks: Array.isArray(data.subtasks) ? data.subtasks : [], brandIds: Array.isArray(data.brandIds) ? data.brandIds : (Array.isArray(data.brand_ids) ? data.brand_ids : []) };
   });
   const [tagInput, setTagInput] = useState('');
   const [subInput, setSubInput] = useState(''); // ช่องเพิ่มงานย่อย (เช็คลิสต์)
@@ -699,6 +699,11 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   const flowCampIds = Array.isArray(curFlow?.campaignIds) ? curFlow.campaignIds : [];
   const campIdList = [...flowCampIds, ...((f.camp && !flowCampIds.includes(f.camp)) ? [f.camp] : [])];
   const campChoices = campIdList.map(id => (MD.campaigns || []).find(c => c.id === id)).filter(Boolean);
+  // แบรนด์ของงาน — เลือกหลายอันจากแบรนด์ของโครงการ (+ คงค่าเดิมที่ไม่อยู่ในโครงการแล้ว) · chips toggle
+  const flowBrandIds = Array.isArray(curFlow?.brandIds) ? curFlow.brandIds : [];
+  const brandIdList = [...flowBrandIds, ...((f.brandIds || []).filter(b => !flowBrandIds.includes(b)))];
+  const brandChoices = brandIdList.map(id => (MD.brands || []).find(b => b.id === id)).filter(Boolean);
+  const toggleBrand = (id) => set('brandIds', (f.brandIds || []).includes(id) ? f.brandIds.filter(x => x !== id) : [...(f.brandIds || []), id]);
   const statusChoices = (curFlow?.statuses?.length) ? curFlow.statuses : (MD.kanbanMeta || []);
   const goFlowSettings = () => { if (curFlow?.id && curFlow.id !== '__general__') { try { localStorage.setItem('tmk-flow', curFlow.id); } catch { /* ignore */ } window.__setFlow?.(curFlow.id); } window.__goSection?.('flows', 'settings'); };
   const [touched, setTouched] = useState(false);
@@ -779,6 +784,27 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
                 <SelectTrigger className="h-9 w-full"><SelectValue placeholder="— ยังไม่ได้เลือก —" /></SelectTrigger>
                 <SelectContent>{campChoices.map(c => <SelectItem key={c.id} value={c.id}><span className="inline-flex items-center gap-2"><span className="size-2 rounded-full" style={{ background: c.color }} />{c.name}</span></SelectItem>)}</SelectContent>
               </Select>
+            )}
+          </TaskField>
+          <TaskField icon="tag" label="แบรนด์" wide>
+            {brandChoices.length === 0 ? (
+              <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground min-h-9 items-center">
+                โครงการนี้ยังไม่มีแบรนด์
+                <button type="button" className="text-primary underline" onClick={goFlowSettings}>+ จัดการแบรนด์</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {brandChoices.map(b => {
+                  const on = (f.brandIds || []).includes(b.id);
+                  return (
+                    <button type="button" key={b.id} onClick={() => toggleBrand(b.id)}
+                      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors"
+                      style={on ? { background: (b.color || '#6b5ce0') + '1f', borderColor: (b.color || '#6b5ce0') + '88', color: b.color || 'var(--ink)' } : { borderColor: 'var(--line)', color: 'var(--ink-3)' }}>
+                      <span className="size-2 rounded-full shrink-0" style={{ background: b.color || '#6b5ce0' }} />{b.name}
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </TaskField>
           <TaskField icon="calendarDays" label="วันที่" wide>
@@ -1021,9 +1047,19 @@ function TaskComments({ taskId, flow, onUnavailable }) {
       try { return new RegExp('@' + escRe(n) + '(?=\\s|$|[^\\p{L}\\p{N}_])', 'u').test(text); }
       catch { return text.includes('@' + n); }
     });
+    const _flowId = flow?.scopeId ?? flow?.id ?? '';
+    const mentionedEmails = new Set(mentionedNames.map(emailOfName).filter(Boolean));
     if (mentionedNames.length) {
-      const emails = [...new Set(mentionedNames.map(emailOfName).filter(Boolean))];
-      pushNotify(emails.map(em => ({ user_email: em, kind: 'mention', title: `ถูกกล่าวถึงใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flow_id: flow?.scopeId ?? flow?.id ?? '', task_id: taskId })));
+      pushNotify([...mentionedEmails].map(em => ({ user_email: em, kind: 'mention', title: `ถูกกล่าวถึงใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flow_id: _flowId, task_id: taskId, entity_type: 'comment' })));
+    }
+    // ตอบกลับ → แจ้ง author ของคอมเมนต์แม่ (ถ้ายังไม่ถูก @)
+    if (replyTo?.author && !mentionedEmails.has(replyTo.author)) {
+      notify({ recipients: [replyTo.author], kind: 'reply', severity: 'info', title: `ตอบกลับคอมเมนต์ของคุณใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flowId: _flowId, taskId, entityType: 'comment' });
+    }
+    // คอมเมนต์ใหม่ → แจ้งผู้รับผิดชอบงาน (ไม่ซ้ำกับ @แท็ก/ผู้ที่ถูกตอบกลับ · notify ตัดตัวเองให้)
+    const respEmails = emailsForAudience(_t?.responsible || []).filter(e => !mentionedEmails.has(e) && e !== replyTo?.author);
+    if (respEmails.length) {
+      notify({ recipients: respEmails, kind: 'comment', severity: 'info', title: `คอมเมนต์ใหม่ใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flowId: _flowId, taskId, entityType: 'comment' });
     }
     mentionedRef.current = new Set();
   };
