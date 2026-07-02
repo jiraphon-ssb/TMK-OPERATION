@@ -324,6 +324,7 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
   const [members, setMembers] = useState(flow.members || []);
   const [visibility, setVisibility] = useState(flow.visibility || 'shared');
   const [defaultView, setDefaultView] = useState(flow.defaultView || 'kanban');
+  const [barColorSource, setBarColorSource] = useState(flow.barColorSource || 'campaign');
 
   const toggle = (arr, set, id) => set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id]);
 
@@ -338,13 +339,14 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
         campaign_ids: campaignIds, statuses, members, visibility: isGeneral ? 'shared' : visibility,
         default_view: defaultView, owner: flow.owner || me, sort_order: flow.sortOrder ?? 0,
         cover_url: coverUrl || null,   // รูปปก (20260720 · graceful)
+        bar_color_source: barColorSource,   // แหล่งสีแถบงาน (20260702 · graceful)
       };
       // graceful: คอลัมน์เสริม (brand_ids/cover_url) ยังไม่ migrate → ตัดคอลัมน์ที่ขาดออกแล้วลองใหม่
       const p = { ...payload };
       let error, guard = 0;
       ({ error } = await supabase.from('tmk_flows').upsert(p));
       while (error && guard++ < 4) {
-        const col = ((error.message || '').match(/(brand_ids|cover_url|share_token|share_enabled)/) || [])[1];
+        const col = ((error.message || '').match(/(brand_ids|cover_url|share_token|share_enabled|bar_color_source)/) || [])[1];
         if (!col || !(col in p)) break;
         delete p[col];
         ({ error } = await supabase.from('tmk_flows').upsert(p));
@@ -420,12 +422,17 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
   ];
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl w-full mx-auto pb-20">
-      <div className="rounded-lg border bg-muted/20 p-4 flex items-start gap-3">
+    <div className="flex flex-col gap-4 max-w-4xl w-full mx-auto pb-8">
+      <div className="rounded-lg border bg-muted/20 p-4 flex items-start gap-3 flex-wrap">
         <FlowIcon icon={icon} className="size-7 shrink-0 mt-0.5" style={{ color }} />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="font-bold text-foreground">ตั้งค่าโครงการ: {name || '(ไม่มีชื่อ)'}</div>
           <div className="text-xs text-muted-foreground">{isGeneral ? 'งานทั่วไป — แก้ชื่อ/ไอคอน/สี/คอลัมน์/สมาชิกได้ · ลบ = รีเซ็ตค่า (งานไม่หาย)' : 'ปรับแบรนด์ · แคมเปญที่ใช้ · คอลัมน์สถานะ · สมาชิก · การมองเห็น'}</div>
+        </div>
+        {/* ปุ่มบันทึก/กลับ — ย้ายมาไว้หัวมุมขวา (เลิกใช้แถบ sticky ล่างที่ทับเนื้อหา) */}
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <Button variant="outline" size="sm" onClick={() => onAfter?.(active_view_fallback(flow))} disabled={busy}>กลับบอร์ด</Button>
+          <Button size="sm" onClick={save} disabled={!name.trim() || busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า'}</Button>
         </div>
       </div>
 
@@ -450,6 +457,22 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
               <IconPicker value={icon} onChange={setIcon} />
             </div>
             <div className="grid gap-2"><Label>สีประจำโครงการ</Label><ColorPicker value={color} onChange={setColor} /></div>
+            <div className="grid gap-2">
+              <Label>สีแถบ/ชิปงานในปฏิทิน-บอร์ด</Label>
+              {/* ปุ่มเลือกแบบชัด: อันที่เลือก = พื้น accent ตัวหนังสือขาว · อันที่ไม่เลือก = จาง */}
+              <div className="inline-flex w-fit gap-1 rounded-lg border bg-muted/30 p-1">
+                {[['campaign', 'megaphone', 'แคมเปญ'], ['brand', 'store', 'แบรนด์']].map(([val, ic, lb]) => {
+                  const on = barColorSource === val;
+                  return (
+                    <button key={val} type="button" onClick={() => setBarColorSource(val)}
+                      className={'inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-[13px] font-medium transition-colors ' + (on ? 'bg-[var(--accent)] text-white shadow-sm' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
+                      <Icon name={ic} className="size-3.5" /> {lb}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">งานไม่มีสีจากแหล่งที่เลือก → ใช้สีอีกแหล่งแทน · ไม่มีทั้งคู่ = เทา</p>
+            </div>
             <div className="grid gap-2">
               <Label>รูปปกการ์ด <span className="text-muted-foreground font-normal text-xs">(แนวนอน · ไม่ใส่ = ใช้แถบสีโครงการ)</span></Label>
               <div className="flex items-center gap-3">
@@ -594,12 +617,6 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
           </TabsContent>
         </div>
       </Tabs>
-
-      {/* แถบบันทึก (sticky) */}
-      <div className="sticky bottom-0 -mx-1 mt-2 flex items-center justify-end gap-2 border-t bg-background/95 backdrop-blur px-1 py-3">
-        <Button variant="outline" onClick={() => onAfter?.(active_view_fallback(flow))} disabled={busy}>กลับบอร์ด</Button>
-        <Button onClick={save} disabled={!name.trim() || busy}>{busy ? 'กำลังบันทึก…' : 'บันทึกการตั้งค่า'}</Button>
-      </div>
     </div>
   );
 }
@@ -690,16 +707,18 @@ export function PublicFlowShare({ token }) {
           .eq('share_token', token).eq('share_enabled', true).is('deleted_at', null).maybeSingle();
         if (cancel) return;
         if (error || !f) { setState('notfound'); return; }
-        const [tRes, cRes, sRes, dRes, chRes] = await Promise.all([
+        const [tRes, cRes, sRes, dRes, chRes, bRes] = await Promise.all([
           supabase.from('tmk_tasks').select('*').eq('flow_id', f.id).is('deleted_at', null),
           supabase.from('tmk_campaigns').select('id,name,color').is('deleted_at', null),
           supabase.from('tmk_staff').select('name,color,email').is('deleted_at', null),
           supabase.from('tmk_duties').select('name,color').is('deleted_at', null),
           supabase.from('tmk_channels').select('id,name,color,logo_url').is('deleted_at', null),
+          supabase.from('tmk_brands').select('id,name,color,logo_url').is('deleted_at', null),
         ]);
         if (cancel) return;
         // ใส่ข้อมูลประกอบลง TMK (ไม่มี DataProvider — public อ่านอย่างเดียว)
         TMK.campaigns = (cRes.data || []).map(c => ({ id: c.id, name: c.name, color: c.color }));
+        TMK.brands = (bRes.data || []).map(b => ({ id: b.id, name: b.name, color: b.color || '#6b5ce0', logoUrl: b.logo_url || '' }));
         TMK.staff = (sRes.data || []).map(s => ({ name: s.name, color: s.color || 'var(--ink-3)', email: s.email || '' }));
         TMK.duties = (dRes.data || []).map(d => ({ name: d.name, color: d.color || 'var(--ink-3)' }));
         TMK.channels = (chRes.data || []).map(ch => ({ id: ch.id, name: ch.name, hex: ch.color, logoUrl: ch.logo_url || '', color: `var(--ch-${(ch.id || '').toLowerCase()})` }));
@@ -709,6 +728,7 @@ export function PublicFlowShare({ token }) {
           description: f.description || '', coverUrl: f.cover_url || '',
           statuses: Array.isArray(f.statuses) ? f.statuses : [],
           campaignIds: Array.isArray(f.campaign_ids) ? f.campaign_ids : [],
+          barColorSource: f.bar_color_source || 'campaign',
         };
         TMK.flows = [fl];
         const mapped = (tRes.data || []).map(t => ({
@@ -718,6 +738,7 @@ export function PublicFlowShare({ token }) {
           camp: t.camp || '', flow: t.flow_id || '', status: t.status || 'todo',
           channel: t.channel || '', priority: t.priority || 'medium', dateEnd: t.date_end || '',
           tags: Array.isArray(t.tags) ? t.tags : [],
+          brandIds: Array.isArray(t.brand_ids) ? t.brand_ids : [],   // ชิปแบรนด์ + สีแถบตามแบรนด์ ในหน้าแชร์
         }));
         TMK.tasks = mapped;
         if (typeof window !== 'undefined') window.__canEdit = false;

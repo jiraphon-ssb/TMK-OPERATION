@@ -37,13 +37,16 @@ export function UserProvider({ children, version }) {
     const fallbackName = isOwner ? 'มัง' : authEmail.split('@')[0];
     const fallbackRole = isOwner ? 'admin' : 'viewer';
 
+    const resolvedRole = role?.role || (staff?.role === 'Owner' ? 'admin' : null) || fallbackRole;
     return {
       email: authEmail,
       name: staff?.name || role?.name || fallbackName,
-      role: role?.role || (staff?.role === 'Owner' ? 'admin' : null) || fallbackRole,
+      role: resolvedRole,
       department: role?.department || role?.dutyName || staff?.role || '',
       color: staff?.color || (isOwner ? '#b07d33' : '#3b82f6'),
       avatarUrl: staff?.avatarUrl || '',
+      // หน้าใหญ่ที่ถูกล็อก (deny-list) — admin ไม่โดนล็อกเสมอ บังคับที่นี่ไม่ว่าค่าใน DB จะเป็นอะไร
+      lockedSections: resolvedRole === 'admin' ? [] : (role?.lockedSections || []),
     };
   }, [authEmail, version]);
 

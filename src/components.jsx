@@ -259,6 +259,7 @@ export const ICONS = {
   lightbulb: 'M9 18h6M10 21h4M8.5 14a5 5 0 1 1 7 0c-.7.7-1.5 1.3-1.5 2.5h-4c0-1.2-.8-1.8-1.5-2.5',
   alertTriangle: 'M12 3 2 20h20zM12 9v5M12 17h.01',
   upload: 'M12 15V4M8 8l4-4 4 4M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2',
+  lock: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4',
 };
 
 export function Icon({ name, className }) {

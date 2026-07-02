@@ -49,6 +49,7 @@ function mapRolesAndStaff(userRoles, staff) {
         department: r.dutyName || r.department || s?.role || '',
         color: r.dutyColor || r.color || s?.color || '#3b82f6',
         avatarUrl: s?.avatar_url || '',
+        lockedSections: Array.isArray(r.locked_sections) ? r.locked_sections : [],  // หน้าใหญ่ที่ถูกล็อก (graceful ถ้าคอลัมน์ยังไม่มี)
       };
     }),
     staff: staff.map(s => ({
@@ -261,6 +262,7 @@ function mapToTMK(raw) {
     members: Array.isArray(f.members) ? f.members : [],
     visibility: f.visibility || 'shared', owner: f.owner || '',
     defaultView: f.default_view || 'kanban', archived: !!f.archived,
+    barColorSource: f.bar_color_source || 'campaign',  // แหล่งสีแถบ/ชิปงาน (graceful ถ้าคอลัมน์ยังไม่มี)
     coverUrl: f.cover_url || '',                       // รูปปกการ์ด (graceful ถ้าคอลัมน์ยังไม่มี)
     shareToken: f.share_token || '', shareEnabled: !!f.share_enabled,  // แชร์ลิงก์อ่านอย่างเดียว
     sortOrder: f.sort_order || 0,

@@ -29,6 +29,7 @@ import { useNotifications, prefOn as notifStorePrefOn, setPref as notifStoreSetP
 import { fetchTargets, saveTarget, commissionFor } from './lib/targets.js';
 import { APP_VERSION } from './changelog.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
+import { colorForTask, colorSourceOf } from './lib/taskColor.js';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch as ShadcnSwitch } from '@/components/ui/switch';
@@ -97,8 +98,21 @@ function DateRangePicker({ from, to, onChange, presets = [], activePreset, onPic
                 className={'rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ' + (id === activePreset ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-2)]' : 'text-[var(--ink-2)] hover:bg-[var(--surface-2)]')}>{lb}</button>
             ))}
           </div>
-          <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from)} selected={sel}
-            onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(_dateToIso(r.from), _dateToIso(r.to)); setOpen(false); } }} />
+          <div className="flex min-w-0 flex-col">
+            <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from)} selected={sel}
+              onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(_dateToIso(r.from), _dateToIso(r.to)); setOpen(false); } }} />
+            {/* แถบสรุประหว่างเลือก: วันเริ่ม → วันสิ้นสุด + ล้าง */}
+            <div className="flex items-center justify-between gap-3 border-t px-3 py-2 text-[12.5px]">
+              <span>
+                <span className={sel?.from ? 'font-semibold text-[var(--ink)]' : 'text-[var(--ink-4)]'}>{sel?.from ? _fmtTh(_dateToIso(sel.from)) : 'เลือกวันเริ่ม'}</span>
+                <span className="mx-1.5 text-[var(--ink-4)]">→</span>
+                <span className={sel?.to ? 'font-semibold text-[var(--ink)]' : 'text-[var(--ink-4)]'}>{sel?.to ? _fmtTh(_dateToIso(sel.to)) : 'เลือกวันสิ้นสุด'}</span>
+              </span>
+              {(sel?.from || sel?.to) && (
+                <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={() => setSel({ from: undefined, to: undefined })}>ล้าง</button>
+              )}
+            </div>
+          </div>
         </div>
       </PopoverContent>
     </Popover>
@@ -419,7 +433,7 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
       onDragStart={draggable && !readOnly ? onDragStart : undefined}
       onDragEnd={draggable && !readOnly ? onDragEnd : undefined}
       onClick={clickable ? onClick : undefined}
-      className="p-3" style={{ borderRadius: 'var(--r)', cursor: readOnly ? 'default' : (draggable ? 'grab' : (onClick ? 'pointer' : 'default')), boxShadow: 'var(--sh-sm)', padding: '12px 14px', borderLeft: `3px solid ${c?.color || 'var(--line)'}` }}>
+      className="p-3" style={{ borderRadius: 'var(--r)', cursor: readOnly ? 'default' : (draggable ? 'grab' : (onClick ? 'pointer' : 'default')), boxShadow: 'var(--sh-sm)', padding: '12px 14px', borderLeft: `3px solid ${colorForTask(t, colorSourceOf(taskFlow), 'var(--line)')}` }}>
       {/* หัว: มีชิป → แถวชิป(โครงการ/แคมเปญ/แบรนด์)+avatar แล้วค่อยชื่อ · ไม่มีชิป → ชื่อ+avatar บรรทัดเดียว */}
       {headerChips.length ? (
         <>
@@ -476,6 +490,7 @@ export function TaskCard({ task: t, onClick, draggable, onDragStart, onDragEnd, 
 
 function CalendarView({ filtered, fProps, flow, readOnly }) {
   const newTaskBase = flow ? { flow_id: (flow.scopeId ?? flow.id) } : {};
+  const colorSrc = colorSourceOf(flow); // แหล่งสีแถบ/ชิป ตามตั้งค่าโครงการ — ไม่มี flow (ปฏิทินรวม) = campaign
   const T = getToday();                       // วันจริง
   const curY = T.yearBE, curM = T.month - 1;  // เดือนปัจจุบัน (0-indexed)
   const [ym, setYm] = useState({ y: curY, m: curM });
@@ -487,13 +502,23 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
   const isCurrentMonth = ym.y === curY && ym.m === curM;
   const todayDay = isCurrentMonth ? T.day : -1;
 
-  // จับคู่งานด้วยวันที่เต็มของ "เดือนที่เลือก" (ym) — ใช้ได้ทุกเดือน ไม่ใช่แค่เดือนปัจจุบัน
-  const byDay = {};
+  // จับคู่งานกับวันของ "เดือนที่เลือก" (ym) — แยกงานวันเดียว (ชิปในช่อง) กับงานช่วงวัน เริ่ม–สิ้นสุด (แถบพาดข้ามวัน)
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const mkIso = (d) => `${greg}-${pad2(ym.m + 1)}-${pad2(d)}`;
+  const monthFirst = mkIso(1), monthLast = mkIso(daysInMonth);
+  const byDay = {};   // งานวันเดียว → ชิปในช่องวัน
+  const ranged = [];  // งานมีช่วงวัน → แถบพาดข้ามวัน (ds/de = วันในเดือนนี้หลัง clip ขอบเดือน)
+  const dayAll = {};  // ทุกงานที่คาบเกี่ยววันนั้น → แผงข้าง/ไอคอนช่องทาง/จุดมือถือ
   filtered.forEach(t => {
-    const iso = t.dateISO || parseTaskDate(t.date);
-    if (!iso) return;
-    const [yy, mm, dd] = iso.split('-').map(Number);
-    if ((yy + 543) === ym.y && (mm - 1) === ym.m) (byDay[dd] = byDay[dd] || []).push(t);
+    const s = t.dateISO || parseTaskDate(t.date);
+    if (!s) return;
+    const e = (t.dateEnd && t.dateEnd > s) ? t.dateEnd : s;
+    if (e < monthFirst || s > monthLast) return; // ไม่คาบเกี่ยวเดือนนี้
+    const ds = s <= monthFirst ? 1 : Number(s.slice(8));
+    const de = e >= monthLast ? daysInMonth : Number(e.slice(8));
+    if (e > s) ranged.push({ t, s, e, ds, de });
+    else (byDay[ds] = byDay[ds] || []).push(t);
+    for (let d = ds; d <= de; d++) (dayAll[d] = dayAll[d] || []).push(t);
   });
 
   const shiftMonth = (delta) => {
@@ -506,8 +531,30 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
   const cells = [];
   for (let i = 0; i < firstWeekday; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  while (cells.length % 7) cells.push(null); // เติมท้ายให้เต็มสัปดาห์ — กริดเป็นสี่เหลี่ยมเต็มผืน
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
-  const selTasks = byDay[sel] || [];
+  // ตัดแถบช่วงวันเป็น segment ต่อสัปดาห์ + จัดเลนแบบ greedy (ซ้อนไม่ทับกัน) — เกิน 4 เลนตัดทิ้ง (ยังเห็นในแผงวัน)
+  const weekSegs = weeks.map(week => {
+    const segs = [];
+    ranged.forEach(r => {
+      const cols = week.map((d, i) => ({ d, i })).filter(x => x.d && x.d >= r.ds && x.d <= r.de);
+      if (!cols.length) return;
+      const c0 = cols[0].i, c1 = cols[cols.length - 1].i;
+      segs.push({ ...r, c0, c1, contL: r.s < mkIso(cols[0].d), contR: r.e > mkIso(cols[cols.length - 1].d) });
+    });
+    segs.sort((a, b) => a.c0 - b.c0 || (b.c1 - b.c0) - (a.c1 - a.c0));
+    const laneEnd = [];
+    segs.forEach(sg => {
+      let ln = laneEnd.findIndex(end => sg.c0 > end);
+      if (ln === -1) { ln = laneEnd.length; laneEnd.push(sg.c1); } else laneEnd[ln] = sg.c1;
+      sg.lane = ln;
+    });
+    return segs.filter(sg => sg.lane < 4);
+  });
+
+  const selTasks = dayAll[sel] || [];
 
   // ลากงานเปลี่ยนวัน (E3) — ลากการ์ดมาวางที่ช่องวัน → อัปเดต date
   const dragId = React.useRef(null);
@@ -525,12 +572,20 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
     const wasDay = dropDay; dragId.current = null; setDropDay(null);
     if (!id || readOnly) return;
     if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — ย้ายงานไม่ได้', 'warn'); return; }
-    const iso = `${greg}-${String(ym.m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const iso = mkIso(day);
     const task = filtered.find(t => t.id === id);
-    if (task && (task.dateISO || parseTaskDate(task.date)) === iso) return;
+    const oldS = task ? (task.dateISO || parseTaskDate(task.date)) : '';
+    if (task && oldS === iso) return;
     void wasDay;
     try {
-      const { error } = await supabase.from('tmk_tasks').update({ date: iso }).eq('id', id);
+      // งานช่วงวัน: ลากแล้วเลื่อนทั้งช่วง — วันสิ้นสุดขยับตามจำนวนวันที่เลื่อน
+      const patch = { date: iso };
+      if (task?.dateEnd && oldS && task.dateEnd > oldS) {
+        const delta = Math.round((_isoToDate(iso) - _isoToDate(oldS)) / 86400000);
+        const ne = _isoToDate(task.dateEnd); ne.setDate(ne.getDate() + delta);
+        patch.date_end = _dateToIso(ne);
+      }
+      const { error } = await supabase.from('tmk_tasks').update(patch).eq('id', id);
       if (error) throw error;
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `เลื่อนวันงาน "${task?.title || ''}" → ${day} ${MONTHS_TH_SHORT[ym.m]}`, flowId: task?.flow ?? '' });
       window.__refresh?.(['tmk_tasks']);
@@ -538,15 +593,16 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
   };
 
   // เรนเดอร์เป็น "ฟังก์ชัน" (ไม่ใช่ <Component/>) — JSX inline reconcile ตาม key แทนที่จะ unmount/remount ทุกครั้งที่ตั้ง dropDay (กัน flicker + drag event หลุดตอนลาก)
-  const renderCell = (d, i) => {
-    if (!d) return <div key={i} style={{ borderRadius: 'var(--r-sm)' }}></div>;
-    const ts = byDay[d] || [];
+  const renderCell = (d, i, lanes) => {
+    if (!d) return <div key={i} style={{ background: 'var(--surface-2)', opacity: .55 }}></div>;
+    const ts = byDay[d] || [];       // งานวันเดียว → ชิป
+    const all = dayAll[d] || [];     // รวมงานช่วงวันที่คาบเกี่ยว → ไอคอน/จุด
     const isSel = d === sel, isToday = d === todayDay, isDrop = dragActive && dropDay === d;
     const show = ts.slice(0, 3);
     const more = ts.length - 3;
     // ไอคอนแพลตฟอร์มของวันนี้ — แตกครบทุกช่องทางจากทุกงาน + dedup
     const seen = new Set(); const dayInfos = [];
-    ts.forEach(t => matchedChannelsFor(t.channel).forEach(({ info, label }) => {
+    all.forEach(t => matchedChannelsFor(t.channel).forEach(({ info, label }) => {
       const key = info.logoUrl || info.bg || label;
       if (seen.has(key)) return; seen.add(key); dayInfos.push(info);
     }));
@@ -556,19 +612,18 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
         onDragLeave={readOnly ? undefined : () => setDropDay(dd => dd === d ? null : dd)}
         onDrop={readOnly ? undefined : () => { setDragActive(false); reschedule(dragId.current, d); }}
         style={{
-        border: isDrop ? '2px dashed var(--accent)' : isSel ? '2px solid var(--accent)' : isToday ? '1px solid var(--accent-ring)' : '1px solid var(--line)',
-        background: isDrop ? 'var(--accent-soft)' : isSel ? 'var(--accent-soft)' : 'var(--surface)',
-        borderRadius: 'var(--r-sm)', padding: '6px', display: 'flex', flexDirection: 'column',
+        // กริดชิดกัน: ไม่มี border ต่อช่อง (เส้นตาราง = gap ของ week-row) · เลือก = แค่พื้น accent-soft ไม่มีกรอบ
+        border: 'none', borderRadius: 0,
+        background: isDrop || isSel ? 'var(--accent-soft)' : 'var(--surface)',
+        outline: isDrop ? '2px dashed var(--accent)' : 'none', outlineOffset: -2,
+        padding: '5px 6px', display: 'flex', flexDirection: 'column',
         gap: 2, textAlign: 'left', alignItems: 'stretch', height: '100%',
-        boxShadow: isSel ? '0 0 0 2px var(--accent-ring)' : 'none',
-        transition: 'all 0.15s var(--ease)', overflow: 'hidden',
+        transition: 'background 0.15s var(--ease)', overflow: 'hidden',
       }}>
         <div className="row between" style={{ gap: 4, marginBottom: 1, flexShrink: 0 }}>
-          <span className="num sm" style={{
-            fontWeight: isToday || isSel ? 700 : 500,
-            color: isToday ? 'var(--accent-2)' : isSel ? 'var(--accent-2)' : 'var(--ink)',
-            fontSize: 'var(--fs-sm)',
-          }}>{d}</span>
+          {isToday
+            ? <span className="num sm" style={{ display: 'inline-grid', placeItems: 'center', minWidth: 20, height: 20, padding: '0 4px', borderRadius: 6, background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 'var(--fs-sm)' }}>{d}</span>
+            : <span className="num sm" style={{ fontWeight: isSel ? 700 : 500, color: isSel ? 'var(--accent-2)' : 'var(--ink)', fontSize: 'var(--fs-sm)', lineHeight: '20px' }}>{d}</span>}
           {dayInfos.length > 0 && (
             <div className="cal-day-icons" style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
               {dayInfos.slice(0, 4).map((info, i) => <ChIcon key={i} info={info} size={16} />)}
@@ -576,15 +631,18 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
             </div>
           )}
         </div>
+        {/* กันที่ให้แถบช่วงวันที่ลอยทับ (เลนของสัปดาห์นี้) — ชิปงานวันเดียวเริ่มใต้แถบ */}
+        {lanes > 0 && <div className="cal-lane-spacer" style={{ '--lanes': lanes }} />}
         <div className="cal-cell-titles" style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden', flex: 1, minHeight: 0 }}>
           {show.map(t => {
             const c = DD.campaigns.find(x => x.id === t.camp);
-            return <span key={t.id} title={t.title + (c ? ` · ${c.name}` : '')} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 4, background: `color-mix(in srgb, ${c?.color || '#888'} 16%, transparent)`, color: `color-mix(in srgb, ${c?.color || '#888'} 72%, var(--ink))`, whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25, flexShrink: 0 }}>{t.title}</span>;
+            const col = colorForTask(t, colorSrc, '#888');
+            return <span key={t.id} title={t.title + (c ? ` · ${c.name}` : '')} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 0, background: `color-mix(in srgb, ${col} 16%, transparent)`, color: `color-mix(in srgb, ${col} 72%, var(--ink))`, whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25, flexShrink: 0 }}>{t.title}</span>;
           })}
         </div>
-        {/* มือถือ: โชว์เป็นจุดสีแทน title (แตะดูรายละเอียดข้างล่าง) */}
+        {/* มือถือ: โชว์เป็นจุดสีแทน title (แตะดูรายละเอียดข้างล่าง) — รวมงานช่วงวันด้วย */}
         <div className="cal-cell-dots">
-          {ts.slice(0, 8).map(t => { const cc = DD.campaigns.find(x => x.id === t.camp); return <span key={t.id} style={{ width: 6, height: 6, borderRadius: '50%', background: cc?.color || 'var(--ink-3)', flexShrink: 0 }} />; })}
+          {all.slice(0, 8).map(t => <span key={t.id} style={{ width: 6, height: 6, borderRadius: '50%', background: colorForTask(t, colorSrc), flexShrink: 0 }} />)}
         </div>
         {more > 0 && <span className="cal-more-desktop" style={{ fontSize: 'var(--fs-micro)', fontWeight: 'var(--fw-sem)', color: 'var(--accent-2)', textAlign: 'center', flexShrink: 0 }}>+{more} งาน</span>}
       </button>
@@ -608,11 +666,42 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
               </div>
             </CardHeader>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 5 }}>
-              {DAY_LABELS.map(d => <div key={d} className="cap" style={{ textAlign: 'center', padding: '6px 0', fontWeight: 'var(--fw-sem)' }}>{d}</div>)}
-            </div>
             <div className="cal-month-grid">
-              {cells.map((d, i) => renderCell(d, i))}
+              <div className="cal-head-row">
+                {DAY_LABELS.map(dl => <div key={dl} className="cap" style={{ textAlign: 'center', padding: '6px 0', fontWeight: 'var(--fw-sem)' }}>{dl}</div>)}
+              </div>
+              {weeks.map((week, w) => {
+                const segs = weekSegs[w];
+                const lanes = segs.length ? Math.max(...segs.map(s => s.lane)) + 1 : 0;
+                return (
+                  <div key={w} className="cal-week-row">
+                    {week.map((d, i) => renderCell(d, w * 7 + i, lanes))}
+                    {/* แถบงานช่วงวัน — พาดข้ามช่องต่อเนื่อง (ชนขอบ = ต่อจาก/ต่อไปสัปดาห์อื่น) คลิกเปิดงานได้ */}
+                    {segs.length > 0 && (
+                      <div className="cal-range-bars">
+                        {segs.map((sg, k) => {
+                          const col = colorForTask(sg.t, colorSrc);
+                          const insetL = sg.contL ? 0 : 4, insetR = sg.contR ? 0 : 4;
+                          return (
+                            <button key={sg.t.id + ':' + k} title={`${sg.t.title} · ${thaiDate(sg.s)} → ${thaiDate(sg.e)}`}
+                              onClick={() => window.__openModal('task', { ...sg.t, channel: Array.isArray(sg.t.channel) ? sg.t.channel : [sg.t.channel] })}
+                              style={{
+                                position: 'absolute', top: sg.lane * 20,
+                                left: `calc(${(sg.c0 / 7 * 100).toFixed(4)}% + ${insetL}px)`,
+                                width: `calc(${((sg.c1 - sg.c0 + 1) / 7 * 100).toFixed(4)}% - ${insetL + insetR}px)`,
+                                height: 18, background: col, color: '#fff',
+                                fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '0 6px', textAlign: 'left',
+                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                border: 'none', borderRadius: 0, cursor: 'pointer',
+                                pointerEvents: dragActive ? 'none' : 'auto',
+                              }}>{sg.t.title}</button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -904,12 +993,12 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
                   </TableHeader>
                   <TableBody>
                     {list.map(t => {
-                      const c = DD.campaigns.find(x => x.id === t.camp);
+                      const col = colorForTask(t, colorSourceOf(flow), '#888');
                       return (
                         <TableRow key={t.id} data-state={sel.has(t.id) ? 'selected' : undefined} className={readOnly ? '' : 'cursor-pointer'} onClick={readOnly ? undefined : () => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}>
                           {canEdit && <TableCell onClick={e => e.stopPropagation()}><ShadcnCheckbox checked={sel.has(t.id)} onCheckedChange={() => toggle(t.id)} aria-label="เลือกงาน" /></TableCell>}
                           <TableCell>
-                            <div className="font-medium text-[13px] flex items-center gap-2" style={{ borderLeft: `3px solid ${c?.color || '#888'}`, paddingLeft: 8 }}>{t.title}</div>
+                            <div className="font-medium text-[13px] flex items-center gap-2" style={{ borderLeft: `3px solid ${col}`, paddingLeft: 8 }}>{t.title}</div>
                             {(t.tags || []).length > 0 && <div className="flex flex-wrap gap-1 mt-1 pl-2">{t.tags.slice(0, 4).map(tg => <span key={tg} className="text-[10px] px-1.5 rounded-full bg-muted text-muted-foreground">{tg}</span>)}</div>}
                           </TableCell>
                           <TableCell className="hidden md:table-cell"><span className="text-xs text-muted-foreground line-clamp-1 max-w-[260px]">{t.detail || '—'}</span></TableCell>
@@ -3795,6 +3884,28 @@ function RolesView() {
     editor: { l: 'แก้ไขได้', cls: 'chip-good', icon: 'pencil', d: 'บันทึกยอดขาย จัดการงาน แก้ไขข้อมูล' },
     viewer: { l: 'ดูอย่างเดียว', cls: '', icon: 'eye', d: 'เปิดดูข้อมูลได้ แต่แก้ไขไม่ได้' }
   };
+  // หน้าใหญ่ที่ล็อกได้ต่อคน (deny-list) — หน้าหลัก/การแจ้งเตือนเข้าได้เสมอ · admin ไม่โดนล็อก
+  const LOCK_SECTIONS = [
+    { id: 'sales', label: 'ยอดขาย', icon: 'sales' },
+    { id: 'flows', label: 'โครงการ', icon: 'grid' },
+    { id: 'catalog', label: 'Sale', icon: 'box' },
+    { id: 'settings', label: 'ตั้งค่า', icon: 'system' },
+  ];
+  // กลุ่มชิปเลือกหน้าที่จะล็อก — ใช้ทั้ง modal แก้ไข + dialog เพิ่มผู้ใช้ (admin = ซ่อน เข้าได้ทุกหน้า)
+  const LockPicker = ({ role, locks, setLocks }) => role === 'admin' ? null : (
+    <div className="grid gap-2">
+      <Label>การเข้าถึงหน้า <span className="text-xs font-normal text-muted-foreground">(ติ๊ก = ล็อกไม่ให้เข้า)</span></Label>
+      <div className="flex flex-wrap gap-2">
+        {LOCK_SECTIONS.map(s => { const on = locks.includes(s.id); return (
+          <button key={s.id} type="button" onClick={() => setLocks(on ? locks.filter(x => x !== s.id) : [...locks, s.id])}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${on ? 'bg-destructive/10 border-destructive/40 text-destructive font-medium' : 'bg-background hover:bg-muted'}`}>
+            <Icon name={on ? 'lock' : s.icon} className="size-3.5" />{s.label}
+          </button>
+        ); })}
+      </div>
+      <p className="text-xs text-muted-foreground">หน้าที่ล็อกจะโชว์จาง + กุญแจในเมนู กดแล้วแจ้งไม่มีสิทธิ์ · หน้าหลัก/การแจ้งเตือนเข้าได้เสมอ</p>
+    </div>
+  );
   // หน้าที่ — ดึงจาก tmk_duties (Supabase) — เพิ่ม/แก้/ลบได้ใน tab "หน้าที่"
   const DUTIES = TMK.duties || [];
 
@@ -3813,6 +3924,7 @@ function RolesView() {
   const [editName, setEditName] = useState('');
   const [editRole, setEditRole] = useState('viewer');
   const [editDutyId, setEditDutyId] = useState('');
+  const [editLocks, setEditLocks] = useState([]); // หน้าที่ล็อกของ user ที่กำลังแก้
   const [busy, setBusy] = useState(false);
   // ตั้ง/รีเซ็ตรหัสผ่านเข้าระบบ (แอดมินเท่านั้น)
   const [pwInput, setPwInput] = useState('');
@@ -3825,12 +3937,14 @@ function RolesView() {
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('editor');
   const [newDutyId, setNewDutyId] = useState(DUTIES[0]?.id || '');
+  const [newLocks, setNewLocks] = useState([]);
 
   const startEdit = (u) => {
     setEditing(u.email);
     setEditName(u.name);
     setEditRole(u.role);
     setEditDutyId(u.dutyId || '');
+    setEditLocks(Array.isArray(u.lockedSections) ? u.lockedSections : []);
     setPwInput(''); setPwShow(false);
   };
 
@@ -3875,14 +3989,21 @@ function RolesView() {
       const duty = DUTIES.find(d => d.id === editDutyId);
 
       // === 1. Update tmk_user_roles ===
-      // ลองรวม duty_id ก่อน (ถ้า migration duties-system รันแล้ว)
-      let { error: e1 } = await supabase.from('tmk_user_roles').upsert({
+      // ลองรวม duty_id + locked_sections ก่อน (ถ้า migration รันแล้ว)
+      const rolePayload = {
         email: editing,
         role: editRole,
         name: editName,
         department: duty?.name || '',
         duty_id: editDutyId || null,
-      });
+        locked_sections: editRole === 'admin' ? [] : editLocks, // admin ไม่โดนล็อกเสมอ (20260702 · graceful)
+      };
+      let { error: e1 } = await supabase.from('tmk_user_roles').upsert(rolePayload);
+      // คอลัมน์ locked_sections ยังไม่ migrate → ตัดออกแล้วลองใหม่ (คง name/duty ไว้)
+      if (e1 && /locked_sections/i.test(e1.message || '')) {
+        delete rolePayload.locked_sections;
+        ({ error: e1 } = await supabase.from('tmk_user_roles').upsert(rolePayload));
+      }
       // ถ้า column ไม่มี (duty_id หรืออื่น) → ลองแบบไม่มี
       if (e1 && /column .* does not exist/i.test(e1.message)) {
         console.warn('Falling back: duty_id column missing', e1.message);
@@ -3975,7 +4096,7 @@ function RolesView() {
       const dutyColor = duty?.color || '#3b82f6';
 
       // 1. Upsert tmk_user_roles (+ deleted_at:null → กู้คืนถ้าเคยลบ แทน error PK)
-      const { error: e1 } = await supabase.from('tmk_user_roles').upsert({
+      const rolePayload = {
         email,
         role: newRole,
         name,
@@ -3984,7 +4105,14 @@ function RolesView() {
         color: dutyColor,
         created_by: 'system',
         deleted_at: null,
-      });
+        locked_sections: newRole === 'admin' ? [] : newLocks, // admin ไม่โดนล็อกเสมอ (20260702 · graceful)
+      };
+      let { error: e1 } = await supabase.from('tmk_user_roles').upsert(rolePayload);
+      // คอลัมน์ locked_sections ยังไม่ migrate → ตัดออกแล้วลองใหม่
+      if (e1 && /locked_sections/i.test(e1.message || '')) {
+        delete rolePayload.locked_sections;
+        ({ error: e1 } = await supabase.from('tmk_user_roles').upsert(rolePayload));
+      }
       if (e1) throw e1;
 
       // 2. Upsert tmk_staff (+ deleted_at:null)
@@ -4000,7 +4128,7 @@ function RolesView() {
       if (e2) throw e2;
 
       logAudit({ action: 'create', entityType: 'user', entityName: email, summary: `เพิ่มผู้ใช้ ${name} (${email})` });
-      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); setShowAdd(false);
+      setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); setNewLocks([]); setShowAdd(false);
       if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
       if (window.__toast) window.__toast('เพิ่มผู้ใช้เรียบร้อย', 'success');
     } catch (err) {
@@ -4017,7 +4145,7 @@ function RolesView() {
     return resp.includes(name) || (dutyName && resp.includes(dutyName));
   }).length;
 
-  const closeAdd = () => { setShowAdd(false); setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); };
+  const closeAdd = () => { setShowAdd(false); setNewEmail(''); setNewName(''); setNewRole('editor'); setNewDutyId(DUTIES[0]?.id || ''); setNewLocks([]); };
 
   return (
     <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
@@ -4053,6 +4181,9 @@ function RolesView() {
                     )}
                     {tasks > 0 && (
                       <span className="text-xs text-muted-foreground whitespace-nowrap">{tasks} งาน</span>
+                    )}
+                    {(u.lockedSections || []).length > 0 && (
+                      <Badge variant="outline" className="whitespace-nowrap text-muted-foreground gap-1"><Icon name="lock" className="size-3" />ล็อก {u.lockedSections.length} หน้า</Badge>
                     )}
                     <Badge variant="outline" className={`whitespace-nowrap ${meta.cls === 'chip-good' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : meta.cls === 'chip-accent' ? 'bg-primary/10 text-primary border-primary/20' : ''}`}>
                       {meta.l}
@@ -4123,7 +4254,7 @@ function RolesView() {
                 {Object.entries(roleMeta).map(([k, v]) => {
                   const on = newRole === k;
                   return (
-                    <button key={k} type="button" onClick={() => setNewRole(k)}
+                    <button key={k} type="button" onClick={() => { setNewRole(k); if (k === 'admin') setNewLocks([]); }}
                       className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/50'}`}>
                       <div className={`mt-0.5 size-4 rounded-full border flex items-center justify-center shrink-0 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
                         {on && <Icon name="check" className="size-3" />}
@@ -4139,6 +4270,8 @@ function RolesView() {
                 })}
               </div>
             </div>
+
+            <LockPicker role={newRole} locks={newLocks} setLocks={setNewLocks} />
           </div>
 
           <DialogFooter>
@@ -4204,7 +4337,7 @@ function RolesView() {
                       {Object.entries(roleMeta).map(([k, v]) => {
                         const on = editRole === k;
                         return (
-                          <button key={k} type="button" onClick={() => setEditRole(k)}
+                          <button key={k} type="button" onClick={() => { setEditRole(k); if (k === 'admin') setEditLocks([]); }}
                             className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/50'}`}>
                             <div className={`mt-0.5 size-4 rounded-full border flex items-center justify-center shrink-0 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
                               {on && <Icon name="check" className="size-3" />}
@@ -4220,6 +4353,8 @@ function RolesView() {
                       })}
                     </div>
                   </div>
+
+                  <LockPicker role={editRole} locks={editLocks} setLocks={setEditLocks} />
 
                   {tasks > 0 && (
                     <div className="text-xs text-primary flex items-center gap-2 bg-primary/10 p-2 rounded">

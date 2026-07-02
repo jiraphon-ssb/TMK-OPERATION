@@ -115,9 +115,22 @@ function DateRangePicker({ from, to, min, max, onChange, presets = [], activePre
                 className={'rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ' + (id === activePreset ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-2)]' : 'text-[var(--ink-2)] hover:bg-[var(--surface-2)]')}>{lb}</button>
             ))}
           </div>
-          <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={isoToDate(from) || isoToDate(max)} selected={sel}
-            disabled={disabled.length ? disabled : undefined}
-            onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(dateToIso(r.from), dateToIso(r.to)); setOpen(false); } }} />
+          <div className="flex min-w-0 flex-col">
+            <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={isoToDate(from) || isoToDate(max)} selected={sel}
+              disabled={disabled.length ? disabled : undefined}
+              onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(dateToIso(r.from), dateToIso(r.to)); setOpen(false); } }} />
+            {/* แถบสรุประหว่างเลือก: วันเริ่ม → วันสิ้นสุด + ล้าง */}
+            <div className="flex items-center justify-between gap-3 border-t px-3 py-2 text-[12.5px]">
+              <span>
+                <span className={sel?.from ? 'font-semibold text-[var(--ink)]' : 'text-[var(--ink-4)]'}>{sel?.from ? fmtTh(dateToIso(sel.from)) : 'เลือกวันเริ่ม'}</span>
+                <span className="mx-1.5 text-[var(--ink-4)]">→</span>
+                <span className={sel?.to ? 'font-semibold text-[var(--ink)]' : 'text-[var(--ink-4)]'}>{sel?.to ? fmtTh(dateToIso(sel.to)) : 'เลือกวันสิ้นสุด'}</span>
+              </span>
+              {(sel?.from || sel?.to) && (
+                <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={() => setSel({ from: undefined, to: undefined })}>ล้าง</button>
+              )}
+            </div>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

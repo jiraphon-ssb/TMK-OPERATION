@@ -871,13 +871,23 @@ input, select, textarea { font-family: inherit; }
 .filt-dd-item.on { font-weight: 600; }
 .filt-dd-item svg { width: 15px; height: 15px; color: var(--accent); flex-shrink: 0; }
 
-/* ===== ปฏิทินรายเดือน — รองรับทุกหน้าจอ ===== */
-.cal-month-grid { display: grid; grid-template-columns: repeat(7, 1fr); grid-auto-rows: 152px; gap: 5px; }
+/* ===== ปฏิทินรายเดือน — กริดชิดกันเส้น 1px ขอบเหลี่ยม (แบบ Google Calendar) ===== */
+/* แถวแรก (หัววัน) auto · แถวสัปดาห์สูงคงที่ · เส้นตาราง = gap 1px บนพื้น --line */
+.cal-month-grid { display: grid; grid-template-rows: auto; grid-auto-rows: 152px; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.cal-head-row, .cal-week-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); }
+.cal-week-row { position: relative; }
+.cal-head-row > div { background: var(--surface-2); }
+/* แถบงานช่วงวัน — ลอยทับแถวสัปดาห์ ใต้แถวตัวเลขวัน */
+.cal-range-bars { position: absolute; left: 0; right: 0; top: 28px; bottom: 0; pointer-events: none; overflow: hidden; z-index: 1; }
+/* กันชนความสูงในช่องวัน — ดันชิปงานวันเดียวลงใต้แถบช่วงวัน */
+.cal-lane-spacer { height: calc(var(--lanes, 0) * 20px); flex-shrink: 0; }
 .cal-cell-dots { display: none; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
 @media (max-width: 900px) { .cal-month-grid { grid-auto-rows: 118px; } .cal-layout { grid-template-columns: 1fr !important; } .cal-day-panel { border-left: none !important; border-top: 1px solid var(--line); } }
 @media (max-width: 600px) {
-  .cal-month-grid { grid-auto-rows: 58px; gap: 3px; }
+  .cal-month-grid { grid-auto-rows: 58px; }
   .cal-cell-titles, .cal-day-icons, .cal-more-desktop { display: none !important; }
+  .cal-range-bars { display: none; } /* มือถือ: งานช่วงวันโชว์เป็นจุดสีแทน */
+  .cal-lane-spacer { height: 0; }
   .cal-cell-dots { display: flex; }
 }
 

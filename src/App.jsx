@@ -598,6 +598,7 @@ function AppInner() {
     window.__canEdit = canEdit; // ให้ view อื่น (kanban drag, settings) เช็คได้
     window.__isAdmin = currentUserCtx?.role === 'admin'; // จัดการผู้ใช้/สิทธิ์ = admin เท่านั้น
     window.__userEmail = currentUserCtx?.email || ''; // ผู้ทำรายการ (created_by/by) ในระบบคลัง/CRM
+    window.__lockedSections = currentUserCtx?.lockedSections || []; // หน้าใหญ่ที่ถูกล็อกของ user นี้ (admin = [] เสมอ)
   }
 
   useEffect(() => {
@@ -679,12 +680,18 @@ function AppInner() {
     logAudit({ action: 'login', entityType: 'auth', entityName: userEmail, summary: `เข้าสู่ระบบ (${userEmail})` });
   };
 
+  // หน้าใหญ่ที่ถูกล็อกของ user นี้ — จุดคุมเดียวที่ go() ครอบทุกทางเข้า (sidebar/drawer/tabbar/breadcrumb/Spotlight/__goSection)
+  const isLocked = (sec) => (currentUserCtx?.lockedSections || []).includes(sec);
   const go = (sec, s) => {
+    if (isLocked(sec)) { toast('ไม่มีสิทธิ์เข้าหน้านี้ — ติดต่อแอดมิน', 'warn'); return; }
     setSection(sec);
     if (s) setSubMap(m => ({ ...m, [sec]: s }));
     setDrawer(false); setMenu(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
+  // section ปัจจุบันโดนล็อก (restore จาก localStorage / โดนล็อกสดขณะเปิดอยู่ผ่าน realtime) → เด้งกลับหน้าหลัก
+  // ก่อน roles โหลด lockedSections = [] จึงไม่ redirect มั่ว
+  useEffect(() => { if (isLocked(section)) setSection('home'); }, [currentUserCtx?.lockedSections, section]); // eslint-disable-line react-hooks/exhaustive-deps
   // เลือกโครงการ + ไปบอร์ด (คลิกเดียว · setActiveFlow ทำให้ sidebar/breadcrumb/board re-render พร้อมกัน)
   const pickFlow = (f) => { setActiveFlow(f.id); go('flows', f.defaultView && f.defaultView !== 'settings' ? f.defaultView : 'kanban'); };
 
@@ -778,7 +785,16 @@ function AppInner() {
           <SidebarGroup label="เมนู">
             <SidebarMenu>
               {NAV.map(n => (
-                n.id === 'flows' ? (
+                // หน้าโดนล็อก → เมนูแบน จาง + กุญแจ (ข้าม Collapsible/FlowsNav กัน subs กาง) · คลิกผ่าน go() ให้ toast
+                isLocked(n.id) ? (
+                  <SidebarMenuItem key={n.id}>
+                    <SidebarMenuButton className="opacity-50" tooltip="ไม่มีสิทธิ์เข้าหน้านี้" onClick={() => go(n.id)}>
+                      <Icon name={n.icon} />
+                      <span>{n.label}</span>
+                      <Icon name="lock" className="ml-auto size-3.5" />
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ) : n.id === 'flows' ? (
                   <FlowsNav key={n.id} n={n} section={section} sub={sub} go={go} activeFlow={activeFlow} pickFlow={pickFlow} />
                 ) : n.subs ? (
                   <Collapsible
@@ -836,10 +852,10 @@ function AppInner() {
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton isActive={section === 'settings' && sub === 'updates'} tooltip="มีอะไรใหม่" onClick={() => go('settings', 'updates')}>
+              <SidebarMenuButton isActive={section === 'settings' && sub === 'updates'} className={isLocked('settings') ? 'opacity-50' : undefined} tooltip={isLocked('settings') ? 'ไม่มีสิทธิ์เข้าหน้านี้' : 'มีอะไรใหม่'} onClick={() => go('settings', 'updates')}>
                 <Icon name="sparkle" />
                 <span>มีอะไรใหม่</span>
-                {unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
+                {isLocked('settings') ? <Icon name="lock" className="ml-auto size-3.5" /> : unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -1023,8 +1039,8 @@ function AppInner() {
             </div>
             {NAV.map(n => (
               <div key={n.id} style={{ marginBottom: 2 }}>
-                <button className={'panel-item' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
-                  <Icon name={n.icon} />{n.label}
+                <button className={'panel-item' + (section === n.id ? ' active' : '')} style={isLocked(n.id) ? { opacity: .5 } : undefined} onClick={() => go(n.id)}>
+                  <Icon name={n.icon} />{n.label}{isLocked(n.id) && <span style={{ marginLeft: 'auto', display: 'inline-flex' }}><Icon name="lock" className="size-3.5" /></span>}
                 </button>
                 {section === n.id && n.subs && (
                   <div style={{ paddingLeft: 16 }}>
@@ -1038,7 +1054,7 @@ function AppInner() {
               </div>
             ))}
             <div className="divider" style={{ margin: '12px 0' }}></div>
-            <button className="panel-item" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
+            <button className="panel-item" style={isLocked('settings') ? { opacity: .5 } : undefined} onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า{isLocked('settings') && <span style={{ marginLeft: 'auto', display: 'inline-flex' }}><Icon name="lock" className="size-3.5" /></span>}</button>
             <button className="panel-item" onClick={() => setDark(d => !d)}><Icon name={dark ? 'sun' : 'moon'} />{dark ? 'โหมดสว่าง' : 'โหมดมืด'}</button>
             <button className="panel-item" style={{ color: 'var(--bad)' }} onClick={logout}><Icon name="external" />ออกจากระบบ</button>
           </div>
@@ -1049,8 +1065,8 @@ function AppInner() {
       <nav className="tabbar mobile-only">
         <div className="tabbar-inner">
           {NAV.map(n => (
-            <button key={n.id} className={'tab' + (section === n.id ? ' active' : '')} onClick={() => go(n.id)}>
-              <Icon name={n.icon} /><span className="tab-label">{n.label}</span>
+            <button key={n.id} className={'tab' + (section === n.id ? ' active' : '')} style={isLocked(n.id) ? { opacity: .45 } : undefined} onClick={() => go(n.id)}>
+              <Icon name={isLocked(n.id) ? 'lock' : n.icon} /><span className="tab-label">{n.label}</span>
             </button>
           ))}
         </div>
@@ -1061,6 +1077,7 @@ function AppInner() {
           window.__openModal(m); return;
         }
         if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }
+        if (isLocked('flows')) { go('flows', 'kanban'); return; } // go() toast เอง — กัน modal เด้งทั้งที่เข้าหน้าไม่ได้
         go('flows', 'kanban'); setTimeout(() => window.__openModal('task'), 100);
       }}><Icon name="plus" /></button>}
     </SidebarProvider>
