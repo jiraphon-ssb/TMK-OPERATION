@@ -8,7 +8,6 @@ import { THAI_MONTHS, todayISO } from './dateUtils.js';
 // prefOn(key) → true/false (ค่าจาก store; default เปิด)
 export function computeSignals(prefOn = () => true) {
   const todayDay = TMK.consts?.DAY;
-  const _todayIso = todayISO();
   const Cm = TMK.computed || {};
 
   // ลืมกรอกยอดขายวันนี้
@@ -27,12 +26,6 @@ export function computeSignals(prefOn = () => true) {
     if ((rec && rec.actual > 0) || hasDaily) return [];
     return [{ id: 'lastmonth', kind: 'lastmonth', title: `ยังไม่ได้สรุปยอดเดือน${THAI_MONTHS[pm - 1]}`, txt: 'กรอกย้อนหลัง' }];
   })() : [];
-
-  // สต็อกใกล้หมด/หมด
-  const stock = prefOn('stock')
-    ? (TMK.products || []).filter(p => p.stock === 'out' || p.stock === 'low')
-        .map(p => ({ id: 'stock-' + p.id, kind: 'stock', title: `${p.name} ${p.stock === 'out' ? 'หมดสต็อก' : 'ใกล้หมด'}`, txt: 'ดูสินค้า' }))
-    : [];
 
   // สัญญาณยอดขาย/ค่าแอด
   const sales = prefOn('sales') ? (() => {
@@ -73,18 +66,10 @@ export function computeSignals(prefOn = () => true) {
     return out.slice(0, 10);
   })() : [];
 
-  // PO ถึง/เลยกำหนดรับ
-  const po = prefOn('po') ? (TMK.poTracker || [])
-    .filter(p => p.arrivalISO && p.arrivalISO <= _todayIso && p.status !== 'received' && p.status !== 'done')
-    .map(p => ({ id: 'po-' + p.id, kind: 'po', title: `PO ${p.product || ''} ${p.arrivalISO === _todayIso ? 'ถึงกำหนดวันนี้' : 'เลยกำหนดแล้ว'}`, txt: 'ดู PO' }))
-    : [];
-
   const groups = [
     { key: 'todaysales', label: 'บันทึกวันนี้', items: todaysales, color: 'var(--accent)' },
     { key: 'sales', label: 'ยอดขาย/แอด', items: sales, color: 'var(--warn)' },
     { key: 'orders', label: 'ออเดอร์ค้าง', items: orders, color: 'var(--warn)' },
-    { key: 'po', label: 'PO ถึงกำหนด', items: po, color: 'var(--bad)' },
-    { key: 'stock', label: 'สต็อก', items: stock, color: 'var(--info)' },
     { key: 'lastmonth', label: 'เดือนที่แล้ว', items: lastmonth, color: 'var(--bad)' },
   ].filter(g => g.items.length > 0);
 
@@ -99,9 +84,7 @@ export function navigateSignal(n) {
   switch (n.kind) {
     case 'todaysales': window.__openModal?.('record', { date: todayISO() }); return;
     case 'sales': go('sales', n.id === 'newc-pace' ? 'customers' : 'overview'); return;
-    case 'stock': go('catalog', 'products'); return;
     case 'orders': go('catalog', 'orders'); return;
-    case 'po': go('catalog', 'po'); return;
     case 'lastmonth': go('sales', 'monthly'); setTimeout(() => window.__openModal?.('historical'), 100); return;
     default: go('flows', 'kanban');
   }

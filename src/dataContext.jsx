@@ -73,7 +73,6 @@ const QUERIES = {
   brands:      () => supabase.from('tmk_brands').select('*').is('deleted_at', null).order('sort_order'),
   flows:       () => supabase.from('tmk_flows').select('*').is('deleted_at', null).order('sort_order'),
   products:    () => supabase.from('tmk_products').select('id,name,price,actual_units,stock_on_hand,reorder_point,strategy,image_url,category,supplier,sku,barcode,lots,reservations').is('deleted_at', null).order('created_at'),
-  po:          () => supabase.from('tmk_purchase_orders').select('id,product,quantity,order_date,arrival_date,status').is('deleted_at', null).order('arrival_date'),
   audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at').order('created_at', { ascending: false }).limit(200),
   roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
   staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
@@ -98,7 +97,7 @@ const TABLE_KEY = {
   tmk_settings: 'settings', tmk_user_roles: 'roles', tmk_staff: 'staff', tmk_duties: 'duties',
   tmk_daily_sales: 'daily', tmk_ad_campaigns: 'adCamps', tmk_customer_segments: 'segments',
   tmk_fb_metrics: 'fbMetrics', tmk_monthly_history: 'monthly', tmk_color_mix: 'colorMix',
-  tmk_size_mix: 'sizeMix', tmk_purchase_orders: 'po', tmk_orders: 'orders', tmk_customers: 'customers',
+  tmk_size_mix: 'sizeMix', tmk_orders: 'orders', tmk_customers: 'customers',
 };
 // ตารางที่กระทบ derived (orderCount/totalSpent) → ต้อง refresh view ด้วย
 const TOTALS_TRIGGERS = new Set(['orders']);
@@ -466,16 +465,6 @@ function mapToTMK(raw) {
   const { roles, staff } = mapRolesAndStaff(enrichedRoles, raw.staff || []);
 
   // PO
-  const poTracker = (raw.po || []).map(p => ({
-    id: p.id,
-    product: p.product,
-    quantity: Number(p.quantity || 0),
-    orderDate: thaiDate(p.order_date),
-    arrivalDate: thaiDate(p.arrival_date),
-    orderISO: p.order_date || '', arrivalISO: p.arrival_date || '',  // ISO เต็ม (กันปีหาย)
-    status: p.status || 'Pending',
-  }));
-
   // Color/Size mix
   const colorMix = (raw.colorMix || []).map(c => ({
     name: c.name, hex: c.hex, pct: Number(c.pct || 0),
@@ -551,7 +540,7 @@ function mapToTMK(raw) {
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },
     channels, campaigns, tasks, brands, flows, products, dailyMonth, dailyLog, month3, yoy, monthly: monthlyRaw, dailyAll,
-    colorMix, sizeMix, staff, poTracker, fb, audit, roles, duties, orders, customers,
+    colorMix, sizeMix, staff, fb, audit, roles, duties, orders, customers,
     adCampaigns: (raw.adCamps || []).map(c => ({
       id: c.id,
       name: c.name,
@@ -732,7 +721,7 @@ function mutateTMK(mapped) {
   Object.assign(TMK.fb, mapped.fb);
   // Replace arrays (length = 0 + push)
   ['channels','campaigns','tasks','brands','flows','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
-   'colorMix','sizeMix','staff','poTracker','audit','roles','duties','orders','customers',
+   'colorMix','sizeMix','staff','audit','roles','duties','orders','customers',
    'adCampaigns','segments'].forEach(key => {
     if (!TMK[key]) TMK[key] = [];
     TMK[key].length = 0;
@@ -867,7 +856,7 @@ export function DataProvider({ children }) {
     let timer = null, pollTimer = null, connectTimeout = null, usingPoll = false;
     const onVis = () => { if (document.visibilityState === 'visible' && mountedRef.current) refreshTables(POLL_TABLES); }; // กลับมาที่แท็บ (โหมด poll) → ดึงเฉพาะตารางหลัก (ไม่ full load · ลด egress)
     // ตารางที่เปลี่ยนบ่อยระหว่างทำงาน — poll fallback ดึงเฉพาะกลุ่มนี้ (ลด egress; ตารางตั้งค่าที่นิ่งจะรีเฟรชตอนสลับแท็บ/โหลดใหม่)
-    const POLL_TABLES = ['tmk_daily_sales', 'tmk_orders', 'tmk_customers', 'tmk_tasks', 'tmk_products', 'tmk_purchase_orders', 'tmk_channels', 'tmk_campaigns', 'tmk_ad_campaigns', 'tmk_flows', 'tmk_task_comments'];
+    const POLL_TABLES = ['tmk_daily_sales', 'tmk_orders', 'tmk_customers', 'tmk_tasks', 'tmk_products', 'tmk_channels', 'tmk_campaigns', 'tmk_ad_campaigns', 'tmk_flows', 'tmk_task_comments'];
     const startPolling = () => {
       if (usingPoll || !mountedRef.current) return;
       usingPoll = true;
@@ -881,7 +870,7 @@ export function DataProvider({ children }) {
       'tmk_channels','tmk_campaigns','tmk_tasks','tmk_brands','tmk_flows','tmk_products','tmk_settings',
       'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
       'tmk_customer_segments','tmk_fb_metrics','tmk_monthly_history',
-      'tmk_color_mix','tmk_size_mix','tmk_purchase_orders',
+      'tmk_color_mix','tmk_size_mix',
       'tmk_orders','tmk_customers', // บอร์ดออเดอร์/ลูกค้าอัปเดตสดข้ามอุปกรณ์
       'tmk_task_comments', // เปลี่ยน → รีเฟรชจำนวน 💬 บนการ์ด (needCounts ใน refreshTables · ไม่ full load)
       // ไม่ subscribe tmk_audit_logs — การเขียน log ไม่ควร trigger reload เต็ม (ลด reload ซ้ำตอนเซฟ)

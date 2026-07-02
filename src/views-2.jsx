@@ -2344,7 +2344,6 @@ function exportAllCSV() {
     ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'stockValue', 'reorder'], TMK.products || []],
     ['งาน (Tasks)', ['title', 'date', 'status', 'camp', 'channel'], TMK.tasks || []],
     ['แคมเปญ (Campaigns)', ['name', 'status', 'start', 'end'], TMK.campaigns || []],
-    ['PO', ['product', 'quantity', 'orderDate', 'arrivalDate', 'status'], TMK.poTracker || []],
     ['แคมเปญแอด (Ad)', ['name', 'platform', 'budget', 'spent', 'status'], TMK.adCampaigns || []],
     ['ยอดรายวันต่อช่องทาง (Daily × Channel)', ['date', 'channel', 'rev', 'ord', 'ad', 'inq', 'newC', 'oldC'], dailyRows],
     ['สรุปรายเดือน (Monthly Summary)', ['year', 'month', 'target', 'actual', 'adSpend', 'orders', 'newCust'], monthlyRows],
@@ -2453,13 +2452,6 @@ function GeneralSettings({ dark, setDark }) {
           </div>
           <div className="flex items-center justify-between py-4">
             <div>
-              <div className="font-semibold text-sm">แจ้งเตือนสต็อกใกล้หมด</div>
-              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อสินค้าเหลือน้อยกว่าจุดสั่งผลิต</div>
-            </div>
-            <NotifToggle storeKey="tmk-notif-stock" label="เปิด/ปิดแจ้งเตือนสต็อก" />
-          </div>
-          <div className="flex items-center justify-between py-4">
-            <div>
               <div className="font-semibold text-sm">เตือนกรอกยอดขายวันนี้</div>
               <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div>
             </div>
@@ -2478,13 +2470,6 @@ function GeneralSettings({ dark, setDark }) {
               <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อออเดอร์สถานะ "รอ/กำลังเตรียม" นานเกิน 2 วัน (กันลืมส่ง)</div>
             </div>
             <NotifToggle storeKey="tmk-notif-orders" label="เปิด/ปิดเตือนออเดอร์" />
-          </div>
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">เตือน PO ถึงกำหนด</div>
-              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อ PO ถึงวันรับเข้าหรือเลยกำหนดแล้วยังไม่ได้รับเข้า</div>
-            </div>
-            <NotifToggle storeKey="tmk-notif-po" label="เปิด/ปิดเตือน PO" />
           </div>
         </CardContent>
       </Card>
@@ -4289,7 +4274,6 @@ const TRASH_TABLES = [
   { table: 'tmk_channels',          type: 'ช่องทาง',    nameCol: 'name',    key: 'id' },
   { table: 'tmk_products',          type: 'สินค้า',      nameCol: 'name',    key: 'id' },
   { table: 'tmk_duties',            type: 'หน้าที่',     nameCol: 'name',    key: 'id' },
-  { table: 'tmk_purchase_orders',   type: 'PO',         nameCol: 'product', key: 'id' },
   { table: 'tmk_ad_campaigns',      type: 'แคมเปญแอด',  nameCol: 'name',    key: 'id' },
   { table: 'tmk_customer_segments', type: 'กลุ่มลูกค้า', nameCol: 'name',    key: 'id' },
   { table: 'tmk_user_roles',        type: 'ผู้ใช้',      nameCol: 'name',    key: 'email' },

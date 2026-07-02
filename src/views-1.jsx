@@ -309,12 +309,10 @@ export function HomeView({ go }) {
   const enteredToday = (D.dailyMonth || []).some(d => d.d === todayD);
   const dueTasks = (D.tasks || []).filter(t => t.status !== 'done' && t.dateISO && t.dateISO <= todayISO());
   const todayTasks = (D.tasks || []).filter(t => t.status === 'inprogress' || t.status === 'review' || t.dateISO === todayISO());
-  const lowStock = (D.products || []).filter(p => p.stock === 'out' || p.stock === 'low');
   const pendingOrders = (D.orders || []).filter(o => o.status !== 'shipped' && o.status !== 'cancelled');
   const todos = [];
   if (!enteredToday) todos.push({ c: 'var(--bad)', t: 'ยังไม่บันทึกยอดขายวันนี้', d: 'กดเพื่อกรอกยอดรายวัน', act: () => go('sales', 'monthly') });
   if (dueTasks.length) todos.push({ c: 'var(--warn)', t: `งานครบกำหนด/ค้าง ${dueTasks.length} งาน`, d: dueTasks.slice(0, 2).map(t => t.title).join(', '), act: () => go('flows', 'kanban') });
-  if (lowStock.length) todos.push({ c: 'var(--info)', t: `สินค้าใกล้/หมดสต็อก ${lowStock.length} รายการ`, d: lowStock.slice(0, 2).map(p => p.name).join(', '), act: () => go('catalog', 'stock') });
   if (pendingOrders.length) todos.push({ c: 'var(--accent-2)', t: `ออเดอร์รอจัดการ ${pendingOrders.length} รายการ`, d: 'จัดการบนบอร์ดออเดอร์', act: () => go('catalog', 'orders') });
 
   // สรุปเมื่อวาน — digest อ่านจบใน 10 วินาที (รองรับเมื่อวานข้ามเดือน)

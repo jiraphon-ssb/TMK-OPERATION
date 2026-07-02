@@ -28,7 +28,6 @@ export const TMK = {
     { id: 'review',     label: 'รอตรวจ',        en: 'Review' },
     { id: 'done',       label: 'เสร็จแล้ว',     en: 'Done' },
   ],
-  poTracker: [],
   orders: [],
   customers: [],
   adCampaigns: [],

@@ -33,8 +33,6 @@ const PREF_SIGNALS = [
   { k: 'monthly', label: 'ยังไม่สรุปยอดเดือนก่อน' },
   { k: 'sales', label: 'สัญญาณยอดขาย / ค่าแอด' },
   { k: 'orders', label: 'ออเดอร์ค้างนาน' },
-  { k: 'po', label: 'PO ครบกำหนดรับ' },
-  { k: 'stock', label: 'สต็อกใกล้หมด / หมด' },
 ];
 
 const AUDIT_ACTION = {

@@ -24,12 +24,10 @@ const PlannerView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.
 const CatalogView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.CatalogView  })));
 const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
-const StockSection = lazy(() => import('./views-stock.jsx').then(m => ({ default: m.StockSection })));
-const CrmSection   = lazy(() => import('./views-crm.jsx').then(m => ({ default: m.CrmSection })));
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
 const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
 const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
-import { RecordSalesModal, TaskModal, ProductModal, SellModal, StockAdjustModal, ReceiveModal, QuickFindModal, LabelModal, ReservationModal, MovementLedgerModal, OrderModal, CustomerModal, CampaignModal, POModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, ImportProductsModal, LoginScreen } from './modals.jsx';
+import { RecordSalesModal, TaskModal, ProductModal, OrderModal, CampaignModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -276,29 +274,6 @@ const NAV_DEF = [
     { id: 'shirts', labelKey: 'subShirts', icon: 'bag' },
     { id: 'crm', labelKey: 'subCrm', icon: 'users' },
     { id: 'io', labelKey: 'subImport', icon: 'external' },
-  ]},
-  // ระบบใหม่ — ย้ายลงล่างสุด + ป้าย "กำลังสร้าง"
-  { id: 'stock', labelKey: 'navStock', icon: 'box', badgeKey: 'navWip', subs: [
-    { id: 'overview', labelKey: 'subOpsBoard', icon: 'grid' },
-    { id: 'stock', labelKey: 'subStock', icon: 'layers' },
-    { id: 'products', labelKey: 'subProducts', icon: 'bag' },
-    { id: 'orders', labelKey: 'subFulfill', icon: 'listChecks' },
-    { id: 'movements', labelKey: 'subMovements', icon: 'route' },
-    { id: 'stocktake', labelKey: 'subStockTake', icon: 'box' },
-    { id: 'returns', labelKey: 'subReturns', icon: 'box' },
-    { id: 'mpdeduct', labelKey: 'subMpDeduct', icon: 'wallet' },
-    { id: 'po', labelKey: 'subPO', icon: 'box' },
-    { id: 'suppliers', labelKey: 'subSuppliers', icon: 'users' },
-    { id: 'locations', labelKey: 'subLocations', icon: 'layers' },
-    { id: 'reports', labelKey: 'subOpsReports', icon: 'sales' },
-  ]},
-  { id: 'crm', labelKey: 'navCrm', icon: 'users', badgeKey: 'navWip', subs: [
-    { id: 'overview', labelKey: 'subCrmBoard', icon: 'grid' },
-    { id: 'directory', labelKey: 'subCrmDir', icon: 'users' },
-    { id: 'pipeline', labelKey: 'subCrmPipe', icon: 'route' },
-    { id: 'followups', labelKey: 'subCrmFollow', icon: 'clock' },
-    { id: 'broadcast', labelKey: 'subCrmCast', icon: 'megaphone' },
-    { id: 'dedup', labelKey: 'subCrmDedup', icon: 'layers' },
   ]},
 ];
 // Resolve labels from i18n at render time
@@ -765,8 +740,6 @@ function AppInner() {
           : section === 'notifications' ? <NotificationsCenter />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
-          : section === 'stock' ? <StockSection sub={sub} />
-          : section === 'crm' ? <CrmSection sub={sub} />
           : section === 'catalog' ? <CatalogView sub={sub} />
           : section === 'settings' ? <SettingsView sub={sub} dark={dark} setDark={setDark} />
           : null}
@@ -1084,7 +1057,7 @@ function AppInner() {
       </nav>
       {canEdit && <button className="fab mobile-only" title="เพิ่มรายการ" onClick={() => {
         if (section === 'catalog') {
-          const m = { products: 'product', orders: 'order', customers: 'customer', po: 'po' }[sub] || 'product';
+          const m = { orders: 'order' }[sub] || 'product';
           window.__openModal(m); return;
         }
         if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }
@@ -1223,18 +1196,8 @@ function AppInner() {
               }
             }} />
         : modal.type === 'product' ? <ProductModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'import-products' ? <ImportProductsModal onClose={closeModal} />
-        : modal.type === 'sell' ? <SellModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'adjust' ? <StockAdjustModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'receive' ? <ReceiveModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'quickfind' ? <QuickFindModal onClose={closeModal} />
-        : modal.type === 'label' ? <LabelModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'reserve' ? <ReservationModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'ledger' ? <MovementLedgerModal data={modal.data} onClose={closeModal} />
         : modal.type === 'order' ? <OrderModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'customer' ? <CustomerModal data={modal.data} onClose={closeModal} />
         : modal.type === 'campaign' ? <CampaignModal data={modal.data} onClose={closeModal} />
-        : modal.type === 'po' ? <POModal data={modal.data} onClose={closeModal} />
         : modal.type === 'monthlyTarget' ? <MonthlyTargetModal data={modal.data} onClose={closeModal} />
         : modal.type === 'adCampaign' ? <AdCampaignModal data={modal.data} onClose={closeModal} />
         : modal.type === 'customerSegment' ? <CustomerSegmentModal onClose={closeModal} />
