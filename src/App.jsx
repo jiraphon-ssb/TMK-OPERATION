@@ -26,6 +26,7 @@ const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
 const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
+const SaleDataHub = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SaleDataHub })));
 const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
 import { RecordSalesModal, TaskModal, ProductModal, OrderModal, CampaignModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
@@ -268,12 +269,13 @@ const NAV_DEF = [
     { id: 'history', labelKey: 'subFlowHistory', icon: 'clock' },
   ]},
   { id: 'catalog', labelKey: 'navCatalog', icon: 'sales', subs: [
+    // เรียงตาม workflow: ดูข้อมูล (รายงาน→ออเดอร์→ลูกค้า) → กรอกข้อมูล (ส่งยอด→บันทึกขาย) → ฐานข้อมูล (แคตตาล็อก)
     { id: 'report', labelKey: 'subReport', icon: 'sales' },
     { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
+    { id: 'crm', labelKey: 'subCrm', icon: 'users' },
+    { id: 'data', labelKey: 'subDataHub', icon: 'checkCheck' },
     { id: 'entry', labelKey: 'subEntry', icon: 'pencil' },
     { id: 'shirts', labelKey: 'subShirts', icon: 'bag' },
-    { id: 'crm', labelKey: 'subCrm', icon: 'users' },
-    { id: 'io', labelKey: 'subImport', icon: 'external' },
   ]},
 ];
 // Resolve labels from i18n at render time
@@ -743,7 +745,9 @@ function AppInner() {
     // Heavy chunks — ห่อด้วย Suspense
     return (
       <Suspense fallback={<PageSkeleton />}>
-        {section === 'sales' ? <EntryView sub={sub} />
+        {/* sub submit/io = ลิงก์เก่า (ก่อนรวมเป็น Data Hub) → หน้าเดียวกัน */}
+        {section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io') ? <SaleDataHub />
+          : section === 'sales' ? <EntryView sub={sub} />
           : section === 'notifications' ? <NotificationsCenter />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />

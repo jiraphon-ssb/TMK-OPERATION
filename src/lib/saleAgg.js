@@ -32,7 +32,7 @@ export function skuPass(s, f) {
 // ---- group → metrics (sort ยอดมากก่อน) ----
 function groupBy(rows, keyFn, init) {
   const m = new Map();
-  for (const r of rows) { const k = keyFn(r); if (k == null || k === '') continue; let g = m.get(k); if (!g) { g = { key: k, sales: 0, orders: 0, qty: 0, profit: 0, _ord: init ? new Set() : null }; m.set(k, g); } init && init(g, r); }
+  for (const r of rows) { const k = keyFn(r); if (k == null || k === '') continue; let g = m.get(k); if (!g) { g = { key: k, sales: 0, orders: 0, qty: 0, _ord: init ? new Set() : null }; m.set(k, g); } init && init(g, r); }
   return m;
 }
 
@@ -44,7 +44,7 @@ export function compute(orders, skus, f) {
 
   // ---- ตัวกรองระดับ SKU (ลาย/สี/ไซซ์/หมวด/รหัส) ----
   // ถ้าเปิดใช้ → จำกัดออเดอร์เหลือเฉพาะที่มี SKU ผ่านฟิลเตอร์ ไม่งั้น KPI (ยอด/กำไร/ออเดอร์)
-  // จะคิดจากทั้งร้านทั้งที่ผู้ใช้เลือกดูเฉพาะบางลาย = เข้าใจผิด
+  // จะคิดจากทั้งร้านทั้งที่ผู้ใช้เลือกดูเฉพาะบางลาย = เข้าใจผิด (นโยบาย: ไม่เก็บต้นทุน → ไม่มี profit/margin)
   const skuFilterActive = !!(f && (has(f.design) || has(f.product_code) || has(f.size) || has(f.color) || has(f.type)));
   if (skuFilterActive) {
     const keep = new Set(sk.map(s => s.order_no));
@@ -53,7 +53,7 @@ export function compute(orders, skus, f) {
 
   // ---- KPI หลัก ----
   const sum = (a, k) => a.reduce((x, r) => x + num(r[k]), 0);
-  const sales = sum(ords, 'sales'), qty = sum(ords, 'qty'), profit = sum(ords, 'profit'), cost = sum(ords, 'cost');
+  const sales = sum(ords, 'sales'), qty = sum(ords, 'qty');
   const commission = sum(ords, 'mkt_commission');
   const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
   const oldC = ords.filter(o => o.customer_type === 'ลูกค้าเก่า').length;
@@ -61,20 +61,14 @@ export function compute(orders, skus, f) {
   const mpO = ords.filter(o => ['Shopee', 'Lazada', 'TikTok'].includes(o.channel));
   const mpSales = sum(mpO, 'sales');
   const big = ords.filter(o => ['11-50 ตัว', '51+ ตัว', '11-50', '51+'].includes(o.qty_band) || num(o.qty) >= 11).length;
-  const hasCostCh = new Set(ords.filter(o => num(o.cost) > 0).map(o => o.channel));
-  // มาร์จิ้นที่เชื่อได้ = คิดเฉพาะออเดอร์ที่มีต้นทุนจริง (กันเฟ้อจากช่องที่ cost=0 แล้วกำไร=ยอดเต็ม)
-  const costOrds = ords.filter(o => num(o.cost) > 0);
-  const costSales = sum(costOrds, 'sales'), costProfit = sum(costOrds, 'profit');
   // ยอด/จำนวนเชิงเส้น (attributed) จาก SKU ที่ผ่านฟิลเตอร์ — ใช้โชว์เมื่อกรองระดับลาย
   const attrSales = sum(sk, 'line_sales'), attrQty = sum(sk, 'qty');
 
   const kpi = {
-    sales, orders: ords.length, qty, profit, cost, commission,
+    sales, orders: ords.length, qty, commission,
     skuFilterActive, attrSales, attrQty,
     aov: ords.length ? sales / ords.length : 0,
     ppu: qty ? sales / qty : 0,
-    margin: sales ? profit / sales : 0,
-    marginReal: costSales ? costProfit / costSales : 0, costSales, costOrders: costOrds.length,
     commPct: sales ? commission / sales : 0,
     newC, oldC, newPct: (newC + oldC) ? newC / (newC + oldC) : 0,
     codO, codPct: ords.length ? codO / ords.length : 0,
@@ -86,20 +80,19 @@ export function compute(orders, skus, f) {
     nProvinces: new Set(ords.map(o => o.province).filter(Boolean)).size,
     nCustomers: new Set(ords.map(o => o.customer_code).filter(Boolean)).size,
     cancelled: orders.filter(o => o.status === 'cancelled' && inRange(o.order_date, f?.from, f?.to)).length,
-    hasCostCh,
   };
 
   // ---- มิติระดับออเดอร์ ----
   const ordDim = (keyFn) => {
     const m = groupBy(ords, keyFn);
-    for (const o of ords) { const k = keyFn(o); if (k == null || k === '') continue; const g = m.get(k); g.sales += num(o.sales); g.orders += 1; g.qty += num(o.qty); g.profit += num(o.profit); }
+    for (const o of ords) { const k = keyFn(o); if (k == null || k === '') continue; const g = m.get(k); g.sales += num(o.sales); g.orders += 1; g.qty += num(o.qty); }
     return finalize(m, sales);
   };
   // ---- มิติระดับ SKU (variant) ----
   const skuDim = (keyFn) => {
     const m = new Map();
-    for (const s of sk) { const k = keyFn(s); if (k == null || k === '') continue; let g = m.get(k); if (!g) { g = { key: k, sales: 0, orders: new Set(), qty: 0, profit: 0 }; m.set(k, g); } g.sales += num(s.line_sales); g.qty += num(s.qty); g.orders.add(s.order_no); }
-    const arr = [...m.values()].map(g => ({ key: g.key, sales: g.sales, qty: g.qty, orders: g.orders.size, profit: 0 }));
+    for (const s of sk) { const k = keyFn(s); if (k == null || k === '') continue; let g = m.get(k); if (!g) { g = { key: k, sales: 0, orders: new Set(), qty: 0 }; m.set(k, g); } g.sales += num(s.line_sales); g.qty += num(s.qty); g.orders.add(s.order_no); }
+    const arr = [...m.values()].map(g => ({ key: g.key, sales: g.sales, qty: g.qty, orders: g.orders.size }));
     const tot = arr.reduce((a, x) => a + x.qty, 0);
     arr.forEach(x => x.share = tot ? x.qty / tot : 0);
     return arr.sort((a, b) => b.qty - a.qty);
@@ -121,7 +114,7 @@ export function compute(orders, skus, f) {
   };
 }
 function finalize(m, total) {
-  const arr = [...m.values()].map(g => ({ key: g.key, sales: g.sales, orders: g.orders, qty: g.qty, profit: g.profit, aov: g.orders ? g.sales / g.orders : 0, share: total ? g.sales / total : 0 }));
+  const arr = [...m.values()].map(g => ({ key: g.key, sales: g.sales, orders: g.orders, qty: g.qty, aov: g.orders ? g.sales / g.orders : 0, share: total ? g.sales / total : 0 }));
   return arr.sort((a, b) => b.sales - a.sales);
 }
 
@@ -205,7 +198,7 @@ export function regionBreakdown(bd) {
 export function series(orders, f, gran, dateField = 'order_date') {
   const ords = orders.filter(o => orderPass(o, f));
   const m = new Map();
-  for (const o of ords) { const k = bucketKey(o[dateField], gran); if (!k) continue; let g = m.get(k); if (!g) { g = { key: k, sales: 0, orders: 0, qty: 0, profit: 0 }; m.set(k, g); } g.sales += num(o.sales); g.orders += 1; g.qty += num(o.qty); g.profit += num(o.profit); }
+  for (const o of ords) { const k = bucketKey(o[dateField], gran); if (!k) continue; let g = m.get(k); if (!g) { g = { key: k, sales: 0, orders: 0, qty: 0 }; m.set(k, g); } g.sales += num(o.sales); g.orders += 1; g.qty += num(o.qty); }
   return m;
 }
 

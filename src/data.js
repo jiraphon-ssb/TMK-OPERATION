@@ -39,5 +39,5 @@ export const TMK = {
   roles: [],
   promoChannels: ['หลังบ้าน', 'Line Broadcast', 'FB Post', 'TikTok Shop', 'ทุกแพลตฟอร์ม'],
   duties: [],
-  computed: { MTD: 0, ORD: 0, AD: 0, NEW_REV: 0, OLD_REV: 0, NEW_C: 0, OLD_C: 0, PACE_TGT: 0, PACE_PCT: 0, RUN: 0, AOV: 0, ACOS_TOT: 0, CAC: 0, CLV: 0 },
+  computed: { MTD: 0, ORD: 0, AD: 0, NEW_REV: 0, OLD_REV: 0, NEW_C: 0, OLD_C: 0, PACE_TGT: 0, PACE_PCT: 0, RUN: 0, AOV: 0, ACOS_TOT: 0, CLV: 0 },
 };

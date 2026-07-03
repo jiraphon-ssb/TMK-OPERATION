@@ -489,7 +489,6 @@ function mapToTMK(raw) {
   const RUN = DAY > 0 ? (MTD / DAY) * DAYS : 0;                   // ไม่ปัดเศษ
   const AOV = ORD > 0 ? MTD / ORD : 0;
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
-  const CAC = NEW_C > 0 ? AD / NEW_C : 0;
   // CLV เฉลี่ย — weighted avg ของ avg_clv แต่ละ segment ตามจำนวนลูกค้า (0 ถ้ายังไม่มี segment)
   const _segs = raw.segments || [];
   const _segCount = _segs.reduce((s, x) => s + Number(x.count || 0), 0);
@@ -564,7 +563,7 @@ function mapToTMK(raw) {
       color: s.color,
       clv: Number(s.avg_clv || 0),
     })),
-    computed: { MTD, ORD, AD, NEW_REV, OLD_REV, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV },
+    computed: { MTD, ORD, AD, NEW_REV, OLD_REV, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CLV },
   };
 }
 
@@ -622,17 +621,6 @@ export function computeMonth(monthIdx0, yearBE) {
   const PACE_PCT = PACE_TGT > 0 ? (MTD / PACE_TGT) * 100 : 0;
   const RUN = DAY > 0 ? (MTD / DAY) * DAYS : 0;                       // ไม่ปัดเศษ
   const ACOS_TOT = MTD > 0 ? (AD / MTD) * 100 : 0;
-  const CAC = NEW_C > 0 ? AD / NEW_C : 0;
-
-  // P&L (กำไร-ขาดทุน) ระดับเดือน — ยอดขาย → −ทุนขาย → กำไรขั้นต้น → −แอด → −ค่าธรรมเนียม → −อื่นๆ → กำไรสุทธิ
-  const COGS_PCT = Number(meta.cogsPct || 0);                 // ต้นทุนสินค้า % ของยอดขาย (ตั้งรายเดือน)
-  const OTHER_EXP = round2(Number(meta.otherExpense || 0));   // ค่าใช้จ่ายอื่น/เดือน (ค่าส่ง/แพ็ค/เงินเดือน ฯลฯ)
-  const COGS = round2(MTD * COGS_PCT / 100);
-  const GROSS_PROFIT = round2(MTD - COGS);
-  const PLATFORM_FEES = round2(channels.reduce((s, c) => s + (c.actual || 0) * ((c.platformFeePct || 0) / 100), 0));
-  const NET_PROFIT = round2(GROSS_PROFIT - AD - PLATFORM_FEES - OTHER_EXP);
-  const NET_MARGIN = MTD > 0 ? (NET_PROFIT / MTD) * 100 : 0;
-  const pnl = { revenue: MTD, cogs: COGS, cogsPct: COGS_PCT, grossProfit: GROSS_PROFIT, platformFees: PLATFORM_FEES, ad: AD, otherExpense: OTHER_EXP, netProfit: NET_PROFIT, netMargin: NET_MARGIN };
 
   const dailyMonth = rows.map(r => ({ d: r.day, rev: round2(Object.values(r.ch).reduce((s, c) => s + c.rev, 0)) }));
   const dailyLog = [...rows].sort((a, b) => b.day - a.day).slice(0, 7).map(r => ({
@@ -709,9 +697,9 @@ export function computeMonth(monthIdx0, yearBE) {
   });
 
   return {
-    consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, cogsPct: COGS_PCT, otherExpense: OTHER_EXP },
-    channels, dailyMonth, dailyLog, dailyBreakdown, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, custWeekly, pnl,
-    computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CAC, CLV: TMK.computed.CLV || 0 },
+    consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET },
+    channels, dailyMonth, dailyLog, dailyBreakdown, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, custWeekly,
+    computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CLV: TMK.computed.CLV || 0 },
   };
 }
 
@@ -754,7 +742,9 @@ export function DataProvider({ children }) {
   const [version, setVersion] = useState(0); // bump on reload → forces re-render
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false); // กันโหลดซ้อน (window.__reload + realtime ยิงพร้อมกัน)
-  const pendingRef = useRef(false);
+  const pendingRef = useRef(false);            // จอง "full reload" (มาจาก load ซ้อนเท่านั้น)
+  const pendingTablesRef = useRef(new Set());  // จอง per-table refresh ที่เข้ามาระหว่าง in-flight → ระบายเฉพาะตารางนั้น (ไม่ full load)
+  const lastRefreshAtRef = useRef({});         // เวลาที่ตารางถูก refresh จาก "การเซฟของเครื่องนี้" — ให้ realtime ข้าม echo ตัวเอง
   const rawRef = useRef(null); // baseline ของทุกตาราง — ใช้สำหรับ per-table refresh (ไม่ต้องโหลดใหม่ทั้งชุด)
 
   const load = useCallback(async () => {
@@ -791,19 +781,22 @@ export function DataProvider({ children }) {
     } finally {
       inFlightRef.current = false;
       if (mountedRef.current) setLoading(false);
-      if (pendingRef.current && mountedRef.current) { pendingRef.current = false; load(); } // มีคำขอค้าง → โหลดอีกรอบให้ได้ข้อมูลล่าสุด
+      if (pendingRef.current && mountedRef.current) { pendingRef.current = false; pendingTablesRef.current.clear(); load(); } // มีคำขอค้าง → โหลดอีกรอบให้ได้ข้อมูลล่าสุด
+      else if (pendingTablesRef.current.size && mountedRef.current) { const ts = [...pendingTablesRef.current]; pendingTablesRef.current.clear(); refreshTablesRef.current?.(ts, { fromRealtime: true }); } // per-table ค้างระหว่าง full load → ระบายเฉพาะตารางนั้น (กันพลาดการเปลี่ยนแปลงระหว่างโหลด)
     }
   }, []);
 
   // Per-table refresh — ตารางไหนเปลี่ยน fetch ใหม่เฉพาะตารางนั้น แล้วยัดกลับเข้า raw cache + map ใหม่ + bump version
   // ลด bandwidth/render churn เมื่อใครเซฟอะไรก็ตาม (ไม่ต้องดาวน์โหลด 20 ตารางใหม่ทุกครั้ง)
   // — ไม่มี baseline หรือ list มี customers/orders ที่ตัวรวม view ต้องอัปเดต → fallback ไป full load
-  const refreshTables = useCallback(async (tableNames) => {
+  const refreshTables = useCallback(async (tableNames, opts = {}) => {
     const keys = [...new Set((tableNames || []).map(t => TABLE_KEY[t]).filter(k => k && QUERIES[k]))];
     const needCounts = (tableNames || []).includes('tmk_task_comments'); // คอมเมนต์เปลี่ยน → รีเฟรชจำนวน 💬 บนการ์ด
     if (!rawRef.current || (!keys.length && !needCounts)) { return load(); }
-    if (inFlightRef.current) { pendingRef.current = true; return; }
+    if (inFlightRef.current) { (tableNames || []).forEach(t => pendingTablesRef.current.add(t)); return; } // กำลังโหลด → จองเฉพาะตารางที่ขอ (ระบายด้วย per-table refresh ไม่ใช่ full load)
     inFlightRef.current = true;
+    // จดเวลาเฉพาะการเซฟของเครื่องนี้ (ไม่ใช่ flush จาก realtime) → ให้ handler ข้าม echo event ของตัวเอง 1 ครั้ง
+    if (!opts.fromRealtime) { const now = Date.now(); (tableNames || []).forEach(t => { lastRefreshAtRef.current[t] = now; }); }
     try {
       const results = await Promise.all(keys.map(k => QUERIES[k]()));
       if (!mountedRef.current) return;
@@ -827,9 +820,11 @@ export function DataProvider({ children }) {
       await load();
     } finally {
       inFlightRef.current = false;
-      if (pendingRef.current && mountedRef.current) { pendingRef.current = false; load(); }
+      if (pendingRef.current && mountedRef.current) { pendingRef.current = false; pendingTablesRef.current.clear(); load(); } // มี full reload ค้าง → โหลดเต็ม (ครอบทุกตาราง)
+      else if (pendingTablesRef.current.size && mountedRef.current) { const ts = [...pendingTablesRef.current]; pendingTablesRef.current.clear(); refreshTables(ts, { fromRealtime: true }); } // per-table ค้าง → ระบายเฉพาะตารางนั้น (เดิม fallback เป็น full load 20 ตาราง)
     }
   }, [load]);
+  const refreshTablesRef = useRef(null); refreshTablesRef.current = refreshTables; // ให้ load() (นิยามก่อนหน้า) เรียกระบายคิว per-table ได้
 
   // โหลดตาราง deferred ตอนกดเข้า section ที่ใช้ (ครั้งเดียว/แคช) → ลด egress ตอนเปิดแอป
   const deferredLoadedRef = useRef(new Set());
@@ -856,16 +851,20 @@ export function DataProvider({ children }) {
 
     // Realtime subscription — ถ้าต่อ WS ไม่ได้ (เน็ตหลุด/ปิด realtime) → degrade เป็น polling (ไม่ retry รัวจน console รก)
     let timer = null, pollTimer = null, connectTimeout = null, usingPoll = false;
-    const onVis = () => { if (document.visibilityState === 'visible' && mountedRef.current) refreshTables(POLL_TABLES); }; // กลับมาที่แท็บ (โหมด poll) → ดึงเฉพาะตารางหลัก (ไม่ full load · ลด egress)
+    const onVis = () => { // กลับมาที่แท็บ (โหมด poll) → ดึงตารางหลัก + ลองต่อ realtime ใหม่ (เน็ตอาจกลับมาแล้ว)
+      if (document.visibilityState !== 'visible' || !mountedRef.current) return;
+      refreshTables(POLL_TABLES, { fromRealtime: true });
+      retryRealtime();
+    };
     // ตารางที่เปลี่ยนบ่อยระหว่างทำงาน — poll fallback ดึงเฉพาะกลุ่มนี้ (ลด egress; ตารางตั้งค่าที่นิ่งจะรีเฟรชตอนสลับแท็บ/โหลดใหม่)
     const POLL_TABLES = ['tmk_daily_sales', 'tmk_orders', 'tmk_customers', 'tmk_tasks', 'tmk_products', 'tmk_channels', 'tmk_campaigns', 'tmk_ad_campaigns', 'tmk_flows', 'tmk_task_comments'];
     const startPolling = () => {
       if (usingPoll || !mountedRef.current) return;
       usingPoll = true;
       teardownChannel(); // เอาเฉพาะ channel ของ data-context ออก (อย่า disconnect ทั้ง socket — กระดิ่งแจ้งเตือน + แผงคอมเมนต์มี channel ของตัวเองที่ยังต้องใช้)
-      pollTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshTables(POLL_TABLES); }, 120000); // ดึงเฉพาะตารางที่เปลี่ยนบ่อย ทุก 120 วิ
-      document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ (ดึงครบ)
-      console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (120 วิ เฉพาะตารางหลัก + ครบตอนสลับแท็บ); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
+      pollTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshTables(POLL_TABLES, { fromRealtime: true }); }, 120000); // ดึงเฉพาะตารางที่เปลี่ยนบ่อย ทุก 120 วิ
+      document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ (ดึงตารางหลัก + ลองต่อ realtime ใหม่)
+      console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (120 วิ เฉพาะตารางหลัก · กลับมาที่แท็บ = ดึง+ลองต่อ realtime ใหม่); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
     };
     const pendingTables = new Set(); // ตารางที่เปลี่ยน — flush ทีเดียวด้วย refreshTables
     const channelTables = [
@@ -887,11 +886,15 @@ export function DataProvider({ children }) {
       channel = supabase.channel('tmk-realtime');
       channelTables.forEach(t => {
         channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
+          // ข้าม echo ของการเซฟจากเครื่องนี้เอง "1 ครั้ง" — เราเพิ่ง refresh ตารางนี้ไปแล้ว (<800ms) ไม่ต้องดึงซ้ำ
+          // ปลอดภัยเพราะ event มาตามลำดับ commit: event แรกหลังเซฟเรา = ของเราเอง (ข้อมูลอยู่ใน fetch แล้ว)
+          // ลบ stamp หลังข้าม → event ถัดไป (ของคนอื่น) ประมวลผลปกติ ไม่มีช่องพลาดข้อมูล
+          if (Date.now() - (lastRefreshAtRef.current[t] || 0) < 800) { delete lastRefreshAtRef.current[t]; return; }
           pendingTables.add(t);
           clearTimeout(timer);
           timer = setTimeout(() => {
             const ts = [...pendingTables]; pendingTables.clear();
-            refreshTables(ts); // ดึงเฉพาะตารางที่เปลี่ยน — แทน full reload เดิม
+            refreshTables(ts, { fromRealtime: true }); // ดึงเฉพาะตารางที่เปลี่ยน (flush จาก realtime — ไม่ stamp กัน echo กินต่อกันเป็นลูกโซ่)
           }, 300);
         });
       });
@@ -907,6 +910,15 @@ export function DataProvider({ children }) {
         }
       });
       connectTimeout = setTimeout(() => { teardownChannel(); startPolling(); }, 8000); // WS ค้าง → fallback
+    };
+    // กลับจากโหมด poll → realtime เมื่อเน็ตกลับมา (เดิม: หลุดเกิน 3 ครั้ง = poll ถาวรจนรีเฟรชหน้า)
+    const retryRealtime = () => {
+      if (!usingPoll || !mountedRef.current) return;
+      usingPoll = false;
+      clearInterval(pollTimer); pollTimer = null;
+      document.removeEventListener('visibilitychange', onVis);
+      reconnectAttempts = 0;
+      connectRealtime(); // ต่อไม่สำเร็จ → status handler จะ startPolling กลับให้เอง (interval+listener ตั้งใหม่)
     };
     connectRealtime();
 

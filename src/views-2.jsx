@@ -1083,55 +1083,13 @@ function groupAnoms(rows, keyf) {
   rows.forEach(r => { const k = keyf(r); if (!k) return; (o[k] = o[k] || { key: k, count: 0, qty: 0, channels: new Set(), sample: '' }); o[k].count++; o[k].qty += Number(r.qty) || 0; if (r.channel) o[k].channels.add(r.channel); if (!o[k].sample) o[k].sample = r.raw_sku_or_name || ''; });
   return Object.values(o).map(v => ({ ...v, channels: [...v.channels] })).sort((a, b) => b.count - a.count);
 }
-const Sec = ({ title, icon, tone, items, empty, action, onDetail, searchable }) => {
-  const [open, setOpen] = useState(items.length > 0);
-  const [q, setQ] = useState('');
-  const shown = q.trim()
-    ? items.filter(d => `${d.key} ${d.sample || ''} ${(d.channels || []).join(' ')}`.toLowerCase().includes(q.trim().toLowerCase()))
-    : items;
-  return (
-    <Card style={{ padding: 0, overflow: 'hidden' }}>
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger asChild>
-          <button type="button" className="row between" style={{ width: '100%', padding: '12px 14px', borderBottom: open ? '1px solid var(--line)' : 'none', background: 'var(--surface-2, var(--surface))', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-            <span className="row" style={{ gap: 8, fontWeight: 700, minWidth: 0 }}>
-              <span style={{ color: 'var(--ink-4)', display: 'inline-flex', transition: 'transform .15s', transform: open ? 'none' : 'rotate(-90deg)' }}><Icon name="chevD" /></span>
-              <span style={{ color: tone }}><Icon name={icon} /></span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
-            </span>
-            <Badge variant={items.length ? 'warning' : 'success'} className="flex-none">{items.length ? `${N(items.length)} รายการ` : 'ปกติ'}</Badge>
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          {items.length === 0
-            ? <div className="row" style={{ gap: 8, padding: '16px 14px', color: 'var(--good)', fontSize: 13 }}><Icon name="check" /> {empty}</div>
-            : <>
-              {searchable && items.length > 12 && (
-                <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)' }}>
-                  <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาลาย / สี / ช่องทาง…" className="h-8" />
-                </div>
-              )}
-              {shown.length === 0
-                ? <div style={{ padding: '16px 14px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบรายการที่ตรงกับ “{q}”</div>
-                : <div style={{ maxHeight: 360, overflow: 'auto' }}><Table style={{ width: '100%' }}><TableBody>
-                  {shown.map((d, i) => (
-                    <TableRow key={i} style={{ borderTop: i ? '1px solid var(--line)' : 'none' }}>
-                      <TableCell style={{ padding: '8px 14px' }}><b>{d.key}</b>{d.sample && d.sample !== d.key ? <div className="cap" style={{ color: 'var(--ink-4)' }}>{String(d.sample).slice(0, 38)}</div> : null}</TableCell>
-                      <TableCell className="num" style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{N(d.count)} แถว · {N(d.qty)} ตัว</TableCell>
-                      <TableCell className="cap" style={{ padding: '8px 10px', color: 'var(--ink-3)' }}>{d.channels.join(', ')}</TableCell>
-                      <TableCell style={{ padding: '6px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <Button variant="outline" size="sm" onClick={() => onDetail({ title, icon, tone, item: d })}><Icon name="search" /> ดู</Button>
-                        {action && <Button variant="outline" size="sm" style={{ marginLeft: 6 }} onClick={() => action(d.key)}><Icon name="plus" /> {action.label}</Button>}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody></Table></div>}
-            </>}
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
-  );
-};
+// สถิติแบบ inline บนแถบสรุปหน้า "คุณภาพข้อมูล" — แทน MetricCard 4 ใบ
+const HealthStat = ({ label, value, tone }) => (
+  <div style={{ minWidth: 84 }}>
+    <div className="cap" style={{ color: 'var(--ink-4)' }}>{label}</div>
+    <div className="num" style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.2, color: tone || 'var(--ink-1)' }}>{value}</div>
+  </div>
+);
 
 // Combobox เลือกชื่อลายมาตรฐาน (shadcn Popover + Command/cmdk) — เลื่อนได้แม้อยู่ใน SideSheet
 function DesignCombobox({ value, code, onPick }) {
@@ -1174,15 +1132,15 @@ function DesignCombobox({ value, code, onPick }) {
   );
 }
 
-function HealthHub() {
+export function HealthHub() { // แท็บ "คุณภาพข้อมูล" ใน SaleDataHub (views-sale-submit.jsx) — การ์ดนำเข้าแยกไปแท็บของตัวเองแล้ว
   const [skus, setSkus] = useState(null);
   const [aliases, setAliases] = useState([]);
   const [noTable, setNoTable] = useState(false);
   const [err, setErr] = useState('');
   const [form, setForm] = useState(null); // { kind, term, code, design }
-  const [detail, setDetail] = useState(null);
   const [busy, setBusy] = useState(false);
   const [aliasQ, setAliasQ] = useState('');
+  const [issueQ, setIssueQ] = useState('');
   const [rematch, setRematch] = useState(null); // null | ผลจาก planRematch
   const [rmBusy, setRmBusy] = useState(false);
   const [rmProg, setRmProg] = useState(0);
@@ -1266,26 +1224,44 @@ function HealthHub() {
     setRematch(null); load();
   };
 
+  // รวม 3 ชนิดปัญหาเป็นตารางเดียว "ต้องตรวจ" — เรียงตามจำนวนแถวมาก→น้อย
+  const issues = useMemo(() => {
+    const mk = (arr, kind, label, tone, act) => arr.map(d => ({ ...d, kind, label, tone, act }));
+    return [
+      ...mk(A.newDesigns, 'design', 'ลายไม่มีรหัส', 'var(--warn)', 'ผูกลาย'),
+      ...mk(A.newColors, 'color', 'สีใหม่', 'var(--bad)', 'เพิ่มสี'),
+      ...mk(A.unmatched, 'unmatched', 'จับคู่ไม่ได้', 'var(--ink-3)', null),
+    ].sort((a, b) => b.count - a.count);
+  }, [A]);
+
   if (skus === null && !err) return <PageSkeleton />;
   if (err) return <div className="content-inner"><Card className="p-5" style={{ color: 'var(--bad)' }}>โหลดข้อมูลไม่ได้: {err}</Card></div>;
 
   const matchPct = A.total ? Math.round(A.matched / A.total * 100) : 0;
+  const shownIssues = issueQ.trim()
+    ? issues.filter(d => `${d.label} ${d.key} ${d.sample || ''} ${(d.channels || []).join(' ')}`.toLowerCase().includes(issueQ.trim().toLowerCase()))
+    : issues;
 
   return (
     <div className="content-inner" style={{ display: 'grid', gap: 14 }}>
       {noTable && <Card className="p-3" style={{ color: 'var(--warn)', borderLeft: '3px solid var(--warn)' }}><Icon name="alertTriangle" /> ยังไม่ได้สร้างตาราง <code>tmk_mp_aliases</code> — รันไฟล์ <code>supabase/migrations/20260623-mp-aliases.sql</code> ใน Supabase ก่อน จึงจะตั้ง alias ได้ (ส่วนอื่นยังดูได้ปกติ)</Card>}
 
-      <ImportExportHub />
-
+      {/* แถบสรุป + จับคู่ใหม่ — บรรทัดเดียวจบ */}
       <Card className="p-4">
-        <CardHead icon="refresh" title={<>จับคู่ลายใหม่จากข้อมูลเดิม <span className="dim">(ไม่ต้องนำเข้าไฟล์ซ้ำ)</span></>}
-          sub={<>ตั้ง alias หรือแก้แคตตาล็อกแล้ว กดปุ่มนี้เพื่อรันการจับคู่ลายใหม่บนออเดอร์เก่าทั้งหมด แล้ว<b>บันทึกถาวร</b> — ไม่ต้องอัปไฟล์</>} />
-        <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button variant="outline" onClick={scanRematch} disabled={rmBusy || !skus}><Icon name="search" /> ตรวจการจับคู่ใหม่</Button>
-          {rematch && (rematch.changes.length
-            ? <Badge variant="secondary">พบ {N(rematch.filled + rematch.fixed)} แถว (เติมที่ว่าง {N(rematch.filled)} · แก้ที่ผิด {N(rematch.fixed)})</Badge>
-            : <span className="cap row" style={{ color: 'var(--good)', gap: 4 }}><Icon name="check" /> จับคู่เป็นปัจจุบันแล้ว</span>)}
+        <div className="row" style={{ gap: 22, alignItems: 'center', flexWrap: 'wrap' }}>
+          <HealthStat label="SKU ทั้งหมด" value={N(A.total)} />
+          <HealthStat label="จับคู่ลายได้" value={A.total ? `${matchPct}%` : '—'} tone={!A.total ? undefined : matchPct >= 98 ? 'var(--good)' : 'var(--warn)'} />
+          <HealthStat label="มีรหัสลาย" value={N(A.withCode)} />
+          <HealthStat label="ต้องตรวจ" value={N(issues.length)} tone={issues.length ? 'var(--warn)' : 'var(--good)'} />
+          <div style={{ flex: 1 }} />
+          <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {rematch && (rematch.changes.length
+              ? <Badge variant="secondary">พบ {N(rematch.filled + rematch.fixed)} แถว (เติม {N(rematch.filled)} · แก้ {N(rematch.fixed)})</Badge>
+              : <span className="cap row" style={{ color: 'var(--good)', gap: 4 }}><Icon name="check" /> จับคู่เป็นปัจจุบันแล้ว</span>)}
+            <Button variant="outline" size="sm" onClick={scanRematch} disabled={rmBusy || !skus}><Icon name="refresh" /> ตรวจการจับคู่ใหม่</Button>
+          </div>
         </div>
+        <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>ตั้ง alias / แก้แคตตาล็อกแล้ว กด "ตรวจการจับคู่ใหม่" เพื่ออัปเดตออเดอร์เก่าทั้งหมด — ไม่ต้องนำเข้าไฟล์ซ้ำ</div>
         {rematch && rematch.changes.length > 0 && <>
           <div className="table-wrap" style={{ maxHeight: 240, overflow: 'auto', marginTop: 10 }}><Table>
             <TableHeader><TableRow><TableHead>ข้อความในไฟล์</TableHead><TableHead>ลายใหม่</TableHead><TableHead>รหัส</TableHead><TableHead style={{ textAlign: 'right' }}>แถว</TableHead></TableRow></TableHeader>
@@ -1306,12 +1282,71 @@ function HealthHub() {
         </>}
       </Card>
 
-      <div className="metric-grid">
-        <MetricCard label="SKU ทั้งหมด" value={N(A.total)} icon="box" />
-        <MetricCard label="จับคู่ลายได้" value={`${matchPct}%`} sub={`${N(A.matched)} แถว`} icon="check" tone={matchPct >= 98 ? 'var(--good)' : 'var(--warn)'} />
-        <MetricCard label="มีรหัสลาย" value={N(A.withCode)} sub={`${A.total ? Math.round(A.withCode / A.total * 100) : 0}%`} icon="bag" />
-        <MetricCard label="ต้องตรวจ" value={N(A.newDesigns.length + A.newColors.length + A.unmatched.length)} sub="ลายใหม่+สีใหม่+จับคู่ไม่ได้" icon="shield" tone={(A.newDesigns.length + A.newColors.length + A.unmatched.length) ? 'var(--warn)' : 'var(--good)'} />
-      </div>
+      {/* ตารางรวม "ต้องตรวจ" — ลายไม่มีรหัส / สีใหม่ / จับคู่ไม่ได้ ในที่เดียว */}
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="row between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', gap: 10, flexWrap: 'wrap' }}>
+          <span className="row" style={{ gap: 8, fontWeight: 700, alignItems: 'center' }}>
+            <span style={{ color: issues.length ? 'var(--warn)' : 'var(--good)' }}><Icon name="shield" /></span> ต้องตรวจ
+            <Badge variant={issues.length ? 'warning' : 'success'}>{issues.length ? `${N(issues.length)} รายการ` : 'ปกติ'}</Badge>
+          </span>
+          {issues.length > 10 && <SearchInput value={issueQ} onChange={e => setIssueQ(e.target.value)} placeholder="ค้นหา…" className="h-8" wrapperClassName="w-52" />}
+        </div>
+        {issues.length === 0
+          ? <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--good)', fontSize: 13 }}><Icon name="check" /> ข้อมูลสะอาด — ทุกแถวจับคู่ลายได้ ไม่มีลาย/สีแปลกใหม่</div>
+          : shownIssues.length === 0
+            ? <div style={{ padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบรายการที่ตรงกับ "{issueQ}"</div>
+            : <div style={{ maxHeight: 440, overflow: 'auto' }}><Table>
+              <TableHeader><TableRow>
+                <TableHead>ปัญหา</TableHead><TableHead>รายการ</TableHead>
+                <TableHead style={{ textAlign: 'right' }}>แถว</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead>
+                <TableHead>ช่องทาง</TableHead><TableHead />
+              </TableRow></TableHeader>
+              <TableBody>{shownIssues.map(d => (
+                <TableRow key={d.kind + d.key}>
+                  <TableCell><Badge variant="outline" style={{ color: d.tone, borderColor: d.tone, fontWeight: 600 }}>{d.label}</Badge></TableCell>
+                  <TableCell style={{ maxWidth: 260 }}><b>{d.key}</b>{d.sample && d.sample !== d.key ? <div className="cap" style={{ color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(d.sample).slice(0, 60)}</div> : null}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right' }}>{N(d.count)}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right' }}>{N(d.qty)}</TableCell>
+                  <TableCell className="cap" style={{ color: 'var(--ink-3)' }}>{(d.channels || []).join(', ') || '—'}</TableCell>
+                  <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{d.act && <Button variant="outline" size="sm" onClick={() => openAlias(d.kind, d.key)}><Icon name="plus" /> {d.act}</Button>}</TableCell>
+                </TableRow>
+              ))}</TableBody>
+            </Table></div>}
+      </Card>
+
+      {/* ตาราง Alias ที่ตั้งไว้ */}
+      <Card style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="row between" style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', gap: 10, flexWrap: 'wrap' }}>
+          <span className="row" style={{ gap: 8, fontWeight: 700, alignItems: 'center' }}>
+            <span style={{ color: 'var(--accent)' }}><Icon name="listChecks" /></span> Alias ที่ตั้งไว้
+            <Badge variant="secondary">{N(aliases.length)} รายการ</Badge>
+          </span>
+          <div className="row" style={{ gap: 8 }}>
+            {aliases.length > 10 && <SearchInput value={aliasQ} onChange={e => setAliasQ(e.target.value)} placeholder="ค้นหา…" className="h-8" wrapperClassName="w-52" />}
+            <Button variant="outline" size="sm" onClick={() => openAlias('design', '')}><Icon name="plus" /> เพิ่ม alias</Button>
+          </div>
+        </div>
+        {(() => {
+          const shownAliases = aliasQ.trim()
+            ? aliases.filter(a => `${a.term} ${a.design || ''} ${a.code || ''}`.toLowerCase().includes(aliasQ.trim().toLowerCase()))
+            : aliases;
+          if (aliases.length === 0) return <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}><Icon name="sparkle" /> ยังไม่มี alias — กด "ผูกลาย/เพิ่มสี" จากตารางต้องตรวจ หรือเพิ่มเอง</div>;
+          if (shownAliases.length === 0) return <div style={{ padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบ alias ที่ตรงกับ "{aliasQ}"</div>;
+          return <div style={{ maxHeight: 360, overflow: 'auto' }}><Table>
+            <TableHeader><TableRow><TableHead>ชนิด</TableHead><TableHead>คำในไฟล์</TableHead><TableHead>แมปเป็น</TableHead><TableHead /></TableRow></TableHeader>
+            <TableBody>{shownAliases.map(a => (
+              <TableRow key={a.id}>
+                <TableCell><Badge variant={a.kind === 'color' ? 'outline' : 'secondary'}>{a.kind === 'color' ? 'สี' : 'ลาย'}</Badge></TableCell>
+                <TableCell style={{ fontWeight: 600 }}>{a.term}</TableCell>
+                <TableCell className="cap" style={{ color: 'var(--ink-3)' }}>{a.kind === 'design' ? <>{a.design || '—'}{a.code ? <span className="num"> ({a.code})</span> : ''}</> : 'สีที่ระบบรู้จัก'}</TableCell>
+                <TableCell style={{ textAlign: 'right' }}><Button variant="outline" size="sm" style={{ color: 'var(--bad)' }} onClick={() => delAlias(a)}><Icon name="trash" /></Button></TableCell>
+              </TableRow>
+            ))}</TableBody>
+          </Table></div>;
+        })()}
+      </Card>
+
+      <SalesAliasManager />
 
       {form && (
         <SideSheet size="md" icon={form.kind === 'color' ? 'sparkle' : 'shield'}
@@ -1334,73 +1369,17 @@ function HealthHub() {
         </SideSheet>
       )}
 
-      {detail && (
-        <SideSheet size="md" icon={detail.icon} title={detail.title} sub={detail.item.key} onClose={() => setDetail(null)} footer={<Button variant="outline" onClick={() => setDetail(null)}>ปิด</Button>}>
-          <div className="metric-grid">
-            <MetricCard label="จำนวนแถว" value={N(detail.item.count)} tone={detail.tone} />
-            <MetricCard label="จำนวนตัว" value={N(detail.item.qty)} />
-          </div>
-          <Card className="p-3" style={{ boxShadow: 'none' }}>
-            <CardTitle className="m-0 text-base font-semibold mb-2" style={{ fontSize: 14 }}>ตัวอย่างที่เจอ</CardTitle>
-            <div style={{ wordBreak: 'break-word' }}>{detail.item.sample || detail.item.key}</div>
-          </Card>
-          <div>
-            <CardTitle className="m-0 text-base font-semibold mb-2" style={{ fontSize: 14 }}>ช่องทางที่พบ</CardTitle>
-            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              {(detail.item.channels || []).length ? detail.item.channels.map(c => <Badge key={c} variant="secondary">{c}</Badge>) : <span className="cap" style={{ color: 'var(--ink-4)' }}>ไม่ระบุช่องทาง</span>}
-            </div>
-          </div>
-          <div className="cap" style={{ color: 'var(--ink-4)' }}>ถ้าเป็นคำสะกดต่างหรือสีใหม่ ให้ตั้ง alias แล้วนำเข้าไฟล์ใหม่อีกครั้งเพื่อให้รายงานจับคู่ถูกต้อง</div>
-        </SideSheet>
-      )}
-
-      <SalesAliasManager />
-
-      <Sec title="ลายที่ยังไม่มีรหัส (ลายใหม่/สะกดต่าง)" icon="sparkle" tone="var(--warn)" items={A.newDesigns} empty="ทุกลายมีรหัส catalog ครบ" searchable action={Object.assign((k) => openAlias('design', k), { label: 'ผูก catalog' })} onDetail={setDetail} />
-      <Sec title="สีที่ระบบยังไม่รู้จัก (กันสลับ)" icon="shield" tone="var(--bad)" items={A.newColors} empty="ไม่มีสีแปลกใหม่" searchable action={Object.assign((k) => openAlias('color', k), { label: 'เพิ่มเป็นสี' })} onDetail={setDetail} />
-      <Sec title="จับคู่ลายไม่ได้เลย" icon="search" tone="var(--ink-3)" items={A.unmatched} empty="จับคู่ได้ทุกแถว" searchable onDetail={setDetail} />
-
-      <Card className="p-4" style={{ overflow: 'hidden' }}>
-        <CardHead icon="listChecks" title="Alias ที่ตั้งไว้" sub="คำที่สะกดต่าง / สีใหม่ ที่แมปเข้ารหัสแล้ว — มีผลรอบนำเข้าถัดไป"
-          right={<div className="row" style={{ gap: 8 }}>
-            <Badge variant="secondary">{N(aliases.length)} รายการ</Badge>
-            <Button variant="outline" size="sm" onClick={() => openAlias('design', '')}><Icon name="plus" /> เพิ่มเอง</Button>
-          </div>} />
-        {aliases.length > 12 && (
-          <div style={{ marginBottom: 10 }}>
-            <SearchInput value={aliasQ} onChange={e => setAliasQ(e.target.value)} placeholder="ค้นหา alias…" className="h-8" />
-          </div>
-        )}
-        {(() => {
-          const shownAliases = aliasQ.trim()
-            ? aliases.filter(a => `${a.term} ${a.design || ''} ${a.code || ''}`.toLowerCase().includes(aliasQ.trim().toLowerCase()))
-            : aliases;
-          if (aliases.length === 0) return <div className="row" style={{ gap: 8, padding: '6px 2px', color: 'var(--ink-4)', fontSize: 13 }}><Icon name="sparkle" /> ยังไม่มี alias — ผูกลาย/เพิ่มสีจากส่วนด้านบนได้</div>;
-          if (shownAliases.length === 0) return <div style={{ padding: '6px 2px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบ alias ที่ตรงกับ “{aliasQ}”</div>;
-          return <div className="table-wrap" style={{ borderRadius: 10, border: '1px solid var(--line)', maxHeight: 360, overflow: 'auto' }}><Table style={{ width: '100%' }}><TableBody>{shownAliases.map(a => (
-            <TableRow key={a.id} style={{ borderTop: '1px solid var(--line)' }}>
-              <TableCell style={{ padding: '8px 14px' }}><Badge variant={a.kind === 'color' ? 'outline' : 'secondary'} style={{ marginRight: 8 }}>{a.kind === 'color' ? 'สี' : 'ลาย'}</Badge><b>{a.term}</b>{a.kind === 'design' && <span className="cap" style={{ color: 'var(--ink-3)' }}> → {a.design || '—'} {a.code ? `(${a.code})` : ''}</span>}</TableCell>
-              <TableCell style={{ padding: '6px 12px', textAlign: 'right' }}><Button variant="outline" size="sm" style={{ color: 'var(--bad)' }} onClick={() => delAlias(a)}><Icon name="trash" /></Button></TableCell>
-            </TableRow>
-          ))}</TableBody></Table></div>;
-        })()}
-      </Card>
     </div>
   );
 }
 
-// ศูนย์ข้อมูล — หน้าเดียว: นำเข้า (บนสุด) → สุขภาพ → รวมชื่อเซลล์ → anomaly → alias
-function DataHub() {
-  return <HealthHub />;
-}
-
+// หมายเหตุ: "ศูนย์ข้อมูล" (io) ย้ายไปรวมกับส่งยอดเป็น SaleDataHub 3 แท็บ ใน views-sale-submit.jsx
+// (HealthHub ด้านบน export ให้แท็บ "คุณภาพข้อมูล" ใช้)
 export function CatalogView({ sub }) {
   if (sub === 'orders') return <OrdersHub />;
   if (sub === 'entry') return <SaleEntryView />;
   if (sub === 'shirts') return <ShirtCatalogView />;
   if (sub === 'crm') return <CrmView />;
-  if (sub === 'health') return <DataHub initial="health" />;
-  if (sub === 'io') return <DataHub initial="io" />;
   return <ReportHub />; // เน้น sale: หน้าอื่น (สินค้า/ลูกค้า/สต็อก/PO) ถูกตัดออก → รายงานขาย
 }
 
@@ -1571,11 +1550,11 @@ function MpOrdersView() {
   const colVisible = useMemo(() => new Set(ORDERS_COLS.map(c => c.key).filter(k => !hiddenCols.includes(k))), [hiddenCols]);
   const toggleCol = (k) => setHiddenCols(hc => hc.includes(k) ? hc.filter(x => x !== k) : [...hc, k]);
 
-  // ขอบวันที่ของข้อมูล + ตั้งช่วงเริ่มต้น = เดือนล่าสุด (โหลดเฉพาะช่วง → เร็ว)
+  // ขอบวันที่ของข้อมูล + ตั้งช่วงเริ่มต้น = เดือนปัจจุบันจริง (anchor วันจริง · ยุค realtime)
   useEffect(() => { (async () => {
     const b = await getDateBounds('tmk_mp_orders');
     setBounds({ min: b.min, max: b.max });
-    if (b.max) { const r = presetRange('month', b.max, b.min, b.max); setRange({ from: r.from, to: r.to }); }
+    if (b.max) { const r = presetRange('month', todayISO(), b.min, b.max); setRange({ from: r.from, to: r.to }); }
   })(); }, []);
 
   // โหลดออเดอร์ตามช่วงวันที่ที่เลือก (server-side, มีแคช) — เปลี่ยนช่วงค่อยโหลดเฉพาะส่วน
@@ -1631,8 +1610,8 @@ function MpOrdersView() {
     return byO;
   }, [rawSkus, resolver]);
   // active preset (ให้ปฏิทินไฮไลต์) + ตัวจัดการเลือก preset/ช่วงเอง
-  const activePreset = useMemo(() => { if (!bounds.max) return ''; for (const [id] of PRESETS) { const r = presetRange(id, bounds.max, bounds.min, bounds.max); if (range.from === r.from && range.to === r.to) return id; } return ''; }, [range.from, range.to, bounds.min, bounds.max]);
-  const pickPreset = (id) => { const r = presetRange(id, bounds.max, bounds.min, bounds.max); setRange({ from: r.from, to: r.to }); };
+  const activePreset = useMemo(() => { if (!bounds.max) return ''; for (const [id] of PRESETS) { const r = presetRange(id, todayISO(), bounds.min, bounds.max); if (range.from === r.from && range.to === r.to) return id; } return ''; }, [range.from, range.to, bounds.min, bounds.max]);
+  const pickPreset = (id) => { const r = presetRange(id, todayISO(), bounds.min, bounds.max); setRange({ from: r.from, to: r.to }); };
   const channels = useMemo(() => [...new Set((ordersM || []).map(o => o.channel).filter(Boolean))], [ordersM]);
   const sellers = useMemo(() => [...new Set((ordersM || []).map(o => o.salesperson).filter(Boolean))].sort(), [ordersM]);
   // ตัวกรองแบบ multi-select (ว่าง = แสดงทั้งหมด) — แพทเทิร์นเดียวกับหน้ารายงานขาย
@@ -1862,9 +1841,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved }) {
   };
   const stMap = { completed: 'สำเร็จ', delivered: 'ส่งแล้ว', cancelled: 'ยกเลิก', pending: 'รอดำเนินการ', processing: 'กำลังทำ', shipped: 'จัดส่งแล้ว' };
   const money = [{ label: 'ยอดขาย', val: B(o.sales) }];
-  if (o.cost > 0) money.push({ label: 'ต้นทุน', val: B(o.cost) });
   if (o.mkt_commission > 0) money.push({ label: 'ค่าธรรมเนียม', val: '−' + B(o.mkt_commission) });
-  if (o.profit > 0) money.push({ label: 'กำไรสุทธิ', val: B(o.profit), color: 'var(--good)' });
   if (o.cod_amount > 0) money.push({ label: 'ยอด COD', val: B(o.cod_amount) });
   return <SideSheet size="lg" icon="listChecks" title={`ออเดอร์ ${o.order_no}`}
     sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span><span style={{ color: 'var(--ink-4)' }}>{o.order_date || o.order_month}</span><b style={{ color: 'var(--ink)' }}>{B(o.sales)}</b></span>}
@@ -1872,7 +1849,6 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved }) {
     <div className="quality-row items-center" style={{ marginBottom: 14 }}>
       {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
       {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
-      {o.profit > 0 && <Badge variant="success" className="rounded-full text-[10px] font-medium">มีต้นทุน/กำไร</Badge>}
       {o.customer_code && <Badge variant="success" className="rounded-full text-[10px] font-medium">มีรหัสลูกค้า</Badge>}
       {hasOv && <Badge variant="outline" className="rounded-full text-[10px] font-medium" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}><Icon name="pencil" /> แก้มือ</Badge>}
       <span className="ml-auto">{!edit && <Button variant="outline" size="sm" className="gap-1" onClick={startEdit}><Icon name="pencil" /> แก้ไขออเดอร์</Button>}</span>

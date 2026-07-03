@@ -36,7 +36,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import * as RDialog from '@radix-ui/react-dialog';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
-import { parseShipnityCustomers } from './lib/shipnityCustomers.js';
 import { logAudit } from './lib/audit.js';
 import { pushNotify, emailOfName, notify, emailsForAudience } from './lib/notify.js';
 import { computeMonth } from './dataContext.jsx';
@@ -1687,7 +1686,8 @@ function downloadTextFile(filename, text) {
 }
 
 /* ---------- รายงานรวมข้ามช่อง: นำเข้าไฟล์ขาย (Shipnity base + Shopee/TikTok เสริม + catalog) ---------- */
-const MP_KIND_LABEL = { shipnity: 'Shipnity (ฐานหลัก)', shopee: 'Shopee (เสริม)', tiktok: 'TikTok (เสริม)', catalog: 'แคตตาล็อกลาย', unknown: 'ไม่รู้จัก' };
+// เลิกใช้ไฟล์ Shipnity แล้ว (ยอด Shipnity เข้าทางหน้า "ส่งยอดใบเสร็จ") — import เหลือมาร์เก็ตเพลสล้วน
+const MP_KIND_LABEL = { shopee: 'Shopee', tiktok: 'TikTok', catalog: 'แคตตาล็อกลาย', unknown: 'ไม่รู้จัก' };
 async function mpFileToGrid(file) {
   if (/\.(xlsx|xls|xlsm|xlsb)$/i.test(file.name)) {
     const buf = await file.arrayBuffer();
@@ -1735,6 +1735,7 @@ export function MpImportModal({ onClose, onDone }) {
       try {
         let grid = await mpFileToGrid(f);
         let kind = detectFileKind(grid);
+        if (kind === 'shipnity') { toast(`${f.name}: ไฟล์ Shipnity เลิกใช้แล้ว — ยอด Shipnity ส่งผ่านแท็บ "ส่งยอดใบเสร็จ"`, 'warn'); continue; }
         if (kind === 'tiktok' && grid.length > 2) grid = [grid[0], ...grid.slice(2)]; // ตัดแถวคำอธิบาย
         added.push({ id: uid('f'), name: f.name, kind, grid, rows: Math.max(0, grid.length - 1) });
       } catch (err) { toast(`อ่าน ${f.name} ไม่สำเร็จ: ${err?.message || ''}`, 'error'); }
@@ -1747,22 +1748,18 @@ export function MpImportModal({ onClose, onDone }) {
   const cntKind = (k) => files.filter(f => f.kind === k).length;
 
   const result = useMemo(() => {
-    const shipnity = mergeGrids(files.filter(f => f.kind === 'shipnity').map(f => f.grid));
     const shopee = mergeGrids(files.filter(f => f.kind === 'shopee').map(f => f.grid));
     const tiktok = mergeGrids(files.filter(f => f.kind === 'tiktok').map(f => f.grid));
     // แคตตาล็อก: ใช้ไฟล์ที่อัปมา → ถ้าไม่อัป ใช้ golden ในตัว (1,617 SKU จากตารางลายเสื้อ) ไม่ต้องอัปทุกรอบ
     const catalog = mergeGrids(files.filter(f => f.kind === 'catalog').map(f => f.grid)) || GOLDEN_CATALOG_GRID;
-    if (!shipnity) return null; // ต้องมีฐานหลัก (Shipnity) — แคตตาล็อกมี golden ในตัวสำรองให้
-    const master0 = buildMaster({ shipnity, tiktok });
+    if (!shopee && !tiktok) return null; // มาร์เก็ตเพลสล้วน — Shopee/TikTok ไฟล์เดียวก็นำเข้าได้
+    const master0 = buildMaster({ shopee, tiktok });
     const M = buildMatchers(catalog, aliases);
-    const sku0 = buildSku({ shipnity, shopee, tiktok }, catalog, { aliases });
+    const sku0 = buildSku({ shopee, tiktok }, catalog, { aliases });
     // dedup กันไฟล์ที่นำเข้าทับกัน (order_no ซ้ำข้ามไฟล์) → กัน ON CONFLICT + ตัวเลขไม่เฟ้อ
     const omap = new Map(); master0.forEach(m => omap.set(`${m.source}:${m.order_no}`, m)); const master = [...omap.values()];
     const sseen = new Set(); const sku = sku0.filter(s => { const k = `${s.source}|${s.order_no}|${s.design}|${s.color}|${s.size}|${s.qty}|${s.line_sales}|${s.raw_sku_or_name || ''}`; if (sseen.has(k)) return false; sseen.add(k); return true; });
-    // ดึงโปรไฟล์ลูกค้าจากไฟล์ Shipnity (มีคอลัมน์เบอร์/ที่อยู่/Tags อยู่แล้ว) → เก็บในครั้งเดียว ไม่ต้องอัปโหลดซ้ำ
-    const hdr = shipnity[0] || []; const custObjs = shipnity.slice(1).map(r => Object.fromEntries(hdr.map((h, i) => [h, r[i]])));
-    const customers = parseShipnityCustomers(custObjs).customers;
-    return { master, sku, customers, dropped: { orders: master0.length - master.length, skus: sku0.length - sku.length }, sum: summarize(master, sku), audit: auditImport(master, sku, M), cols: auditColumns(files) };
+    return { master, sku, dropped: { orders: master0.length - master.length, skus: sku0.length - sku.length }, sum: summarize(master, sku), audit: auditImport(master, sku, M), cols: auditColumns(files) };
   }, [files, aliases]);
 
   const baht = n => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1770,7 +1767,7 @@ export function MpImportModal({ onClose, onDone }) {
     if (!result || saving) return;
     setSaving(true);
     try {
-      const { master, sku, customers } = result;
+      const { master, sku } = result;
       const batch = 'imp-' + Date.now().toString(36);
       const omByOrder = {}, odByOrder = {}; master.forEach(m => { omByOrder[m.order_no] = m.order_month; odByOrder[m.order_no] = m.order_date || null; });
       const months = master.map(m => m.order_month).filter(Boolean);
@@ -1783,13 +1780,7 @@ export function MpImportModal({ onClose, onDone }) {
       for (const src in bySrc) { for (const ids of mpChunk([...bySrc[src]], 150)) { const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', src).in('order_no', ids); if (error) throw error; } }
       const sRows = sku.map((s, i) => ({ id: `${s.source}:${s.order_no}:${i}`, ...s, order_month: omByOrder[s.order_no] || overall, order_date: odByOrder[s.order_no] || null, import_batch: batch }));
       for (const ch of mpChunk(sRows, 500)) { const { error } = await supabase.from('tmk_mp_skus').insert(ch); if (error) throw error; }
-      // 2.5) โปรไฟล์ลูกค้า (จากไฟล์ Shipnity เดียวกัน) → tmk_mp_customers (ไม่บล็อกถ้าตารางยังไม่มี)
-      try {
-        if (customers && customers.length) {
-          const cRows = customers.map(c => ({ ...c, import_batch: batch, updated_at: new Date().toISOString() }));
-          for (const ch of mpChunk(cRows, 500)) { const { error } = await supabase.from('tmk_mp_customers').upsert(ch, { onConflict: 'customer_code' }); if (error) throw error; }
-        }
-      } catch (_e) { /* ลูกค้า optional — ไม่ให้ล้มทั้ง import */ }
+      // (โปรไฟล์ลูกค้าเลิกดึงจากไฟล์ — ใบเสร็จหน้า "ส่งยอด" เติมลูกค้าให้เอง)
       // 3) ledger การนำเข้า (ไม่บล็อกถ้าตารางยังไม่มี)
       try {
         const chans = [...new Set(master.map(m => m.channel))].join(', ');
@@ -1800,7 +1791,7 @@ export function MpImportModal({ onClose, onDone }) {
       // 5) ล้างแคช sale เฉพาะตารางที่เพิ่งเขียน → dashboard เห็นข้อมูลใหม่โดยไม่ต้อง hard-reload
       invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
       logAudit({ action: 'create', entityType: 'data', entityName: 'รายงานรวมข้ามช่อง', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }] });
-      toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} SKU · ${customers?.length || 0} ลูกค้า`, 'success');
+      toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} SKU`, 'success');
       onDone?.(); onClose();
     } catch (err) {
       const msg = /relation .* does not exist|tmk_mp_|column .* does not exist|schema cache|PGRST204/i.test(err?.message || '') ? 'ตาราง/คอลัมน์ยังไม่ครบ — รัน migration ล่าสุด (20260623-mp-foundation.sql) ใน Supabase ก่อน' : (err.message || '');
@@ -1808,22 +1799,22 @@ export function MpImportModal({ onClose, onDone }) {
     } finally { setSaving(false); }
   };
 
-  const need = !cntKind('shipnity'); // แคตตาล็อกไม่บังคับแล้ว — มี golden ในตัวสำรอง
-  const kindSummary = ['shipnity', 'shopee', 'tiktok', 'catalog'].map(k => [k, cntKind(k)]).filter(([, n]) => n > 0);
+  const need = !cntKind('shopee') && !cntKind('tiktok'); // มาร์เก็ตเพลสอย่างน้อย 1 ไฟล์ · แคตตาล็อกมี golden ในตัวสำรอง
+  const kindSummary = ['shopee', 'tiktok', 'catalog'].map(k => [k, cntKind(k)]).filter(([, n]) => n > 0);
   const footer = step === 1
     ? (<>
         <Button variant="outline" onClick={onClose}>ปิด</Button>
-        <Button disabled={!result} onClick={() => setStep(2)}>{result ? <>ตรวจข้อมูล <Icon name="external" /></> : (need ? 'ต้องมีไฟล์ Shipnity (ฐานหลัก)' : 'เลือกไฟล์ก่อน')}</Button>
+        <Button disabled={!result} onClick={() => setStep(2)}>{result ? <>ตรวจข้อมูล <Icon name="external" /></> : (need ? 'ต้องมีไฟล์ Shopee หรือ TikTok' : 'เลือกไฟล์ก่อน')}</Button>
       </>)
     : (<>
         <Button variant="outline" onClick={() => setStep(1)}>← ย้อนกลับ</Button>
         <Button disabled={!result || saving} onClick={save}><Icon name="check" /> {saving ? 'กำลังบันทึก…' : `บันทึกลงระบบ (${N(result?.master.length || 0)} ออเดอร์)`}</Button>
       </>);
   return (
-    <SideSheet size="xl" icon="external" title="นำเข้ารายงานรวมข้ามช่อง" sub={step === 1 ? 'ขั้น 1/2 · เลือกไฟล์' : 'ขั้น 2/2 · ตรวจข้อมูลก่อนบันทึก'} onClose={onClose} footer={footer}>
+    <SideSheet size="xl" icon="external" title="นำเข้าข้อมูลมาร์เก็ตเพลส" sub={step === 1 ? 'ขั้น 1/2 · เลือกไฟล์' : 'ขั้น 2/2 · ตรวจข้อมูลก่อนบันทึก'} onClose={onClose} footer={footer}>
       {step === 1 ? (<>
         <div className="cap" style={{ marginBottom: 12, color: 'var(--ink-3)' }}>
-          ลากไฟล์มาได้หลายไฟล์พร้อมกัน — ระบบรู้เองว่าไฟล์ไหนคืออะไร · <b>ต้องมี Shipnity (ฐานหลัก)</b> · แคตตาล็อกใช้ <b>golden ในตัว</b> ให้แล้ว (อัปไฟล์แคตตาล็อกเองได้ถ้าอยากแทน) · Shopee/TikTok ใส่เพิ่มเพื่อความแม่นระดับ SKU
+          ลากไฟล์ <b>Shopee / TikTok</b> มาได้หลายไฟล์พร้อมกัน — ระบบรู้เองว่าไฟล์ไหนคืออะไร · ไฟล์เดียวก็นำเข้าได้ · แคตตาล็อกใช้ <b>golden ในตัว</b> ให้แล้ว (อัปไฟล์แคตตาล็อกเองได้ถ้าอยากแทน) · <b>ยอด Shipnity ไม่ใช้ไฟล์แล้ว</b> — เซลล์ส่งผ่านแท็บ "ส่งยอดใบเสร็จ"
         </div>
         <div className="row" style={{ gap: 8, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <Button size="sm" onClick={() => fileRef.current?.click()}><Icon name="external" /> {loading ? 'กำลังอ่าน…' : 'เลือกไฟล์ (หลายไฟล์ได้)'}</Button>
@@ -1834,7 +1825,7 @@ export function MpImportModal({ onClose, onDone }) {
           : <div style={{ display: 'grid', gap: 8, marginBottom: 12, maxHeight: 320, overflow: 'auto' }}>
               {files.map(f => (
                 <div key={f.id} className="row between" style={{ gap: 8, padding: '8px 12px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                  <span style={{ minWidth: 0, wordBreak: 'break-all' }}><span className={'chip ' + (f.kind === 'unknown' ? 'chip-bad' : f.kind === 'shipnity' || f.kind === 'catalog' ? 'chip-good' : 'chip-accent')} style={{ marginRight: 8 }}>{MP_KIND_LABEL[f.kind]}</span>{f.name} <span className="cap">· {N(f.rows)} แถว</span></span>
+                  <span style={{ minWidth: 0, wordBreak: 'break-all' }}><span className={'chip ' + (f.kind === 'unknown' ? 'chip-bad' : f.kind === 'catalog' ? 'chip-good' : 'chip-accent')} style={{ marginRight: 8 }}>{MP_KIND_LABEL[f.kind]}</span>{f.name} <span className="cap">· {N(f.rows)} แถว</span></span>
                   <Button variant="ghost" size="sm" onClick={() => removeFile(f.id)}><Icon name="trash" /></Button>
                 </div>
               ))}
@@ -1844,8 +1835,8 @@ export function MpImportModal({ onClose, onDone }) {
           {kindSummary.map(([k, n]) => <span key={k} className="badge badge-default">{MP_KIND_LABEL[k]} × {N(n)}</span>)}
           <span className="cap" style={{ color: 'var(--ink-4)' }}>· {N(files.reduce((a, f) => a + (f.rows || 0), 0))} แถวรวม</span>
         </div>}
-        {need && files.length > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>⚠️ ยังขาดไฟล์ Shipnity (ฐานหลัก)</div>}
-        {!cntKind('catalog') && cntKind('shipnity') > 0 && <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>ℹ️ ไม่ได้อัปไฟล์แคตตาล็อก — จะใช้ golden ในตัว (1,617 SKU จากตารางลายเสื้อ)</div>}
+        {need && files.length > 0 && <div className="cap" style={{ color: 'var(--warn)', marginBottom: 10 }}>⚠️ ยังไม่มีไฟล์มาร์เก็ตเพลส (Shopee/TikTok)</div>}
+        {!cntKind('catalog') && !need && <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 10 }}>ℹ️ ไม่ได้อัปไฟล์แคตตาล็อก — จะใช้ golden ในตัว (1,617 SKU จากตารางลายเสื้อ)</div>}
         {result && <div className="cap" style={{ color: 'var(--good)', fontWeight: 600 }}>✓ อ่านไฟล์เสร็จ ({N(result.master.length)} ออเดอร์) — กด "ตรวจข้อมูล" เพื่อดูละเอียดก่อนบันทึก</div>}
       </>) : !result ? <div className="cap" style={{ padding: 24, textAlign: 'center', color: 'var(--ink-4)' }}>ยังไม่มีข้อมูล — กดย้อนกลับไปเลือกไฟล์</div> : (<>
         <div className="metric-grid" style={{ marginBottom: 12 }}>
@@ -1853,7 +1844,6 @@ export function MpImportModal({ onClose, onDone }) {
           <div className="metric-card"><div className="cap">ยอดขายรวม</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-2)' }}>{baht(result.sum.sales)}</div></div>
           <div className="metric-card"><div className="cap">จำนวนตัว</div><div className="num" style={{ fontSize: 20, fontWeight: 700 }}>{N(result.sum.qty)}</div></div>
           <div className="metric-card"><div className="cap">จับคู่ลาย</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: result.sum.matchedPct >= 99 ? 'var(--good)' : 'var(--warn)' }}>{result.sum.matchedPct.toFixed(1)}%</div><div className="cap" style={{ color: 'var(--ink-4)' }}>{N(result.sum.skuLines)} SKU</div></div>
-          <div className="metric-card"><div className="cap">ลูกค้า (โปรไฟล์)</div><div className="num" style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent-2)' }}>{N(result.customers?.length || 0)}</div></div>
         </div>
         {result.dropped && (result.dropped.orders > 0 || result.dropped.skus > 0) && <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 10 }}><Icon name="refresh" /> ไฟล์ทับกัน — ตัดออเดอร์ซ้ำ {N(result.dropped.orders)} · SKU ซ้ำ {N(result.dropped.skus)} (เก็บรายการล่าสุด)</div>}
 
@@ -1894,7 +1884,7 @@ export function MpImportModal({ onClose, onDone }) {
                 <span className="cap" style={{ color: 'var(--ink-3)' }}>สีที่ยังไม่รู้จัก:</span>
                 {a.newColors.length ? a.newColors.slice(0, 8).map((d, i) => <span key={i} className="badge badge-outline" style={{ background: 'rgba(224,81,74,.14)', color: 'var(--bad)' }}>{d.key} ×{d.count}</span>) : <span className="cap" style={{ color: 'var(--good)' }}>ไม่มี ✓</span>}
               </div>
-              <div className="cap" style={{ color: 'var(--ink-4)' }}>จัดการชื่อพ้อง/เพิ่มสีได้ที่ ข้อมูล → สุขภาพข้อมูล (ตั้งแล้วนำเข้าซ้ำเพื่อใช้)</div>
+              <div className="cap" style={{ color: 'var(--ink-4)' }}>จัดการชื่อพ้อง/เพิ่มสีได้ที่แท็บ "คุณภาพข้อมูล" (ตั้งแล้วนำเข้าซ้ำเพื่อใช้)</div>
             </div>
           </div>
         ); })()}
@@ -2300,8 +2290,6 @@ export function MonthlyTargetModal({ data, onClose }) {
       adChannels: MD.channels.filter(c => c.hasAd).map(c => ({ id: c.id, name: c.name, hex: c.hex, budget: meta.adChannels?.[c.id] ?? '' })),
       newCustTarget: meta.newCustTarget ?? '',
       acosCeil: meta.acosCeil ?? 25,
-      cogsPct: meta.cogsPct ?? '',
-      otherExpense: meta.otherExpense ?? '',
     };
   };
   const _init = loadFor(monthIdx, year);
@@ -2310,8 +2298,6 @@ export function MonthlyTargetModal({ data, onClose }) {
   const [adChannels, setAdChannels] = useState(_init.adChannels);
   const [newCustTarget, setNewCustTarget] = useState(_init.newCustTarget);
   const [acosCeil, setAcosCeil] = useState(_init.acosCeil);
-  const [cogsPct, setCogsPct] = useState(_init.cogsPct);
-  const [otherExpense, setOtherExpense] = useState(_init.otherExpense);
   const [touched, setTouched] = useState(false);
 
   // เปลี่ยนเดือน → โหลดค่าของเดือนนั้น (แต่ละเดือนแยกกัน)
@@ -2320,7 +2306,6 @@ export function MonthlyTargetModal({ data, onClose }) {
     const v = loadFor(idx, yr);
     setTotal(v.total); setChTargets(v.chTargets);
     setAdChannels(v.adChannels); setNewCustTarget(v.newCustTarget); setAcosCeil(v.acosCeil);
-    setCogsPct(v.cogsPct); setOtherExpense(v.otherExpense);
     setTouched(false); // สลับเดือน = โหลดค่าเดิม ไม่นับว่าแก้
   };
 
@@ -2350,8 +2335,6 @@ export function MonthlyTargetModal({ data, onClose }) {
         adChannels: Object.fromEntries(adChannels.map(c => [c.id, nn(c.budget)])),
         newCustTarget: nn(newCustTarget),
         acosCeil: Number(acosCeil) || 25,
-        cogsPct: Math.min(100, Math.max(0, Number(cogsPct) || 0)),
-        otherExpense: nn(otherExpense),
       };
       const row = {
         id: `${year}-${String(monthIdx + 1).padStart(2, '0')}`,
@@ -2369,8 +2352,6 @@ export function MonthlyTargetModal({ data, onClose }) {
       adChannels.forEach(c => { if (Number(c.budget) > 0) tgtFields.push({ label: `งบแอด ${c.name}`, value: B(Number(c.budget)) }); });
       if (Number(newCustTarget) > 0) tgtFields.push({ label: 'เป้าลูกค้าใหม่', value: N(Number(newCustTarget)) });
       tgtFields.push({ label: 'เพดาน ACOS', value: `${Number(acosCeil) || 25}%` });
-      if (Number(cogsPct) > 0) tgtFields.push({ label: 'ต้นทุนสินค้า', value: `${Number(cogsPct)}%` });
-      if (Number(otherExpense) > 0) tgtFields.push({ label: 'ค่าใช้จ่ายอื่น', value: B(Number(otherExpense)) });
       // ก่อน→หลัง — เทียบ config เป้าเดิม (เห็นว่าค่าไหนถูกแก้ รวมถึงค่าที่ถูกล้างเป็น 0)
       const exMeta = (existing && existing.meta) || {};
       const tgtChanges = [];
@@ -2382,8 +2363,6 @@ export function MonthlyTargetModal({ data, onClose }) {
       adChannels.forEach(c => cmpMoney(`งบแอด ${c.name}`, exMeta.adChannels?.[c.id], c.budget));
       cmpNum('เป้าลูกค้าใหม่', exMeta.newCustTarget, newCustTarget);
       cmpNum('เพดาน ACOS', exMeta.acosCeil ?? 25, Number(acosCeil) || 25, '%');
-      cmpNum('ต้นทุนสินค้า %', exMeta.cogsPct, Math.min(100, Math.max(0, Number(cogsPct) || 0)), '%');
-      cmpMoney('ค่าใช้จ่ายอื่น', exMeta.otherExpense, otherExpense);
       logAudit({
         action: existing ? 'update' : 'create',
         entityType: 'monthly',
@@ -2472,18 +2451,6 @@ export function MonthlyTargetModal({ data, onClose }) {
         </div>
       </div>
 
-      <div className="field-row">
-        <div className="field">
-          <label>ต้นทุนสินค้า % (ของยอดขาย)</label>
-          <Input type="number" min="0" inputMode="decimal" max="100" placeholder="เช่น 40" value={cogsPct} onChange={e => { setTouched(true); setCogsPct(e.target.value); }} />
-          <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ใช้คำนวณกำไรสุทธิ — ต้นทุนสินค้าคิดเป็น % ของยอดขาย</div>
-        </div>
-        <div className="field">
-          <label>ค่าใช้จ่ายอื่น/เดือน (บาท)</label>
-          <Input type="number" min="0" inputMode="decimal" placeholder="0" value={otherExpense} onChange={e => { setTouched(true); setOtherExpense(e.target.value); }} />
-          <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)' }}>ค่าส่ง/แพ็ค/เงินเดือน/ค่าเช่า ฯลฯ</div>
-        </div>
-      </div>
     </Modal>
   );
 }

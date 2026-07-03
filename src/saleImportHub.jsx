@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
-const fetchAllOrders = () => cachedFetchAll('tmk_mp_orders', 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,cost,profit,mkt_commission,cod_amount,job_type,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent');
+const fetchAllOrders = () => cachedFetchAll('tmk_mp_orders', 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent');
 
 // การ์ดนำเข้าไฟล์มาร์เก็ตเพลส (คืน Card ใบเดียว — ให้ HealthHub วางในกริดของตัวเอง)
 export function ImportExportHub() {
@@ -26,8 +26,8 @@ export function ImportExportHub() {
 
   return (
     <Card className="p-4">
-      <CardHead icon="box" title={<>นำเข้าข้อมูลขาย <span className="dim">(Shipnity / Shopee / TikTok + แคตตาล็อก)</span></>}
-        sub={<>ลากไฟล์มาร์เก็ตเพลสเข้าระบบ — รวม / จับคู่ลาย / <b>เก็บโปรไฟล์ลูกค้า</b> / บันทึก Supabase อัตโนมัติในครั้งเดียว</>} />
+      <CardHead icon="box" title={<>นำเข้าข้อมูลมาร์เก็ตเพลส <span className="dim">(Shopee / TikTok)</span></>}
+        sub={<>ลากไฟล์ Shopee/TikTok เข้าระบบ — รวม / จับคู่ลาย / บันทึกอัตโนมัติในครั้งเดียว · <b>ยอด Shipnity ส่งผ่านแท็บ "ส่งยอดใบเสร็จ"</b></>} />
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <Button onClick={() => setImportOpen(true)}><Icon name="external" /> นำเข้าไฟล์มาร์เก็ตเพลส</Button>
         {orders ? <Badge variant="secondary">ในระบบ {N(orders.length)} ออเดอร์</Badge> : <span className="cap" style={{ color: 'var(--ink-4)' }}>กำลังโหลด…</span>}
@@ -71,8 +71,8 @@ export function SalesAliasManager() {
   const shown = handles ? handles.filter(([h]) => !q.trim() || h.toLowerCase().includes(q.trim().toLowerCase())) : [];
   return (
     <Card className="p-4">
-      <CardHead icon="users" title={<>รวมชื่อเซลล์ <span className="dim">(บัญชีคีย์ข้อมูล → ชื่อจริง)</span></>}
-        sub={<>มาร์เก็ตเพลสบันทึกชื่อเป็นบัญชีระบบ (เช่น <code>jirarattukta</code>) — ใส่ชื่อจริงเพื่อให้รายงาน "ยอด/ปิดการขายต่อเซลล์" รวมเป็นคนเดียว ไม่แตกหลายชื่อ</>}
+      <CardHead icon="users" title="รวมชื่อเซลล์"
+        sub="ใส่ชื่อจริงให้บัญชีคีย์ข้อมูล เพื่อรวมยอดต่อเซลล์เป็นคนเดียว"
         right={handles && handles.length > 0 ? <Badge variant={named === handles.length ? 'success' : 'secondary'}>ตั้งชื่อแล้ว {N(named)}/{N(handles.length)}</Badge> : null} />
       {handles === null ? <div className="cap" style={{ color: 'var(--ink-4)' }}>กำลังโหลด…</div>
         : handles.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มีชื่อเซลล์ในออเดอร์</div>

@@ -10,6 +10,7 @@ import { MetricCard, CountUp, GradientSparkline, ComboChart, StackedBars, HBars,
 import { ChannelLogo, channelTint } from './lib/channelLogos.jsx';
 import { compute, series, deltaKpi, movers, sizeRank, normColor, normSize, customerAgg, rfmTiers, geoBreakdown, regionBreakdown } from './lib/saleAgg.js';
 import { bucketKey, bucketLabel, enumerateBuckets, autoGran, presetRange, PRESETS, prevPeriod, prevCalendarMonth, isFullCalendarMonth, diffDays } from './lib/saleTime.js';
+import { todayISO } from './lib/dateUtils.js';
 import { CATALOG_TYPES } from './lib/catalogMeta.js';
 import { PROVINCES, REGIONS, normalizeProvince, TH_BBOX } from './lib/provinces.js';
 import { TH_PATHS } from './lib/thMapPaths.js';
@@ -351,7 +352,7 @@ export function SaleDashboard() {
     const bks = enumerateBuckets(range.from, range.to, gran);
     const channels = A.byChannel.map(c => c.key); // เรียงตามยอดมาก→น้อย
     const acc = {}; channels.forEach(ch => acc[ch] = {});
-    const valOf = (o) => trendMetric === 'orders' ? 1 : trendMetric === 'qty' ? (Number(o.qty) || 0) : trendMetric === 'profit' ? (Number(o.profit) || 0) : (Number(o.sales) || 0);
+    const valOf = (o) => trendMetric === 'orders' ? 1 : trendMetric === 'qty' ? (Number(o.qty) || 0) : (Number(o.sales) || 0);
     (A._ords || []).forEach(o => { if (!(o.channel in acc)) return; const b = bucketKey(o.order_date, gran); acc[o.channel][b] = (acc[o.channel][b] || 0) + valOf(o); });
     return {
       labels: bks.map(b => bucketLabel(b, gran).replace(/ \(.*/, '')),
@@ -391,11 +392,11 @@ export function SaleDashboard() {
     const bestMonthLabel = bestMonth ? bucketLabel(bestMonth.key, 'month') : '';
     return { repeatC, repeatRate, perDay: k.sales / days, perActiveDay: k.sales / activeDays, days, activeDays, sparkSales: sparkOf('sales'), sparkOrders: sparkOf('orders'), sparkQty: sparkOf('qty'), ltRepeatRate, withPhone, custN: cust.length, bestMonth, bestMonthLabel };
   })();
-  const metricFmt = trendMetric === 'sales' || trendMetric === 'profit' ? baht : N;
+  const metricFmt = trendMetric === 'sales' ? baht : N;
   const designItems = (designMetric === 'sales' ? [...A.byDesign].sort((a, b) => b.sales - a.sales) : A.byDesign).slice(0, topN);
   const setRange = (from, to) => setF(p => ({ ...p, from, to }));
   // preset ที่ active อยู่ (ตรงกับช่วงปัจจุบัน) — ให้ ToggleGroup รู้ค่าที่เลือก
-  const activePreset = (() => { for (const [id] of PRESETS) { const r = presetRange(id, bounds.max, bounds.min, bounds.max); if (id === 'all' ? (!f.from && !f.to) : (f.from === r.from && f.to === r.to)) return id; } return ''; })();
+  const activePreset = (() => { for (const [id] of PRESETS) { const r = presetRange(id, todayISO(), bounds.min, bounds.max); if (id === 'all' ? (!f.from && !f.to) : (f.from === r.from && f.to === r.to)) return id; } return ''; })();
   const nFilters = activeFilterCount(f);
   // cross-filter: คลิกกราฟ → สลับค่าในตัวกรองสากล (กรองทั้งหน้า)
   const toggleFilter = (dim, value) => setF(p => { const cur = p[dim] || []; return { ...p, [dim]: cur.includes(value) ? cur.filter(x => x !== value) : [...cur, value] }; });
@@ -421,9 +422,9 @@ export function SaleDashboard() {
       <Card className="overflow-visible" style={{ padding: 0 }}>
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="filter-compact row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '11px 14px' }}>
-            <DateRangePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max} onChange={(a, b) => setRange(a, b)}
+            <DateRangePicker from={range.from} to={range.to} min={bounds.min} max={(bounds.max && bounds.max > todayISO()) ? bounds.max : todayISO()} onChange={(a, b) => setRange(a, b)}
               presets={PRESETS} activePreset={activePreset}
-              onPickPreset={(id) => { const r = presetRange(id, bounds.max, bounds.min, bounds.max); setRange(id === 'all' ? null : r.from, id === 'all' ? null : r.to); }} />
+              onPickPreset={(id) => { const r = presetRange(id, todayISO(), bounds.min, bounds.max); setRange(id === 'all' ? null : r.from, id === 'all' ? null : r.to); }} />
             <span className="h-5 w-px bg-[var(--line)]" />
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className="gap-2">
@@ -577,10 +578,9 @@ export function SaleDashboard() {
             <SectionHead title="เจาะลึก" sub="ตัวเลขเสริมรายสัดส่วน" />
             <div className="metric-grid" style={{ marginTop: 10 }}>
               <MetricCard index={0} label="ออเดอร์ก้อนใหญ่" value={N(k.big)} sub={`${Math.round(k.bigPct * 100)}% (≥11 ตัว)`} />
-              <MetricCard index={1} label="กำไร/ออเดอร์" value={baht(k.orders ? k.profit / k.orders : 0)} tone="var(--good)" sub={k.costOrders ? `มาร์จิ้นเชื่อได้ ${Math.round(k.marginReal * 100)}%${(k.hasCostCh && k.hasCostCh.size < k.nChannels) ? ' · บางช่องไม่มีต้นทุน' : ''}` : 'ยังไม่มีต้นทุน'} />
-              <MetricCard index={2} label="%ปิดการขาย" value={funnelClose ? `${funnelClose.pct}%` : '—'} icon="target" tone={funnelClose ? (funnelClose.pct >= 15 ? 'var(--good)' : funnelClose.pct >= 8 ? 'var(--warn)' : 'var(--bad)') : undefined} sub={funnelClose ? `ปิด ${N(funnelClose.orders)}/${N(funnelClose.totalLeads)} คนทัก` : 'ยังไม่มีข้อมูลคนทัก'} />
-              <MetricCard index={3} label="Basket Size" value={baht(k.aov)} sub="ยอดเฉลี่ย/ออเดอร์" />
-              <MetricCard index={4} label="AVG ตัว/ออเดอร์" value={basketQty.toFixed(2)} sub={`${baht(k.ppu)}/ตัว`} />
+              <MetricCard index={1} label="%ปิดการขาย" value={funnelClose ? `${funnelClose.pct}%` : '—'} icon="target" tone={funnelClose ? (funnelClose.pct >= 15 ? 'var(--good)' : funnelClose.pct >= 8 ? 'var(--warn)' : 'var(--bad)') : undefined} sub={funnelClose ? `ปิด ${N(funnelClose.orders)}/${N(funnelClose.totalLeads)} คนทัก` : 'ยังไม่มีข้อมูลคนทัก'} />
+              <MetricCard index={2} label="Basket Size" value={baht(k.aov)} sub="ยอดเฉลี่ย/ออเดอร์" />
+              <MetricCard index={3} label="AVG ตัว/ออเดอร์" value={basketQty.toFixed(2)} sub={`${baht(k.ppu)}/ตัว`} />
             </div>
           </div>
         </>;
@@ -606,7 +606,7 @@ export function SaleDashboard() {
           <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4" style={{ flexWrap: 'wrap' }}>
             <CardTitle className="m-0 text-base font-semibold">ยอดขายตามเวลา <span className="dim">(เลือกตัวชี้วัด · เทียบช่วงก่อน)</span></CardTitle>
             <div className="card-action row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Tabs value={trendMetric} onValueChange={setTrendMetric}><TabsList>{[['sales', 'ยอดขาย'], ['orders', 'ออเดอร์'], ['qty', 'ตัว'], ['profit', 'กำไร']].map(([id, lb]) => <TabsTrigger key={id} value={id}>{lb}</TabsTrigger>)}</TabsList></Tabs>
+              <Tabs value={trendMetric} onValueChange={setTrendMetric}><TabsList>{[['sales', 'ยอดขาย'], ['orders', 'ออเดอร์'], ['qty', 'ตัว']].map(([id, lb]) => <TabsTrigger key={id} value={id}>{lb}</TabsTrigger>)}</TabsList></Tabs>
               <span style={{ width: 1, height: 18, background: 'var(--line)' }} />
               <span className="cap" style={{ color: 'var(--ink-4)' }}>มุมมอง</span>
               <Tabs value={granSel} onValueChange={setGranSel}><TabsList>{[['auto', 'อัตโนมัติ'], ['day', 'วัน'], ['week', 'สัปดาห์'], ['month', 'เดือน'], ['quarter', 'ไตรมาส']].map(([id, lb]) => <TabsTrigger key={id} value={id}>{lb}</TabsTrigger>)}</TabsList></Tabs>
@@ -621,7 +621,7 @@ export function SaleDashboard() {
             {trendSplit
               ? trendByChannel.datasets.map(d => <span key={d.label} className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }} /> {d.label}</span>)
               : <>
-                <span className="row" style={{ gap: 5 }}><span style={{ width: 12, height: 8, borderRadius: 2, background: 'var(--accent-2)' }} /> {trendMetric === 'sales' ? 'ยอดขาย' : trendMetric === 'orders' ? 'ออเดอร์' : trendMetric === 'qty' ? 'ตัว' : 'กำไร'} (แท่ง)</span>
+                <span className="row" style={{ gap: 5 }}><span style={{ width: 12, height: 8, borderRadius: 2, background: 'var(--accent-2)' }} /> {trendMetric === 'sales' ? 'ยอดขาย' : trendMetric === 'orders' ? 'ออเดอร์' : 'ตัว'} (แท่ง)</span>
                 <span className="row" style={{ gap: 5 }}><span style={{ width: 12, height: 2, background: 'var(--accent)' }} /> จำนวนออเดอร์ (เส้น)</span>
                 {cmp && <span className="row" style={{ gap: 5 }}><span style={{ width: 12, height: 8, borderRadius: 2, background: 'var(--ink-3)', opacity: .35 }} /> {prevLabel}</span>}
               </>}

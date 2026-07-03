@@ -64,7 +64,9 @@ export function autoGran(from, to) {
 // ---- preset ช่วงเวลา (today = วันอ้างอิง 'YYYY-MM-DD', dataMin/dataMax = ขอบข้อมูล) ----
 export function presetRange(id, today, dataMin, dataMax) {
   if (!today) return { from: dataMin || null, to: dataMax || null }; // กัน race: ขอบวันที่ยังไม่โหลด (bounds.max = null)
-  const clamp = (f, t) => ({ from: dataMin && f < dataMin ? dataMin : f, to: dataMax && t > dataMax ? dataMax : t });
+  // clamp เฉพาะ "ต้นช่วง" ไม่ให้ต่ำกว่าข้อมูลแรก — ไม่ล็อก "ปลายช่วง" ที่วันข้อมูลล่าสุด
+  // (anchor = วันจริง → "เดือนนี้" = เดือนปัจจุบันจริง แม้ข้อมูลยังมาไม่ถึง · ยุค realtime)
+  const clamp = (f, t) => ({ from: dataMin && f < dataMin ? dataMin : f, to: t });
   switch (id) {
     case 'today': return clamp(today, today);
     case 'd7': return clamp(addDays(today, -6), today);

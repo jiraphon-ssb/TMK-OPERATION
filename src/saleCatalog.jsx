@@ -1,12 +1,11 @@
 /* ============================================================
    saleCatalog.jsx — แคตตาล็อกเสื้อ (Sale → แคตตาล็อกเสื้อ) → tmk_shirt_catalog
-   เพิ่ม/แก้/ลบได้ทุกฟิลด์ · ไม่ต้องแนบไฟล์ (รูป optional) · สลับการ์ด/ตาราง
+   ตารางเดียว เน้นข้อมูล — ไม่มีระบบรูปแล้ว (PART 42 · คอลัมน์ image ใน DB คงไว้ ไม่แตะ)
    ============================================================ */
 import { useState, useEffect, useMemo } from 'react';
-import { Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext } from '@/components/ui/carousel';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, invalidateSaleCache } from './lib/saleData.js';
-import { N, Icon, Skel, SkelTable, useDelayedFlag, readImageCompressed, stockMeta } from './components.jsx';
+import { N, Icon, Skel, SkelTable, useDelayedFlag, stockMeta } from './components.jsx';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
 import { Modal, SideSheet } from './modals.jsx';
@@ -14,11 +13,10 @@ import { logAudit } from './lib/audit.js';
 import { logCatalogVersion, fetchCatalogVersions } from './lib/catalogVersions.js';
 import { GOLDEN_DESIGNS, COLOR_TH2CODE } from './lib/shirtCatalog.js';
 import { usePersistedState } from './hooks/usePersistedState.js';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Table, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { Toggle } from '@/components/ui/toggle';
 import { SearchInput } from '@/components/ui/search-input';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
@@ -27,35 +25,15 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { Label } from '@/components/ui/label';
-import { SortableTable, DensityToggle } from './components/DataTableParts.jsx';
+import { SortableTable } from './components/DataTableParts.jsx';
 
 const baht = (n) => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const toast = (m, t) => window.__toast && window.__toast(m, t);
 const uid = () => 'sc-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const normCode = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');   // จับคู่ catalog.code ↔ products.sku
 
-// คอลัมน์ที่ list/การ์ด/ตารางใช้จริง (เลิก select '*') — image/images เป็น URL สั้นหลังย้าย Storage
-const CATALOG_SEL = 'id,code,name,type,price,price_wholesale,cost,colors,sizes,status,job_type,shirt_class,image,images,note,variants,updated_at';
-const isDataUrl = (s) => typeof s === 'string' && s.startsWith('data:');   // ยังไม่ได้ย้ายขึ้น Storage
-
-// อัปโหลดรูป (data-URL ที่ย่อแล้ว) ขึ้น Supabase Storage bucket tmk-images → คืน public URL
-// ลด egress: DB เก็บ URL สั้นแทน base64 ก้อนใหญ่ · upload พัง/bucket หาย → fallback คืน data-URL เดิม (ไม่บล็อกฟอร์ม)
-async function uploadCatalogImage(dataUrl, catalogId, idx) {
-  if (!isDataUrl(dataUrl)) return dataUrl;   // เป็น URL อยู่แล้ว — ไม่ต้องอัปซ้ำ (idempotent)
-  try {
-    const blob = await (await fetch(dataUrl)).blob();
-    const path = `catalog/${catalogId}-${idx}-${Date.now().toString(36)}.jpg`;
-    const { error } = await supabase.storage.from('tmk-images')
-      .upload(path, blob, { upsert: true, contentType: 'image/jpeg', cacheControl: '3600' });
-    if (error) throw error;
-    const { data: pub } = supabase.storage.from('tmk-images').getPublicUrl(path);
-    return pub.publicUrl;
-  } catch (e) {
-    console.warn('catalog image upload → ใช้ data-URL แทน:', e?.message);
-    return dataUrl;
-  }
-}
+// คอลัมน์ที่ตารางใช้จริง (เลิก select '*') — ไม่ดึง image/images แล้ว (เลิกใช้รูป · ลด egress)
+const CATALOG_SEL = 'id,code,name,type,price,price_wholesale,colors,sizes,status,job_type,shirt_class,note,variants,updated_at';
 
 const TYPES = ['เสื้อโปโล', 'เสื้อกล้าม', 'กระเป๋า', 'กล่องสุ่ม', 'ถุงเท้า', 'ของแถม/โปร', 'อื่นๆ'];
 const STATUSES = ['พร้อมขาย', 'พรีออเดอร์', 'หมด', 'เลิกผลิต'];
@@ -136,12 +114,11 @@ function MultiSelect({ label, options, value, onChange }) {
     </DropdownMenu>
   );
 }
-const blank = () => ({ code: '', name: '', type: 'เสื้อโปโล', price: '', price_wholesale: '', cost: '', colors: '', sizes: '', status: 'พร้อมขาย', job_type: 'ปลีก', shirt_class: 'เสื้อปกติ', image: '', images: [], note: '', variants: {} });
-const MAX_IMAGES = 8;
+const blank = () => ({ code: '', name: '', type: 'เสื้อโปโล', price: '', price_wholesale: '', colors: '', sizes: '', status: 'พร้อมขาย', job_type: 'ปลีก', shirt_class: 'เสื้อปกติ', note: '', variants: {} });
 // variants อาจมาเป็น object (jsonb) หรือ string → คืน object เสมอ
 const parseVariants = (v) => { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v) || {}; } catch { return {}; } };
 // แปลง row จาก DB → form (numeric เป็น string ในช่องกรอก)
-const toForm = (it) => ({ ...blank(), ...it, price: it.price ?? '', price_wholesale: it.price_wholesale ?? '', cost: it.cost ?? '', variants: parseVariants(it.variants), images: Array.isArray(it.images) ? it.images : (it.image ? [it.image] : []) });
+const toForm = (it) => ({ ...blank(), ...it, price: it.price ?? '', price_wholesale: it.price_wholesale ?? '', variants: parseVariants(it.variants) });
 
 // พาเลตสี/ไซซ์มาตรฐาน + ตัวช่วยแก้ไขแบบชิป
 const COLOR_HEX = { 'ขาว':'#ffffff','ดำ':'#1a1a1a','กรม':'#1f2d50','กรมท่า':'#1f2d50','ฟ้า':'#4a8be0','น้ำเงิน':'#1f3aa0','เขียว':'#2f9e6e','เหลือง':'#e8c23b','แดง':'#c0392b','ชมพู':'#e06aa0','ม่วง':'#6b5ce0','ส้ม':'#e0772f','โอรส':'#e0772f','ครีม':'#efe7d2' };
@@ -149,79 +126,36 @@ const STD_COLORS = Object.keys(COLOR_TH2CODE);
 const STD_SIZES = ['XS','S','M','L','XL','2XL','3XL','4XL','5XL','6XL','7XL'];
 const splitList = (s) => (s || '').split(',').map(x => x.trim()).filter(Boolean);
 const sizeRank = (s) => { const i = STD_SIZES.indexOf(s); return i < 0 ? 99 : i; };
-const qualityBadges = (it) => {
-  const out = [];
-  if (!it.image) out.push(['warn', 'ไม่มีรูป']);
-  if (!(Number(it.price) > 0)) out.push(['warn', 'ยังไม่ตั้งราคา']);
-  if (!splitList(it.colors).length) out.push(['warn', 'ไม่มีสี']);
-  if (!splitList(it.sizes).length) out.push(['warn', 'ไม่มีไซซ์']);
-  if (!out.length) out.push(['good', 'ข้อมูลครบ']);
-  return out;
+// ข้อมูลที่ยังขาด (ราคา/สี/ไซซ์) — โชว์ badge เตือนสั้นๆ ในตาราง
+const missingOf = (it) => {
+  const m = [];
+  if (!(Number(it.price) > 0)) m.push('ราคา');
+  if (!splitList(it.colors).length) m.push('สี');
+  if (!splitList(it.sizes).length) m.push('ไซซ์');
+  return m;
 };
-function CatalogThumb({ item, small = false }) {
-  if (item?.image) return <img src={item.image} alt={item.name || ''} loading="lazy" style={small ? { width: 34, height: 34, borderRadius: 'var(--r-xs)', objectFit: 'cover', display: 'block' } : undefined} />;
-  if (small) return <span className="catalog-thumb-ph sm"><Icon name="bag" /></span>;
+// จุดสีเล็กในตาราง (แทนข้อความรายชื่อสี)
+const ColorDots = ({ colors }) => {
+  const list = splitList(colors);
+  if (!list.length) return <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>;
   return (
-    <>
-      <div className="catalog-pattern" />
-      <div className="catalog-thumb-code">
-        <b>{item?.code || 'TMK'}</b>
-        <span className="cap">{item?.type || 'Catalog'}</span>
-      </div>
-    </>
+    <span className="row" style={{ gap: 3, alignItems: 'center', flexWrap: 'wrap' }} title={list.join(', ')}>
+      {list.slice(0, 6).map(c => <span key={c} style={{ width: 12, height: 12, borderRadius: 999, background: COLOR_HEX[c] || '#bbb', border: '1px solid var(--line)', display: 'inline-block' }} />)}
+      {list.length > 6 && <span className="cap" style={{ color: 'var(--ink-4)' }}>+{list.length - 6}</span>}
+    </span>
   );
-}
-// รวมรูปทั้งหมดของเสื้อ (รองรับ DB เก่าที่มีแค่ image เดี่ยว)
-const itemImages = (it) => (Array.isArray(it?.images) && it.images.length ? it.images : (it?.image ? [it.image] : []));
-// thumb การ์ด: รูปเดียว → CatalogThumb เดิม · หลายรูป → carousel ปัด/จุด/ลูกศร (instantiate embla เฉพาะตอน >1)
-function CatalogCardThumb({ item }) {
-  const imgs = itemImages(item);
-  const [api, setApi] = useState(null);
-  const [sel, setSel] = useState(0);
-  useEffect(() => {
-    if (!api) return;
-    const onSel = () => setSel(api.selectedScrollSnap());
-    onSel(); api.on('select', onSel); api.on('reInit', onSel);
-    return () => { api.off('select', onSel); api.off('reInit', onSel); };
-  }, [api]);
-  if (imgs.length <= 1) return <div className="catalog-thumb"><CatalogThumb item={item} /></div>;
-  // คลิกปุ่ม (ลูกศร/จุด) ไม่ให้ทะลุไปเปิดฟอร์มแก้ไข — ปล่อย handler ของปุ่มทำงานก่อน แล้วหยุด bubble ที่ชั้นนี้
-  const blockBtn = (e) => { if (e.target.closest('button')) e.stopPropagation(); };
-  return (
-    <div className="catalog-thumb catalog-thumb-carousel" onClick={blockBtn}>
-      <Carousel opts={{ loop: true }} setApi={setApi} className="h-full w-full">
-        <CarouselContent className="h-full ml-0">
-          {imgs.map((src, i) => (
-            <CarouselItem key={i} className="pl-0 h-full">
-              <img src={src} alt={`${item?.name || ''} ${i + 1}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            </CarouselItem>
-          ))}
-        </CarouselContent>
-        <CarouselPrevious className="catalog-carousel-arrow left-2" />
-        <CarouselNext className="catalog-carousel-arrow right-2" />
-      </Carousel>
-      <div className="catalog-carousel-dots">
-        {imgs.map((_, i) => (
-          <button key={i} type="button" className={i === sel ? 'on' : ''} aria-label={`รูป ${i + 1}`}
-            onClick={() => { api && api.scrollTo(i); }} />
-        ))}
-      </div>
-    </div>
-  );
-}
+};
 
-/* ---------- Skeleton ---------- */
-function CatalogSkeleton({ view }) {
+/* ---------- Skeleton (ตารางเดียว) ---------- */
+function CatalogSkeleton() {
   return (
     <div className="content-inner rise" style={{ display: 'grid', gap: 14 }}>
       <Card className="p-[22px]">
-        <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}><Skel w={200} h={16} /><div className="row" style={{ gap: 8 }}><Skel w={70} h={30} r={8} /><Skel w={110} h={30} r={8} /></div></div>
+        <div className="row between" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 10 }}><Skel w={200} h={16} /><Skel w={90} h={30} r={8} /></div>
         <Skel w="100%" h={34} r={9} style={{ marginBottom: 12 }} />
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Array.from({ length: 8 }).map((_, i) => <Skel key={i} w={i % 2 ? 78 : 56} h={26} r={8} />)}</div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Array.from({ length: 5 }).map((_, i) => <Skel key={i} w={i % 2 ? 78 : 56} h={26} r={8} />)}</div>
       </Card>
-      {view === 'table'
-        ? <Card className="p-[22px]"><SkelTable cols={8} rows={9} /></Card>
-        : <div className="catalog-grid">{Array.from({ length: 10 }).map((_, i) => <Card key={i} style={{ overflow: 'hidden' }}><Skel w="100%" h={150} r={0} /><div style={{ padding: 12 }}><Skel w="40%" h={9} /><Skel w="80%" h={14} style={{ marginTop: 8 }} /><Skel w="55%" h={11} style={{ marginTop: 10 }} /></div></Card>)}</div>}
+      <Card className="p-[22px]"><SkelTable cols={8} rows={9} /></Card>
     </div>
   );
 }
@@ -230,7 +164,6 @@ export function ShirtCatalogView() {
   const [items, setItems] = useState(null);
   const [noTable, setNoTable] = useState(false);
   const [err, setErr] = useState('');
-  const [view, setView] = useState(() => localStorage.getItem('tmk_catalog_view') || 'card');
   const [q, setQ] = useState('');
   const [typeF, setTypeF] = usePersistedState('tmk-catalog-typeF', []);
   const [statusF, setStatusF] = usePersistedState('tmk-catalog-statusF', []);
@@ -240,10 +173,9 @@ export function ShirtCatalogView() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [edit, setEdit] = useState(null);      // form object หรือ null
   const [addType, setAddType] = useState(null); // string|null — โหมดพิมพ์หมวดใหม่ใน Select หมวด
-  const [dragImg, setDragImg] = useState(null);  // index รูปที่กำลังลากจัดลำดับ
   const [busy, setBusy] = useState(false);
-  const [catDensity, setCatDensity] = usePersistedState('tmk-catalog-density', 'cozy');
   const [delTarget, setDelTarget] = useState(null);
+  const [skuOpen, setSkuOpen] = useState(false);   // ส่วนรหัส SKU ในฟอร์ม — พับไว้ก่อน (ลดความรก)
   // 10A — สถานะสต็อก: จับคู่ catalog.code ↔ tmk_products.sku (client-side, ไม่มี FK) → ป้ายใกล้หมด/หมดสต็อก
   const { version: dataVersion } = useData() || {};
   const stockByCode = useMemo(() => {
@@ -255,15 +187,14 @@ export function ShirtCatalogView() {
   const stockBadge = (code) => { const s = stockOf(code); if (!s) return null; const m = stockMeta(s); return <Badge variant="outline" className="ml-1.5 align-middle text-[10px] font-medium" style={{ color: m.c, borderColor: m.c }}>{m.label}</Badge>; };
   const [importing, setImporting] = useState(false);
   const [askImport, setAskImport] = useState(false);
-  const [backfill, setBackfill] = useState(null);   // null=ไม่ทำ · {done,total} ระหว่างย้ายรูปขึ้น Storage
 
   // เรียงล่าสุดก่อน (cachedFetchAll ไม่ได้ order ฝั่ง server → sort ฝั่ง client)
   const sortByUpdated = (rows) => [...rows].sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
   const load = async (force = false) => {
     // ใช้ cache กลาง (TTL 5นาที + dedup) — สลับหน้าออก/เข้าไม่ดึงซ้ำ · narrow คอลัมน์ (ไม่ดึง base64 ก้อนใหญ่)
     let r = await cachedFetchAll('tmk_shirt_catalog', CATALOG_SEL, force);
-    // graceful: คอลัมน์ใหม่ (job_type/shirt_class/images) ยังไม่ถูก migrate → fallback select('*')
-    if (r.error && /column|does not exist|job_type|shirt_class|images/i.test(r.error.message || '')) {
+    // graceful: คอลัมน์ใหม่ (job_type/shirt_class) ยังไม่ถูก migrate → fallback select('*')
+    if (r.error && /column|does not exist|job_type|shirt_class/i.test(r.error.message || '')) {
       r = await cachedFetchAll('tmk_shirt_catalog', '*', force);
     }
     if (r.error) {
@@ -274,9 +205,7 @@ export function ShirtCatalogView() {
     setNoTable(false); setItems(sortByUpdated(r.data || []));
   };
   useEffect(() => { load(); }, []);
-  useEffect(() => { if (!edit) setAddType(null); }, [edit]);   // ปิดชีต/เปลี่ยนรายการ → ออกจากโหมดพิมพ์หมวดใหม่
-
-  const setViewP = (v) => { setView(v); try { localStorage.setItem('tmk_catalog_view', v); } catch {/* noop */} };
+  useEffect(() => { if (!edit) { setAddType(null); setSkuOpen(false); } }, [edit]);   // ปิดชีต/เปลี่ยนรายการ → รีเซ็ตโหมดฟอร์ม
 
   const types = useMemo(() => { const s = new Set(); (items || []).forEach(i => { if (i.type) s.add(i.type); }); return [...s].sort(); }, [items]);
   const filtered = useMemo(() => {
@@ -307,25 +236,25 @@ export function ShirtCatalogView() {
     const row = {
       id: edit.id || uid(),
       code: edit.code.trim(), name: edit.name.trim(), type: edit.type || '',
-      price: Number(edit.price) || 0, price_wholesale: Number(edit.price_wholesale) || 0, cost: Number(edit.cost) || 0,
+      price: Number(edit.price) || 0, price_wholesale: Number(edit.price_wholesale) || 0,
       colors: (edit.colors || '').trim(), sizes: (edit.sizes || '').trim(), status: edit.status || 'พร้อมขาย',
       job_type: edit.job_type || 'ปลีก',
       shirt_class: edit.shirt_class || 'เสื้อปกติ',
-      image: (edit.images && edit.images[0]) || edit.image || '', images: edit.images || [], note: (edit.note || '').trim(), variants: edit.variants || {}, updated_at: new Date().toISOString(),
+      note: (edit.note || '').trim(), variants: edit.variants || {}, updated_at: new Date().toISOString(),
     };
+    // ไม่แตะ image/images ใน DB (เลิกใช้รูปแล้ว — upsert ไม่ส่ง key = คงค่าเดิม)
     let { error } = await supabase.from('tmk_shirt_catalog').upsert(row, { onConflict: 'id' });
-    // ยังไม่ได้รัน migration variants/job_type/shirt_class/images → ตัดคอลัมน์ที่ DB ยังไม่มีออก แล้วบันทึกส่วนที่เหลือ
-    if (error && /variants|job_type|shirt_class|images/i.test(error.message)) {
+    // ยังไม่ได้รัน migration variants/job_type/shirt_class → ตัดคอลัมน์ที่ DB ยังไม่มีออก แล้วบันทึกส่วนที่เหลือ
+    if (error && /variants|job_type|shirt_class/i.test(error.message)) {
       const row2 = { ...row };
       const dropCol = (re, col, label) => { if (re.test(error.message) && row2[col] !== undefined) { delete row2[col]; return label; } return null; };
       let dropped = [];
       // ตัดทุกคอลัมน์ที่ error ชี้ในรอบเดียว แล้วลองซ้ำ จนกว่าจะไม่มี error คอลัมน์ค้าง
-      for (let pass = 0; pass < 4 && error && /variants|job_type|shirt_class|images/i.test(error.message); pass++) {
+      for (let pass = 0; pass < 4 && error && /variants|job_type|shirt_class/i.test(error.message); pass++) {
         const d = [
           dropCol(/variants/i, 'variants', 'รหัสรายตัว (variants)'),
           dropCol(/job_type/i, 'job_type', 'ประเภทงาน (job_type)'),
           dropCol(/shirt_class/i, 'shirt_class', 'กลุ่มเสื้อ (shirt_class)'),
-          dropCol(/images/i, 'images', 'หลายรูป (images)'),
         ].filter(Boolean);
         dropped = [...new Set([...dropped, ...d])];
         ({ error } = await supabase.from('tmk_shirt_catalog').upsert(row2, { onConflict: 'id' }));
@@ -334,7 +263,7 @@ export function ShirtCatalogView() {
     }
     setBusy(false);
     if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    toast(edit.id ? 'แก้ไขแล้ว' : 'เพิ่มเสื้อแล้ว', 'success');
+    toast(edit.id ? 'แก้ไขแล้ว' : 'เพิ่มสินค้าแล้ว', 'success');
     logAudit({ action: edit.id ? 'update' : 'create', entityType: 'data', entityName: 'catalog', summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}` });
     logCatalogVersion(row);   // 10D — snapshot เวอร์ชัน (fire-and-forget, เงียบถ้าตารางยังไม่มี)
     // อัปเดต state in-place + invalidate cache — ไม่ refetch ทั้งชุดทุกครั้งที่แก้เสื้อ 1 ตัว (ลด egress)
@@ -360,7 +289,7 @@ export function ShirtCatalogView() {
     const existing = new Set((items || []).map(i => (i.name || '').trim().toLowerCase()));
     const rows = GOLDEN_DESIGNS
       .filter(d => !existing.has((d.name || '').trim().toLowerCase()))
-      .map(d => ({ id: uid(), code: d.code || '', name: d.name || '', type: d.type || '', price: d.price || 0, price_wholesale: 0, cost: 0, colors: (d.colors || []).join(', '), sizes: (d.sizes || []).join(', '), status: 'พร้อมขาย', image: '', note: '', updated_at: new Date().toISOString() }));
+      .map(d => ({ id: uid(), code: d.code || '', name: d.name || '', type: d.type || '', price: d.price || 0, price_wholesale: 0, colors: (d.colors || []).join(', '), sizes: (d.sizes || []).join(', '), status: 'พร้อมขาย', note: '', updated_at: new Date().toISOString() }));
     if (!rows.length) { setImporting(false); toast('มีครบแล้ว ไม่มีลายใหม่ให้นำเข้า', 'info'); return; }
     let ok = 0;
     for (let i = 0; i < rows.length; i += 200) {
@@ -369,70 +298,14 @@ export function ShirtCatalogView() {
       if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'นำเข้าไม่สำเร็จ: ' + error.message, 'error'); setImporting(false); return; }
       ok += chunk.length;
     }
-    setImporting(false); toast(`นำเข้า ${ok} ลายแล้ว — แก้ไขเติมรูป/ราคาได้เลย`, 'success');
+    setImporting(false); toast(`นำเข้า ${ok} ลายแล้ว — แก้ไขเติมราคา/สี/ไซซ์ได้เลย`, 'success');
     logAudit({ action: 'create', entityType: 'data', entityName: 'catalog', summary: `นำเข้าลายเสื้อจากตาราง ${ok} ลาย` });
     invalidateSaleCache('tmk_shirt_catalog'); load(true);
   };
 
-  // เพิ่มได้หลายรูป — บีบอัดทีละไฟล์, ต่อท้าย, เคารพ cap MAX_IMAGES
-  const onImages = async (fileList) => {
-    const files = Array.from(fileList || []);
-    if (!files.length) return;
-    const cur = (edit?.images || []).slice();
-    const room = MAX_IMAGES - cur.length;
-    if (room <= 0) { toast(`ใส่ได้สูงสุด ${MAX_IMAGES} รูป`, 'info'); return; }
-    const take = files.slice(0, room);
-    const cid = edit?.id || ('new-' + Date.now().toString(36));   // ใหม่ยังไม่มี id → temp (path ยังไม่ซ้ำเพราะมี ts)
-    try {
-      const urls = [];
-      for (let i = 0; i < take.length; i++) {
-        const dataUrl = await readImageCompressed(take[i], 640, 0.82);
-        urls.push(await uploadCatalogImage(dataUrl, cid, cur.length + i));   // → Storage URL (fallback data-URL)
-      }
-      setEdit(e => ({ ...e, images: [...(e.images || []), ...urls] }));
-      if (files.length > room) toast(`ใส่ได้สูงสุด ${MAX_IMAGES} รูป — เพิ่มแค่ ${room} รูปแรก`, 'info');
-    } catch (e) { toast(e.message || 'อ่านรูปไม่ได้', 'error'); }
-  };
-
-  // จำนวนเสื้อที่ยังมีรูป base64 (data:) ค้างใน DB — ปุ่ม backfill โผล่เมื่อ > 0
-  const needsBackfill = (it) => isDataUrl(it?.image) || (Array.isArray(it?.images) && it.images.some(isDataUrl));
-  const pendingBackfill = useMemo(() => (items || []).filter(needsBackfill), [items]);
-
-  // ย้ายรูปเก่า (base64 ใน DB) ขึ้น Storage ทีละรายการ — idempotent (ข้ามที่เป็น URL แล้ว), กัน rate-limit
-  const runBackfill = async () => {
-    const targets = pendingBackfill;
-    if (!targets.length) { toast('ไม่มีรูปเก่าให้ย้าย — เป็น Storage หมดแล้ว', 'info'); return; }
-    setBackfill({ done: 0, total: targets.length });
-    let okRows = 0, okImgs = 0;
-    for (let t = 0; t < targets.length; t++) {
-      const it = targets[t];
-      const src = (Array.isArray(it.images) && it.images.length) ? it.images : (it.image ? [it.image] : []);
-      const next = [];
-      for (let i = 0; i < src.length; i++) {
-        if (isDataUrl(src[i])) { const url = await uploadCatalogImage(src[i], it.id, i); next.push(url); if (!isDataUrl(url)) okImgs++; }
-        else next.push(src[i]);
-      }
-      const patch = { images: next, image: next[0] || '', updated_at: new Date().toISOString() };
-      let { error } = await supabase.from('tmk_shirt_catalog').update(patch).eq('id', it.id);
-      if (error && /images/i.test(error.message || '')) {   // คอลัมน์ images ยังไม่มี → เซฟแค่รูปปก
-        ({ error } = await supabase.from('tmk_shirt_catalog').update({ image: next[0] || '', updated_at: patch.updated_at }).eq('id', it.id));
-      }
-      if (!error) { okRows++; setItems(prev => (prev || []).map(x => x.id === it.id ? { ...x, ...patch } : x)); }
-      setBackfill({ done: t + 1, total: targets.length });
-    }
-    invalidateSaleCache('tmk_shirt_catalog');
-    setBackfill(null);
-    logAudit({ action: 'update', entityType: 'data', entityName: 'catalog', summary: `ย้ายรูปขึ้น Storage ${okRows} รายการ / ${okImgs} รูป` });
-    toast(`ย้ายขึ้น Storage แล้ว ${okRows} รายการ / ${okImgs} รูป`, 'success');
-  };
-  // ตัวช่วยจัดการรูปในฟอร์ม
-  const removeImage = (i) => setEdit(e => ({ ...e, images: (e.images || []).filter((_, j) => j !== i) }));
-  const setCover = (i) => setEdit(e => { const a = (e.images || []).slice(); if (i <= 0 || i >= a.length) return e; const [m] = a.splice(i, 1); a.unshift(m); return { ...e, images: a }; });
-  const moveImage = (i, dir) => setEdit(e => { const a = (e.images || []).slice(); const j = i + dir; if (j < 0 || j >= a.length) return e; [a[i], a[j]] = [a[j], a[i]]; return { ...e, images: a }; });
-
   const showSkel = useDelayedFlag(items === null, 120);
   if (err) return <div className="content-inner"><Card className="p-5" style={{ color: 'var(--bad)' }}>{err}</Card></div>;
-  if (showSkel) return <CatalogSkeleton view={view} />;
+  if (showSkel) return <CatalogSkeleton />;
   if (items === null) return null;
 
   const empty = items.length === 0;
@@ -446,23 +319,11 @@ export function ShirtCatalogView() {
           <div className="row" style={{ gap: 10, alignItems: 'center' }}>
             <span className="grid size-9 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] flex-none"><Icon name="bag" /></span>
             <div>
-              <h3 style={{ margin: 0 }}>แคตตาล็อกเสื้อ</h3>
+              <h3 style={{ margin: 0 }}>สินค้า</h3>
               <span className="cap" style={{ color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink-2)' }}>{N(filtered.length)}</b> รายการ{filtered.length !== items.length ? ` / ${N(items.length)}` : ''}</span>
             </div>
           </div>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-            <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(v) => v && setViewP(v === 'card' ? 'card' : 'table')} className="gap-0">
-              <ToggleGroupItem value="card" title="การ์ดรูป" className="rounded-r-none"><Icon name="grid" /></ToggleGroupItem>
-              <ToggleGroupItem value="table" title="ตาราง" className="-ml-px rounded-l-none"><Icon name="list" /></ToggleGroupItem>
-            </ToggleGroup>
-            {pendingBackfill.length > 0 && (
-              <Button size="sm" variant="outline" disabled={!!backfill} onClick={runBackfill}
-                title={`ย้ายรูป base64 ของ ${pendingBackfill.length} รายการขึ้น Supabase Storage (ลด Egress)`}>
-                <Icon name="upload" /> {backfill ? `กำลังย้าย ${backfill.done}/${backfill.total}…` : `ย้ายรูปขึ้น Storage (${pendingBackfill.length})`}
-              </Button>
-            )}
-            <Button size="sm" onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มเสื้อ</Button>
-          </div>
+          <Button size="sm" onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
         </div>
 
         <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา รหัส / ชื่อลาย / หมวด / สี" wrapperClassName="mb-3" />
@@ -494,115 +355,58 @@ export function ShirtCatalogView() {
 
       {empty ? (
         <Card className="p-10" style={{ textAlign: 'center' }}>
-          <div style={{ color: 'var(--ink-4)', marginBottom: 16 }}>ยังไม่มีเสื้อในแคตตาล็อก — เพิ่มเองหรือดึง 47 ลายจากตารางลายเสื้อมาใส่ก่อนก็ได้ (พร้อมสี/ไซซ์/ราคา)</div>
+          <div style={{ color: 'var(--ink-4)', marginBottom: 16 }}>ยังไม่มีสินค้า — เพิ่มเองหรือดึง 47 ลายมาตรฐานมาใส่ก่อนก็ได้ (พร้อมสี/ไซซ์/ราคา)</div>
           <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
             <Button variant="outline" onClick={() => setAskImport(true)} disabled={importing}><Icon name="external" /> นำเข้าลายเสื้อ (47 ลาย)</Button>
-            <Button onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มเสื้อ</Button>
+            <Button onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
           </div>
         </Card>
       ) : filtered.length === 0 ? (
         <Card className="p-8" style={{ textAlign: 'center', color: 'var(--ink-4)' }}>ไม่พบรายการที่ค้น</Card>
-      ) : view === 'card' ? (
-        <div className="catalog-grid">
-          {filtered.map(it => (
-            <Card key={it.id} className="catalog-card" style={{ padding: 0, overflow: 'hidden', cursor: 'pointer' }} onClick={() => setEdit(toForm(it))}>
-              <CatalogCardThumb item={it} />
-              <CardContent className="p-3">
-                <div className="row between" style={{ gap: 6 }}>
-                  <span className="cap" style={{ color: 'var(--ink-4)' }}>{it.code || '—'}</span>
-                  <div className="row" style={{ gap: 4 }}>{stockBadge(it.code)}<Badge variant="outline" style={{ fontSize: 10, color: statusTone(it.status), fontWeight: 700 }}>{it.status || 'พร้อมขาย'}</Badge></div>
-                </div>
-                <div style={{ fontWeight: 700, margin: '4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name || '(ไม่มีชื่อ)'}</div>
-                <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                  <span className="cap" style={{ color: 'var(--ink-3)' }}>{it.type || '—'}</span>
-                  {it.job_type && it.job_type !== 'ปลีก' && <Badge variant="secondary" className="rounded-full text-[10px] font-semibold">{it.job_type}</Badge>}
-                </div>
-                <div className="row between" style={{ marginTop: 8, alignItems: 'baseline' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--accent)' }}>{baht(it.price)}</span>
-                </div>
-                {it.colors && <div className="catalog-color-swatches">{splitList(it.colors).slice(0, 8).map(c => <span key={c} className="catalog-color-dot" style={{ background: COLOR_HEX[c] || '#bbb' }} title={c} />)}</div>}
-                {it.sizes && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.sizes}</div>}
-                <div className="quality-row">{qualityBadges(it).slice(0, 2).map(([tone, label]) => <Badge key={label} variant={tone === 'good' ? 'success' : 'warning'} className="rounded-full text-[10px] font-medium">{label}</Badge>)}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
       ) : (
         <Card className="p-[22px]">
-          {filtered.length > 0 && <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 10 }}><DensityToggle value={catDensity} onChange={setCatDensity} /></div>}
-          <SortableTable density={catDensity} initial={{ key: 'code', dir: 'asc' }}
+          <SortableTable density="cozy" initial={{ key: 'code', dir: 'asc' }}
             columns={[
-              { key: 'thumb', label: '', sortable: false },
               { key: 'code', label: 'รหัส', accessor: it => it.code || '' },
               { key: 'name', label: 'ชื่อลาย', accessor: it => it.name || '' },
               { key: 'type', label: 'หมวด', accessor: it => it.type || '' },
-              { key: 'price', label: 'ปลีก', align: 'right', accessor: it => Number(it.price) || 0 },
-              { key: 'colors', label: 'สี', accessor: it => it.colors || '' },
+              { key: 'price', label: 'ราคาปลีก', align: 'right', accessor: it => Number(it.price) || 0 },
+              { key: 'colors', label: 'สี', sortable: false },
               { key: 'sizes', label: 'ไซซ์', accessor: it => it.sizes || '' },
               { key: 'status', label: 'สถานะ', accessor: it => it.status || 'พร้อมขาย' },
               { key: 'act', label: '', sortable: false },
             ]}
             rows={filtered}
-            renderRow={it => (
-              <TableRow key={it.id} onClick={() => setEdit(toForm(it))} style={{ cursor: 'pointer' }}>
-                <TableCell><CatalogThumb item={it} small /></TableCell>
-                <TableCell className="cap">{it.code || '—'}</TableCell>
-                <TableCell style={{ fontWeight: 600 }}>{it.name || '—'}{stockBadge(it.code)}</TableCell>
-                <TableCell className="cap">{it.type || '—'}</TableCell>
-                <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(it.price)}</TableCell>
-                <TableCell className="cap">{it.colors || '—'}</TableCell>
-                <TableCell className="cap">{it.sizes || '—'}</TableCell>
-                <TableCell><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}><Badge variant="outline" style={{ fontSize: 10, color: statusTone(it.status), fontWeight: 700 }}>{it.status || 'พร้อมขาย'}</Badge>{qualityBadges(it).slice(0, 1).map(([tone, label]) => <Badge key={label} variant={tone === 'good' ? 'success' : 'warning'} className="rounded-full text-[10px] font-medium">{label}</Badge>)}</div></TableCell>
-                <TableCell><Button variant="outline" size="sm" onClick={e => { e.stopPropagation(); setDelTarget(it); }} title="ลบ"><Icon name="trash" /></Button></TableCell>
-              </TableRow>
-            )} />
+            renderRow={it => {
+              const miss = missingOf(it);
+              return (
+                <TableRow key={it.id} onClick={() => setEdit(toForm(it))} style={{ cursor: 'pointer' }}>
+                  <TableCell className="num" style={{ whiteSpace: 'nowrap' }}>{it.code || '—'}</TableCell>
+                  <TableCell style={{ fontWeight: 600 }}>{it.name || '—'}{stockBadge(it.code)}{it.job_type && it.job_type !== 'ปลีก' && <Badge variant="secondary" className="ml-1.5 rounded-full text-[10px] font-semibold align-middle">{it.job_type}</Badge>}</TableCell>
+                  <TableCell className="cap">{it.type || '—'}</TableCell>
+                  <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(it.price)}</TableCell>
+                  <TableCell><ColorDots colors={it.colors} /></TableCell>
+                  <TableCell className="cap" style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.sizes || '—'}</TableCell>
+                  <TableCell><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}><Badge variant="outline" style={{ fontSize: 10, color: statusTone(it.status), fontWeight: 700 }}>{it.status || 'พร้อมขาย'}</Badge>{miss.length > 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ขาด {miss.join('/')}</Badge>}</div></TableCell>
+                  <TableCell><Button variant="outline" size="sm" onClick={e => { e.stopPropagation(); setDelTarget(it); }} title="ลบ"><Icon name="trash" /></Button></TableCell>
+                </TableRow>
+              );
+            }} />
         </Card>
       )}
 
       {/* ---------- เพิ่ม/แก้ไข ---------- */}
       {edit && (
-        <SideSheet size="lg" icon="bag" title={edit.id ? 'แก้ไขเสื้อ' : 'เพิ่มเสื้อ'} sub="แก้ไขได้ทุกฟิลด์ · รูปใส่หรือไม่ใส่ก็ได้" onClose={() => setEdit(null)}
+        <SideSheet size="lg" icon="bag" title={edit.id ? 'แก้ไขสินค้า' : 'เพิ่มสินค้า'} sub="กรอกเฉพาะข้อมูล — ไม่ต้องใส่รูป" onClose={() => setEdit(null)}
           footer={<div className="row between" style={{ width: '100%' }}>
             {edit.id ? <Button variant="outline" size="sm" className="text-[var(--bad)]" onClick={() => { setDelTarget(edit); setEdit(null); }}><Icon name="trash" /> ลบ</Button> : <span />}
             <div className="row" style={{ gap: 8 }}>
               <Button variant="outline" onClick={() => setEdit(null)}>ยกเลิก</Button>
-              <Button disabled={busy || (!edit.code.trim() && !edit.name.trim()) || Number(edit.price) < 0 || Number(edit.cost) < 0} title={(!edit.code.trim() && !edit.name.trim()) ? 'ใส่รหัสหรือชื่ออย่างน้อย 1 อย่าง' : undefined} onClick={save}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+              <Button disabled={busy || (!edit.code.trim() && !edit.name.trim()) || Number(edit.price) < 0} title={(!edit.code.trim() && !edit.name.trim()) ? 'ใส่รหัสหรือชื่ออย่างน้อย 1 อย่าง' : undefined} onClick={save}>{busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
             </div>
           </div>}>
           <div style={{ display: 'grid', gap: 14 }}>
-            {/* รูป (หลายรูปได้ · ลากจัดลำดับ · รูปแรก = ปก) */}
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div className="row between">
-                <span className="cap" style={{ color: 'var(--ink-3)' }}>รูปสินค้า {(edit.images?.length || 0) > 0 && <span style={{ color: 'var(--ink-4)' }}>· {edit.images.length}/{MAX_IMAGES} · รูปแรก = ปก · ลากเพื่อจัดลำดับ</span>}</span>
-              </div>
-              <div className="catalog-img-grid">
-                {(edit.images || []).map((src, i) => (
-                  <div key={i} className={`catalog-img-cell${dragImg === i ? ' dragging' : ''}`} draggable
-                    onDragStart={() => setDragImg(i)}
-                    onDragOver={e => { e.preventDefault(); }}
-                    onDrop={e => { e.preventDefault(); if (dragImg != null && dragImg !== i) setEdit(ed => { const a = (ed.images || []).slice(); const [m] = a.splice(dragImg, 1); a.splice(i, 0, m); return { ...ed, images: a }; }); setDragImg(null); }}
-                    onDragEnd={() => setDragImg(null)}>
-                    <img src={src} alt={`รูป ${i + 1}`} loading="lazy" />
-                    {i === 0 && <span className="catalog-img-cover">ปก</span>}
-                    <div className="catalog-img-actions">
-                      {i !== 0 && <button type="button" title="ตั้งเป็นปก" onClick={() => setCover(i)}><Icon name="star" /></button>}
-                      <button type="button" title="เลื่อนซ้าย" disabled={i === 0} onClick={() => moveImage(i, -1)}><Icon name="chevL" /></button>
-                      <button type="button" title="เลื่อนขวา" disabled={i === (edit.images.length - 1)} onClick={() => moveImage(i, 1)}><Icon name="chevR" /></button>
-                      <button type="button" title="ลบรูป" className="del" onClick={() => removeImage(i)}><Icon name="x" /></button>
-                    </div>
-                  </div>
-                ))}
-                {(edit.images?.length || 0) < MAX_IMAGES && (
-                  <label className="catalog-img-add" title="เพิ่มรูป">
-                    <Icon name="image" /><span>เพิ่มรูป</span>
-                    <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => { onImages(e.target.files); e.target.value = ''; }} />
-                  </label>
-                )}
-              </div>
-            </div>
-
             {/* ข้อมูลสินค้า */}
-            <Separator />
             <SecHead>ข้อมูลสินค้า</SecHead>
             <div className="form-grid2">
               <label className="fld"><span>รหัสสินค้า</span><Input value={edit.code} onChange={e => setEdit({ ...edit, code: e.target.value })} placeholder="เช่น JKN111" /></label>
@@ -644,17 +448,9 @@ export function ShirtCatalogView() {
                   <SelectContent>{SHIRT_CLASSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+              <label className="fld"><span>ราคาปลีก (฿)</span><Input type="number" inputMode="decimal" min="0" step="0.01" aria-invalid={Number(edit.price) < 0} value={edit.price} onChange={e => setEdit({ ...edit, price: e.target.value })} placeholder="0" />{Number(edit.price) < 0 && <span className="field-err">ราคาต้องไม่ติดลบ</span>}</label>
             </div>
             {!edit.code.trim() && !edit.name.trim() && <span className="field-err">ใส่รหัสสินค้าหรือชื่อลายอย่างน้อย 1 อย่าง</span>}
-
-            {/* ราคา & ต้นทุน */}
-            <Separator />
-            <SecHead>ราคา &amp; ต้นทุน</SecHead>
-            <div className="form-grid2">
-              <label className="fld"><span>ราคาปลีก (฿)</span><Input type="number" inputMode="decimal" min="0" step="0.01" aria-invalid={Number(edit.price) < 0} value={edit.price} onChange={e => setEdit({ ...edit, price: e.target.value })} placeholder="0" />{Number(edit.price) < 0 && <span className="field-err">ราคาต้องไม่ติดลบ</span>}</label>
-              <label className="fld"><span>ต้นทุน (฿)</span><Input type="number" inputMode="decimal" min="0" step="0.01" aria-invalid={Number(edit.cost) < 0} value={edit.cost} onChange={e => setEdit({ ...edit, cost: e.target.value })} placeholder="0" />{Number(edit.cost) < 0 && <span className="field-err">ต้นทุนต้องไม่ติดลบ</span>}</label>
-            </div>
-            {Number(edit.cost) > 0 && Number(edit.price) > 0 && <div className="cap" style={{ color: 'var(--ink-4)' }}>กำไรปลีก ≈ <b style={{ color: 'var(--good)' }}>{baht(Number(edit.price) - Number(edit.cost))}</b> ({Math.round((1 - Number(edit.cost) / Number(edit.price)) * 100)}%)</div>}
 
             {/* สี & ไซซ์ */}
             <Separator />
@@ -695,9 +491,16 @@ export function ShirtCatalogView() {
               );
             })()}
 
-            {/* รหัสสินค้า (SKU) — สี × ไซซ์ · แก้รหัสรายตัวได้ · ตัวที่ไม่แก้ตามสูตร base-โค้ดสี-ไซซ์ */}
+            {/* รหัสสินค้า (SKU) — สี × ไซซ์ · พับไว้ (เปิดเมื่อต้องแก้รหัสรายตัว) */}
             <Separator />
-            <SecHead>รหัสสินค้า (SKU)</SecHead>
+            <Collapsible open={skuOpen} onOpenChange={setSkuOpen}>
+              <CollapsibleTrigger asChild>
+                <button type="button" className="row between" style={{ width: '100%', background: 'none', border: 0, padding: '4px 0', cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
+                  <SecHead>รหัสสินค้า (SKU) <span className="cap" style={{ color: 'var(--ink-4)' }}>({(splitList(edit.colors).length || 1) * (splitList(edit.sizes).length || 1)} แบบ — สร้างอัตโนมัติจากสี×ไซซ์)</span></SecHead>
+                  <span style={{ display: 'inline-flex', color: 'var(--ink-4)', transition: 'transform .15s', transform: skuOpen ? 'rotate(180deg)' : 'none' }}><Icon name="chevD" /></span>
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
             {(() => {
               const cs = splitList(edit.colors), ss = splitList(edit.sizes), base = (edit.code || '').trim();
               if (!base) return <div className="cap" style={{ color: 'var(--ink-4)' }}>ใส่ <b>รหัสสินค้า</b> ด้านบน เพื่อสร้างรหัสรายสี/ไซซ์อัตโนมัติ</div>;
@@ -733,6 +536,8 @@ export function ShirtCatalogView() {
                 </div>
               );
             })()}
+              </CollapsibleContent>
+            </Collapsible>
 
             {/* รายละเอียด / โน้ต */}
             <Separator />
@@ -747,7 +552,7 @@ export function ShirtCatalogView() {
 
       {/* ---------- ยืนยันลบ ---------- */}
       {delTarget && (
-        <Modal icon="trash" title="ลบเสื้อออกจากแคตตาล็อก?" onClose={() => setDelTarget(null)}
+        <Modal icon="trash" title="ลบสินค้าออกจากรายการ?" onClose={() => setDelTarget(null)}
           footer={<div className="row" style={{ gap: 8, marginLeft: 'auto' }}><Button variant="outline" onClick={() => setDelTarget(null)}>ยกเลิก</Button><Button style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }} onClick={del}>ลบ</Button></div>}>
           <div>ลบ "<b>{delTarget.name || delTarget.code || 'รายการนี้'}</b>" ออกจากแคตตาล็อก? — ย้อนกลับไม่ได้</div>
         </Modal>

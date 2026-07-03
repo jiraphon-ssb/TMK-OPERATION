@@ -296,15 +296,15 @@ export function resolveMpVariant({ name, variation }, M, opt = {}) {
 }
 
 /* ============================ STEP 1: MASTER (order-level) ============================ */
-export function buildMaster({ shipnity, tiktok } = {}) {
+export function buildMaster({ shipnity, tiktok, shopee } = {}) {
   const rows = [];
   if (shipnity && shipnity.length > 1) {
     const { get } = indexer(shipnity);
     const c = {
       order: get('เลขที่ออเดอร์'), date: get('วันที่สร้าง'), mid: get('ID บน Marketplace'),
       mkt: get('Marketplace ของออเดอร์'), contact: get('ช่องทางที่ลูกค้าทักมา'), user: get('User ที่สร้าง'),
-      cancel: get('ยกเลิกออเดอร์แล้ว'), qty: get('จำนวนสั่งซื้อรวม'), sales: get('ยอดขาย'), cost: get('ต้นทุนรวม'),
-      comm: get('ค่าคอมมิชชั่นของ Marketplace'), net: get('รายรับจากคำสั่งซื้อ Shopee'), profit: get('กำไรสุทธิ'),
+      cancel: get('ยกเลิกออเดอร์แล้ว'), qty: get('จำนวนสั่งซื้อรวม'), sales: get('ยอดขาย'),
+      comm: get('ค่าคอมมิชชั่นของ Marketplace'), net: get('รายรับจากคำสั่งซื้อ Shopee'),
       cod: get('ยอด COD'), bank: get('ธนาคารที่รับเงิน'), prov: get('ชื่อจังหวัด (จังหวัด)'),
       note: get('หมายเหตุ', 'หมายเหตุออเดอร์', 'หมายเหตุภายใน', 'โน้ต', 'Note', 'Remark'),
       custDate: get('วันที่สร้าง (ลูกค้า)'), custCum: get('จำนวนออเดอร์สะสม (ลูกค้า)'),
@@ -333,9 +333,9 @@ export function buildMaster({ shipnity, tiktok } = {}) {
         customer_social: String(o[c.custSocial] ?? '').trim(),
         cust_total_orders: mpNum(o[c.custCum]),
         cust_total_spent: mpNum(o[c.custSpent]),
-        qty_band: qtyBand(q), qty: q, sales: mpNum(o[c.sales]), cost: mpNum(o[c.cost]),
+        qty_band: qtyBand(q), qty: q, sales: mpNum(o[c.sales]), cost: 0, // นโยบาย: ไม่เก็บต้นทุน
         mkt_commission: mpNum(o[c.comm]), mkt_net_income: mpNum(o[c.net]),
-        profit: mpNum(o[c.profit]), cod_amount: mpNum(o[c.cod]),
+        profit: 0, cod_amount: mpNum(o[c.cod]),
       });
     }
   }
@@ -360,6 +360,38 @@ export function buildMaster({ shipnity, tiktok } = {}) {
         customer_code: '', customer_name: '', customer_social: '', cust_total_orders: 0, cust_total_spent: 0,
         qty_band: qtyBand(g.qty), qty: g.qty, sales: g.sales, cost: 0,
         mkt_commission: 0, mkt_net_income: 0, profit: 0, cod_amount: 0,
+      });
+    }
+  }
+  // Shopee standalone — เลิกใช้ไฟล์ Shipnity แล้ว: รวมบรรทัด SKU ของไฟล์ Shopee เป็นออเดอร์ (เหมือน TikTok)
+  // ทำงานเฉพาะเมื่อ "ไม่มี" ไฟล์ Shipnity (โหมดเก่า Shopee master มาจาก Shipnity — กันสร้างซ้ำ)
+  if (!shipnity && shopee && shopee.length > 1) {
+    const { get } = indexer(shopee);
+    const c = {
+      order: get('หมายเลขคำสั่งซื้อ'), status: get('สถานะการสั่งซื้อ'),
+      created: get('เวลาการสั่งซื้อสินค้า', 'วันที่ทำการสั่งซื้อ', 'เวลาที่ทำการสั่งซื้อ', 'Order Creation Time', 'Created Time'),
+      qty: get('จำนวน'), price: get('ราคาขายสุทธิ'),
+      prov: get('จังหวัด', 'Province'), recv: get('ชื่อผู้รับ', 'ชื่อผู้ใช้ (ผู้ซื้อ)', 'Receiver Name'),
+      pay: get('ช่องทางการชำระเงิน', 'วิธีการชำระเงิน', 'Payment Method'),
+    };
+    const byOrder = new Map();
+    for (let r = 1; r < shopee.length; r++) {
+      const row = shopee[r] || [];
+      const ono = String(row[c.order] ?? '').trim();
+      if (!ono) continue;
+      const cancelled = String(row[c.status] ?? '').includes('ยกเลิก');
+      if (!byOrder.has(ono)) byOrder.set(ono, { qty: 0, sales: 0, created: c.created >= 0 ? row[c.created] : '', prov: c.prov >= 0 ? row[c.prov] : '', recv: c.recv >= 0 ? row[c.recv] : '', pay: c.pay >= 0 ? String(row[c.pay] ?? '') : '', cancelled });
+      const g = byOrder.get(ono); g.qty += mpNum(row[c.qty]); g.sales += mpNum(row[c.price]);
+    }
+    for (const [ono, g] of byOrder) {
+      const isCod = /cod|ปลายทาง/i.test(g.pay || '');
+      rows.push({
+        order_no: ono, source: 'shopee', status: g.cancelled ? 'cancelled' : 'active', channel: 'Shopee', job_type: deriveJobType('Shopee', g.qty), marketplace_id: ono,
+        order_month: ymOf(g.created), order_date: isoDate(g.created), salesperson: '(Shopee)', province: String(g.prov ?? '').trim(),
+        payment_type: isCod ? 'COD' : String(g.pay || '').trim(), customer_type: 'ไม่ทราบ (Shopee)',
+        customer_code: '', customer_name: String(g.recv ?? '').trim(), customer_social: '', cust_total_orders: 0, cust_total_spent: 0,
+        qty_band: qtyBand(g.qty), qty: g.qty, sales: g.sales, cost: 0,
+        mkt_commission: 0, mkt_net_income: 0, profit: 0, cod_amount: isCod ? g.sales : 0,
       });
     }
   }

@@ -688,7 +688,7 @@ function MomDelta({ current, previous, label }) {
 }
 
 function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
-  const C = md.computed, consts = md.consts, channels = md.channels, pnl = md.pnl;
+  const C = md.computed, consts = md.consts, channels = md.channels;
   const prevC = prevMd.computed;
   // ถึงเป้าเดือนนี้ → การ์ด MTD โชว์สถานะ "ทะลุเป้า" + ฉลองอลังการครั้งแรกของเดือน
   const targetHit = md.isCurrent && consts.TARGET > 0 && C.MTD >= consts.TARGET;
@@ -870,7 +870,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       </div>
 
       {/* แถวล่าง: ศูนย์เตือน | สรุปเด่น | P&L */}
-      <div className="grid" style={{ gridTemplateColumns: md.isCurrent ? '1.1fr 0.9fr 1.1fr' : '1fr 1fr', gap: 16, marginTop: 16, marginBottom: 16, alignItems: 'stretch' }}>
+      <div className="grid" style={{ gridTemplateColumns: md.isCurrent ? '1.1fr 0.9fr' : '1fr', gap: 16, marginTop: 16, marginBottom: 16, alignItems: 'stretch' }}>
       {md.isCurrent && (
       <Card className="p-[22px]" style={{ display: 'flex', flexDirection: 'column' }}>
         <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
@@ -901,7 +901,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       </Card>
       )}
 
-      {/* สรุปเด่น — การ์ดเดียว 3 แถว อ่านไล่ลงจบ */}
+      {/* สรุปเด่น — การ์ดเดียว 2 แถว (นโยบาย: ไม่เก็บต้นทุน → ไม่มีกำไร/P&L) */}
       <Card className="p-[22px]" style={{ display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
           <div className="cap" style={{ marginBottom: 5 }}>{'ช่องขายดีสุด'}</div>
@@ -910,43 +910,8 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             : <div className="num h3" style={{ color: 'var(--ink-3)' }}>—</div>}
         </div>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderTop: '1px solid var(--line)' }}>
-          <div className="cap" style={{ marginBottom: 5 }}>{pnl.cogsPct === 0 ? 'กำไรขั้นต้น' : 'กำไรสุทธิ'} <InfoTip text={pnl.cogsPct === 0 ? 'ยอดขาย − ค่าแอด − ค่าธรรมเนียม − ค่าใช้จ่ายอื่น (ยังไม่หักต้นทุนสินค้า)' : 'ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียม − ค่าใช้จ่ายอื่น'} label="กำไร" /></div>
-          <div className="num h3">{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-4)' }}>({P(pnl.netMargin, 0)})</span></div>
-        </div>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderTop: '1px solid var(--line)' }}>
           <div className="cap" style={{ marginBottom: 5 }}>{'งบโฆษณา'}</div>
           <div className="num h3">{adStatus.txt}</div>
-        </div>
-      </Card>
-
-      <Card className="p-[22px]">
-        <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
-          <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'กำไร-ขาดทุน (P&L)'} <InfoTip text="กำไรสุทธิ = ยอดขาย − ต้นทุนสินค้า − ค่าแอด − ค่าธรรมเนียมแพลตฟอร์ม − ค่าใช้จ่ายอื่น · ตั้งต้นทุน% และค่าใช้จ่ายอื่นได้ที่หน้า 'ตั้งเป้ารายเดือน'" label="P&L" /></CardTitle>
-          <Badge variant={pnl.netProfit >= 0 ? 'success' : 'danger'}>{pnl.netProfit >= 0 ? 'กำไร' : 'ขาดทุน'} {P(pnl.netMargin, 1)}</Badge>
-        </CardHeader>
-        {pnl.cogsPct === 0 && (
-          <div className="cap" style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '8px 10px', marginBottom: 12, color: 'var(--ink-3)' }}>
-            ยังไม่ตั้ง <b>"ต้นทุนสินค้า %"</b> — ตั้งได้ที่ <b>"ตั้งเป้ารายเดือน"</b>
-          </div>
-        )}
-        <div style={{ display: 'grid', gap: 5 }}>
-          {[
-            ['ยอดขาย', pnl.revenue, false],
-            // แถวที่เป็น 0 ซ่อน — โชว์เฉพาะรายการที่มีจริง อ่านไล่ลงจบไว
-            ...(pnl.cogs > 0 ? [[`− ต้นทุนสินค้า (${pnl.cogsPct}%)`, -pnl.cogs, false], ['= กำไรขั้นต้น', pnl.grossProfit, true]] : []),
-            ...(pnl.ad > 0 ? [['− ค่าแอด', -pnl.ad, false]] : []),
-            ...(pnl.platformFees > 0 ? [['− ค่าธรรมเนียมแพลตฟอร์ม', -pnl.platformFees, false]] : []),
-            ...(pnl.otherExpense > 0 ? [['− ค่าใช้จ่ายอื่น', -pnl.otherExpense, false]] : []),
-          ].map(([label, val, sub], i) => (
-            <div key={i} className="row between" style={{ padding: sub ? '6px 0' : '3px 0', borderTop: sub ? '1px solid var(--line)' : 'none' }}>
-              <span className={sub ? '' : 'cap'} style={{ fontWeight: sub ? 700 : 400, color: sub ? 'var(--ink)' : 'var(--ink-3)' }}>{label}</span>
-              <span className="num sm" style={{ fontWeight: sub ? 700 : 600, color: val < 0 ? 'var(--bad)' : 'var(--ink-2)' }}>{val < 0 ? '−' : ''}{B(Math.abs(val))}</span>
-            </div>
-          ))}
-          <div className="row between" style={{ padding: '9px 0 0', borderTop: '2px solid var(--line)', marginTop: 3 }}>
-            <span style={{ fontWeight: 800 }}>กำไรสุทธิ</span>
-            <span className="num h3" style={{ fontWeight: 800, color: pnl.netProfit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(pnl.netProfit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>({P(pnl.netMargin, 1)})</span></span>
-          </div>
         </div>
       </Card>
       </div>
@@ -1033,7 +998,7 @@ function SalesChannels({ dateProps, md, prevMd }) {
   );
 }
 
-// การ์ดใหญ่ FB/LINE — เน้น "แชท → ปิดการขาย" (คนทัก → ปิดออเดอร์ → %ปิด) + ต้นทุน/มูลค่าต่อทัก
+// การ์ดใหญ่ FB/LINE — เน้น "แชท → ปิดการขาย" (คนทัก → ปิดออเดอร์ → %ปิด) + มูลค่าต่อทัก
 function SocialChannelCard({ ch, md, consts, prevMd }) {
   const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id);
   const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null; // MoM เทียบเดือนก่อน
@@ -1042,8 +1007,6 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
   const convOver = conv != null && conv > 100;               // ออเดอร์ > จำนวนลูกค้า → cap แสดงผล + เตือน
   const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
   const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad / ch.actual) * 100 : null;
-  const costPerInq = (ch.ad > 0 && inq > 0) ? ch.ad / inq : null;      // ต้นทุน/คนทัก
-  const costPerOrd = (ch.ad > 0 && orders > 0) ? ch.ad / orders : null; // ต้นทุน/ออเดอร์
   const valPerInq = inq > 0 ? ch.actual / inq : null;                 // มูลค่า/คนทัก (ทัก 1 คน = ยอดเท่าไร)
   const reply = md.fb.avgReplyMinutes || 0;                           // เวลาตอบเฉลี่ย (รวมทั้งร้าน/วัน)
   const tgtPct = ch.target > 0 ? Math.min((ch.actual / ch.target) * 100, 100) : null;
@@ -1065,8 +1028,6 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
       </div>
       <div className="statgrid" style={{ gap: 10, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
         <div><div className="cap">เวลาตอบเฉลี่ย</div><div className="num sm" style={{ fontWeight: 700, color: 'var(--info)' }}>{reply > 0 ? <>{reply} <span className="cap">นาที</span></> : '—'}</div></div>
-        <div><div className="cap">ต้นทุน/คนทัก</div><div className="num sm" style={{ fontWeight: 700 }}>{costPerInq != null ? B(costPerInq) : '—'}</div></div>
-        <div><div className="cap">ต้นทุน/ออเดอร์</div><div className="num sm" style={{ fontWeight: 700 }}>{costPerOrd != null ? B(costPerOrd) : '—'}</div></div>
         <div><div className="cap">มูลค่า/คนทัก <InfoTip text="ทัก 1 คน สร้างยอดขายเฉลี่ยเท่าไร = ยอดขาย ÷ คนทัก" label="มูลค่า/คนทัก" /></div><div className="num sm" style={{ fontWeight: 700, color: 'var(--good)' }}>{valPerInq != null ? B(valPerInq) : '—'}</div></div>
         <div><div className="cap">ลูกค้าใหม่/เก่า</div><div className="num sm" style={{ fontWeight: 700 }}>{N(ch.newCust)}<span style={{ color: 'var(--ink-4)' }}> / {N(ch.oldCust)}</span></div></div>
         <div><div className="cap">ค่าแอด</div><div className="num sm" style={{ fontWeight: 700 }}>{ch.ad > 0 ? B(ch.ad) : '—'}</div></div>
@@ -1088,9 +1049,6 @@ function SocialChannelCard({ ch, md, consts, prevMd }) {
 function ChannelCard({ ch, consts, prevMd }) {
   const roas = ch.ad > 0 ? ch.actual / ch.ad : null;
   const acos = (ch.ad > 0 && ch.actual > 0) ? (ch.ad / ch.actual) * 100 : null;
-  const cogsPct = consts.cogsPct || 0;
-  const profit = ch.actual - (ch.actual * cogsPct / 100) - ch.ad - (ch.actual * ((ch.platformFeePct || 0) / 100));
-  const margin = ch.actual > 0 ? (profit / ch.actual) * 100 : 0;
   const _prevCh = (prevMd?.channels || []).find(c => c.id === ch.id);
   const growth = (_prevCh && _prevCh.actual > 0) ? Math.round(((ch.actual - _prevCh.actual) / _prevCh.actual) * 100) : null;
   const tgtPct = ch.target > 0 ? (ch.actual / ch.target) * 100 : null;
@@ -1109,10 +1067,6 @@ function ChannelCard({ ch, consts, prevMd }) {
         <div><div className="cap">เฉลี่ย/ออเดอร์</div><div className="num h3">{ch.orders > 0 ? B(ch.actual / ch.orders) : '—'}</div></div>
         <div><div className="cap">โฆษณาคืนกี่เท่า (ROAS)</div><div className="num h3" style={{ color: roasColor(roas) }}>{roas != null ? roas.toFixed(1) + 'x' : '—'}</div></div>
         <div><div className="cap">ค่าแอด%ยอด (ACOS)</div><div className="num h3" style={{ color: acosColor(acos, consts.ACOS_CEIL) }}>{acos != null ? P(acos, 0) : '—'}</div></div>
-      </div>
-      <div className="row between" style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
-        <span className="cap">กำไร{cogsPct === 0 ? ' (ยังไม่หักทุน)' : ''} <InfoTip text={`กำไร = ยอดขาย − ต้นทุนสินค้า${cogsPct > 0 ? ` (${cogsPct}%)` : ' (ยังไม่ตั้ง)'} − ค่าแอด − ค่าธรรมเนียม${ch.platformFeePct > 0 ? ` (${ch.platformFeePct}%)` : ''}`} label="กำไร" /></span>
-        <span className="num" style={{ fontWeight: 800, color: profit >= 0 ? 'var(--good)' : 'var(--bad)' }}>{B(profit)} <span className="cap" style={{ fontWeight: 600, color: 'var(--ink-4)' }}>({P(margin, 0)})</span></span>
       </div>
     </Card>
   );
@@ -1398,8 +1352,8 @@ function SalesCustomers({ dateProps, md }) {
     <div className="content-inner rise">
       <SalesDateBar {...dateProps} />
 
-      {/* KPI ลูกค้า — ข้อมูลจริง (ระบบไม่เก็บรายได้แยกใหม่/เก่า → ใช้จำนวน + อัตราซื้อซ้ำ + CAC) */}
-      <div className="grid g4" style={{ marginBottom: 16 }}>
+      {/* KPI ลูกค้า — ข้อมูลจริง (ระบบไม่เก็บรายได้แยกใหม่/เก่า → ใช้จำนวน + อัตราซื้อซ้ำ · นโยบาย: ไม่มีตัวชี้วัดต้นทุน) */}
+      <div className="grid g3" style={{ marginBottom: 16 }}>
         <Card className="p-4">
           <div className="cap" style={{ marginBottom: 6 }}>{'ลูกค้าใหม่'} (MTD)</div>
           <div className="num h1" style={{ color: 'var(--good)' }}>{N(C.NEW_C)}</div>
@@ -1424,11 +1378,6 @@ function SalesCustomers({ dateProps, md }) {
           <div className="cap" style={{ marginBottom: 6 }}>{'อัตราซื้อซ้ำ'} (Returning) <InfoTip text="สัดส่วนลูกค้าเก่าต่อลูกค้าทั้งหมด (จำนวนคน) · เป้า ≥ 35%" label="Returning" /></div>
           <div className="num h1" style={{ color: custTot <= 0 ? 'var(--ink-4)' : (100 - newPct) >= 35 ? 'var(--good)' : 'var(--warn)' }}>{custTot > 0 ? P(100 - newPct, 0) : '—'}</div>
           <div className="cap" style={{ marginTop: 4 }}>{'เป้าหมาย ≥ 35%'}</div>
-        </Card>
-        <Card className="p-4">
-          <div className="cap" style={{ marginBottom: 6 }}>CAC <span style={{ color: 'var(--ink-4)' }}>(ต้นทุนลูกค้าใหม่)</span> <InfoTip text="ต้นทุนหาลูกค้าใหม่ = ค่าแอดรวม ÷ จำนวนลูกค้าใหม่" label="CAC" /></div>
-          <div className="num h1" style={{ color: 'var(--accent)' }}>{C.CAC > 0 ? B(C.CAC) : '—'}</div>
-          <div className="cap" style={{ marginTop: 4 }}>{'ค่าแอด ÷ ลูกค้าใหม่'}</div>
         </Card>
       </div>
 
