@@ -674,7 +674,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
     // ใช้ dateISO เต็ม (กันปีหายตอนแก้งานข้ามปี); fallback parse จากไทย/ค่าที่ส่งมา
     const isoDate = data?.dateISO || (data?.date ? (parseTaskDate(data.date) || data.date) : todayISO());
     const flow_id = data?.flow_id ?? data?.flow ?? '';
-    if (!data?.id) return { title: '', detail: '', date: isoDate, dateEnd: '', responsible: [], channel: [], camp: '', brandIds: [], status: data?.status || 'todo', flow_id, priority: 'medium', tags: [], subtasks: [] };
+    if (!data?.id) return { title: data?.title || '', detail: data?.detail || '', date: isoDate, dateEnd: '', responsible: [], channel: [], camp: '', brandIds: [], status: data?.status || 'todo', flow_id, priority: 'medium', tags: [], subtasks: [] }; // งานใหม่ prefill title/detail ได้ (เช่นปุ่ม "สร้างงานติดตาม" จาก CRM)
     const validNames = new Set((MD.channels || []).map(c => c.name));
     const chanPieces = splitToArr(data.channel);
     // เก็บเฉพาะช่องทางที่มีจริงในระบบ — ตัดข้อความอิสระเก่า (เช่น "FB Post") ที่ map ไม่ได้ทิ้ง

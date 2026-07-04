@@ -879,13 +879,20 @@ export function DataProvider({ children }) {
     // ต่อ realtime แบบทนทาน: WS blip/หลับเครื่อง (CLOSED/TIMED_OUT) → ลองต่อใหม่ backoff ก่อน · เฉพาะ error จริง → poll
     let channel = null, reconnectAttempts = 0, reconnectTimer = null;
     const MAX_RECONNECT = 3;
-    const teardownChannel = () => { if (channel) { try { supabase.removeChannel(channel); } catch { /* ignore */ } channel = null; } };
+    // สำคัญ: null "ก่อน" removeChannel — unsubscribe ยิง status CLOSED กลับเข้า callback แบบ synchronous
+    // ถ้า null ทีหลัง callback จะเรียก teardown ซ้ำเป็นลูกโซ่ = Maximum call stack size exceeded
+    const teardownChannel = () => {
+      if (!channel) return;
+      const ch = channel; channel = null;
+      try { supabase.removeChannel(ch); } catch { /* ignore */ }
+    };
     const connectRealtime = () => {
       if (!supabase) { startPolling(); return; }
       if (usingPoll || !mountedRef.current) return;
-      channel = supabase.channel('tmk-realtime');
+      const ch = supabase.channel('tmk-realtime');
+      channel = ch;
       channelTables.forEach(t => {
-        channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
+        ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
           // ข้าม echo ของการเซฟจากเครื่องนี้เอง "1 ครั้ง" — เราเพิ่ง refresh ตารางนี้ไปแล้ว (<800ms) ไม่ต้องดึงซ้ำ
           // ปลอดภัยเพราะ event มาตามลำดับ commit: event แรกหลังเซฟเรา = ของเราเอง (ข้อมูลอยู่ใน fetch แล้ว)
           // ลบ stamp หลังข้าม → event ถัดไป (ของคนอื่น) ประมวลผลปกติ ไม่มีช่องพลาดข้อมูล
@@ -898,7 +905,8 @@ export function DataProvider({ children }) {
           }, 300);
         });
       });
-      channel.subscribe((status) => {
+      ch.subscribe((status) => {
+        if (channel !== ch) return; // event จาก channel เก่าที่ถูก teardown ไปแล้ว (CLOSED ตอน unsubscribe) — เมิน กันลูป
         if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); reconnectAttempts = 0; }
         else if (status === 'CHANNEL_ERROR') { clearTimeout(connectTimeout); teardownChannel(); startPolling(); }
         else if (status === 'CLOSED' || status === 'TIMED_OUT') {
@@ -909,7 +917,7 @@ export function DataProvider({ children }) {
           } else { startPolling(); }
         }
       });
-      connectTimeout = setTimeout(() => { teardownChannel(); startPolling(); }, 8000); // WS ค้าง → fallback
+      connectTimeout = setTimeout(() => { if (channel === ch) { teardownChannel(); startPolling(); } }, 8000); // WS ค้าง → fallback (เฉพาะ channel ปัจจุบัน)
     };
     // กลับจากโหมด poll → realtime เมื่อเน็ตกลับมา (เดิม: หลุดเกิน 3 ครั้ง = poll ถาวรจนรีเฟรชหน้า)
     const retryRealtime = () => {

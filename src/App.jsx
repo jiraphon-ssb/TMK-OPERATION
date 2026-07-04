@@ -274,7 +274,6 @@ const NAV_DEF = [
     { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
     { id: 'crm', labelKey: 'subCrm', icon: 'users' },
     { id: 'data', labelKey: 'subDataHub', icon: 'checkCheck' },
-    { id: 'entry', labelKey: 'subEntry', icon: 'pencil' },
     { id: 'shirts', labelKey: 'subShirts', icon: 'bag' },
   ]},
 ];
@@ -746,7 +745,7 @@ function AppInner() {
     return (
       <Suspense fallback={<PageSkeleton />}>
         {/* sub submit/io = ลิงก์เก่า (ก่อนรวมเป็น Data Hub) → หน้าเดียวกัน */}
-        {section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io') ? <SaleDataHub />
+        {section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SaleDataHub />
           : section === 'sales' ? <EntryView sub={sub} />
           : section === 'notifications' ? <NotificationsCenter />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />

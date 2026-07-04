@@ -10,13 +10,50 @@
    - graceful: ตาราง tmk_sale_receipts ยังไม่ migrate → isMissingReceiptTable(err) = true
    ============================================================ */
 import { supabase } from './supabaseClient.js';
-import { qtyBand } from './mpReport.js';
+import { qtyBand, buildMatchers, rematchSkuRow, deriveColorSize, payShipnity } from './mpReport.js';
+import { GOLDEN_CATALOG_GRID } from './goldenGrid.js';
 import { invalidateSaleCache } from './saleData.js';
 import { logAudit } from './audit.js';
 import { jobTypeFromNote, paymentKind } from './receiptParse.js';
 
+/* จับคู่ลาย/สี/ไซซ์ ให้ SKU ของใบเสร็จตอนเขียน — ใช้ catalog+alias ปัจจุบัน
+   (แถวเก่าที่ยังว่างซ่อมได้ทีหลังด้วยปุ่ม "ตรวจการจับคู่ใหม่" ในแท็บคุณภาพข้อมูล) */
+async function loadReceiptMatcher() {
+  let aliases = [];
+  try { const a = await supabase.from('tmk_mp_aliases').select('kind,term,code,design'); if (!a.error) aliases = a.data || []; } catch { /* ตารางยังไม่มี → ใช้ golden ล้วน */ }
+  return buildMatchers(GOLDEN_CATALOG_GRID, aliases);
+}
+// เติม design/product_code/color/size ให้ 1 skuRow (คืน object ใหม่)
+// rematchSkuRow (source='shipnity') = golden match → fallback ชื่อบรรทัด · คง product_code เดิม (suffix)
+function enrichSku(row, M) {
+  const out = { ...row };
+  const rm = rematchSkuRow(row, M);   // { design, product_code, match_how, color, size } หรือ null
+  if (rm) {
+    if (rm.design) out.design = rm.design;
+    out.product_code = rm.product_code || row.product_code || '';
+    out.match_how = rm.match_how || '';
+    if (rm.color) out.color = rm.color;
+    if (rm.size) out.size = rm.size;
+  }
+  // safety net: ถ้ายังขาดสี/ไซซ์ (rm null) → derive ตรงจากชื่อ+รหัส
+  if (!out.color || !out.size) {
+    const cs = deriveColorSize(row.raw_sku_or_name, out.product_code || row.product_code);
+    out.color = out.color || cs.color; out.size = out.size || cs.size;
+  }
+  return out;
+}
+
 export const receiptId = (orderNo) => 'shipnity:' + String(orderNo || '').trim();
 const monthOf = (iso) => String(iso || '').slice(0, 7);
+const normPhone = (p) => String(p || '').replace(/\D/g, '');
+// คีย์ลูกค้าจากใบเสร็จ — ใช้ทั้งบน orders.customer_code และ tmk_mp_customers.customer_code (ต้องตรงกัน 100%)
+// 'P<เบอร์>' (≥9 หลัก) else 'N<ชื่อ>' — คนละ keyspace กับ CE#### จาก import เก่า
+export const customerKeyOf = (it) => {
+  const p = normPhone(it.customer_phone);
+  if (p.length >= 9) return 'P' + p;
+  const n = String(it.customer_name || '').trim();
+  return n ? 'N' + n.slice(0, 60) : '';
+};
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
 const nowISO = () => new Date().toISOString();
 
@@ -82,21 +119,14 @@ export async function customerTypeLookup(receipts) {
    merge: ช่องที่ใบใหม่มีค่า → ทับ · owner (เซลล์เจ้าของ) + since ตั้งครั้งแรกเท่านั้น
    ไม่แตะ lifetime_* (ยอดสะสมให้หน้า CRM คำนวณสดจากออเดอร์ — ยกเลิกใบแล้วไม่ค้าง) */
 export async function upsertReceiptCustomers(items, user) {
-  const normPhone = (p) => String(p || '').replace(/\D/g, '');
-  const keyOf = (it) => {
-    const p = normPhone(it.customer_phone);
-    if (p.length >= 9) return 'P' + p;
-    const n = String(it.customer_name || '').trim();
-    return n ? 'N' + n.slice(0, 60) : '';
-  };
   const byKey = new Map();
-  for (const it of items) { const k = keyOf(it); if (k) byKey.set(k, it); } // ใบหลังสุดของลูกค้าเดียวกันในชุดชนะ
+  for (const it of items) { const k = customerKeyOf(it); if (k) byKey.set(k, it); } // ใบหลังสุดของลูกค้าเดียวกันในชุดชนะ
   if (!byKey.size) return;
   const keys = [...byKey.keys()];
   // อ่านของเดิมทั้งชุด (query เดียวต่อ 150 คีย์) → merge ฝั่ง client
   const existing = new Map();
   for (const ids of chunk(keys, 150)) {
-    const r = await supabase.from('tmk_mp_customers').select('customer_code,name,phone,social_name,province,contact_channel,owner,since').in('customer_code', ids);
+    const r = await supabase.from('tmk_mp_customers').select('customer_code,name,phone,social_name,address,province,contact_channel,owner,since').in('customer_code', ids);
     if (!r.error) (r.data || []).forEach(c => existing.set(c.customer_code, c));
   }
   const now = new Date().toISOString();
@@ -107,6 +137,7 @@ export async function upsertReceiptCustomers(items, user) {
       name: String(it.customer_name || '').trim() || old.name || '',
       phone: normPhone(it.customer_phone) || old.phone || '',
       social_name: String(it.customer_social || '').trim() || old.social_name || '',
+      address: String(it.customer_address || '').trim() || old.address || '',   // ที่อยู่จัดส่งจากใบเสร็จ
       province: String(it.province || '').trim() || old.province || '',
       contact_channel: String(it.channel || it.channel_hint || '').trim() || old.contact_channel || '',
       owner: old.owner || user?.name || '',                       // เซลล์เจ้าของ = คนส่งใบแรก
@@ -131,7 +162,11 @@ export async function uploadReceiptFile(file, key) {
     if (error) throw error;
     const { data: pub } = supabase.storage.from('tmk-images').getPublicUrl(path);
     return pub?.publicUrl || null;
-  } catch { return null; }
+  } catch (e) {
+    // bucket ยังไม่รับ PDF (ต้องรัน 20260704-receipt-fixes.sql) หรือไฟล์ใหญ่เกิน → ไม่บล็อกการบันทึกยอด
+    console.warn('uploadReceiptFile → เก็บหลักฐานไม่สำเร็จ:', e?.message || e);
+    return null;
+  }
 }
 
 /* ============================================================
@@ -139,13 +174,14 @@ export async function uploadReceiptFile(file, key) {
    item = { ...parsed, order_no, order_date, customer_name, ..., lines,
             channel, job_type, customer_type, total }
    ============================================================ */
-function buildRows(item, user, batch) {
+function buildRows(item, user, batch, M) {
   const orderNo = String(item.order_no || '').trim();
   const id = receiptId(orderNo);
   const qty = item.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
   const sales = Number(item.total) || 0;
   const payKind = paymentKind(item.payment_method, item.carrier);
-  const jobType = item.job_type || jobTypeFromNote(item.note);
+  // ประเภทงาน: เลือกชัด (OEM/DFT) ชนะ · ถ้ายังเป็นค่า default "ปลีก" ให้หมายเหตุตัดสิน (พิมพ์ DFT ตอนแก้ = ได้ DFT จริง)
+  const jobType = (item.job_type && item.job_type !== 'ปลีก') ? item.job_type : jobTypeFromNote(item.note);
   const orderRow = {
     id, order_no: orderNo, source: 'shipnity', status: 'active',
     channel: item.channel || '', order_date: item.order_date || null,
@@ -157,13 +193,16 @@ function buildRows(item, user, batch) {
     customer_type: item.customer_type || 'ลูกค้าใหม่',
     job_type: jobType,
     province: item.province || '',
-    payment_type: payKind ? (payKind === 'COD' ? 'COD' : `โอน (${item.payment_method})`) : (item.payment_method || ''),
-    customer_code: '', customer_name: item.customer_name || '', customer_social: item.customer_social || '',
+    // payment_type ตรง convention import: COD → 'COD' · ธนาคาร → 'โอน' (ธนาคารดิบเก็บใน attrs)
+    payment_type: payKind === 'COD' ? 'COD' : payShipnity(item.payment_method),
+    // customer_code = คีย์เดียวกับโปรไฟล์ (customerKeyOf) → หน้า ลูกค้า (CRM) join ประวัติซื้อได้
+    customer_code: customerKeyOf(item), customer_name: item.customer_name || '', customer_social: item.customer_social || '',
+    note: item.note || '',   // ลงคอลัมน์จริง — หน้าออเดอร์เห็นหมายเหตุ (เดิมเก็บแค่ attrs.lot_note = มองไม่เห็น)
     import_batch: batch,
-    attrs: { via: 'receipt', receipt_id: id, carrier: item.carrier || '', lot_note: item.note || '' },
+    attrs: { via: 'receipt', receipt_id: id, carrier: item.carrier || '', lot_note: item.note || '', payment_method: item.payment_method || '' },
     updated_at: nowISO(),
   };
-  const skuRows = item.lines.map((l, i) => ({
+  const skuRows = item.lines.map((l, i) => enrichSku({
     id: `shipnity:${orderNo}:${i}`,
     source: 'shipnity', channel: item.channel || '', order_no: orderNo,
     product_code: String(l.code || ''), design: '', color: '', size: '',
@@ -171,17 +210,22 @@ function buildRows(item, user, batch) {
     raw_sku_or_name: String(l.name || ''), match_how: '',
     order_month: monthOf(item.order_date), order_date: item.order_date || null,
     import_batch: batch,
-  }));
+  }, M));
   const receiptRow = {
     id, order_no: orderNo,
     uploader_email: user.email || '', salesperson: user.name || user.email || '',
     channel: item.channel || '', order_date: item.order_date || null,
     order_month: monthOf(item.order_date), qty, sales,
     parsed: item.parsedRaw ?? null, confirmed: sanitizeConfirmed(item),
-    file_page: item.page ?? null, source_tool: 'pdfjs',
+    file_page: item.page ?? null, source_tool: item.source_tool || 'pdfjs',   // 'manual' = คีย์มือไม่มีใบเสร็จ
     status: 'confirmed', updated_at: nowISO(),
   };
-  const overrideRow = { order_id: id, salesperson: user.name || user.email || '', updated_at: nowISO() };
+  // override sync เต็ม field — กัน override เก่า (จากการแก้ใน drawer ออเดอร์) shadow ค่าที่แก้ล่าสุดผ่านใบเสร็จ
+  const overrideRow = {
+    order_id: id, salesperson: user.name || user.email || '',
+    job_type: jobType, customer_name: item.customer_name || '', customer_type: item.customer_type || '', note: item.note || '',
+    updated_at: nowISO(),
+  };
   return { orderRow, skuRows, receiptRow, overrideRow, item };
 }
 
@@ -203,12 +247,12 @@ const sanitizeConfirmed = (item) => ({
    ============================================================ */
 export async function confirmReceipts(items, user, { onProgress } = {}) {
   const batch = 'receipt:' + Date.now().toString(36);
-  const typeOf = await customerTypeLookup(items);
+  const [typeOf, M] = await Promise.all([customerTypeLookup(items), loadReceiptMatcher()]);
   const ok = []; const skipped = [];
 
-  // เตรียมแถวทั้งหมด
+  // เตรียมแถวทั้งหมด (จับคู่ลาย/สี/ไซซ์ ให้ SKU ตอนเขียน)
   const prepared = items.map(it => buildRows(
-    { ...it, customer_type: it.customer_type || typeOf(it) }, user, batch,
+    { ...it, customer_type: it.customer_type || typeOf(it) }, user, batch, M,
   ));
 
   /* 1) receipts — insert ทีละใบ (กันซ้ำด้วย unique order_no · ใบ void เดิม = ปลุกกลับ) */
@@ -315,11 +359,11 @@ export function canEditReceipt(receipt, { email, isAdmin }) {
    editor: { email, name, isAdmin } · salespersonOverride: แอดมินโอนยอด (ชื่อใหม่) หรือ null
    ============================================================ */
 export async function editReceipt(orig, edited, editor, { salespersonOverride = null } = {}) {
-  const typeOf = await customerTypeLookup([edited]);
+  const [typeOf, M] = await Promise.all([customerTypeLookup([edited]), loadReceiptMatcher()]);
   const seller = salespersonOverride || orig.salesperson;
   const user = { email: orig.uploader_email, name: seller };
   const batch = 'receipt-edit:' + Date.now().toString(36);
-  const rows = buildRows({ ...edited, customer_type: edited.customer_type || typeOf(edited) }, user, batch);
+  const rows = buildRows({ ...edited, customer_type: edited.customer_type || typeOf(edited) }, user, batch, M);
 
   const oldNo = String(orig.order_no).trim();
   const newNo = String(edited.order_no).trim();
@@ -372,8 +416,9 @@ export async function editReceipt(orig, edited, editor, { salespersonOverride = 
   try { await supabase.from('tmk_order_overrides').upsert(rows.overrideRow, { onConflict: 'order_id' }); } catch { /* optional */ }
 
   if (moved) {
-    // ลบร่องรอยเลขเก่า (ลบไม่ได้ → ยกเลิกแทน กันยอดค้าง)
-    await supabase.from('tmk_sale_receipts').delete().eq('order_no', oldNo);
+    // ลบร่องรอยเลขเก่า (ลบไม่ได้ → มาร์คแทน กันแถว phantom ค้างในรายงาน/feed)
+    const delRec = await supabase.from('tmk_sale_receipts').delete().eq('order_no', oldNo);
+    if (delRec.error) await supabase.from('tmk_sale_receipts').update({ status: 'void', void_by: editor.name || editor.email || '', void_reason: 'ย้ายเลขที่ → ' + newNo, void_at: nowISO() }).eq('order_no', oldNo);
     const del = await supabase.from('tmk_mp_orders').delete().eq('id', receiptId(oldNo));
     if (del.error) await supabase.from('tmk_mp_orders').update({ status: 'cancelled' }).eq('id', receiptId(oldNo));
     try { await supabase.from('tmk_order_overrides').delete().eq('order_id', receiptId(oldNo)); } catch { /* optional */ }

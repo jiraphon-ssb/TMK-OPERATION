@@ -8,20 +8,20 @@ import { Modal, MpImportModal, SideSheet } from './modals.jsx';
 import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, channelColor } from './charts.jsx';
 import { SaleDashboard } from './saleDashboard.jsx';
 import { ImportExportHub, SalesAliasManager } from './saleImportHub.jsx';
-import { SaleEntryView } from './saleEntry.jsx';
 import { CrmView } from './saleCrm.jsx';
 import { ShirtCatalogView } from './saleCatalog.jsx';
 import { WhatsNewPage } from './WhatsNew.jsx';
 import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';
 import { makeSkuResolver, loadResolverMaps, skuOverrideKey } from './lib/designResolve.js';
-import { buildMatchers, planRematch } from './lib/mpReport.js';
+import { buildMatchers, planRematch, qtyBand } from './lib/mpReport.js';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
 import { useData, computeMonth } from './dataContext.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
+import { voidReceipt } from './lib/receiptSubmit.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
@@ -35,6 +35,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Switch as ShadcnSwitch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -1209,7 +1210,10 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     let ok = 0, fail = 0; const ch = rematch.changes;
     for (let i = 0; i < ch.length; i++) {
       const c = ch[i];
-      let q = supabase.from('tmk_mp_skus').update({ design: c.design, product_code: c.product_code, match_how: c.match_how })
+      const patch = { design: c.design, product_code: c.product_code, match_how: c.match_how };
+      if (c.color) patch.color = c.color;   // เติมสี/ไซซ์ให้แถวเก่าที่ว่าง (ใบเสร็จ) — ไม่ทับของที่มีอยู่
+      if (c.size) patch.size = c.size;
+      let q = supabase.from('tmk_mp_skus').update(patch)
         .eq('source', c.source).eq('raw_sku_or_name', c.raw);
       q = c.oldCode ? q.eq('product_code', c.oldCode) : q.or('product_code.is.null,product_code.eq.');
       const { error } = await q;
@@ -1377,10 +1381,9 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
 // (HealthHub ด้านบน export ให้แท็บ "คุณภาพข้อมูล" ใช้)
 export function CatalogView({ sub }) {
   if (sub === 'orders') return <OrdersHub />;
-  if (sub === 'entry') return <SaleEntryView />;
   if (sub === 'shirts') return <ShirtCatalogView />;
   if (sub === 'crm') return <CrmView />;
-  return <ReportHub />; // เน้น sale: หน้าอื่น (สินค้า/ลูกค้า/สต็อก/PO) ถูกตัดออก → รายงานขาย
+  return <ReportHub />; // เน้น sale — sub 'entry' (บันทึกขาย) ยุบเข้า SaleDataHub (route ที่ App.jsx)
 }
 
 
@@ -1550,12 +1553,15 @@ function MpOrdersView() {
   const colVisible = useMemo(() => new Set(ORDERS_COLS.map(c => c.key).filter(k => !hiddenCols.includes(k))), [hiddenCols]);
   const toggleCol = (k) => setHiddenCols(hc => hc.includes(k) ? hc.filter(x => x !== k) : [...hc, k]);
 
+  const [reloadKey, setReloadKey] = useState(0);   // bump หลังแก้/ยกเลิก/ลบออเดอร์ → refetch สด
+
   // ขอบวันที่ของข้อมูล + ตั้งช่วงเริ่มต้น = เดือนปัจจุบันจริง (anchor วันจริง · ยุค realtime)
   useEffect(() => { (async () => {
     const b = await getDateBounds('tmk_mp_orders');
     setBounds({ min: b.min, max: b.max });
     if (b.max) { const r = presetRange('month', todayISO(), b.min, b.max); setRange({ from: r.from, to: r.to }); }
-  })(); }, []);
+    else { setOrders([]); setRawSkus([]); }   // ตารางว่างทั้งระบบ → โชว์ empty-state (ไม่ค้าง skeleton)
+  })(); }, [reloadKey]);
 
   // โหลดออเดอร์ตามช่วงวันที่ที่เลือก (server-side, มีแคช) — เปลี่ยนช่วงค่อยโหลดเฉพาะส่วน
   useEffect(() => {
@@ -1572,12 +1578,17 @@ function MpOrdersView() {
       setOrders((o.data || []).filter(x => x.status !== 'cancelled').sort((a, b) => (b.order_date || '').localeCompare(a.order_date || '')));
     })();
     return () => { cancel = true; };
-  }, [range.from, range.to]);
+  }, [range.from, range.to, reloadKey]);
 
   // โหลด map สด (catalog/alias/override + override ระดับออเดอร์) → live-resolve + apply override (กับดัก reimport)
   const reloadOverrides = async () => {
     const m = await loadResolverMaps(supabase); setResolverMaps(m);
     try { const r = await supabase.from('tmk_order_overrides').select('*'); const map = {}; if (!r.error) (r.data || []).forEach(x => { map[x.order_id] = x; }); setOrderOv(map); } catch { setOrderOv({}); }
+  };
+  // reload เต็ม (orders + skus + overrides) — ใช้หลังแก้ตรง/ยกเลิก/ลบ จาก drawer
+  const reloadAll = () => {
+    invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+    setReloadKey(k => k + 1); reloadOverrides();
   };
   useEffect(() => { let cancel = false; (async () => { const m = await loadResolverMaps(supabase); if (cancel) return; setResolverMaps(m); try { const r = await supabase.from('tmk_order_overrides').select('*'); if (cancel) return; const map = {}; if (!r.error) (r.data || []).forEach(x => { map[x.order_id] = x; }); setOrderOv(map); } catch { /* ตารางยังไม่มี */ } })(); return () => { cancel = true; }; }, []);
   const orderOvKey = (o) => `${o.source || ''}:${o.order_no}`;
@@ -1649,7 +1660,7 @@ function MpOrdersView() {
   // ไม่มีข้อมูลเลยทั้งระบบ (ไม่มีเดือนใดเลย) → แนะนำนำเข้า · ถ้าแค่เดือนนี้ว่าง ยังให้เลือกเดือนอื่นได้
   if (err || (orders.length === 0 && !bounds.max)) return (
     <div className="content-inner rise"><Card className="p-[22px]"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>
-      {/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration ก่อน' : 'ยังไม่มีออเดอร์จากไฟล์ — ไปที่ "ข้อมูล → นำเข้าไฟล์มาร์เก็ตเพลส" เพื่อนำเข้า'}
+      {/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration ก่อน' : 'ยังไม่มีออเดอร์ — ส่งยอดใบเสร็จหรือนำเข้าไฟล์มาร์เก็ตเพลสได้ที่เมนู "ส่งยอด & ข้อมูล"'}
     </div></Card></div>
   );
 
@@ -1665,25 +1676,14 @@ function MpOrdersView() {
   const statusLabel = (s) => ({ 'completed': 'สำเร็จ', 'delivered': 'ส่งแล้ว', 'cancelled': 'ยกเลิก', 'pending': 'รอดำเนินการ', 'processing': 'กำลังทำ', 'shipped': 'จัดส่งแล้ว' }[s] || s || '');
   return (
     <div className="content-inner rise">
-      <Card className="p-[22px] mb-4">
+      <Card className="p-[22px]">
+        {/* หัว: ชื่อ (ไม่มีไอคอน) · ค้นหาอยู่มุมขวาบน */}
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-0 pb-3.5">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-[18px]" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="listChecks" /></span>
-            <div className="min-w-0">
-              <h3 className="m-0 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์จากไฟล์นำเข้า</h3>
-              <p className="m-0 mt-0.5 text-xs" style={{ color: 'var(--ink-4)' }}>รายละเอียดออเดอร์ทุกช่องทางจากไฟล์นำเข้า</p>
-            </div>
-          </div>
-          <div className="flex items-stretch overflow-hidden rounded-xl border" style={{ borderColor: 'var(--line)', background: 'var(--surface-2, transparent)' }}>
-            {[['ออเดอร์', N(filtered.length)], ['ยอดขาย', B(tot)], ['ตัว', N(totQty)]].map(([label, val], i) => (
-              <div key={label} className="px-4 py-1.5 text-center" style={i > 0 ? { borderLeft: '1px solid var(--line)' } : undefined}>
-                <div className="text-[15px] font-bold leading-tight tabular-nums" style={{ color: 'var(--ink)' }}>{val}</div>
-                <div className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-4)' }}>{label}</div>
-              </div>
-            ))}
-          </div>
+          <h3 className="m-0 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์จากไฟล์นำเข้า</h3>
+          <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา ออเดอร์ / ลูกค้า / เบอร์ / จังหวัด / ลาย" wrapperClassName="w-full sm:w-[340px]" />
         </CardHeader>
-        <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา ออเดอร์ / ชื่อลูกค้า / รหัสลูกค้า / เบอร์/โซเชียล / จังหวัด / ลาย" wrapperClassName="mb-3" />
+
+        {/* แถบเครื่องมือ: ช่วงวัน · ตัวกรอง · ชิป | (ขวา) ล้าง · คอลัมน์ */}
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <OrderDatePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max}
@@ -1698,7 +1698,10 @@ function MpOrdersView() {
             {activeChips.length > 0
               ? activeChips.map(({ dim, v, clear }) => <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>)
               : <span className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้กรอง — แสดงทุกออเดอร์</span>}
-            {nFilters > 0 && <Button variant="ghost" size="sm" className="text-[var(--bad)] ml-auto" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>}
+            <div className="ml-auto flex items-center gap-2">
+              {nFilters > 0 && <Button variant="ghost" size="sm" className="text-[var(--bad)]" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>}
+              <ColumnToggle columns={ORDERS_COLS} visible={colVisible} onToggle={toggleCol} />
+            </div>
           </div>
           <CollapsibleContent>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 12, marginTop: 10, borderTop: '1px solid var(--line)' }}>
@@ -1709,31 +1712,8 @@ function MpOrdersView() {
             </div>
           </CollapsibleContent>
         </Collapsible>
-      </Card>
 
-      <Card className="p-[22px]">
-        <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" size="sm" className="h-8 gap-1.5 font-normal mr-auto" disabled={!sorted.length}
-            onClick={() => downloadCsv(`ออเดอร์_${sorted.length}รายการ`, sorted, [
-              { label: 'ออเดอร์', key: 'order_no' },
-              { label: 'วันที่', map: (o) => o.order_date || o.order_month || '' },
-              { label: 'ช่องทาง', key: 'channel' },
-              { label: 'ลูกค้า', map: (o) => o.customer_name || o.customer_code || '' },
-              { label: 'จังหวัด', key: 'province' },
-              { label: 'ลายเสื้อ', map: (o) => buildDesigns(skusByOrder[o.order_no] || []).map(d => d.design).join(' | ') },
-              { label: 'งาน', map: (o) => o.job_type || 'ปลีก' },
-              { label: 'สถานะ', map: (o) => statusLabel(o.status) },
-              { label: 'หมายเหตุ', key: 'note' },
-              { label: 'เซลล์', key: 'salesperson' },
-              { label: 'ตัว', key: 'qty' },
-              { label: 'ยอดขาย', key: 'sales' },
-            ])} title="ส่งออกออเดอร์ตามตัวกรองปัจจุบัน">
-            <Icon name="external" /> CSV
-          </Button>
-          <ColumnToggle columns={ORDERS_COLS} visible={colVisible} onToggle={toggleCol} />
-          <DensityToggle value={density} onChange={setDensity} />
-        </div>
-        <div className={'table-wrap table-sticky-first ' + density}><Table>
+        <div className={'table-wrap table-sticky-first mt-4 ' + density}><Table>
           <TableHeader><TableRow>
             <SortHead field="order_no" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ออเดอร์</SortHead>
             {colVisible.has('date') && <SortHead field="date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>วันที่</SortHead>}
@@ -1779,7 +1759,7 @@ function MpOrdersView() {
       {openId && (() => {
         const o = (ordersM || []).find(x => x.order_no === openId);
         if (!o) return null;
-        return <OrderDrawer order={o} sk={skusByOrder[o.order_no] || []} buildDesigns={buildDesigns} onClose={() => setOpenId(null)} onSaved={reloadOverrides} />;
+        return <OrderDrawer order={o} sk={skusByOrder[o.order_no] || []} buildDesigns={buildDesigns} onClose={() => setOpenId(null)} onSaved={reloadOverrides} onChanged={reloadAll} />;
       })()}
     </div>
   );
@@ -1800,34 +1780,98 @@ function DrawerGroup({ icon, title, children }) {
   );
 }
 const JOB_TYPES_DRAWER = ['ปลีก', 'OEM', 'DFT'];
-function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved }) {
+const DRAWER_CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
+const DRAWER_PAYMENTS = ['โอน', 'COD', 'มาร์เก็ตเพลส', 'ไม่ระบุ'];
+function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }) {
   const designs = buildDesigns(sk);
   const jt = o.job_type || 'ปลีก';
   const jtCls = { DFT: 'chip-accent', OEM: 'chip-warn' }[jt] || '';
   const hasOv = !!o._ov;                                   // ออเดอร์นี้เคยแก้มือไหม
-  const [edit, setEdit] = useState(null);                  // null | { job_type, customer_name, salesperson }
+  const isReceipt = (o.source || '') === 'shipnity';       // มาจากใบเสร็จ — ยกเลิกผ่านระบบใบเสร็จ (ส่งใหม่ได้)
+  const [edit, setEdit] = useState(null);                  // null | ฟอร์มแก้เต็มทุกช่อง
   const [busy, setBusy] = useState(false);
   const [lineEdit, setLineEdit] = useState(null);          // index ของบรรทัดที่กำลังแก้ลาย
   const [linePick, setLinePick] = useState({ design: '', code: '' });
   const ovId = `${o.source || ''}:${o.order_no}`;
-  const startEdit = () => setEdit({ job_type: jt, customer_name: o.customer_name || '', salesperson: o.salesperson || '' });
+  const toast = (m, t) => window.__toast && window.__toast(m, t);
+  const startEdit = () => setEdit({
+    order_date: o.order_date || '', channel: o.channel || '', job_type: jt,
+    payment_type: DRAWER_PAYMENTS.includes(o.payment_type) ? o.payment_type : (o.payment_type || 'ไม่ระบุ'),
+    sales: String(o.sales ?? ''), qty: String(o.qty ?? ''),
+    customer_name: o.customer_name || '', customer_type: o.customer_type || 'ลูกค้าใหม่',
+    province: o.province || '', salesperson: o.salesperson || '', note: o.note || '',
+  });
+  // บันทึก: อัปเดตตรงที่ tmk_mp_orders (มีผลทุกรายงานทันที) + override field ที่รองรับ (ประกันข้าม reimport)
+  // + ใบเสร็จ: sync แถว tmk_sale_receipts ให้ feed ส่งยอดตรงกัน
   const saveOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
     setBusy(true);
-    const row = { order_id: ovId, job_type: edit.job_type, customer_name: edit.customer_name.trim(), salesperson: edit.salesperson.trim(), updated_at: new Date().toISOString() };
-    const { error } = await supabase.from('tmk_order_overrides').upsert(row, { onConflict: 'order_id' });
-    setBusy(false);
-    if (error) { window.__toast && window.__toast(/relation|does not exist|schema cache/i.test(error.message) ? 'ต้องรัน migration tmk_order_overrides ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `แก้ออเดอร์ ${o.order_no} (งาน=${edit.job_type})` });
-    window.__toast && window.__toast('บันทึกการแก้ไขออเดอร์แล้ว — รอดข้าม reimport', 'success');
-    setEdit(null); onSaved && onSaved();
+    try {
+      const now = new Date().toISOString();
+      const patch = {
+        order_date: edit.order_date || null,
+        order_month: (edit.order_date || o.order_month || '').slice(0, 7),
+        channel: edit.channel, job_type: edit.job_type,
+        payment_type: edit.payment_type,
+        cod_amount: edit.payment_type === 'COD' ? (Number(edit.sales) || 0) : 0,
+        sales: Number(edit.sales) || 0, qty: Number(edit.qty) || 0, qty_band: qtyBand(Number(edit.qty) || 0),
+        customer_name: edit.customer_name.trim(), customer_type: edit.customer_type,
+        province: edit.province.trim(), salesperson: edit.salesperson.trim(), note: edit.note.trim(),
+        updated_at: now,
+      };
+      { const { error } = await supabase.from('tmk_mp_orders').update(patch).eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
+      try {
+        await supabase.from('tmk_order_overrides').upsert({ order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, updated_at: now }, { onConflict: 'order_id' });
+      } catch { /* ตาราง override ยังไม่มี — ค่าตรงบันทึกแล้ว */ }
+      if (isReceipt) {
+        try { await supabase.from('tmk_sale_receipts').update({ channel: patch.channel, order_date: patch.order_date, order_month: patch.order_month, sales: patch.sales, qty: patch.qty, salesperson: patch.salesperson, updated_at: now }).eq('order_no', o.order_no); } catch { /* เงียบ */ }
+      }
+      logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `แก้ออเดอร์ ${o.order_no} (${patch.channel} · ฿${patch.sales})` });
+      toast('บันทึกการแก้ไขแล้ว — ยอดในรายงานอัปเดตทันที', 'success');
+      setEdit(null); onChanged ? onChanged() : onSaved?.();
+    } catch (e) { toast('บันทึกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
   };
   const revertOrder = async () => {
     setBusy(true);
     const { error } = await supabase.from('tmk_order_overrides').delete().eq('order_id', ovId);
     setBusy(false);
-    if (error) { window.__toast && window.__toast('คืนค่าไม่สำเร็จ', 'error'); return; }
-    window.__toast && window.__toast('คืนค่าออเดอร์เป็นค่าจากไฟล์แล้ว', 'success');
+    if (error) { toast('คืนค่าไม่สำเร็จ', 'error'); return; }
+    toast('คืนค่าออเดอร์เป็นค่าจากไฟล์แล้ว', 'success');
     setEdit(null); onSaved && onSaved();
+  };
+  // ยกเลิกออเดอร์ — ใบเสร็จ: void ผ่านระบบใบเสร็จ (ยอดหาย+ส่งใหม่ได้) · มาร์เก็ตเพลส: mark cancelled
+  const cancelOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await window.__confirm?.({ title: 'ยกเลิกออเดอร์', body: `ยกเลิก ${o.order_no}?\nยอดจะถูกตัดออกจากรายงานทันที${isReceipt ? ' (ส่งใบเสร็จซ้ำได้)' : ''}`, danger: true, confirmText: 'ยกเลิกออเดอร์' })) return;
+    setBusy(true);
+    try {
+      if (isReceipt) await voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์' });
+      else {
+        const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
+        if (error) throw error;
+        logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
+      }
+      toast('ยกเลิกออเดอร์แล้ว — ยอดถูกตัดออกจากรายงาน', 'success');
+      onClose(); onChanged?.();
+    } catch (e) { toast('ยกเลิกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  // ลบถาวร — เอาออกทุกตาราง (ออเดอร์ + รายการสินค้า + override + ใบเสร็จ) ย้อนกลับไม่ได้
+  const deleteOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await window.__confirm?.({ title: 'ลบออเดอร์ถาวร', body: `ลบ ${o.order_no} ออกจากระบบถาวร?\nรายการสินค้า${isReceipt ? ' + ใบเสร็จ' : ''} จะถูกลบด้วย — ย้อนกลับไม่ได้`, danger: true, confirmText: 'ลบถาวร' })) return;
+    setBusy(true);
+    try {
+      await supabase.from('tmk_mp_skus').delete().eq('source', o.source || '').eq('order_no', o.order_no);
+      { const { error } = await supabase.from('tmk_mp_orders').delete().eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
+      try { await supabase.from('tmk_order_overrides').delete().eq('order_id', ovId); } catch { /* optional */ }
+      if (isReceipt) { try { await supabase.from('tmk_sale_receipts').delete().eq('order_no', o.order_no); } catch { /* optional */ } }
+      logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})` });
+      toast('ลบออเดอร์ถาวรแล้ว', 'success');
+      onClose(); onChanged?.();
+    } catch (e) { toast('ลบไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
   };
   const saveLine = async (s) => {
     setBusy(true);
@@ -1849,26 +1893,54 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved }) {
     <div className="quality-row items-center" style={{ marginBottom: 14 }}>
       {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
       {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
-      {o.customer_code && <Badge variant="success" className="rounded-full text-[10px] font-medium">มีรหัสลูกค้า</Badge>}
       {hasOv && <Badge variant="outline" className="rounded-full text-[10px] font-medium" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}><Icon name="pencil" /> แก้มือ</Badge>}
-      <span className="ml-auto">{!edit && <Button variant="outline" size="sm" className="gap-1" onClick={startEdit}><Icon name="pencil" /> แก้ไขออเดอร์</Button>}</span>
+      {!edit && (
+        <span className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>
+          <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}><Icon name="x" /> ยกเลิกออเดอร์</Button>
+          <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} onClick={deleteOrder} disabled={busy}><Icon name="trash" /> ลบ</Button>
+        </span>
+      )}
     </div>
 
     {edit && (
       <div className="mb-4 rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
-        <div className="cap cap-head mb-2.5" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ (บันทึกเป็น override — รอดข้าม reimport)</div>
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+        <div className="cap cap-head mb-2.5" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — มีผลกับรายงานทันที</div>
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+          <div className="field"><label>วันที่</label><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></div>
+          <div className="field"><label>ช่องทาง</label>
+            <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
+              <SelectContent>{[...new Set([...DRAWER_CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
           <div className="field"><label>ประเภทงาน</label>
             <Select value={edit.job_type} onValueChange={v => setEdit({ ...edit, job_type: v })}>
               <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
               <SelectContent>{JOB_TYPES_DRAWER.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
             </Select>
           </div>
+          <div className="field"><label>การชำระ</label>
+            <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
+              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+              <SelectContent>{[...new Set([...DRAWER_PAYMENTS, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="field"><label>ยอดขาย (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></div>
+          <div className="field"><label>จำนวน (ตัว)</label><Input type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></div>
           <div className="field"><label>ชื่อลูกค้า</label><Input value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></div>
+          <div className="field"><label>สถานะลูกค้า</label>
+            <Select value={edit.customer_type || 'ลูกค้าใหม่'} onValueChange={v => setEdit({ ...edit, customer_type: v })}>
+              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+              <SelectContent>{[...new Set(['ลูกค้าใหม่', 'ลูกค้าเก่า', edit.customer_type].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="field"><label>จังหวัด</label><Input value={edit.province} onChange={e => setEdit({ ...edit, province: e.target.value })} placeholder="เช่น กรุงเทพมหานคร" /></div>
           <div className="field"><label>เซลล์</label><Input value={edit.salesperson} onChange={e => setEdit({ ...edit, salesperson: e.target.value })} placeholder="ชื่อเซลล์" /></div>
         </div>
+        <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Textarea rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></div>
         <div className="row" style={{ gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button onClick={saveOrder} disabled={busy}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+          <Button onClick={saveOrder} disabled={busy || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
           <Button variant="ghost" onClick={() => setEdit(null)} disabled={busy}>ยกเลิก</Button>
           {hasOv && <Button variant="ghost" className="ml-auto" style={{ color: 'var(--bad)' }} onClick={revertOrder} disabled={busy}><Icon name="refresh" /> คืนค่าจากไฟล์</Button>}
         </div>

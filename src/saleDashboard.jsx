@@ -14,12 +14,11 @@ import { todayISO } from './lib/dateUtils.js';
 import { CATALOG_TYPES } from './lib/catalogMeta.js';
 import { PROVINCES, REGIONS, normalizeProvince, TH_BBOX } from './lib/provinces.js';
 import { TH_PATHS } from './lib/thMapPaths.js';
-import { entriesToOrders } from './lib/saleRecon.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL } from './lib/saleData.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal } from './lib/saleData.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -216,26 +215,27 @@ export function SaleDashboard() {
   const [funnel, setFunnel] = useState([]);
   const [cust, setCust] = useState([]);
   const [aliases, setAliases] = useState([]);
-  const [entries, setEntries] = useState([]);
+  const [orderOv, setOrderOv] = useState({});   // override ระดับออเดอร์ (แก้ในเว็บ: งาน/ลูกค้า/เซลล์/โน้ต) — ให้รายงานเห็นค่าที่แก้ด้วย
   const [resolverMaps, setResolverMaps] = useState(null);
   const [dbBounds, setDbBounds] = useState({ min: null, max: null });
   const [, setLoadingOrders] = useState(true);
 
   // ตารางเล็ก + ขอบวันที่ (โหลดครั้งเดียวตอนเข้า / หลังนำเข้า) — ไม่หนัก
   useEffect(() => { let alive = true; (async () => {
-    const [bnd, cu, fn, sa, se] = await Promise.all([
+    const [bnd, cu, fn, sa, ov] = await Promise.all([
       getDateBounds('tmk_mp_orders'),
       cachedFetchAll('tmk_mp_customers', CUST_SEL),
       cachedFetchAll('tmk_sales_funnel', '*'),
       cachedFetchAll('tmk_sales_aliases', 'handle,display_name'),
-      cachedFetchAll('tmk_sale_entries', '*'),
+      cachedFetchAll('tmk_order_overrides', 'order_id,job_type,customer_name,customer_type,salesperson,note'),
     ]);
     if (!alive) return;
     setDbBounds(bnd || { min: null, max: null });
     setCust(cu.error ? [] : (cu.data || []));
     setFunnel(fn.error ? [] : (fn.data || []));
     setAliases(sa.error ? [] : (sa.data || []));
-    setEntries(se.error ? [] : (se.data || []));
+    const om = {}; if (!ov.error) (ov.data || []).forEach(x => { om[x.order_id] = x; });
+    setOrderOv(om);
   })(); return () => { alive = false; }; }, [reloadKey]);
   // โหลด map สำหรับ live-resolve ชื่อลาย/รหัส (catalog/alias/override) — รีโหลดหลังนำเข้า/แก้ catalog
   useEffect(() => { let alive = true; (async () => {
@@ -286,17 +286,27 @@ export function SaleDashboard() {
     setLoadedAt(new Date().toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }));
   })(); return () => { alive = false; }; }, [winFrom, winTo, reloadKey]);
 
-  // ประมวลผล: normalize จังหวัด + รวมชื่อเซลล์ (handle→ชื่อจริง) + รวมยอดเซลล์
+  // ประมวลผล: apply override ที่แก้ในเว็บ (งาน/ลูกค้า/เซลล์/โน้ต — แพทเทิร์นเดียวกับหน้าออเดอร์)
+  // + normalize จังหวัด + รวมชื่อเซลล์ (handle→ชื่อจริง) + รวมยอดเซลล์
   const procOrders = useMemo(() => {
     if (!orders) return null;
     const spMap = new Map((aliases || []).filter(a => a.display_name).map(a => [a.handle, a.display_name]));
     const norm = orders.map(o => {
-      const th = o.province ? normalizeProvince(o.province) : null;
-      const sp = spMap.get(o.salesperson);
-      return (th && th !== o.province) || sp ? { ...o, province: (th && th !== o.province) ? th : o.province, salesperson: sp || o.salesperson } : o;
+      const ov = orderOv[`${o.source || ''}:${o.order_no}`];
+      const o1 = ov ? {
+        ...o,
+        job_type: ov.job_type || o.job_type,
+        customer_name: ov.customer_name || o.customer_name,
+        customer_type: ov.customer_type || o.customer_type,
+        salesperson: ov.salesperson || o.salesperson,
+        note: (ov.note != null && ov.note !== '') ? ov.note : o.note,
+      } : o;
+      const th = o1.province ? normalizeProvince(o1.province) : null;
+      const sp = spMap.get(o1.salesperson);
+      return (th && th !== o1.province) || sp ? { ...o1, province: (th && th !== o1.province) ? th : o1.province, salesperson: sp || o1.salesperson } : o1;
     });
-    return [...norm, ...entriesToOrders(entries || []).orders];
-  }, [orders, aliases, entries]);
+    return norm;
+  }, [orders, aliases, orderOv]);
   // remap SKU ของ Shopee (order_no = marketplace_id) → เลขออเดอร์จริง + รวม SKU ยอดเซลล์
   const procSkus = useMemo(() => {
     if (!orders) return [];
@@ -308,8 +318,8 @@ export function SaleDashboard() {
       return (r.design !== s1.design || r.product_code !== s1.product_code)
         ? { ...s1, design: r.design || s1.design, product_code: r.product_code || s1.product_code } : s1;
     });
-    return [...remap, ...entriesToOrders(entries || []).skus];
-  }, [orders, skus, entries, resolver]);
+    return remap;
+  }, [orders, skus, resolver]);
 
   const A = useMemo(() => procOrders ? compute(procOrders, procSkus, eff) : null, [procOrders, procSkus, JSON.stringify(eff)]);
   const prevA = useMemo(() => (procOrders && compare && prevRange) ? compute(procOrders, procSkus, { ...f, ...prevRange }) : null, [procOrders, procSkus, JSON.stringify(f), JSON.stringify(prevRange), compare]);
@@ -771,29 +781,31 @@ export function SaleDashboard() {
       {tab === 'funnel' && (() => {
         const inR = (d) => (!range.from || d >= range.from) && (!range.to || d <= range.to);
         const fr = funnel.filter(r => inR(r.date) && (!f.salesperson.length || f.salesperson.includes(r.salesperson)));
-        if (funnel.length === 0) return <Card className="p-9 text-center" style={{ color: 'var(--ink-4)' }}>ยังไม่มีข้อมูลคนทัก — ให้เซลล์กรอก "คนทักวันนี้" ที่หน้า <b>บันทึกขาย</b> ก่อน (ต้องรัน migration <code>tmk_sales_funnel</code> ด้วย)</Card>;
-        const sumK = (k) => fr.reduce((a, r) => a + (Number(r[k]) || 0), 0);
-        const fbN = sumK('leads_fb_new'), fbO = sumK('leads_fb_old'), lnN = sumK('leads_line_new'), lnO = sumK('leads_line_old');
-        const totalLeads = fbN + fbO + lnN + lnO, newLeads = fbN + lnN;
+        if (funnel.length === 0) return <Card className="p-9 text-center" style={{ color: 'var(--ink-4)' }}>ยังไม่มีข้อมูลคนทัก — ให้เซลล์กรอก "คนทักวันนี้" ที่หน้า <b>ส่งยอด &amp; ข้อมูล</b> ก่อน (ต้องรัน migration <code>tmk_sales_funnel</code> ด้วย)</Card>;
+        // ทักรวมต่อแพลตฟอร์ม (jsonb leads · แถวเก่า fb/line map ให้อัตโนมัติผ่าน funnelPlatforms)
+        const totalLeads = fr.reduce((a, r) => a + funnelTotal(r), 0);
+        const platTotals = {}; fr.forEach(r => { for (const [p, n] of Object.entries(funnelPlatforms(r))) platTotals[p] = (platTotals[p] || 0) + n; });
+        const platSorted = Object.entries(platTotals).sort((a, b) => b[1] - a[1]);
         // ปิดการขาย = ออเดอร์เฉพาะเซลล์ที่มีข้อมูลคนทัก (กัน %ปิด ผิดเพราะเทียบกับออเดอร์ทั้งระบบ)
         const funnelSps = new Set(fr.map(r => r.salesperson));
         const funnelOrds = (A._ords || []).filter(o => funnelSps.has(o.salesperson));
         const orders = funnelOrds.length;
         const close = totalLeads ? Math.round(orders / totalLeads * 100) : 0;
         const buckets = enumerateBuckets(range.from, range.to, gran);
-        const leadBy = {}; fr.forEach(r => { const b = bucketKey(r.date, gran); leadBy[b] = (leadBy[b] || 0) + (Number(r.leads_fb_new) || 0) + (Number(r.leads_fb_old) || 0) + (Number(r.leads_line_new) || 0) + (Number(r.leads_line_old) || 0); });
+        const leadBy = {}; fr.forEach(r => { const b = bucketKey(r.date, gran); leadBy[b] = (leadBy[b] || 0) + funnelTotal(r); });
         const ordBy = {}; funnelOrds.forEach(o => { const b = bucketKey(o.order_date, gran); ordBy[b] = (ordBy[b] || 0) + 1; });
         const labels = buckets.map(b => bucketLabel(b, gran).replace(/ \(.*/, ''));
         const bars = buckets.map(b => leadBy[b] || 0), line = buckets.map(b => ordBy[b] || 0);
         // ต่อเซลล์
-        const bySp = {}; fr.forEach(r => { const g = bySp[r.salesperson] || (bySp[r.salesperson] = { leads: 0, newL: 0 }); g.leads += (Number(r.leads_fb_new) || 0) + (Number(r.leads_fb_old) || 0) + (Number(r.leads_line_new) || 0) + (Number(r.leads_line_old) || 0); g.newL += (Number(r.leads_fb_new) || 0) + (Number(r.leads_line_new) || 0); });
-        const spRows = Object.entries(bySp).map(([sp, g]) => { const o = (A.bySalesperson.find(x => x.key === sp) || {}).orders || 0; return { sp, leads: g.leads, newL: g.newL, orders: o, close: g.leads ? Math.round(o / g.leads * 100) : 0 }; }).sort((a, b) => b.leads - a.leads);
+        const bySp = {}; fr.forEach(r => { const g = bySp[r.salesperson] || (bySp[r.salesperson] = { leads: 0 }); g.leads += funnelTotal(r); });
+        const spRows = Object.entries(bySp).map(([sp, g]) => { const o = (A.bySalesperson.find(x => x.key === sp) || {}).orders || 0; return { sp, leads: g.leads, orders: o, close: g.leads ? Math.round(o / g.leads * 100) : 0 }; }).sort((a, b) => b.leads - a.leads);
+        const topPlat = platSorted[0];
         return (<>
           <div className="metric-grid">
-            <MetricCard label="คนทักรวม" value={N(totalLeads)} icon="users" sub={`ใหม่ ${N(newLeads)} · เก่า ${N(totalLeads - newLeads)}`} />
+            <MetricCard label="คนทักรวม" value={N(totalLeads)} icon="users" sub={platSorted.slice(0, 3).map(([p, n]) => `${p} ${N(n)}`).join(' · ') || '—'} />
             <MetricCard label="ปิดการขาย" value={N(orders)} icon="check" sub="ออเดอร์ในช่วงนี้" tone="var(--accent)" />
             <MetricCard label="%ปิดการขาย" value={`${close}%`} icon="target" tone={close >= 15 ? 'var(--good)' : close >= 8 ? 'var(--warn)' : 'var(--bad)'} sub="ออเดอร์ ÷ คนทัก" />
-            <MetricCard label="FB vs LINE" value={`${totalLeads ? Math.round((fbN + fbO) / totalLeads * 100) : 0}/${totalLeads ? Math.round((lnN + lnO) / totalLeads * 100) : 0}`} sub={`FB ${N(fbN + fbO)} · LINE ${N(lnN + lnO)}`} />
+            <MetricCard label="แพลตฟอร์มหลัก" value={topPlat ? topPlat[0] : '—'} sub={topPlat ? `${N(topPlat[1])} คน · ${Math.round(topPlat[1] / totalLeads * 100)}% ของทักรวม` : 'ยังไม่มีข้อมูล'} />
           </div>
           <Card className="p-[22px]">
             <CardTitle className="m-0 text-base font-semibold mb-[12px]">คนทัก vs ปิดการขาย ตามเวลา <span className="dim">(แท่ง=คนทัก · เส้น=ออเดอร์)</span></CardTitle>
@@ -802,13 +814,13 @@ export function SaleDashboard() {
           <div className="grid g2" style={{ alignItems: 'start' }}>
             <Card className="p-[22px]">
               <CardTitle className="m-0 text-base font-semibold mb-[12px]">ช่องทางคนทัก</CardTitle>
-              <div style={{ maxWidth: 220, margin: '0 auto' }}><DonutChart data={[{ label: 'FB ใหม่', value: fbN, color: 'var(--ch-facebook)' }, { label: 'FB เก่า', value: fbO, color: 'color-mix(in srgb, var(--ch-facebook) 55%, var(--surface))' }, { label: 'LINE ใหม่', value: lnN, color: 'var(--ch-line)' }, { label: 'LINE เก่า', value: lnO, color: 'color-mix(in srgb, var(--ch-line) 55%, var(--surface))' }]} height={180} /></div>
+              <div style={{ maxWidth: 220, margin: '0 auto' }}><DonutChart data={platSorted.map(([p, n]) => ({ label: p, value: n, color: channelColor(p) }))} height={180} /></div>
             </Card>
             <Card className="p-[22px]">
               <CardTitle className="m-0 text-base font-semibold mb-[12px]">ปิดการขายต่อเซลล์</CardTitle>
               <div className="table-wrap"><Table>
-                <TableHeader><TableRow><TableHead>เซลล์</TableHead><TableHead style={{ textAlign: 'right' }}>คนทัก</TableHead><TableHead style={{ textAlign: 'right' }}>ใหม่</TableHead><TableHead style={{ textAlign: 'right' }}>ปิดได้</TableHead><TableHead style={{ textAlign: 'right' }}>%ปิด</TableHead></TableRow></TableHeader>
-                <TableBody>{spRows.map(r => <TableRow key={r.sp}><TableCell>{r.sp}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.leads)}</TableCell><TableCell className="num" style={{ textAlign: 'right', color: 'var(--accent)' }}>{N(r.newL)}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.orders)}</TableCell><TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: r.close >= 15 ? 'var(--good)' : r.close >= 8 ? 'var(--warn)' : 'var(--bad)' }}>{r.close}%</TableCell></TableRow>)}</TableBody>
+                <TableHeader><TableRow><TableHead>เซลล์</TableHead><TableHead style={{ textAlign: 'right' }}>คนทัก</TableHead><TableHead style={{ textAlign: 'right' }}>ปิดได้</TableHead><TableHead style={{ textAlign: 'right' }}>%ปิด</TableHead></TableRow></TableHeader>
+                <TableBody>{spRows.map(r => <TableRow key={r.sp}><TableCell>{r.sp}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.leads)}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.orders)}</TableCell><TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: r.close >= 15 ? 'var(--good)' : r.close >= 8 ? 'var(--warn)' : 'var(--bad)' }}>{r.close}%</TableCell></TableRow>)}</TableBody>
               </Table></div>
             </Card>
           </div>

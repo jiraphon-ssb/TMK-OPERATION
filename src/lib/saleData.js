@@ -109,3 +109,22 @@ export function invalidateSaleCache(prefix) {
   for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
   for (const k of [...inflight.keys()]) if (k.startsWith(prefix)) inflight.delete(k);
 }
+
+/* ---------- คนทัก (funnel) — helper กลาง ----------
+   แถวใหม่เก็บ "ทักรวมต่อแพลตฟอร์ม" ใน jsonb `leads` เช่น {Facebook: 12, LINE: 8}
+   แถวเก่าเก็บ 4 คอลัมน์ fb/line ใหม่-เก่า → แปลงให้เป็นรูปเดียวกัน (back-compat) */
+export function funnelPlatforms(r) {
+  const j = r?.leads;
+  if (j && typeof j === 'object' && Object.keys(j).length) {
+    const out = {};
+    for (const [k, v] of Object.entries(j)) { const n = Number(v) || 0; if (n > 0) out[k] = (out[k] || 0) + n; }
+    return out;
+  }
+  const fb = (Number(r?.leads_fb_new) || 0) + (Number(r?.leads_fb_old) || 0);
+  const ln = (Number(r?.leads_line_new) || 0) + (Number(r?.leads_line_old) || 0);
+  const out = {};
+  if (fb > 0) out.Facebook = fb;
+  if (ln > 0) out.LINE = ln;
+  return out;
+}
+export const funnelTotal = (r) => Object.values(funnelPlatforms(r)).reduce((a, v) => a + v, 0);

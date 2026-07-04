@@ -10,7 +10,10 @@
    - TikTok  = นับเป็นออเดอร์ใหม่ (คนละระบบ)
    - ตัดออเดอร์ยกเลิกทิ้ง · รวมหลาย LOT เป็นลายเดียว (design_key)
 ============================================================================ */
-import { BUILTIN_DESIGN_ALIASES } from './shirtCatalog.js'; // คำพ้องชัวร์ → ฉีดเข้า matcher อัตโนมัติ (จันทกานต์→จันทร์, สีดำ-*→OEM)
+import { BUILTIN_DESIGN_ALIASES, COLOR_TH2CODE } from './shirtCatalog.js'; // คำพ้องชัวร์ → ฉีดเข้า matcher อัตโนมัติ (จันทกานต์→จันทร์, สีดำ-*→OEM)
+
+// รหัสสี → ชื่อสีไทย (invert COLOR_TH2CODE · ตัวแรกชนะเมื่อรหัสซ้ำ เช่น N→กรม, OR→ส้ม)
+const CODE2COLOR_TH = (() => { const m = {}; for (const [th, code] of Object.entries(COLOR_TH2CODE)) if (!(code in m)) m[code] = th; return m; })();
 
 export const MP_SIZES = new Set(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL', '8XL']);
 
@@ -174,6 +177,26 @@ export function splitShopeeVar(v) {
     return { color, size };
   }
   return { color: v.trim(), size: '' };
+}
+
+// แยกสี/ไซซ์ ของ 1 บรรทัดใบเสร็จ Shipnity — จากวงเล็บท้ายชื่อ "ดารารัตน์ (ดำ-XS)"
+// หรือ suffix ของรหัส "JDRR111-BK-XS" (BK→ดำ, XS=ไซซ์) · คืน { color, size } (ว่างถ้าหาไม่เจอ)
+export function deriveColorSize(raw, code) {
+  let color = '', size = '';
+  // 1) วงเล็บท้ายชื่อสินค้า
+  const paren = String(raw || '').match(/\(([^()]*)\)\s*$/);
+  if (paren) { const cs = splitParenVar(paren[1]); color = cleanColor(cs.color); size = cs.size; }
+  // 2) เติมจาก suffix รหัส (base-<colorcode>-<size>) เมื่อยังขาด
+  if (!color || !size) {
+    const parts = String(code || '').split('-').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1].toUpperCase();
+      if (!size && MP_SIZES.has(last)) size = last;
+      const cc = (size && MP_SIZES.has(last)) ? parts[parts.length - 2] : parts[parts.length - 1];
+      if (!color && cc) color = CODE2COLOR_TH[cc.toUpperCase()] || '';
+    }
+  }
+  return { color: color || '', size: size || '' };
 }
 
 /* ============================================================
@@ -535,12 +558,28 @@ export function rematchSkuRow(row, M) {
   if (byCode && byCode.design) { cand = { design: byCode.design, code: byCode.code, how: 'code' }; conf = 'high'; }
   else if (exact && exact.design) { cand = { design: exact.design, code: exact.code || code0, how: 'label' }; conf = 'high'; }
   else if (kw && kw.design) { cand = { design: kw.design, code: kw.code || code0, how: 'kw' }; conf = 'mid'; }
-  if (!cand) return null;
 
-  const newCode = cand.code || code0;
-  if (cand.design === curDesign && newCode === code0) return null;   // ไม่เปลี่ยน
-  if (matched && conf !== 'high') return null;                       // กันทับ: เคยจับคู่ได้ → แก้เฉพาะมั่นใจสูง
-  return { design: cand.design, product_code: newCode, match_how: cand.how, conf, filled: !matched };
+  // เติมสี/ไซซ์เมื่อแถวเดิมว่าง (จากวงเล็บชื่อ + suffix รหัสดิบ code0 ที่มี -BK-XS)
+  const curColor = String(row.color || '').trim(), curSize = String(row.size || '').trim();
+  const cs = (!curColor || !curSize) ? deriveColorSize(raw, code0) : { color: '', size: '' };
+  const fillColor = !curColor ? cs.color : '';
+  const fillSize = !curSize ? cs.size : '';
+  // ใบเสร็จ Shipnity: ชื่อบรรทัด = ชื่อลายจริง (ลายนอก golden catalog เช่น พรีออเดอร์) → ใช้เป็น design
+  // + คง product_code เดิม (มี suffix -BK-XS ถูกแล้ว) ไม่ทับด้วย sample จาก catalog
+  const isReceipt = String(row.source || '') === 'shipnity';
+  const nameLabel = raw.replace(/\s*\([^)]*\)\s*$/, '').replace(/\s+/g, ' ').trim();   // กัน design เป็นช่องว่างล้วน/ช่องว่างซ้อน
+
+  if (!cand) {   // จับคู่ golden ไม่ได้ → เติม design จากชื่อบรรทัด (เฉพาะใบเสร็จ) + สี/ไซซ์
+    const fillDesign = (isReceipt && !curDesign && nameLabel) ? nameLabel : '';
+    if (fillDesign || fillColor || fillSize)
+      return { design: fillDesign || curDesign, product_code: code0, match_how: fillDesign ? 'name' : (row.match_how || ''), color: fillColor, size: fillSize, conf: '', filled: !!fillDesign };
+    return null;
+  }
+  const newCode = (isReceipt && code0) ? code0 : (cand.code || code0);   // ใบเสร็จคง code เดิม
+  const designSame = cand.design === curDesign && newCode === code0;
+  if (designSame && !fillColor && !fillSize) return null;            // ไม่มีอะไรเปลี่ยน
+  if (matched && conf !== 'high' && !designSame) return null;        // กันทับลายที่จับคู่ดีอยู่แล้ว (ยังเติมสี/ไซซ์ได้)
+  return { design: cand.design, product_code: newCode, match_how: cand.how, color: fillColor, size: fillSize, conf, filled: !matched };
 }
 
 /* วางแผน re-match ทั้งชุด → group ตาม (source, raw_sku_or_name, product_code) ให้ update ทีละก้อน
@@ -558,7 +597,7 @@ export function planRematch(rows, M) {
   for (const g of groups.values()) {
     const res = rematchSkuRow(g.sample, M);
     if (!res) continue;
-    changes.push({ source: g.source, raw: g.raw, oldCode: g.oldCode, design: res.design, product_code: res.product_code, match_how: res.match_how, filled: res.filled, conf: res.conf, rows: g.rows });
+    changes.push({ source: g.source, raw: g.raw, oldCode: g.oldCode, design: res.design, product_code: res.product_code, match_how: res.match_how, color: res.color || '', size: res.size || '', filled: res.filled, conf: res.conf, rows: g.rows });
     if (res.filled) filled += g.rows; else fixed += g.rows;
   }
   return { changes, filled, fixed, scanned: (rows || []).length };

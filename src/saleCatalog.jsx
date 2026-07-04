@@ -242,34 +242,38 @@ export function ShirtCatalogView() {
       shirt_class: edit.shirt_class || 'เสื้อปกติ',
       note: (edit.note || '').trim(), variants: edit.variants || {}, updated_at: new Date().toISOString(),
     };
-    // ไม่แตะ image/images ใน DB (เลิกใช้รูปแล้ว — upsert ไม่ส่ง key = คงค่าเดิม)
-    let { error } = await supabase.from('tmk_shirt_catalog').upsert(row, { onConflict: 'id' });
-    // ยังไม่ได้รัน migration variants/job_type/shirt_class → ตัดคอลัมน์ที่ DB ยังไม่มีออก แล้วบันทึกส่วนที่เหลือ
-    if (error && /variants|job_type|shirt_class/i.test(error.message)) {
-      const row2 = { ...row };
-      const dropCol = (re, col, label) => { if (re.test(error.message) && row2[col] !== undefined) { delete row2[col]; return label; } return null; };
-      let dropped = [];
-      // ตัดทุกคอลัมน์ที่ error ชี้ในรอบเดียว แล้วลองซ้ำ จนกว่าจะไม่มี error คอลัมน์ค้าง
-      for (let pass = 0; pass < 4 && error && /variants|job_type|shirt_class/i.test(error.message); pass++) {
-        const d = [
-          dropCol(/variants/i, 'variants', 'รหัสรายตัว (variants)'),
-          dropCol(/job_type/i, 'job_type', 'ประเภทงาน (job_type)'),
-          dropCol(/shirt_class/i, 'shirt_class', 'กลุ่มเสื้อ (shirt_class)'),
-        ].filter(Boolean);
-        dropped = [...new Set([...dropped, ...d])];
-        ({ error } = await supabase.from('tmk_shirt_catalog').upsert(row2, { onConflict: 'id' }));
+    // ครอบ try/finally — upsert throw (network/client) จะได้ไม่ค้าง spinner "กำลังบันทึก"
+    try {
+      // ไม่แตะ image/images ใน DB (เลิกใช้รูปแล้ว — upsert ไม่ส่ง key = คงค่าเดิม)
+      let { error } = await supabase.from('tmk_shirt_catalog').upsert(row, { onConflict: 'id' });
+      // ยังไม่ได้รัน migration variants/job_type/shirt_class → ตัดคอลัมน์ที่ DB ยังไม่มีออก แล้วบันทึกส่วนที่เหลือ
+      if (error && /variants|job_type|shirt_class/i.test(error.message)) {
+        const row2 = { ...row };
+        const dropCol = (re, col, label) => { if (re.test(error.message) && row2[col] !== undefined) { delete row2[col]; return label; } return null; };
+        let dropped = [];
+        // ตัดทุกคอลัมน์ที่ error ชี้ในรอบเดียว แล้วลองซ้ำ จนกว่าจะไม่มี error คอลัมน์ค้าง
+        for (let pass = 0; pass < 4 && error && /variants|job_type|shirt_class/i.test(error.message); pass++) {
+          const d = [
+            dropCol(/variants/i, 'variants', 'รหัสรายตัว (variants)'),
+            dropCol(/job_type/i, 'job_type', 'ประเภทงาน (job_type)'),
+            dropCol(/shirt_class/i, 'shirt_class', 'กลุ่มเสื้อ (shirt_class)'),
+          ].filter(Boolean);
+          dropped = [...new Set([...dropped, ...d])];
+          ({ error } = await supabase.from('tmk_shirt_catalog').upsert(row2, { onConflict: 'id' }));
+        }
+        if (!error) { toast('บันทึกแล้ว — แต่ ' + dropped.join(' + ') + ' ยังไม่เก็บ (รัน migration ก่อน)', 'info'); logCatalogVersion(row); invalidateSaleCache('tmk_shirt_catalog'); setItems(prev => [row, ...(prev || []).filter(x => x.id !== row.id)]); setEdit(null); return; }
       }
-      if (!error) { setBusy(false); toast('บันทึกแล้ว — แต่ ' + dropped.join(' + ') + ' ยังไม่เก็บ (รัน migration ก่อน)', 'info'); logCatalogVersion(row); invalidateSaleCache('tmk_shirt_catalog'); setItems(prev => [row, ...(prev || []).filter(x => x.id !== row.id)]); setEdit(null); return; }
-    }
-    setBusy(false);
-    if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    toast(edit.id ? 'แก้ไขแล้ว' : 'เพิ่มสินค้าแล้ว', 'success');
-    logAudit({ action: edit.id ? 'update' : 'create', entityType: 'data', entityName: 'catalog', summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}` });
-    logCatalogVersion(row);   // 10D — snapshot เวอร์ชัน (fire-and-forget, เงียบถ้าตารางยังไม่มี)
-    // อัปเดต state in-place + invalidate cache — ไม่ refetch ทั้งชุดทุกครั้งที่แก้เสื้อ 1 ตัว (ลด egress)
-    invalidateSaleCache('tmk_shirt_catalog');
-    setItems(prev => [row, ...(prev || []).filter(x => x.id !== row.id)]);
-    setEdit(null);
+      if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
+      toast(edit.id ? 'แก้ไขแล้ว' : 'เพิ่มสินค้าแล้ว', 'success');
+      logAudit({ action: edit.id ? 'update' : 'create', entityType: 'data', entityName: 'catalog', summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}` });
+      logCatalogVersion(row);   // 10D — snapshot เวอร์ชัน (fire-and-forget, เงียบถ้าตารางยังไม่มี)
+      // อัปเดต state in-place + invalidate cache — ไม่ refetch ทั้งชุดทุกครั้งที่แก้เสื้อ 1 ตัว (ลด egress)
+      invalidateSaleCache('tmk_shirt_catalog');
+      setItems(prev => [row, ...(prev || []).filter(x => x.id !== row.id)]);
+      setEdit(null);
+    } catch (e) {
+      toast('บันทึกไม่สำเร็จ: ' + (e?.message || 'เชื่อมต่อฐานข้อมูลไม่ได้'), 'error');
+    } finally { setBusy(false); }
   };
 
   const del = async () => {
@@ -295,7 +299,13 @@ export function ShirtCatalogView() {
     for (let i = 0; i < rows.length; i += 200) {
       const chunk = rows.slice(i, i + 200);
       const { error } = await supabase.from('tmk_shirt_catalog').insert(chunk);
-      if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'นำเข้าไม่สำเร็จ: ' + error.message, 'error'); setImporting(false); return; }
+      if (error) {
+        // chunk พังกลางคัน → บอกจำนวนที่ลงจริง + reload ให้ items สะท้อนของที่ลงแล้ว (retry จะข้ามลายเดิม ไม่ dup)
+        toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : `นำเข้าได้ ${ok} ลาย แล้วหยุด: ${error.message}`, 'error');
+        setImporting(false);
+        if (ok > 0) { invalidateSaleCache('tmk_shirt_catalog'); load(true); }
+        return;
+      }
       ok += chunk.length;
     }
     setImporting(false); toast(`นำเข้า ${ok} ลายแล้ว — แก้ไขเติมราคา/สี/ไซซ์ได้เลย`, 'success');
@@ -316,17 +326,13 @@ export function ShirtCatalogView() {
 
       <Card className="p-[22px]">
         <div className="row between" style={{ flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-            <span className="grid size-9 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] flex-none"><Icon name="bag" /></span>
-            <div>
-              <h3 style={{ margin: 0 }}>สินค้า</h3>
-              <span className="cap" style={{ color: 'var(--ink-4)' }}><b style={{ color: 'var(--ink-2)' }}>{N(filtered.length)}</b> รายการ{filtered.length !== items.length ? ` / ${N(items.length)}` : ''}</span>
-            </div>
+          <h3 className="m-0 text-base font-bold leading-tight" style={{ color: 'var(--ink)', whiteSpace: 'nowrap' }}>สินค้า</h3>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา รหัส / ชื่อลาย / หมวด / สี" wrapperClassName="w-full sm:w-[280px]" />
+            <Button size="sm" className="flex-none" onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
           </div>
-          <Button size="sm" onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
         </div>
 
-        <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา รหัส / ชื่อลาย / หมวด / สี" wrapperClassName="mb-3" />
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <CollapsibleTrigger asChild>
@@ -351,20 +357,19 @@ export function ShirtCatalogView() {
             </div>
           </CollapsibleContent>
         </Collapsible>
-      </Card>
 
-      {empty ? (
-        <Card className="p-10" style={{ textAlign: 'center' }}>
-          <div style={{ color: 'var(--ink-4)', marginBottom: 16 }}>ยังไม่มีสินค้า — เพิ่มเองหรือดึง 47 ลายมาตรฐานมาใส่ก่อนก็ได้ (พร้อมสี/ไซซ์/ราคา)</div>
-          <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
-            <Button variant="outline" onClick={() => setAskImport(true)} disabled={importing}><Icon name="external" /> นำเข้าลายเสื้อ (47 ลาย)</Button>
-            <Button onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
+        {empty ? (
+          <div className="mt-4 p-10" style={{ textAlign: 'center' }}>
+            <div style={{ color: 'var(--ink-4)', marginBottom: 16 }}>ยังไม่มีสินค้า — เพิ่มเองหรือดึง 47 ลายมาตรฐานมาใส่ก่อนก็ได้ (พร้อมสี/ไซซ์/ราคา)</div>
+            <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
+              <Button variant="outline" onClick={() => setAskImport(true)} disabled={importing}><Icon name="external" /> นำเข้าลายเสื้อ (47 ลาย)</Button>
+              <Button onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
+            </div>
           </div>
-        </Card>
-      ) : filtered.length === 0 ? (
-        <Card className="p-8" style={{ textAlign: 'center', color: 'var(--ink-4)' }}>ไม่พบรายการที่ค้น</Card>
-      ) : (
-        <Card className="p-[22px]">
+        ) : filtered.length === 0 ? (
+          <div className="mt-4 p-8" style={{ textAlign: 'center', color: 'var(--ink-4)' }}>ไม่พบรายการที่ค้น</div>
+        ) : (
+          <div className="mt-4">
           <SortableTable density="cozy" initial={{ key: 'code', dir: 'asc' }}
             columns={[
               { key: 'code', label: 'รหัส', accessor: it => it.code || '' },
@@ -392,8 +397,9 @@ export function ShirtCatalogView() {
                 </TableRow>
               );
             }} />
-        </Card>
-      )}
+          </div>
+        )}
+      </Card>
 
       {/* ---------- เพิ่ม/แก้ไข ---------- */}
       {edit && (

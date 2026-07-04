@@ -8,13 +8,17 @@
    - หลังส่ง: แก้ (เจ้าของใบ = วันเดียวกัน · แอดมิน = เสมอ) / ยกเลิกใบ + ประวัติ
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Icon, useBeat, PageSkeleton } from './components.jsx';
+import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { SideSheet } from './modals.jsx';
+import { logAudit } from './lib/audit.js';
+import { funnelPlatforms } from './lib/saleData.js';
+import { DatePicker } from '@/components/ui/date-picker';
 import { parseReceiptFiles, jobTypeFromNote } from './lib/receiptParse.js';
 import {
   checkDuplicates, confirmReceipts, attachReceiptFiles, customerTypeLookup,
-  canEditReceipt, editReceipt, voidReceipt,
+  canEditReceipt, editReceipt, voidReceipt, uploadReceiptFile,
   isMissingReceiptTable,
 } from './lib/receiptSubmit.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
@@ -35,6 +39,7 @@ const JOB_TYPES = ['ปลีก', 'OEM', 'DFT'];
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtD = (iso) => { const s = String(iso || ''); return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—'; };
 const curMonth = () => new Date().toISOString().slice(0, 7);
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const toast = (m, k) => window.__toast?.(m, k);
 
 /* ป้ายเตือนยัง未 migrate (ตารางใบเสร็จยังไม่มีใน Supabase) */
@@ -258,10 +263,27 @@ export function SubmitSalesView() {
   };
 
   /* ---- drawer รายละเอียด/แก้/ยกเลิก ---- */
+  const [manualOpen, setManualOpen] = useState(false);   // ฟอร์มคีย์มือ (ยุบจากหน้าบันทึกขาย)
   const [detail, setDetail] = useState(null);   // แถว feed
   const [editRow, setEditRow] = useState(null); // payload กำลังแก้
   const [editSeller, setEditSeller] = useState('');
+  const [attaching, setAttaching] = useState(false);   // แนบไฟล์ย้อนหลัง
+  const attachRef = useRef(null);
   const openDetail = (r) => { setDetail(r); setEditRow(null); setEditSeller(r.salesperson || ''); };
+  // แนบ/เปลี่ยนไฟล์ใบเสร็จหลังส่ง (ใบเก่าที่ไฟล์ไม่ขึ้น — bucket เพิ่งรองรับ PDF)
+  const attachFile = async (file) => {
+    if (!file || !detail) return;
+    setAttaching(true);
+    try {
+      const url = await uploadReceiptFile(file, detail.order_no);
+      if (!url) { toast('อัปโหลดไม่สำเร็จ — รัน migration 20260704 (bucket รับ PDF) แล้วหรือยัง?', 'error'); return; }
+      const { error } = await supabase.from('tmk_sale_receipts').update({ file_url: url }).eq('order_no', detail.order_no);
+      if (error) { toast('บันทึกลิงก์ไม่สำเร็จ: ' + error.message, 'error'); return; }
+      toast('แนบไฟล์ใบเสร็จแล้ว', 'success');
+      setDetail(d => d ? { ...d, file_url: url } : d); loadFeed();
+    } catch (e) { toast('แนบไฟล์ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setAttaching(false); }
+  };
   const startEdit = () => {
     const c = detail.confirmed || {};
     setEditRow({
@@ -346,8 +368,18 @@ export function SubmitSalesView() {
               {fileErrors.map((e, i) => <div key={i}>· {e.file}: {e.error}</div>)}
             </div>
           )}
+          {/* คีย์มือ — ขายไม่มีใบเสร็จ (ยุบจากหน้าบันทึกขาย · เข้าท่อเดียวกับใบเสร็จ) */}
+          {canEdit && !parsing && (
+            <div className="mt-4 pt-3 border-t text-xs text-muted-foreground" onClick={e => e.stopPropagation()}>
+              ขายที่ไม่มีใบเสร็จ (หน้าร้าน/โทร)? <Button variant="outline" size="sm" className="ml-1 h-7" onClick={() => setManualOpen(true)}><Icon name="pencil" /> คีย์มือ</Button>
+            </div>
+          )}
         </Card>
       )}
+
+      {/* คนทักวันนี้ (funnel) — ย้ายจากหน้าบันทึกขาย */}
+      <FunnelCard salesperson={user?.name || user?.email || ''} createdBy={user?.email || ''} canEnter={canEdit}
+        ordersCount={(feed || []).filter(r => r.status === 'confirmed' && r.order_date === todayISO() && r.uploader_email === user?.email).length} />
 
       {/* ขั้น 2: ตารางตรวจ */}
       {rows.length > 0 && (
@@ -464,7 +496,19 @@ export function SubmitSalesView() {
                       </table>
                     </div>
                   )}
-                  {detail.file_url && <a className="text-xs text-primary underline" href={detail.file_url} target="_blank" rel="noreferrer">เปิดไฟล์ใบเสร็จ</a>}
+                  <div className="flex items-center gap-3">
+                    {detail.file_url
+                      ? <a className="text-xs text-primary underline" href={detail.file_url} target="_blank" rel="noreferrer">เปิดไฟล์ใบเสร็จ</a>
+                      : <span className="text-xs text-muted-foreground">ยังไม่มีไฟล์แนบ</span>}
+                    {detail.status !== 'void' && canEditReceipt(detail, { email: user?.email, isAdmin }) && (
+                      <>
+                        <input ref={attachRef} type="file" accept="application/pdf" hidden onChange={e => { attachFile(e.target.files?.[0]); e.target.value = ''; }} />
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={attaching} onClick={() => attachRef.current?.click()}>
+                          <Icon name="external" className="size-3" /> {attaching ? 'กำลังแนบ…' : detail.file_url ? 'เปลี่ยนไฟล์' : 'แนบไฟล์'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
                   {Array.isArray(detail.history) && detail.history.length > 0 && (
                     <div className="text-xs text-muted-foreground">
                       <div className="font-medium mb-1">ประวัติการแก้</div>
@@ -500,6 +544,9 @@ export function SubmitSalesView() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* คีย์มือ (ขายไม่มีใบเสร็จ) */}
+      {manualOpen && <ManualSaleSheet user={user} onClose={() => setManualOpen(false)} onSaved={() => loadFeed()} />}
     </div>
   );
 }
@@ -552,6 +599,169 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel, onEdit }) {
    ============================================================
    [ส่งยอดใบเสร็จ (default — เซลล์ใช้ทุกวัน)] [นำเข้ามาร์เก็ตเพลส] [คุณภาพข้อมูล]
    แต่ละแท็บเป็น component เดิมทั้งก้อน (มี content-inner ของตัวเอง) — แค่รวมทางเข้า */
+/* ============================================================
+   คีย์มือ (ขายไม่มีใบเสร็จ) — ยุบจากหน้า "บันทึกขาย" (PART 47)
+   เขียนท่อเดียวกับใบเสร็จ (confirmReceipts) → กันเลขซ้ำ/เติมลูกค้า CRM/ขึ้นรายงาน ครบเหมือนใบเสร็จ
+   ============================================================ */
+function ManualSaleSheet({ user, onClose, onSaved }) {
+  const blank = { order_date: todayISO(), order_no: '', channel: '', job_type: 'ปลีก', payment: 'โอน', customer_type: 'ลูกค้าใหม่', customer_name: '', customer_phone: '', province: '', design: '', qty: '1', total: '', note: '' };
+  const [f, setF] = useState(blank);
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+  const valid = f.channel && Number(f.total) > 0 && Number(f.qty) >= 1;
+  const save = async () => {
+    if (!valid) { toast('เลือกช่องทาง + ใส่ยอด/จำนวนให้ถูกก่อน', 'warn'); return; }
+    setBusy(true);
+    try {
+      const ono = f.order_no.trim().toUpperCase().replace(/\s+/g, '') || ('MN' + Date.now().toString(36).toUpperCase());
+      const item = {
+        order_no: ono, order_date: f.order_date,
+        customer_name: f.customer_name.trim(), customer_phone: f.customer_phone.trim(), customer_social: '', customer_address: '',
+        province: f.province.trim(),
+        lines: [{ code: '', name: f.design.trim() || 'ไม่ระบุลาย', qty: Number(f.qty) || 1, amount: Number(f.total) || 0 }],
+        subtotal: Number(f.total) || 0, discount: 0, shipping: 0, total: Number(f.total) || 0,
+        payment_method: f.payment === 'COD' ? 'cod' : 'โอน', carrier: '', note: f.note.trim(),
+        channel: f.channel, job_type: f.job_type, customer_type: f.customer_type,
+        source_tool: 'manual', warnings: [],
+      };
+      const res = await confirmReceipts([item], { email: user?.email || '', name: user?.name || '' });
+      if (res.skipped.length) { toast(`บันทึกไม่ได้: ${res.skipped[0].reason}`, 'error'); return; }
+      logAudit({ action: 'create', entityType: 'data', entityName: 'คีย์มือ', summary: `คีย์มือ ${ono} · ${fmtB(item.total)} (${user?.name || user?.email})` });
+      toast(`บันทึกแล้ว ${ono} ✓ — คีย์ต่อได้เลย`, 'success');
+      onSaved?.();
+      setF(p => ({ ...blank, order_date: p.order_date, channel: p.channel, job_type: p.job_type, payment: p.payment }));   // เคลียร์เฉพาะยอด/ลูกค้า — คีย์ต่อเร็ว
+    } catch (e) { toast('บันทึกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <SideSheet size="md" icon="pencil" title="คีย์มือ (ขายไม่มีใบเสร็จ)" sub={`เซลล์: ${user?.name || user?.email || '—'} · เข้าระบบเดียวกับใบเสร็จ`} onClose={onClose}
+      footer={<><Button variant="outline" onClick={onClose}>ปิด</Button><Button disabled={busy || !valid} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+        <div className="field"><label>วันที่</label><DatePicker value={f.order_date} max={todayISO()} clearable={false} onChange={v => set('order_date', v)} /></div>
+        <div className="field"><label>เลขออเดอร์ (ว่าง = สร้างให้)</label><Input value={f.order_no} onChange={e => set('order_no', e.target.value)} placeholder="เช่น SK1234" /></div>
+        <div className="field"><label>ช่องทาง *</label>
+          <Select value={f.channel || undefined} onValueChange={v => set('channel', v)}>
+            <SelectTrigger><SelectValue placeholder="เลือก" /></SelectTrigger>
+            <SelectContent>{CHANNELS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="field"><label>งาน</label>
+          <Select value={f.job_type} onValueChange={v => set('job_type', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{JOB_TYPES.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="field"><label>ชำระ</label>
+          <Select value={f.payment} onValueChange={v => set('payment', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{['โอน', 'COD'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="field"><label>ยอด (฿) *</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.total} onChange={e => set('total', e.target.value)} placeholder="0" /></div>
+        <div className="field"><label>จำนวน (ตัว)</label><Input type="number" inputMode="numeric" min="1" value={f.qty} onChange={e => set('qty', e.target.value)} /></div>
+        <div className="field"><label>ลาย</label><Input value={f.design} onChange={e => set('design', e.target.value)} placeholder="เช่น สิริกานต์" /></div>
+        <div className="field"><label>ลูกค้า</label>
+          <Select value={f.customer_type} onValueChange={v => set('customer_type', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>{['ลูกค้าใหม่', 'ลูกค้าเก่า'].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="field"><label>ชื่อลูกค้า</label><Input value={f.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="ชื่อ/ชื่อเล่น" /></div>
+        <div className="field"><label>เบอร์/LINE/FB</label><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} placeholder="ไว้ตามต่อ" /></div>
+        <div className="field"><label>จังหวัด</label><Input value={f.province} onChange={e => set('province', e.target.value)} /></div>
+      </div>
+      <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Input value={f.note} onChange={e => set('note', e.target.value)} placeholder="เช่น DFT / แบ่งชำระ" /></div>
+    </SideSheet>
+  );
+}
+
+/* ============================================================
+   คนทักวันนี้ (funnel) — ทักรวม "ต่อแพลตฟอร์ม" (ไม่แยกใหม่/เก่าแล้ว)
+   เก็บ jsonb `leads` {Facebook: 12, ...} · เขียนคอลัมน์เก่า fb/line ด้วย (back-compat แดชบอร์ด)
+   ============================================================ */
+const FUNNEL_PLATFORMS = ['Facebook', 'LINE', 'Instagram', 'TikTok', 'Phone', 'อื่นๆ'];
+function FunnelCard({ salesperson, createdBy, canEnter, ordersCount }) {
+  const date = todayISO();
+  const blankLeads = Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, '']));
+  const [leads, setLeads] = useState(blankLeads);
+  const [busy, setBusy] = useState(false);
+  const [exists, setExists] = useState(false);
+  const [open, setOpen] = useState(false);
+  const id = `${date}:${salesperson}`;
+  useEffect(() => {
+    if (!salesperson) { setExists(false); return; }
+    (async () => {
+      const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('id', id).maybeSingle();
+      if (data) {
+        const pf = funnelPlatforms(data);
+        setLeads({ ...blankLeads, ...Object.fromEntries(Object.entries(pf).map(([k, v]) => [k, String(v)])) });
+        setExists(true);
+      } else { setLeads(blankLeads); setExists(false); }
+    })();
+  }, [id]); // eslint-disable-line
+  const nv = (v) => Number(v) || 0;
+  const totalLeads = FUNNEL_PLATFORMS.reduce((a, p) => a + nv(leads[p]), 0);
+  const close = totalLeads ? Math.round(ordersCount / totalLeads * 100) : 0;
+  const closeTone = close >= 15 ? 'var(--good)' : close >= 8 ? 'var(--warn)' : 'var(--bad)';
+  const setNum = (k, v) => setLeads(p => ({ ...p, [k]: v === '' ? '' : String(Math.max(0, Math.floor(Number(v) || 0))) }));
+  const save = async () => {
+    if (!canEnter) { toast('สิทธิ์ดูอย่างเดียว', 'error'); return; }
+    setBusy(true);
+    const leadsJson = Object.fromEntries(FUNNEL_PLATFORMS.filter(p => nv(leads[p]) > 0).map(p => [p, nv(leads[p])]));
+    const row = {
+      id, date, salesperson, leads: leadsJson,
+      // back-compat: คอลัมน์เก่าเก็บยอดรวมต่อแพลตฟอร์ม (ช่อง _old = 0) — แถวเก่า/กราฟเก่ายังอ่านได้
+      leads_fb_new: nv(leads.Facebook), leads_fb_old: 0, leads_line_new: nv(leads.LINE), leads_line_old: 0,
+      note: '', created_by: createdBy, updated_at: new Date().toISOString(),
+    };
+    let { error } = await supabase.from('tmk_sales_funnel').upsert(row, { onConflict: 'id' });
+    if (error && /leads/.test(error.message || '') && !/does not exist.*tmk_sales_funnel|tmk_sales_funnel.*does not exist/.test(error.message || '')) {
+      // ยังไม่รัน migration 20260705 (คอลัมน์ leads ไม่มี) → เก็บเฉพาะคอลัมน์เก่า FB/LINE
+      const { leads: _l, ...legacy } = row;
+      ({ error } = await supabase.from('tmk_sales_funnel').upsert(legacy, { onConflict: 'id' }));
+      if (!error) toast('บันทึกได้เฉพาะ FB/LINE — รัน migration 20260705-funnel-leads.sql เพื่อเก็บทุกแพลตฟอร์ม', 'warn');
+    }
+    setBusy(false);
+    if (error) { toast(/funnel|does not exist/.test(error.message) ? 'ต้องรัน migration tmk_sales_funnel ก่อน' : 'บันทึกไม่สำเร็จ', 'error'); return; }
+    toast('บันทึกคนทักแล้ว ✓', 'success'); setExists(true); setOpen(false);
+    logAudit({ action: exists ? 'update' : 'create', entityType: 'data', entityName: 'คนทัก', summary: `คนทัก ${salesperson} ${date} รวม ${totalLeads} · ปิด ${ordersCount}` });
+  };
+  return (
+    <>
+      <Card className="p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-baseline gap-3 flex-wrap min-w-0">
+            <span className="text-[15px] font-semibold">คนทักวันนี้</span>
+            {exists
+              ? <span className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(totalLeads)}</b> · ปิด <b style={{ color: 'var(--accent)' }}>{N(ordersCount)}</b> · <b style={{ color: closeTone }}>{close}%</b></span>
+              : <span className="text-xs text-muted-foreground">ยังไม่กรอกวันนี้</span>}
+          </div>
+          <Button variant="outline" size="sm" disabled={!salesperson} onClick={() => setOpen(true)}><Icon name="pencil" /> {exists ? 'แก้คนทัก' : 'กรอกคนทักวันนี้'}</Button>
+        </div>
+      </Card>
+      {open && <SideSheet size="sm" icon="users" title="คนทักวันนี้" sub={`${salesperson || '—'} · ${date} · ใส่จำนวนคนทักรวมของแต่ละช่องทาง`} onClose={() => setOpen(false)}
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {FUNNEL_PLATFORMS.map(p => (
+            <div key={p} className="field" style={{ marginBottom: 0 }}>
+              <label>{p}</label>
+              <Input type="number" inputMode="numeric" min="0" step="1" className="num" value={leads[p]} onChange={e => setNum(p, e.target.value)} placeholder="0" />
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {[['ทักรวม', N(totalLeads), ''], ['ปิดได้', N(ordersCount), 'var(--accent)'], ['%ปิด', close + '%', closeTone]].map(([lb, val, c]) => (
+            <div key={lb} className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+              <div className="text-[11px] text-muted-foreground">{lb}</div>
+              <div className="num text-xl font-bold" style={c ? { color: c } : undefined}>{val}</div>
+            </div>
+          ))}
+        </div>
+      </SideSheet>}
+    </>
+  );
+}
+
 export function SaleDataHub() {
   const [tab, setTab] = useState(() => { try { return localStorage.getItem('tmk-datahub-tab') || 'submit'; } catch { return 'submit'; } });
   useEffect(() => { try { localStorage.setItem('tmk-datahub-tab', tab); } catch { /* ignore */ } }, [tab]);
