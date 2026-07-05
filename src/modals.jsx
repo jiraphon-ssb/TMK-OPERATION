@@ -137,6 +137,22 @@ const dialogCloseHandler = (onClose, confirmOnClose) => (open) => {
   onClose();
 };
 
+// เปิด/ปิดแบบมีอนิเมชัน: คุม open เอง + หน่วง onClose ~200ms ให้ Radix เล่น exit (data-state=closed) ก่อน unmount
+// (คู่กับ forceMount ที่ Overlay/Content) — ทำให้ sheetOut/fadeOut/dialog animate-out ทำงานจริง
+function useAnimatedClose(onClose, confirmOnClose) {
+  const [open, setOpen] = useState(true);
+  const closing = useRef(false);
+  const onOpenChange = (o) => {
+    if (o) return;
+    if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
+    if (closing.current) return;
+    closing.current = true;
+    setOpen(false);
+    setTimeout(() => onClose && onClose(), 200);
+  };
+  return { open, onOpenChange };
+}
+
 /* ---------- Modal shell (Radix Dialog — ประกอบกับ Radix Select/Dropdown ได้ถูกต้อง) ---------- */
 export function Modal({ icon, title, sub, onClose, footer, wide, xl, children, confirmOnClose, hideHeader }) {
   // กันคลิกใน overlay ซ้อน (AlertDialog ยืนยัน / dropdown / toast) ไม่ให้ Modal ปิดเอง
@@ -145,11 +161,12 @@ export function Modal({ icon, title, sub, onClose, footer, wide, xl, children, c
     const t = e?.detail?.originalEvent?.target;
     if (t && t.closest && t.closest('[role="alertdialog"],[data-radix-popper-content-wrapper],[data-sonner-toast],[data-radix-toast-viewport]')) e.preventDefault();
   };
+  const { open, onOpenChange } = useAnimatedClose(onClose, confirmOnClose);
   return (
-    <RDialog.Root open onOpenChange={dialogCloseHandler(onClose, confirmOnClose)}>
-      <RDialog.Portal>
-        <RDialog.Overlay className="dialog-overlay" />
-        <RDialog.Content className={'dialog-content' + (xl ? ' dialog-content-xl' : wide ? ' dialog-content-lg' : '')} aria-describedby={undefined}
+    <RDialog.Root open={open} onOpenChange={onOpenChange}>
+      <RDialog.Portal forceMount>
+        <RDialog.Overlay className="dialog-overlay" forceMount />
+        <RDialog.Content className={'dialog-content' + (xl ? ' dialog-content-xl' : wide ? ' dialog-content-lg' : '')} aria-describedby={undefined} forceMount
           onPointerDownOutside={guardOutside} onInteractOutside={guardOutside}>
           {hideHeader ? (
             // ซ่อน header (เหลือแค่ปุ่ม X ลอยมุมขวาบน) — คง Title แบบ sr-only เพื่อ a11y ของ Radix
@@ -177,11 +194,12 @@ export function Modal({ icon, title, sub, onClose, footer, wide, xl, children, c
 
 /* ---------- Side sheet (Radix Dialog — แก้บั๊ก Radix Select/Dropdown ภายในใช้ไม่ได้) ---------- */
 export function SideSheet({ icon, title, sub, onClose, footer, size = 'md', children, confirmOnClose, showCloseButton = true, position = 'right' }) {
+  const { open, onOpenChange } = useAnimatedClose(onClose, confirmOnClose);
   return (
-    <RDialog.Root open onOpenChange={dialogCloseHandler(onClose, confirmOnClose)}>
-      <RDialog.Portal>
-        <RDialog.Overlay className="sheet-scrim" />
-        <RDialog.Content className={`side-sheet side-sheet-${size}${position === 'left' ? ' side-sheet-left' : ''}`} aria-describedby={undefined}>
+    <RDialog.Root open={open} onOpenChange={onOpenChange}>
+      <RDialog.Portal forceMount>
+        <RDialog.Overlay className="sheet-scrim" forceMount />
+        <RDialog.Content className={`side-sheet side-sheet-${size}${position === 'left' ? ' side-sheet-left' : ''}`} aria-describedby={undefined} forceMount>
           <div className="side-sheet-head">
             {icon && <div className="mh-icon"><Icon name={icon} /></div>}
             <div style={{ minWidth: 0 }}>

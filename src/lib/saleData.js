@@ -8,7 +8,7 @@ import { supabase } from './supabaseClient.js';
 
 // คอลัมน์ที่ระบบใช้จริง (ตัด attrs/jsonb/คอลัมน์ที่ไม่ได้โชว์ออก)
 export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent';
-export const SKUS_SEL = 'order_no,channel,design,color,size,qty,line_sales,product_code,raw_sku_or_name,match_how,order_date';
+export const SKUS_SEL = 'id,order_no,channel,design,color,size,qty,line_sales,product_code,raw_sku_or_name,match_how,order_date';
 export const CUST_SEL = 'customer_code,name,phone,social_name,province,district,postcode,address,owner,cadence,repurchase,lifetime_orders,lifetime_sales,lifetime_cancel,since,tags';
 
 const cache = new Map();    // key -> { ts, data }

@@ -448,3 +448,34 @@ export async function voidReceipt(receipt, { by, reason = '' } = {}) {
   invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
   logAudit({ action: 'delete', entityType: 'data', entityName: 'ใบเสร็จ ' + no, summary: `ยกเลิกใบเสร็จ ${no}${reason ? ` — ${reason}` : ''} โดย ${by || ''}` });
 }
+
+/* ============================================================
+   restoreReceipt — นำใบที่ void กลับมา (un-void + สร้าง sku คืนจาก payload confirmed)
+   voidReceipt ลบ tmk_mp_skus ทิ้ง → restore ต้องสร้างใหม่จาก confirmed.lines ที่เก็บไว้ในใบ
+   ============================================================ */
+export async function restoreReceipt(receipt, { by } = {}) {
+  const no = String(receipt.order_no).trim();
+  const { data: rec, error: e0 } = await supabase.from('tmk_sale_receipts').select('*').eq('order_no', no).maybeSingle();
+  if (e0) throw e0;
+  if (!rec) throw new Error('ไม่พบใบเสร็จ ' + no);
+  // un-void ใบ
+  { const { error } = await supabase.from('tmk_sale_receipts')
+      .update({ status: 'confirmed', void_by: null, void_reason: null, void_at: null, updated_at: nowISO() })
+      .eq('order_no', no); if (error) throw error; }
+  // สร้าง row จาก payload (void ลบ sku ไปแล้ว) — ใช้ตัวสร้างเดียวกับตอนส่ง
+  const item = rec.confirmed || rec.parsed;
+  const M = await loadReceiptMatcher();
+  const built = (item && Array.isArray(item.lines))
+    ? buildRows(item, { name: rec.salesperson || '', email: rec.uploader_email || '' }, 'restore:' + nowISO(), M) : null;
+  // ออเดอร์กลับ active — เช็คว่ามีแถวจริง (คงค่าที่แก้ไว้) · ถ้าแถวหาย (เช่นหลังย้ายเลข) upsert คืนจาก payload กัน sku ลอย
+  { const { data, error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: nowISO() }).eq('id', receiptId(no)).select('id');
+    if (error) throw error;
+    if ((!data || !data.length) && built) { const { error: e2 } = await supabase.from('tmk_mp_orders').upsert(built.orderRow, { onConflict: 'id' }); if (e2) throw e2; } }
+  // insert sku คืน
+  if (built && built.skuRows.length) {
+    await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').eq('order_no', no);   // กันซ้ำ
+    const { error } = await supabase.from('tmk_mp_skus').insert(built.skuRows); if (error) throw error;
+  }
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+  logAudit({ action: 'update', entityType: 'data', entityName: 'ใบเสร็จ ' + no, summary: `นำใบเสร็จ ${no} กลับมา โดย ${by || ''}` });
+}

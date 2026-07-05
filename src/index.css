@@ -79,6 +79,11 @@
   --sh-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
   --sh-pop: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
 
+  /* Overlay/scrim — โทเคนเดียวทุก popup (dialog/sheet/alert/modal/spotlight/drawer/celebrate) */
+  --scrim:      rgba(8, 18, 32, 0.55);
+  --scrim-solid: rgba(8, 18, 32, 0.72);   /* fallback เมื่อไม่มี backdrop-filter */
+  --scrim-blur: 6px;
+
   --rail-w: 76px;
   --panel-w: 244px;
 
@@ -657,7 +662,7 @@ input, select, textarea { font-family: inherit; }
    MOBILE
    ============================================================ */
 .mobile-only { display: none; }
-.scrim { position: fixed; inset: 0; background: rgba(20,15,8,0.42); backdrop-filter: blur(2px); z-index: 90; animation: fade 0.2s; }
+.scrim { position: fixed; inset: 0; background: var(--scrim); backdrop-filter: blur(var(--scrim-blur)); -webkit-backdrop-filter: blur(var(--scrim-blur)); z-index: 90; animation: fade 0.2s; }
 
 .drawer {
   position: fixed; top: 0; left: 0; bottom: 0; width: 280px; max-width: 84vw;
@@ -668,6 +673,7 @@ input, select, textarea { font-family: inherit; }
 }
 @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes rise { from { transform: translateY(10px); } to { transform: none; } }
 @keyframes spin360 { to { transform: rotate(360deg); } }
@@ -750,7 +756,8 @@ input, select, textarea { font-family: inherit; }
 @media (prefers-reduced-motion: reduce) { .skel::after { animation: none; } }
 
 /* ===== ฉลองทะลุเป้ายอดขาย (CelebrationOverlay) ===== */
-.celebrate-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: color-mix(in srgb, var(--ink) 38%, transparent); backdrop-filter: blur(3px); animation: celebFade 0.3s var(--ease) both; padding: 20px; }
+.celebrate-overlay { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: var(--scrim); backdrop-filter: blur(var(--scrim-blur)); -webkit-backdrop-filter: blur(var(--scrim-blur)); animation: celebFade 0.3s var(--ease) both; padding: 20px; }
+.celebrate-overlay.celebrate-out { animation: fadeOut 0.2s var(--ease) both; }
 @keyframes celebFade { from { opacity: 0; } to { opacity: 1; } }
 .celebrate-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .celebrate-confetti > span { position: absolute; top: -24px; display: block; animation-name: confettiFall; animation-timing-function: linear; animation-iteration-count: infinite; }
@@ -1011,23 +1018,22 @@ input, select, textarea { font-family: inherit; }
    MODALS
    ============================================================ */
 .modal-scrim {
-  position: fixed; inset: 0; background: rgba(8, 18, 32, 0.55);
-  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  position: fixed; inset: 0; background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur)); -webkit-backdrop-filter: blur(var(--scrim-blur));
   z-index: 200; display: flex; align-items: center; justify-content: center;
   padding: 20px;
 }
-/* Spotlight scrim (Cmd+K search) — blur มาก, tint อ่อน (ไม่ทึบเหมือน modal เต็มจอ) */
+/* Spotlight scrim (Cmd+K search) — โทน/blur เดียวกับ popup อื่น */
 .spotlight-scrim {
   position: fixed; inset: 0; z-index: 999;
-  background: rgba(8, 18, 32, 0.45);
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur)); -webkit-backdrop-filter: blur(var(--scrim-blur));
   display: flex; justify-content: center; padding-top: 12vh;
 }
-/* Fallback: เบราว์เซอร์ที่ไม่รองรับ backdrop-filter (Safari เก่า / GPU ปิด / Reduce Motion / Firefox มี flag)
-   → ใช้ tint เข้มขึ้นทำให้เห็นการแยกชั้นชัดเจน (ของเดิม 0.52 + blur อ่อนไปเมื่อไม่มี blur) */
+/* Fallback: เบราว์เซอร์ที่ไม่รองรับ backdrop-filter → ใช้ tint เข้มขึ้นชดเชย blur ที่หายไป */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .modal-scrim     { background: rgba(8, 18, 32, 0.72); }
-  .spotlight-scrim { background: rgba(8, 18, 32, 0.62); }
+  .modal-scrim     { background: var(--scrim-solid); }
+  .spotlight-scrim { background: var(--scrim-solid); }
 }
 .modal {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl);
@@ -1055,16 +1061,23 @@ input, select, textarea { font-family: inherit; }
 .sheet-scrim {
   position: fixed; inset: 0; z-index: 210;
   display: flex; justify-content: flex-end;
-  background: rgba(8, 18, 32, 0.28);
-  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  background: var(--scrim);
+  backdrop-filter: blur(var(--scrim-blur)); -webkit-backdrop-filter: blur(var(--scrim-blur));
+}
+.sheet-scrim[data-state="open"] { animation: fade 0.2s var(--ease) both; }
+.sheet-scrim[data-state="closed"] { animation: fadeOut 0.18s var(--ease) both; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .sheet-scrim { background: var(--scrim-solid); }
 }
 .side-sheet {
   position: fixed; top: 0; right: 0; z-index: 211;
   width: min(560px, calc(100vw - 32px)); height: 100dvh;
   background: var(--surface); border-left: 1px solid var(--line);
   box-shadow: var(--sh-pop); display: flex; flex-direction: column;
-  overflow: hidden; animation: sheetIn 0.22s var(--ease) both;
+  overflow: hidden;
 }
+.side-sheet[data-state="open"] { animation: sheetIn 0.22s var(--ease) both; }
+.side-sheet[data-state="closed"] { animation: sheetOut 0.18s var(--ease) both; }
 .side-sheet:focus, .side-sheet:focus-visible { outline: none; }
 .side-sheet-sm { width: min(440px, calc(100vw - 32px)); }
 .side-sheet-md { width: min(560px, calc(100vw - 32px)); }
@@ -1088,8 +1101,9 @@ input, select, textarea { font-family: inherit; }
   flex: 0 0 auto;
 }
 @keyframes sheetIn { from { transform: translateX(18px); opacity: .88; } to { transform: translateX(0); opacity: 1; } }
+@keyframes sheetOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(24px); opacity: 0; } }
 @media (max-width: 600px) {
-  .sheet-scrim { padding: 0; background: rgba(8, 18, 32, 0.38); }
+  .sheet-scrim { padding: 0; }
   .side-sheet, .side-sheet-sm, .side-sheet-md, .side-sheet-lg, .side-sheet-xl {
     width: 100vw; height: 100dvh; border-left: none;
   }
@@ -1549,7 +1563,8 @@ textarea.input { @apply min-h-[80px] resize-y; }
 
 /* Dialog visual (augments existing .modal component) */
 .dialog-overlay {
-  @apply fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0;
+  @apply fixed inset-0 z-50 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0;
+  background: var(--scrim); backdrop-filter: blur(var(--scrim-blur)); -webkit-backdrop-filter: blur(var(--scrim-blur));
   display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 .dialog-content {
@@ -1568,7 +1583,7 @@ textarea.input { @apply min-h-[80px] resize-y; }
 .dialog-footer { @apply flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 pt-4; border-top: 1px solid var(--border); }
 .dialog-close { @apply absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .dialog-overlay { background: rgba(8, 18, 32, 0.72); }
+  .dialog-overlay { background: var(--scrim-solid); }
 }
 @media (max-width: 600px) {
   .dialog-overlay { padding: 0; align-items: stretch; }

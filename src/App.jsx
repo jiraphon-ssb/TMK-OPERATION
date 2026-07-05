@@ -27,6 +27,7 @@ const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
 const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
 const SaleDataHub = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SaleDataHub })));
+const SalePerfView = lazy(() => import('./salePerf.jsx').then(m => ({ default: m.SalePerfView })));
 const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
 import { RecordSalesModal, TaskModal, ProductModal, OrderModal, CampaignModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
@@ -271,6 +272,7 @@ const NAV_DEF = [
   { id: 'catalog', labelKey: 'navCatalog', icon: 'sales', subs: [
     // เรียงตาม workflow: ดูข้อมูล (รายงาน→ออเดอร์→ลูกค้า) → กรอกข้อมูล (ส่งยอด→บันทึกขาย) → ฐานข้อมูล (แคตตาล็อก)
     { id: 'report', labelKey: 'subReport', icon: 'sales' },
+    { id: 'perf', labelKey: 'subPerf', icon: 'flame' },
     { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
     { id: 'crm', labelKey: 'subCrm', icon: 'users' },
     { id: 'data', labelKey: 'subDataHub', icon: 'checkCheck' },
@@ -745,7 +747,8 @@ function AppInner() {
     return (
       <Suspense fallback={<PageSkeleton />}>
         {/* sub submit/io = ลิงก์เก่า (ก่อนรวมเป็น Data Hub) → หน้าเดียวกัน */}
-        {section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SaleDataHub />
+        {section === 'catalog' && sub === 'perf' ? <SalePerfView />
+          : section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SaleDataHub />
           : section === 'sales' ? <EntryView sub={sub} />
           : section === 'notifications' ? <NotificationsCenter />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />

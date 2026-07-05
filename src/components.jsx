@@ -1,7 +1,7 @@
 /* ============================================================
    TMK Operation — Shared components, icons, formatters, charts
    ============================================================ */
-import { useState, useEffect, useRef, createContext, useContext } from 'react';
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import {
   ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
@@ -671,12 +671,20 @@ export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose })
   const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const shown = useCountUp(amount, 1700); // ยอดวิ่งนับช้าๆ ให้เห็นพุ่งเข้าหาเป้า
   const headline = useRef(CELEBRATE_HEADLINES[Math.floor(Math.random() * CELEBRATE_HEADLINES.length)]).current;
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const close = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    setTimeout(() => onClose && onClose(), 200); // เล่น fade-out ก่อน unmount
+  }, [onClose]);
   useEffect(() => {
-    const t = setTimeout(() => onClose && onClose(), 8000);
-    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    const t = setTimeout(close, 8000);
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
     window.addEventListener('keydown', onKey);
     return () => { clearTimeout(t); window.removeEventListener('keydown', onKey); };
-  }, [onClose]);
+  }, [close]);
   if (typeof document === 'undefined') return null;
   const over = Math.max(0, amount - target);
   const fillPct = target > 0 ? Math.min((shown / target) * 100, 100) : 100;
@@ -684,7 +692,7 @@ export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose })
   const crossed = target > 0 && shown >= target;
   const pieces = reduce ? [] : Array.from({ length: 130 });
   return createPortal(
-    <div className="celebrate-overlay" role="dialog" aria-modal="true" aria-label="ฉลองทะลุเป้ายอดขาย" onClick={() => onClose && onClose()}>
+    <div className={'celebrate-overlay' + (closing ? ' celebrate-out' : '')} role="dialog" aria-modal="true" aria-label="ฉลองทะลุเป้ายอดขาย" onClick={close}>
       <div className="celebrate-confetti" aria-hidden="true">
         {pieces.map((_, i) => {
           const left = Math.random() * 100, dur = 2.6 + Math.random() * 2.6, delay = (i % 2 ? 0 : 1.2) + Math.random() * 0.9, size = 7 + Math.random() * 10;
@@ -708,7 +716,7 @@ export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose })
           </div>
         )}
         <div className="celebrate-sub">{crossed ? `ทะลุเป้า ${B(over)} (+${P(target > 0 ? (over / target) * 100 : 0, 0)})` : `กำลังพุ่งเข้าเป้า… ${P(livePct, 0)}`}</div>
-        <button className="celebrate-close" onClick={() => onClose && onClose()} autoFocus>เยี่ยมไปเลย! 🙌</button>
+        <button className="celebrate-close" onClick={close} autoFocus>เยี่ยมไปเลย! 🙌</button>
       </div>
     </div>,
     document.body

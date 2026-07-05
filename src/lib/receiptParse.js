@@ -41,6 +41,9 @@ async function loadPdfjs() {
   return _pdfjs;
 }
 
+/* ---------- helpers ---------- */
+const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
 /* ---------- Thai text normalize ---------- */
 const thDigits = (s) => String(s || '').replace(/[๐-๙]/g, (c) => String(c.charCodeAt(0) - 0x0E50)); // เลขไทย → อารบิก
 const normThai = (s) => thDigits(s)
@@ -341,9 +344,12 @@ function parsePage(rows, pageNo, pageW) {
   const order_no = normThai(docNoHit.text).replace(/\s/g, '');
   if (!order_no) warnings.push('เลขที่เอกสาร');
 
-  const order_date = parseThaiDate(valueAfterLabel(body, L.date, { labelMinX: rightCol, sc })?.text);
-  if (!order_date) warnings.push('วันที่');
-  else {
+  let order_date = parseThaiDate(valueAfterLabel(body, L.date, { labelMinX: rightCol, sc })?.text);
+  if (!order_date) {
+    // วันที่ว่างบนใบ (เซลล์ไม่กรอกใน Shipnity) → เติมวันที่อัปโหลด (วันนี้) + เตือนให้ตรวจ (แก้ได้ในตาราง)
+    order_date = todayISO();
+    warnings.push('ไม่มีวันที่บนใบ — ใช้วันที่อัปโหลด (แก้ได้)');
+  } else {
     // วันที่ผิดปกติ (อนาคต/เก่าผิดสังเกต) → เตือนให้ตรวจ ไม่บล็อก
     const today = new Date(); today.setDate(today.getDate() + 1);
     if (order_date > today.toISOString().slice(0, 10)) warnings.push(`วันที่เป็นอนาคต (${order_date})`);
@@ -358,15 +364,61 @@ function parsePage(rows, pageNo, pageW) {
      กัน false-match ชื่อลูกค้าที่บังเอิญมีคำช่องทาง ด้วยการล็อกโซนตำแหน่ง */
   let customer_name = '', customer_social = '', channel_hint = '', channel_token = '';
   const midMin = 150 * sc, midMax = Math.min(285 * sc, rightCol - 10 * sc);
-  const isChanItem = (i) => i.x >= midMin && i.x < midMax && channelFromText(i.s);
-  let custRow = body.find(r => r.items.some(i => i.x < 120 * sc) && r.items.some(isChanItem));
+  const hasLetters = (s) => (String(s).match(/[A-Za-zก-๙]/g) || []).length >= 2;
+  // หาบรรทัดช่องทาง = แถวแรก (จากบน) ที่มีโทเคนช่องทางรูปแบบ "channel:" — ไม่ผูกโซน x (รองรับ layout ต่าง)
+  // กันชนคำในชื่อลูกค้า: ต้องมี ":" ตามหลังโทเคนใกล้ๆ (Shipnity พิมพ์ "facebook:" / "line:")
+  let custRow = null, chanIdx = -1;
+  for (const r of body) {
+    // ข้ามแถวเบอร์โทร (Tel:) / เลขภาษี / หมายเหตุ / ผู้ตรวจ — "Tel" แมตช์ channelFromText เป็น Phone ได้ (กัน false-match)
+    // (Shipnity ไม่ปล่อย ":" เป็น text item เสมอ จึงไม่บังคับ ":" — ใช้ skip พวก label แทน)
+    if (/^tel/i.test(r.text.trim())) continue;
+    if (LKS([...L.custTax, ...L.note, ...L.checker]).some(k => r.key.startsWith(k))) continue;
+    const idx = r.items.findIndex(i => channelFromText(i.s));
+    if (idx < 0) continue;
+    custRow = r; chanIdx = idx; break;
+  }
   if (custRow) {
-    const socialIdx = custRow.items.findIndex(isChanItem);
-    customer_name = joinItems(custRow.items.slice(0, socialIdx).filter(i => i.x < midMax - 40 * sc && !/[:;]/.test(i.s)), sc);
-    const socialVal = joinItems(custRow.items.slice(socialIdx + 1).filter(i => !/^[:;\s]+$/.test(i.s)), sc).replace(/^[:;]\s*/, '');
-    customer_social = cleanSocial(socialVal); // ตัด emoji/มาสก์ เหลือข้อความจริง (≥2 ตัวอักษร)
-    channel_hint = channelFromText(custRow.items[socialIdx].s);
-  } else {
+    const cx = custRow.items[chanIdx].x;
+    // ตำแหน่ง label "เลขที่เอกสาร" ในแถวเดียวกัน (channel-first layout วางเลขที่เอกสารต่อท้ายแถวลูกค้า)
+    // — ตัดค่าหลังโทเคนแค่ก่อนถึง docNo แทนใช้ rightCol ทั้งหน้า (rightCol อาจเฉือนชื่อลูกค้าที่อยู่กลางแถว)
+    const docStartIdx = (() => {
+      const lks = LKS(L.docNo).filter(k => k.length > 2); // ตัด synonym สั้น 'no' — กัน false-match ชื่อ/social ที่ขึ้นต้น "No.1" ฯลฯ
+      for (let i = chanIdx + 1; i < custRow.items.length; i++) {
+        let acc = '';
+        for (let j = i; j < Math.min(custRow.items.length, i + 14); j++) {
+          acc += custRow.items[j].s; const k = labelKey(acc).replace(/[:\d]/g, ''); // ":" ติดมากับ item "เอกสาร:" → ตัดออกก่อนเทียบ
+          if (!k) continue;
+          if (lks.includes(k)) return i;
+          if (!lks.some(lk => lk.startsWith(k))) break;
+        }
+      }
+      return -1;
+    })();
+    const afterEnd = docStartIdx > chanIdx ? docStartIdx : custRow.items.length;
+    // ขอบขวาโซนชื่อ (ก่อน docNo) — ใช้กับ fragment ห่อบรรทัด · ไม่ล้ำเข้าคอลัมน์ขวา (docNo/วันที่ ฯลฯ)
+    const nameRightX = docStartIdx > chanIdx ? custRow.items[docStartIdx].x - 10 * sc : Math.min(rightCol - 8 * sc, cx + 90 * sc);
+    // ชื่อฝั่งซ้ายโทเคน (เคสปกติ "ชื่อ  facebook: social")
+    const leftText = joinItems(custRow.items.slice(0, chanIdx).filter(i => i.x < cx && num(i.s) == null && !/[:;]/.test(i.s)), sc).replace(/[:;]\s*$/, '').trim();
+    // ค่าหลังโทเคน (social · หรือชื่อ กรณี channel-first) — ตัดก่อน docNo บนแถวเดียวกัน
+    let afterText = joinItems(custRow.items.slice(chanIdx + 1, afterEnd).filter(i => !/^[:;\s]+$/.test(i.s)), sc).replace(/^[:;]\s*/, '').trim();
+    channel_hint = channelFromText(custRow.items[chanIdx].s) || channelFromText(custRow.text);
+    if (hasLetters(leftText)) {
+      customer_name = leftText;
+      customer_social = cleanSocial(afterText) || cleanSocial(leftText);
+    } else {
+      // channel-first: ไม่มีชื่อฝั่งซ้าย → ชื่อ = ค่าหลังโทเคน (แฮนเดิลช่องทาง)
+      customer_name = cleanSocial(afterText);
+      customer_social = customer_name;
+      // ชื่อห่อบรรทัด: ต่อ fragment แถวถัดไปในช่วง x เดียวกับค่า (ไม่ใช่ label/ตัวเลข/ช่องทาง)
+      const bi = body.indexOf(custRow), nxt = body[bi + 1];
+      if (nxt && customer_name) {
+        const cont = joinItems(nxt.items.filter(i => i.x >= cx - 5 * sc && i.x < nameRightX && num(i.s) == null && !/[:;]/.test(i.s) && !channelFromText(i.s)), sc).trim();
+        const isLabelRow = LKS([...L.docNo, ...L.title, ...L.custTax, ...L.date, ...L.payment, ...L.carrier, ...L.discCode, ...L.note, ...L.checker]).some(k => nxt.key.includes(k));
+        if (cont && hasLetters(cont) && !isLabelRow) { customer_name += cont; customer_social = cleanSocial(customer_name); }
+      }
+    }
+  }
+  if (!custRow) {
     // มีแถวลูกค้าโครงเดียวกัน (ซ้าย + โทเคนกลาง + ":") แต่ช่องทาง "ไม่รู้จัก" → เตือน + เก็บโทเคนไว้เพิ่ม pattern
     const structRow = body.find(r => r.items.some(i => i.x < 120 * sc)
       && r.items.some(i => i.x >= midMin && i.x < midMax && /[A-Za-zก-๙_]{2,}/.test(i.s) && num(i.s) == null)

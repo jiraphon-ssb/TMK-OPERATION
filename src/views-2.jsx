@@ -21,7 +21,7 @@ import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
-import { voidReceipt } from './lib/receiptSubmit.js';
+import { voidReceipt, restoreReceipt } from './lib/receiptSubmit.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
@@ -1543,6 +1543,7 @@ function MpOrdersView() {
   const [channelF, setChannelF] = useState([]);
   const [jobF, setJobF] = useState([]);
   const [sellerF, setSellerF] = useState([]);
+  const [statusF, setStatusF] = useState([]);   // ['ใช้งาน','ยกเลิก'] · ว่าง = ทั้งหมด
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState(null);
@@ -1575,7 +1576,8 @@ function MpOrdersView() {
       const s = await cachedFetchRange('tmk_mp_skus', SKUS_SEL, range.from, range.to);
       if (cancel) return;
       setRawSkus(s.error ? [] : s.data || []);
-      setOrders((o.data || []).filter(x => x.status !== 'cancelled').sort((a, b) => (b.order_date || '').localeCompare(a.order_date || '')));
+      // คงออเดอร์ยกเลิกไว้ในลิสต์ (โชว์ dim + ชิป · กรองด้วยตัวกรองสถานะ) — ไม่กระทบรายงาน (saleAgg กรอง cancelled เอง)
+      setOrders((o.data || []).sort((a, b) => (b.order_date || '').localeCompare(a.order_date || '')));
     })();
     return () => { cancel = true; };
   }, [range.from, range.to, reloadKey]);
@@ -1626,15 +1628,17 @@ function MpOrdersView() {
   const channels = useMemo(() => [...new Set((ordersM || []).map(o => o.channel).filter(Boolean))], [ordersM]);
   const sellers = useMemo(() => [...new Set((ordersM || []).map(o => o.salesperson).filter(Boolean))].sort(), [ordersM]);
   // ตัวกรองแบบ multi-select (ว่าง = แสดงทั้งหมด) — แพทเทิร์นเดียวกับหน้ารายงานขาย
-  const nFilters = jobF.length + channelF.length + sellerF.length;
+  const nFilters = jobF.length + channelF.length + sellerF.length + statusF.length;
   const activeChips = [
+    ...statusF.map(v => ({ dim: 'สถานะ', v, clear: () => setStatusF(statusF.filter(x => x !== v)) })),
     ...jobF.map(v => ({ dim: 'งาน', v, clear: () => setJobF(jobF.filter(x => x !== v)) })),
     ...channelF.map(v => ({ dim: 'ช่องทาง', v, clear: () => setChannelF(channelF.filter(x => x !== v)) })),
     ...sellerF.map(v => ({ dim: 'เซลล์', v, clear: () => setSellerF(sellerF.filter(x => x !== v)) })),
   ];
-  const clearFilters = () => { setJobF([]); setChannelF([]); setSellerF([]); };
+  const clearFilters = () => { setJobF([]); setChannelF([]); setSellerF([]); setStatusF([]); };
   const ql = q.trim().toLowerCase();
   const filtered = (ordersM || []).filter(o =>
+    (statusF.length === 0 || statusF.includes(o.status === 'cancelled' ? 'ยกเลิก' : 'ใช้งาน')) &&
     (channelF.length === 0 || channelF.includes(o.channel)) &&
     (jobF.length === 0 || jobF.includes(o.job_type || 'ปลีก')) &&
     (sellerF.length === 0 || sellerF.includes(o.salesperson || '')) &&
@@ -1649,7 +1653,7 @@ function MpOrdersView() {
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
 
   // แบ่งหน้า — รีเซ็ตกลับหน้า 1 เมื่อเปลี่ยนช่วงวันที่/ตัวกรอง/คำค้น/การเรียง
-  useEffect(() => { setPage(1); }, [range.from, range.to, jobF, channelF, sellerF, q, sortKey, sortDir]);
+  useEffect(() => { setPage(1); }, [range.from, range.to, jobF, channelF, sellerF, statusF, q, sortKey, sortDir]);
   const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
   const pageClamped = Math.min(page, totalPages);
   const pageRows = sorted.slice((pageClamped - 1) * PER_PAGE, pageClamped * PER_PAGE);
@@ -1706,6 +1710,7 @@ function MpOrdersView() {
           <CollapsibleContent>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 12, marginTop: 10, borderTop: '1px solid var(--line)' }}>
               <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 600, width: 64, flexShrink: 0 }}>ตัวกรอง</span>
+              <MultiSelect label="สถานะ" options={['ใช้งาน', 'ยกเลิก']} value={statusF} onChange={setStatusF} />
               <MultiSelect label="งาน" options={['ปลีก', 'DFT', 'OEM']} value={jobF} onChange={setJobF} />
               <MultiSelect label="ช่องทาง" options={channels} value={channelF} onChange={setChannelF} />
               {sellers.length > 0 && <MultiSelect label="เซลล์" options={sellers} value={sellerF} onChange={setSellerF} />}
@@ -1728,14 +1733,14 @@ function MpOrdersView() {
           </TableRow></TableHeader>
           <TableBody>{pageRows.map(o => { const designs = buildDesigns(skusByOrder[o.order_no] || []);
             return (
-              <TableRow key={o.order_no} className={`mp-order-row ${openId === o.order_no ? 'is-open' : ''}`} onClick={() => setOpenId(o.order_no)} style={{ cursor: 'pointer' }}>
-                <TableCell><span style={{ fontWeight: 600 }}>{o.order_no}</span></TableCell>
+              <TableRow key={o.order_no} className={`mp-order-row ${openId === o.order_no ? 'is-open' : ''} ${o.status === 'cancelled' ? 'opacity-55' : ''}`} onClick={() => setOpenId(o.order_no)} style={{ cursor: 'pointer' }}>
+                <TableCell><span style={{ fontWeight: 600, textDecoration: o.status === 'cancelled' ? 'line-through' : 'none' }}>{o.order_no}</span></TableCell>
                 {colVisible.has('date') && <TableCell className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</TableCell>}
                 {colVisible.has('channel') && <TableCell><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span></TableCell>}
                 {colVisible.has('customer') && <TableCell>{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}{!o.customer_name && !o.customer_code && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มีลูกค้า</Badge>}</TableCell>}
                 {colVisible.has('designs') && <TableCell>{designs.length === 0 ? <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ fontWeight: 600 }}>{designs.slice(0, 2).map(d => d.design).join(', ')}{designs.length > 2 ? ` +${designs.length - 2}` : ''}</span>}</TableCell>}
                 {colVisible.has('job') && <TableCell>{(o.job_type && o.job_type !== 'ปลีก') ? <span className={'chip ' + jobChip(o.job_type)}>{o.job_type}</span> : <span className="cap">ปลีก</span>}</TableCell>}
-                {colVisible.has('status') && <TableCell>{o.status && o.status !== 'completed' ? <span className={'chip ' + statusChip(o.status)}>{statusLabel(o.status)}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
+                {colVisible.has('status') && <TableCell>{o.status && !['completed', 'active'].includes(o.status) ? <span className={'chip ' + statusChip(o.status)}>{statusLabel(o.status)}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
                 {colVisible.has('note') && <TableCell>{o.note ? <span className="block max-w-[160px] truncate text-[13px]" title={o.note}>{o.note}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
                 {colVisible.has('qty') && <TableCell className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</TableCell>}
                 <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}><span className="row" style={{ gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>{B(o.sales)}<Icon name="arrowR" /></span></TableCell>
@@ -1788,6 +1793,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
   const jtCls = { DFT: 'chip-accent', OEM: 'chip-warn' }[jt] || '';
   const hasOv = !!o._ov;                                   // ออเดอร์นี้เคยแก้มือไหม
   const isReceipt = (o.source || '') === 'shipnity';       // มาจากใบเสร็จ — ยกเลิกผ่านระบบใบเสร็จ (ส่งใหม่ได้)
+  const isCancelled = o.status === 'cancelled';            // ยกเลิกแล้ว → ปุ่มเป็น "นำกลับมา"
   const [edit, setEdit] = useState(null);                  // null | ฟอร์มแก้เต็มทุกช่อง
   const [busy, setBusy] = useState(false);
   const [lineEdit, setLineEdit] = useState(null);          // index ของบรรทัดที่กำลังแก้ลาย
@@ -1826,6 +1832,39 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       if (isReceipt) {
         try { await supabase.from('tmk_sale_receipts').update({ channel: patch.channel, order_date: patch.order_date, order_month: patch.order_month, sales: patch.sales, qty: patch.qty, salesperson: patch.salesperson, updated_at: now }).eq('order_no', o.order_no); } catch { /* เงียบ */ }
       }
+      // ปรับ SKU (+ confirmed payload ของใบเสร็จ) ให้ยอด/จำนวนรวมตรงกับที่แก้ — กัน breakdown ลาย/สี/geo เพี้ยนจาก order total
+      const oldSales = sk.reduce((a, s) => a + (Number(s.line_sales) || 0), 0);
+      const oldQty = sk.reduce((a, s) => a + (Number(s.qty) || 0), 0);
+      if (sk.length && (Math.abs(oldSales - patch.sales) > 0.01 || oldQty !== patch.qty)) {
+        // แบ่งสัดส่วนตามของเดิม · reconcile บรรทัดสุดท้ายให้รวมตรงเป๊ะ
+        const splitVals = (rows, getV, total, integer) => {
+          const base = rows.map(getV); const sum = base.reduce((a, v) => a + v, 0); let acc = 0;
+          return rows.map((r, i) => {
+            if (i === rows.length - 1) return Math.max(0, integer ? Math.round(total - acc) : Math.round((total - acc) * 100) / 100);
+            const v = sum > 0 ? (base[i] / sum) * total : total / rows.length;
+            const rv = integer ? Math.round(v) : Math.round(v * 100) / 100; acc += rv; return Math.max(0, rv);
+          });
+        };
+        const newLS = splitVals(sk, s => Number(s.line_sales) || 0, patch.sales, false);
+        const newQ = splitVals(sk, s => Number(s.qty) || 0, patch.qty, true);
+        for (let i = 0; i < sk.length; i++) {
+          if (!sk[i].id) continue;
+          try { await supabase.from('tmk_mp_skus').update({ line_sales: newLS[i], qty: newQ[i] }).eq('id', sk[i].id); } catch { /* order-level ถูกแล้ว */ }
+        }
+        if (isReceipt) {
+          try {
+            const { data: rc } = await supabase.from('tmk_sale_receipts').select('confirmed').eq('order_no', o.order_no).maybeSingle();
+            const cf = rc?.confirmed;
+            if (cf && Array.isArray(cf.lines) && cf.lines.length) {
+              const cLS = splitVals(cf.lines, l => Number(l.amount) || 0, patch.sales, false);
+              const cQ = splitVals(cf.lines, l => Number(l.qty) || 0, patch.qty, true);
+              cf.lines = cf.lines.map((l, i) => ({ ...l, amount: cLS[i], qty: cQ[i] }));
+              cf.total = patch.sales; cf.subtotal = patch.sales;
+              await supabase.from('tmk_sale_receipts').update({ confirmed: cf }).eq('order_no', o.order_no);
+            }
+          } catch { /* เงียบ — restore จะใช้ payload เดิม */ }
+        }
+      }
       logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `แก้ออเดอร์ ${o.order_no} (${patch.channel} · ฿${patch.sales})` });
       toast('บันทึกการแก้ไขแล้ว — ยอดในรายงานอัปเดตทันที', 'success');
       setEdit(null); onChanged ? onChanged() : onSaved?.();
@@ -1855,6 +1894,24 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       toast('ยกเลิกออเดอร์แล้ว — ยอดถูกตัดออกจากรายงาน', 'success');
       onClose(); onChanged?.();
     } catch (e) { toast('ยกเลิกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  // นำกลับมา — ใบเสร็จ: un-void + สร้าง sku คืนจาก payload · มาร์เก็ตเพลส: mark active
+  const restoreOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await window.__confirm?.({ title: 'นำออเดอร์กลับมา', body: `นำ ${o.order_no} กลับมาใช้งาน?\nยอดจะกลับเข้ารายงานทันที`, confirmText: 'นำกลับมา' })) return;
+    setBusy(true);
+    try {
+      if (isReceipt) await restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
+      else {
+        const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
+        if (error) throw error;
+        invalidateSaleCache('tmk_mp_orders');
+        logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });
+      }
+      toast('นำออเดอร์กลับมาแล้ว — ยอดกลับเข้ารายงาน', 'success');
+      onClose(); onChanged?.();
+    } catch (e) { toast('นำกลับไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
     finally { setBusy(false); }
   };
   // ลบถาวร — เอาออกทุกตาราง (ออเดอร์ + รายการสินค้า + override + ใบเสร็จ) ย้อนกลับไม่ได้
@@ -1887,20 +1944,25 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
   const money = [{ label: 'ยอดขาย', val: B(o.sales) }];
   if (o.mkt_commission > 0) money.push({ label: 'ค่าธรรมเนียม', val: '−' + B(o.mkt_commission) });
   if (o.cod_amount > 0) money.push({ label: 'ยอด COD', val: B(o.cod_amount) });
+  // ปุ่มจัดการอยู่ที่ footer (กันทับ badge บนหัว) — ตอนแก้ไขเหลือแค่ "ปิด" (ฟอร์มมี Save/Cancel เอง)
+  const footerActions = edit ? <Button variant="outline" onClick={onClose}>ปิด</Button> : (
+    <div className="flex w-full items-center gap-2 flex-wrap">
+      {!isCancelled && window.__canEdit !== false && <Button variant="outline" size="sm" className="gap-1" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>}
+      {isCancelled
+        ? <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--good)' }} onClick={restoreOrder} disabled={busy}><Icon name="refresh" /> นำกลับมา</Button>
+        : <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}><Icon name="x" /> ยกเลิกออเดอร์</Button>}
+      <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} onClick={deleteOrder} disabled={busy}><Icon name="trash" /> ลบ</Button>
+      <Button variant="outline" className="ml-auto" onClick={onClose}>ปิด</Button>
+    </div>
+  );
   return <SideSheet size="lg" icon="listChecks" title={`ออเดอร์ ${o.order_no}`}
     sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span><span style={{ color: 'var(--ink-4)' }}>{o.order_date || o.order_month}</span><b style={{ color: 'var(--ink)' }}>{B(o.sales)}</b></span>}
-    onClose={onClose} footer={<Button variant="outline" onClick={onClose}>ปิด</Button>}>
+    onClose={onClose} footer={footerActions}>
     <div className="quality-row items-center" style={{ marginBottom: 14 }}>
+      {isCancelled && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-red-500/15 text-red-600 dark:text-red-400">ยกเลิกแล้ว</Badge>}
       {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
       {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
       {hasOv && <Badge variant="outline" className="rounded-full text-[10px] font-medium" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}><Icon name="pencil" /> แก้มือ</Badge>}
-      {!edit && (
-        <span className="ml-auto flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>
-          <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}><Icon name="x" /> ยกเลิกออเดอร์</Button>
-          <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} onClick={deleteOrder} disabled={busy}><Icon name="trash" /> ลบ</Button>
-        </span>
-      )}
     </div>
 
     {edit && (
