@@ -202,7 +202,7 @@ function Spotlight({ onClose, onGo }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <span style={{ width: 20, height: 20, flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="search" /></span>
           <input ref={inputRef} value={q} onChange={e => onQuery(e.target.value)} onKeyDown={onKey}
-            placeholder="ค้นหางาน สินค้า แคมเปญ ทีม..."
+            placeholder="ค้นหา"
             style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--ink)', fontFamily: 'var(--font)' }} />
           <kbd style={{ fontFamily: 'var(--mono)', fontSize: 'var(--fs-micro)', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 6px', background: 'var(--surface-2)' }}>ESC</kbd>
         </div>

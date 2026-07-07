@@ -325,27 +325,26 @@ export function ShirtCatalogView() {
       {noTable && <Card className="p-3" style={{ color: 'var(--warn)', borderLeft: '3px solid var(--warn)' }}><Icon name="alertTriangle" /> ยังไม่ได้สร้างตาราง <code>tmk_shirt_catalog</code> — รัน <code>supabase/migrations/20260624-shirt-catalog.sql</code> ใน Supabase ก่อนจึงจะเพิ่ม/บันทึกได้</Card>}
 
       <Card className="p-[22px]">
-        <div className="row between" style={{ flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <div className="row between" style={{ flexWrap: 'wrap', gap: 10 }}>
           <h3 className="m-0 text-base font-bold leading-tight" style={{ color: 'var(--ink)', whiteSpace: 'nowrap' }}>สินค้า</h3>
           <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา รหัส / ชื่อลาย / หมวด / สี" wrapperClassName="w-full sm:w-[280px]" />
-            <Button size="sm" className="flex-none" onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
-          </div>
-        </div>
-
-        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[240px]" />
             <CollapsibleTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2 rounded-full">
+              <Button variant="outline" size="sm" className="gap-2 flex-none">
                 <Icon name="filter" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
                 <Icon name={filtersOpen ? 'up' : 'down'} />
               </Button>
             </CollapsibleTrigger>
-            {activeChips.length > 0
-              ? activeChips.map(({ dim, v, clear }) => <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>)
-              : <span className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้กรอง — แสดงทุกลาย</span>}
-            {nFilters > 0 && <Button variant="ghost" size="sm" className="text-[var(--bad)] ml-auto" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>}
+            <Button size="sm" className="flex-none" onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
           </div>
+        </div>
+          {activeChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              {activeChips.map(({ dim, v, clear }) => <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>)}
+              <Button variant="ghost" size="sm" className="text-[var(--bad)] ml-auto" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>
+            </div>
+          )}
           <CollapsibleContent>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 12, marginTop: 10, borderTop: '1px solid var(--line)' }}>
               <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 600, width: 64, flexShrink: 0 }}>ตัวกรอง</span>

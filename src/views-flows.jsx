@@ -169,7 +169,7 @@ export function FlowsView({ sub, tasks, setTasks, activeFlow }) {
             <p className="text-sm text-muted-foreground mt-0.5">บอร์ดวางแผนงานแยกอิสระ — กดเข้าแต่ละโครงการเพื่อปรับแบรนด์/แคมเปญ/คอลัมน์/สมาชิกได้ละเอียด</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <SearchInput placeholder="ค้นหางานทุกโครงการ…" value={query} onChange={e => setQuery(e.target.value)} wrapperClassName="w-full sm:w-[230px]" />
+            <SearchInput placeholder="ค้นหา" value={query} onChange={e => setQuery(e.target.value)} wrapperClassName="w-full sm:w-[230px]" />
             <Button onClick={createFlow} disabled={busy}><Icon name="plus" className="size-4 mr-2" /> สร้างโครงการ</Button>
           </div>
         </div>
@@ -938,7 +938,7 @@ function MyTasksView() {
           <h2 className="text-xl font-bold text-foreground flex items-center gap-2"><Icon name="user" className="size-5" /> งานของฉัน</h2>
           <p className="text-sm text-muted-foreground mt-0.5 truncate">{myNames.size ? `งานที่มอบหมายให้ ${[...myNames].join(' · ')} — ทุกโครงการ` : 'ยังจับคู่บัญชีกับสมาชิกทีมไม่ได้'}</p>
         </div>
-        {myNames.size > 0 && mine.length > 0 && <SearchInput value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหางาน…" className="w-full sm:w-64" />}
+        {myNames.size > 0 && mine.length > 0 && <SearchInput value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหา" className="w-full sm:w-64" />}
       </div>
 
       {myNames.size === 0 ? (

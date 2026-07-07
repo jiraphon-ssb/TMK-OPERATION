@@ -8,15 +8,17 @@
    - หลังส่ง: แก้ (เจ้าของใบ = วันเดียวกัน · แอดมิน = เสมอ) / ยกเลิกใบ + ประวัติ
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
+import { Icon, N, useBeat, PageSkeleton, SkelTable } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { SideSheet } from './modals.jsx';
 import { logAudit } from './lib/audit.js';
-import { funnelPlatforms, funnelBreakdown, funnelNewOld } from './lib/saleData.js';
+import { funnelPlatforms, funnelBreakdown, funnelNewOld, getDateBounds } from './lib/saleData.js';
+import { PRESETS, presetRange } from './lib/saleTime.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { deriveColorSize } from './lib/mpReport.js';
+import { channelColor } from './charts.jsx';
 import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, CardTable } from './components/DataTableParts.jsx';
 import { DatePicker } from '@/components/ui/date-picker';
@@ -31,17 +33,26 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { HealthHub } from './views-2.jsx';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { HealthHub, MultiSelect, DrawerGroup, DrawerField, DateRangePicker } from './views-2.jsx';
 import { ImportExportHub } from './saleImportHub.jsx';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 
 const CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
 const JOB_TYPES = ['ปลีก', 'OEM', 'DFT'];
+const STATUS_OPTS = ['บันทึกแล้ว', 'แก้ไขแล้ว', 'ยกเลิก'];   // ตัวกรองสถานะใบเสร็จ (แบบหน้าออเดอร์)
+const matchStatus = (label, r) => {
+  if (label === 'บันทึกแล้ว') return r.status === 'confirmed' && !(Array.isArray(r.history) && r.history.length);
+  if (label === 'แก้ไขแล้ว') return r.status !== 'void' && Array.isArray(r.history) && r.history.length;
+  if (label === 'ยกเลิก') return r.status === 'void';
+  return true;
+};
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtD = (iso) => { const s = String(iso || ''); return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—'; };
 const curMonth = () => new Date().toISOString().slice(0, 7);
@@ -177,19 +188,34 @@ export function SubmitSalesView() {
   /* ---- feed + KPI ---- */
   const [feed, setFeed] = useState(null);
   const [targets, setTargets] = useState({});
-  const [feedMonth, setFeedMonth] = useState(curMonth());   // เดือนที่ดูใน feed
   const [feedScope, setFeedScope] = useState('mine');         // 'mine' | 'team'
-  const [fSeller, setFSeller] = useState('');                 // กรองเซลล์ (โหมดทีม)
-  const [fStatus, setFStatus] = useState('');                 // '' | confirmed | edited | void
+  // ช่วงวันที่แบบหน้าออเดอร์ (DateRangePicker) แทน Select เดือน
+  const [range, setRange] = useState({ from: '', to: '' });
+  const [datePreset, setDatePreset] = useState('month');      // preset ปุ่มช่วงวันที่ (default = เดือนนี้)
+  const [bounds, setBounds] = useState({ min: null, max: null });
+  const [fSeller, setFSeller] = useState([]);                 // กรองเซลล์ (โหมดทีม) — array แบบหน้าออเดอร์
+  const [fStatus, setFStatus] = useState([]);                 // ['บันทึกแล้ว'|'แก้ไขแล้ว'|'ยกเลิก']
+  const [fChannel, setFChannel] = useState([]);               // กรองช่องทาง (array)
   const [fSearch, setFSearch] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);      // แผงตัวกรอง (แบบหน้าออเดอร์)
   const [page, setPage] = useState(1);
-  const [prevSales, setPrevSales] = useState(null);           // ยอดฉันเดือนก่อน (เทียบ)
-  const monthOpts = useMemo(() => monthOptions(12), []);
+  const [prevSales, setPrevSales] = useState(null);           // ยอดฉันช่วงก่อนหน้า (เทียบ)
+  // เดือนอ้างอิง (เป้า/คอม/ป้าย) = เดือนของปลายช่วง · โหมดเดือนเดียว → ป้ายเป็นชื่อเดือน
+  const refMonth = (range.to || todayISO()).slice(0, 7);
+  const singleMonth = range.from && range.to && range.from.slice(0, 7) === range.to.slice(0, 7);
+  // ตั้งช่วงเริ่มต้น = เดือนปัจจุบันจริง (anchor วันจริง) + ขอบวันที่ข้อมูล
+  useEffect(() => { (async () => {
+    const b = await getDateBounds('tmk_sale_receipts');
+    setBounds({ min: b.min, max: b.max });
+    const r = presetRange('month', todayISO(), b.min, b.max);
+    setRange({ from: r.from || '', to: r.to || '' });
+  })().catch(() => { const r = presetRange('month', todayISO()); setRange({ from: r.from || '', to: r.to || '' }); }); }, []);
   const loadFeed = useCallback(async () => {
+    if (!range.from || !range.to) return;   // รอขอบวันที่
     try {
       // โหลด "ทั้งทีม" เสมอเมื่อ admin หรือเลือกโหมดทีม (ทุกคนดูทีมได้ — โปร่งใส) แล้วกรองฝั่ง client
       const wantTeam = feedScope === 'team' || isAdmin;
-      let q = supabase.from('tmk_sale_receipts').select('*').eq('order_month', feedMonth).order('created_at', { ascending: false }).limit(1000);
+      let q = supabase.from('tmk_sale_receipts').select('*').gte('order_date', range.from).lte('order_date', range.to).order('created_at', { ascending: false }).limit(2000);
       if (!wantTeam) q = q.eq('uploader_email', user?.email || '');
       const r = await q;
       if (r.error) throw r.error;
@@ -199,19 +225,24 @@ export function SubmitSalesView() {
       if (isMissingReceiptTable(e)) setMissingTable(true);
       setFeed([]);
     }
-  }, [feedMonth, feedScope, isAdmin, user?.email]);
+  }, [range.from, range.to, feedScope, isAdmin, user?.email]);
   useEffect(() => { loadFeed(); }, [loadFeed]);
-  useEffect(() => { setPage(1); }, [feedScope, feedMonth, fSeller, fStatus, fSearch]);
-  useEffect(() => { fetchTargets(feedMonth).then(rows2 => { const m = {}; rows2.forEach(t => { m[t.salesperson] = t; }); setTargets(m); }).catch(() => {}); }, [feedMonth]);
-  // ยอดฉันเดือนก่อน (เทียบ ▲▼) — query เบา
+  useEffect(() => { setPage(1); }, [feedScope, range.from, range.to, fSeller, fChannel, fStatus, fSearch]);
+  useEffect(() => { fetchTargets(refMonth).then(rows2 => { const m = {}; rows2.forEach(t => { m[t.salesperson] = t; }); setTargets(m); }).catch(() => {}); }, [refMonth]);
+  // ยอดฉันเดือนก่อน (เทียบ ▲▼) — เฉพาะโหมดเดือนเดียว (ช่วงกว้างเทียบไม่ได้)
   useEffect(() => {
-    const pm = prevMonthOf(feedMonth);
+    if (!singleMonth) { setPrevSales(null); return; }
+    const pm = prevMonthOf(refMonth);
     supabase.from('tmk_sale_receipts').select('sales,status,uploader_email').eq('order_month', pm).eq('uploader_email', user?.email || '')
       .then(({ data }) => setPrevSales((data || []).filter(r => r.status === 'confirmed').reduce((s, r) => s + (Number(r.sales) || 0), 0)))
       .catch(() => setPrevSales(null));
-  }, [feedMonth, user?.email]);
+  }, [refMonth, singleMonth, user?.email]);
   // realtime: ทีมส่งใบ/แก้ → feed อัปเดตสด (ต้องรัน migration 20260706)
   useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel'], loadFeed);
+  // ปุ่มช่วงวันที่ (แบบหน้าออเดอร์): preset → presetRange · เลือกเอง → กำหนดเอง
+  const pickPreset = (id) => { const r = presetRange(id, todayISO(), bounds.min, bounds.max); setDatePreset(id); setRange({ from: r.from || '', to: r.to || '' }); };
+  const pickRange = (f, t) => { setDatePreset(''); setRange({ from: f || '', to: t || '' }); };
+  const rangeLabel = singleMonth ? monthLabel(refMonth) : `${fmtD(range.from)}–${fmtD(range.to)}`;
 
   const myKpi = useMemo(() => {
     const mine = (feed || []).filter(r => r.status === 'confirmed' && r.uploader_email === user?.email);
@@ -226,16 +257,18 @@ export function SubmitSalesView() {
   const scopedFeed = useMemo(() => {
     let rows2 = feed || [];
     if (feedScope === 'mine') rows2 = rows2.filter(r => r.uploader_email === user?.email);
-    if (fSeller) rows2 = rows2.filter(r => (r.salesperson || '') === fSeller);
-    if (fStatus === 'confirmed') rows2 = rows2.filter(r => r.status === 'confirmed' && !(Array.isArray(r.history) && r.history.length));
-    else if (fStatus === 'edited') rows2 = rows2.filter(r => r.status !== 'void' && Array.isArray(r.history) && r.history.length);
-    else if (fStatus === 'void') rows2 = rows2.filter(r => r.status === 'void');
+    if (fSeller.length) rows2 = rows2.filter(r => fSeller.includes(r.salesperson || ''));
+    if (fChannel.length) rows2 = rows2.filter(r => fChannel.includes(r.channel || ''));
+    if (fStatus.length) rows2 = rows2.filter(r => fStatus.some(s => matchStatus(s, r)));
     if (fSearch.trim()) {
       const q = fSearch.trim().toLowerCase();
       rows2 = rows2.filter(r => String(r.order_no || '').toLowerCase().includes(q) || String(r.confirmed?.customer_name || '').toLowerCase().includes(q));
     }
     return rows2;
-  }, [feed, feedScope, fSeller, fStatus, fSearch, user?.email]);
+  }, [feed, feedScope, fSeller, fChannel, fStatus, fSearch, user?.email]);
+  const channelOpts = useMemo(() => [...new Set((feed || []).map(r => r.channel).filter(Boolean))].sort(), [feed]);
+  const nFilters = fSeller.length + fChannel.length + fStatus.length;
+  const clearFilters = () => { setFSeller([]); setFChannel([]); setFStatus([]); };
   const feedStat = useMemo(() => {
     const active = scopedFeed.filter(r => r.status !== 'void');
     const sales = active.reduce((s, r) => s + (Number(r.sales) || 0), 0);
@@ -264,7 +297,7 @@ export function SubmitSalesView() {
   const pages = Math.max(1, Math.ceil(sortedFeed.length / PAGE));
   const curPage = Math.min(page, pages);   // clamp — กัน realtime/void ทำ list หด แล้วค้างหน้าว่าง
   const pageRows = sortedFeed.slice((curPage - 1) * PAGE, curPage * PAGE);
-  const exportFeed = () => downloadCsv(`ใบเสร็จ-${feedMonth}`, scopedFeed, [
+  const exportFeed = () => downloadCsv(`ใบเสร็จ-${range.from}_${range.to}`, scopedFeed, [
     { key: 'order_no', label: 'เลขที่' }, { key: 'order_date', label: 'วันที่' }, { key: 'salesperson', label: 'เซลล์' },
     { label: 'ลูกค้า', map: r => r.confirmed?.customer_name || '' }, { key: 'channel', label: 'ช่องทาง' },
     { key: 'qty', label: 'จำนวน' }, { key: 'sales', label: 'ยอด' }, { key: 'status', label: 'สถานะ' },
@@ -407,11 +440,15 @@ export function SubmitSalesView() {
     <div className="content-inner rise flex flex-col gap-4">
       {missingTable && <MigrationNotice />}
 
+      {/* บน: ยอดของฉัน (ซ้าย กว้างกว่า) + คนทักวันนี้ (ขวา) — การ์ดสูงเท่ากัน (items-stretch default) */}
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
       {/* KPI ของฉันเดือนนี้ */}
-      <Card className="p-4">
+      <Card className="p-4 flex flex-col justify-center">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <div className="text-[11px] text-muted-foreground">ยอดของฉัน {monthLabel(feedMonth)} ({user?.name || user?.email})</div>
+          <div className="flex items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="wallet" /></span>
+            <div>
+            <div className="text-[11px] text-muted-foreground">ยอดของฉัน {rangeLabel} ({user?.name || user?.email})</div>
             <div className="text-2xl font-bold flex items-baseline gap-2">
               {fmtB(myKpi.sales)} <span className="text-sm font-normal text-muted-foreground">· {myKpi.count} ใบ</span>
               {myKpi.dPct != null && (
@@ -419,6 +456,7 @@ export function SubmitSalesView() {
                   {myKpi.dPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(myKpi.dPct))}% <span className="text-muted-foreground font-normal">vs เดือนก่อน</span>
                 </span>
               )}
+            </div>
             </div>
           </div>
           {myKpi.target > 0 && (
@@ -431,6 +469,9 @@ export function SubmitSalesView() {
           )}
         </div>
       </Card>
+      {/* คนทักวันนี้ (funnel) — แยกใหม่/เก่า ต่อแพลตฟอร์ม · แอดมินกรอกให้ทั้งทีม */}
+      <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={isAdmin} ordersToday={ordersToday} />
+      </div>
 
       {/* ขั้น 1: เลือกไฟล์ */}
       {!rows.length && (
@@ -442,13 +483,20 @@ export function SubmitSalesView() {
           onDrop={e => { e.preventDefault(); setDragOver(false); if (canEdit) onFiles(e.dataTransfer.files); }}>
           <input ref={fileRef} type="file" accept="application/pdf" multiple hidden onChange={e => { onFiles(e.target.files); e.target.value = ''; }} />
           {parsing ? (
-            <div className="text-sm text-muted-foreground">กำลังอ่านใบเสร็จ… {parsing.done}/{parsing.total} ไฟล์{checking ? ' · เช็คข้อมูลซ้ำ' : ''}</div>
+            <div className="flex flex-col items-center gap-3 py-3">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full animate-pulse [&_svg]:size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="upload" /></span>
+              <div className="text-sm text-muted-foreground">กำลังอ่านใบเสร็จ… {parsing.done}/{parsing.total} ไฟล์{checking ? ' · เช็คข้อมูลซ้ำ' : ''}</div>
+            </div>
           ) : (
-            <>
-              <div className="text-base font-semibold">วางไฟล์ใบเสร็จ Shipnity ที่นี่ หรือกดเลือกไฟล์</div>
-              <div className="text-xs text-muted-foreground mt-1">PDF หลายไฟล์พร้อมกัน หรือ PDF เดียวหลายหน้า (50-60 ใบต่อครั้งได้) · ระบบอ่านเองไม่กี่วินาที</div>
-              {!canEdit && <div className="text-xs text-amber-600 mt-2">บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — ส่งยอดไม่ได้</div>}
-            </>
+            <div className="flex flex-col items-center gap-3 py-3">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full [&_svg]:size-8" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="upload" /></span>
+              <div>
+                <div className="text-base font-semibold">วางไฟล์ใบเสร็จ Shipnity ที่นี่ หรือลากมาวาง</div>
+                <div className="text-xs text-muted-foreground mt-1">PDF หลายไฟล์พร้อมกัน หรือ PDF เดียวหลายหน้า (50-60 ใบต่อครั้งได้) · ระบบอ่านเองไม่กี่วินาที</div>
+              </div>
+              <Button size="sm" disabled={!canEdit} onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}><Icon name="upload" /> เลือกไฟล์</Button>
+              {!canEdit && <div className="text-xs text-amber-600">บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — ส่งยอดไม่ได้</div>}
+            </div>
           )}
           {fileErrors.length > 0 && (
             <div className="mt-3 text-left inline-block text-xs text-red-500">
@@ -463,9 +511,6 @@ export function SubmitSalesView() {
           )}
         </Card>
       )}
-
-      {/* คนทักวันนี้ (funnel) — แยกใหม่/เก่า ต่อแพลตฟอร์ม · แอดมินกรอกให้ทั้งทีม */}
-      <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={isAdmin} ordersToday={ordersToday} />
 
       {/* ขั้น 2: ตารางตรวจ */}
       {rows.length > 0 && (
@@ -527,7 +572,8 @@ export function SubmitSalesView() {
 
       {/* ใบเสร็จ — ครบจบ ดูได้ทุกอย่าง (ของฉัน/ทั้งทีม · เลือกเดือน · กรอง · สรุป · CSV) */}
       <Card className="p-0 overflow-hidden">
-        {/* แถบเครื่องมือ */}
+        {/* แถบเครื่องมือ — ตัวกรองแบบหน้าออเดอร์ (ยุบได้ + ชิป + ล้าง) */}
+        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
         <div className="p-3 border-b flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold">ใบเสร็จ</span>
           <Tabs value={feedScope} onValueChange={setFeedScope}>
@@ -536,34 +582,34 @@ export function SubmitSalesView() {
               <TabsTrigger value="team" className="text-xs px-3">ทั้งทีม</TabsTrigger>
             </TabsList>
           </Tabs>
-          <Select value={feedMonth} onValueChange={setFeedMonth}>
-            <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>{monthOpts.map(m => <SelectItem key={m} value={m}>{monthLabel(m)}</SelectItem>)}</SelectContent>
-          </Select>
-          {feedScope === 'team' && sellerOpts.length > 0 && (
-            <Select value={fSeller || '__all'} onValueChange={v => setFSeller(v === '__all' ? '' : v)}>
-              <SelectTrigger className="h-8 w-[140px] text-xs"><SelectValue placeholder="ทุกเซลล์" /></SelectTrigger>
-              <SelectContent><SelectItem value="__all">ทุกเซลล์</SelectItem>{sellerOpts.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-            </Select>
-          )}
-          <Select value={fStatus || '__all'} onValueChange={v => setFStatus(v === '__all' ? '' : v)}>
-            <SelectTrigger className="h-8 w-[120px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all">ทุกสถานะ</SelectItem><SelectItem value="confirmed">บันทึกแล้ว</SelectItem>
-              <SelectItem value="edited">แก้ไขแล้ว</SelectItem><SelectItem value="void">ยกเลิก</SelectItem>
-            </SelectContent>
-          </Select>
-          <Input value={fSearch} onChange={e => setFSearch(e.target.value)} placeholder="ค้นหาเลขที่/ลูกค้า" className="h-8 w-[180px] text-xs ml-auto" />
-          <Button variant="outline" size="sm" className="h-8" disabled={!scopedFeed.length} onClick={exportFeed}><Icon name="external" className="size-3.5" /> CSV</Button>
+          <DateRangePicker from={range.from} to={range.to} onChange={pickRange} presets={PRESETS} activePreset={datePreset || ''} onPickPreset={pickPreset} />
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5"><Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 ? ` (${nFilters})` : ''} <Icon name="chevD" className={'size-3.5 opacity-60 transition-transform ' + (filtersOpen ? 'rotate-180' : '')} /></Button>
+          </CollapsibleTrigger>
+          <SearchInput value={fSearch} onChange={e => setFSearch(e.target.value)} placeholder="ค้นหา" className="h-8 text-xs" wrapperClassName="ml-auto w-full sm:w-[200px]" />
         </div>
-        {/* แถบสรุป */}
-        <div className="px-3 py-2 border-b bg-muted/20 flex items-center gap-4 flex-wrap text-xs">
-          <span>ใบทั้งหมด <b>{N(feedStat.total)}</b></span>
-          <span>ยอดรวม <b>{fmtB(feedStat.sales)}</b></span>
-          <span>ยกเลิก <b>{N(feedStat.voids)}</b></span>
-          <span>เฉลี่ย/ใบ <b>{fmtB(feedStat.avg)}</b></span>
-        </div>
-        {feed === null ? <div className="p-4 text-sm text-muted-foreground">กำลังโหลด…</div>
+        <CollapsibleContent>
+          <div className="p-3 border-b bg-muted/20 flex items-center gap-2 flex-wrap">
+            <MultiSelect label="สถานะ" options={STATUS_OPTS} value={fStatus} onChange={setFStatus} />
+            {channelOpts.length > 0 && <MultiSelect label="ช่องทาง" options={channelOpts} value={fChannel} onChange={setFChannel} />}
+            {feedScope === 'team' && sellerOpts.length > 0 && <MultiSelect label="เซลล์" options={sellerOpts} value={fSeller} onChange={setFSeller} />}
+            {nFilters > 0 && <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" onClick={clearFilters}>ล้างตัวกรอง</Button>}
+          </div>
+        </CollapsibleContent>
+        {/* ชิปตัวกรองที่เลือก (Badge แบบหน้าออเดอร์เป๊ะ) */}
+        {nFilters > 0 && (
+          <div className="px-3 py-2 border-b flex items-center gap-1.5 flex-wrap">
+            {[
+              ...fStatus.map(v => ({ dim: 'สถานะ', v, clear: () => setFStatus(fStatus.filter(x => x !== v)) })),
+              ...fChannel.map(v => ({ dim: 'ช่องทาง', v, clear: () => setFChannel(fChannel.filter(x => x !== v)) })),
+              ...fSeller.map(v => ({ dim: 'เซลล์', v, clear: () => setFSeller(fSeller.filter(x => x !== v)) })),
+            ].map(({ dim, v, clear }) => (
+              <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>
+            ))}
+          </div>
+        )}
+        </Collapsible>
+        {feed === null ? <div className="p-3"><SkelTable cols={6} rows={6} /></div>
           : !scopedFeed.length ? <div className="p-6 text-center text-sm text-muted-foreground">ไม่มีใบเสร็จตามเงื่อนไข — {feedScope === 'mine' ? 'เริ่มส่งใบแรกได้เลย' : 'ลองเปลี่ยนเดือน/ตัวกรอง'}</div>
           : (
             <>
@@ -588,9 +634,9 @@ export function SubmitSalesView() {
                       <td className="px-2 py-2 text-xs">{fmtD(r.order_date)}</td>
                       {feedScope === 'team' && <td className="px-2 py-2 text-xs">{r.salesperson}</td>}
                       <td className="px-2 py-2 text-xs max-w-[160px] truncate">{r.confirmed?.customer_name || '—'}</td>
-                      <td className="px-2 py-2 text-xs">{r.channel || '—'}</td>
+                      <td className="px-2 py-2 text-xs">{r.channel ? <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(r.channel) }} />{r.channel}</span> : '—'}</td>
                       <td className="px-2 py-2 text-right text-xs">{N(r.qty)}</td>
-                      <td className="px-2 py-2 text-right">{fmtB(r.sales)}</td>
+                      <td className="px-2 py-2 text-right font-semibold">{fmtB(r.sales)}</td>
                       <td className="px-2 py-2">{statusBadge(r)}</td>
                     </tr>
                   ))}
@@ -620,34 +666,55 @@ export function SubmitSalesView() {
               </SheetHeader>
               {!editRow ? (
                 <div className="flex flex-col gap-3 mt-3 text-sm">
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div><span className="text-muted-foreground">วันที่:</span> {fmtD(detail.order_date)}</div>
-                    <div><span className="text-muted-foreground">เซลล์:</span> {detail.salesperson}</div>
-                    <div><span className="text-muted-foreground">ยอด:</span> {fmtB(detail.sales)}</div>
-                    <div><span className="text-muted-foreground">ช่องทาง:</span> {detail.channel || '—'}</div>
-                    <div><span className="text-muted-foreground">ลูกค้า:</span> {detail.confirmed?.customer_name || '—'}</div>
-                    <div><span className="text-muted-foreground">จังหวัด:</span> {detail.confirmed?.province || '—'}</div>
+                  {/* ยอดเด่น + จำนวน */}
+                  <div className="rounded-xl border p-3.5 flex items-center justify-between" style={{ borderColor: 'var(--line)', background: 'var(--surface-2, transparent)' }}>
+                    <div>
+                      <div className="cap" style={{ color: 'var(--ink-4)' }}>ยอดรวม</div>
+                      <div className="text-2xl font-extrabold tabular-nums" style={{ color: 'var(--accent)' }}>{fmtB(detail.sales)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="cap" style={{ color: 'var(--ink-4)' }}>จำนวน</div>
+                      <div className="text-lg font-bold tabular-nums">{N(detail.confirmed?.lines?.reduce((s, l) => s + (Number(l.qty) || 0), 0) ?? detail.qty)} ตัว</div>
+                    </div>
+                  </div>
+                  {/* กลุ่มข้อมูล (สไตล์เดียวกับหน้าออเดอร์) */}
+                  <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+                    <DrawerGroup icon="listChecks" title="ข้อมูลใบเสร็จ">
+                      <DrawerField label="เลขที่">{detail.order_no}</DrawerField>
+                      <DrawerField label="วันที่">{fmtD(detail.order_date)}</DrawerField>
+                      <DrawerField label="เซลล์">{detail.salesperson || '—'}</DrawerField>
+                      <div><span className="cap">ช่องทาง</span><b><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(detail.channel) }} />{detail.channel || '—'}</span></b></div>
+                    </DrawerGroup>
+                    <DrawerGroup icon="user" title="ลูกค้า">
+                      <DrawerField label="ชื่อลูกค้า">{detail.confirmed?.customer_name || '—'}</DrawerField>
+                      <DrawerField label="จังหวัด">{detail.confirmed?.province || '—'}</DrawerField>
+                    </DrawerGroup>
                   </div>
                   {Array.isArray(detail.confirmed?.lines) && detail.confirmed.lines.length > 0 && (
-                    <div className="rounded-lg border overflow-hidden">
+                    <div className="rounded-xl border overflow-hidden">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b bg-muted/30">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg [&_svg]:size-[14px]" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="tag" /></span>
+                        <span className="text-[13px] font-bold">รายการสินค้า</span>
+                        <span className="ml-auto text-xs text-muted-foreground">{detail.confirmed.lines.length} รายการ</span>
+                      </div>
                       <CardTable>
                       <table className="w-full text-xs">
-                        <thead className="bg-muted/50 text-muted-foreground"><tr><th className="text-left px-2 py-1">รหัส</th><th className="text-left px-2 py-1">สินค้า</th><th className="text-left px-2 py-1">สี/ไซซ์</th><th className="text-right px-2 py-1">จำนวน</th><th className="text-right px-2 py-1">ยอด</th></tr></thead>
-                        <tbody>{detail.confirmed.lines.map((l, i) => { const cs = deriveColorSize(l.name || '', l.code || ''); const c = l.color || cs.color, sz = l.size || cs.size; return <tr key={i} className="border-t"><td className="px-2 py-1 font-mono cell-title">{l.code}</td><td className="px-2 py-1">{l.name}</td><td className="px-2 py-1 text-muted-foreground">{[c, sz].filter(Boolean).join(' · ') || '—'}</td><td className="px-2 py-1 text-right">{l.qty}</td><td className="px-2 py-1 text-right">{fmtB(l.amount)}</td></tr>; })}</tbody>
+                        <thead className="text-[11px] uppercase text-muted-foreground"><tr className="border-b"><th className="text-left px-3 py-2 font-medium">รหัส</th><th className="text-left px-3 py-2 font-medium">สินค้า</th><th className="text-left px-3 py-2 font-medium">สี/ไซซ์</th><th className="text-right px-3 py-2 font-medium">จำนวน</th><th className="text-right px-3 py-2 font-medium">ยอด</th></tr></thead>
+                        <tbody>{detail.confirmed.lines.map((l, i) => { const cs = deriveColorSize(l.name || '', l.code || ''); const c = l.color || cs.color, sz = l.size || cs.size; return <tr key={i} className="border-t hover:bg-muted/30 transition-colors"><td className="px-3 py-2 cell-title"><span className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>{l.code}</span></td><td className="px-3 py-2 font-medium">{l.name}</td><td className="px-3 py-2 text-muted-foreground">{[c, sz].filter(Boolean).join(' · ') || '—'}</td><td className="px-3 py-2 text-right tabular-nums">{l.qty}</td><td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtB(l.amount)}</td></tr>; })}</tbody>
                       </table>
                       </CardTable>
-                      <div className="px-2 py-1 border-t bg-muted/30 text-right text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว</div>
+                      <div className="px-3 py-2 border-t bg-muted/30 flex items-center justify-between text-xs"><span className="text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว</span><b className="tabular-nums">{fmtB(detail.sales)}</b></div>
                     </div>
                   )}
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {detail.file_url
-                      ? <a className="text-xs text-primary underline" href={detail.file_url} target="_blank" rel="noreferrer">เปิดไฟล์ใบเสร็จ</a>
-                      : <span className="text-xs text-muted-foreground">ยังไม่มีไฟล์แนบ</span>}
+                      ? <Button asChild size="sm" variant="outline" className="h-8 gap-1.5"><a href={detail.file_url} target="_blank" rel="noreferrer"><Icon name="external" className="size-3.5" /> เปิดไฟล์ใบเสร็จ</a></Button>
+                      : <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="external" className="size-3.5 opacity-60" /> ยังไม่มีไฟล์แนบ</span>}
                     {detail.status !== 'void' && canEditReceipt(detail, { email: user?.email, isAdmin }) && (
                       <>
                         <input ref={attachRef} type="file" accept="application/pdf" hidden onChange={e => { attachFile(e.target.files?.[0]); e.target.value = ''; }} />
-                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" disabled={attaching} onClick={() => attachRef.current?.click()}>
-                          <Icon name="external" className="size-3" /> {attaching ? 'กำลังแนบ…' : detail.file_url ? 'เปลี่ยนไฟล์' : 'แนบไฟล์'}
+                        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={attaching} onClick={() => attachRef.current?.click()}>
+                          <Icon name="pencil" className="size-3.5" /> {attaching ? 'กำลังแนบ…' : detail.file_url ? 'เปลี่ยนไฟล์' : 'แนบไฟล์'}
                         </Button>
                       </>
                     )}
@@ -660,13 +727,9 @@ export function SubmitSalesView() {
                   )}
                   {detail.status === 'void' && <div className="text-xs text-red-500">ยกเลิกโดย {detail.void_by} {detail.void_reason ? `— ${detail.void_reason}` : ''}</div>}
                   {detail.status !== 'void' && (
-                    <div className="flex gap-2 mt-2">
-                      {canEditReceipt(detail, { email: user?.email, isAdmin })
-                        ? <Button size="sm" variant="outline" onClick={startEdit}><Icon name="pencil" className="size-3.5" /> แก้ไข</Button>
-                        : <span className="text-xs text-muted-foreground self-center">เลยเวลาแก้ (วันเดียวกัน) — ติดต่อแอดมิน</span>}
-                      {canEditReceipt(detail, { email: user?.email, isAdmin }) && (
-                        <Button size="sm" variant="outline" className="text-red-500" onClick={doVoid}><Icon name="trash" className="size-3.5" /> ยกเลิกใบ</Button>
-                      )}
+                    <div className="mt-1 flex items-center gap-1.5 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      <Icon name="external" className="size-3.5 shrink-0" />
+                      <span>ต้องการ <b className="text-foreground">แก้ไข</b> หรือ <b className="text-foreground">ยกเลิก</b> ออเดอร์นี้? ทำได้ที่หน้า <button type="button" className="text-[var(--accent)] font-medium hover:underline" onClick={() => { setDetail(null); window.__goSection?.('catalog', 'orders'); }}>ออเดอร์</button></span>
                     </div>
                   )}
                 </div>
@@ -694,6 +757,28 @@ export function SubmitSalesView() {
   );
 }
 
+/* ---- แยกปัญหาแต่ละชนิดเป็นชิปสั้น + สีต่อชนิด (ดูง่าย ไม่ยาวเป็นพืด) ---- */
+const PROBLEM_TONE = {
+  block: 'bg-red-500/12 text-red-600 dark:text-red-400 border-red-500/30',       // บันทึกไม่ได้ (ซ้ำ)
+  over: 'bg-violet-500/12 text-violet-600 dark:text-violet-400 border-violet-500/30', // มีในระบบ · ทับได้
+  warn: 'bg-amber-500/12 text-amber-700 dark:text-amber-400 border-amber-500/30',    // เตือนเบา (แก้ได้)
+  info: 'bg-slate-500/12 text-slate-600 dark:text-slate-300 border-slate-400/30',    // ข้อมูล (มาร์เก็ตเพลส)
+};
+function problemChip(p) {
+  const s = String(p || '');
+  if (/ส่งแล้วโดย/.test(s)) return { label: s.replace('ส่งแล้วโดย', 'ส่งแล้ว · '), tone: 'block' };
+  if (/เลขซ้ำในชุด/.test(s)) return { label: 'ซ้ำในชุดนี้', tone: 'block' };
+  if (/มีอยู่แล้วจากไฟล์|import/.test(s)) return { label: 'มีในระบบ · ติ๊กเพื่อทับ', tone: 'over' };
+  if (/ปกปิด|มาร์เก็ตเพลส/.test(s)) return { label: 'ลูกค้าปกปิด', tone: 'info' };
+  if (/วรรณยุกต์|สระหาย|ฟอนต์/.test(s)) return { label: 'ชื่ออาจเพี้ยน', tone: 'warn' };
+  if (/วันที่/.test(s)) return { label: 'ไม่มีวันที่', tone: 'warn' };
+  if (/จังหวัด/.test(s)) return { label: 'ไม่มีจังหวัด', tone: 'warn' };
+  if (/รหัสสินค้า/.test(s)) return { label: 'ไม่มีรหัส', tone: 'warn' };
+  if (/ช่องทาง/.test(s)) return { label: 'ช่องทาง?', tone: 'warn' };
+  const short = s.split(/\s*[—(]/)[0].trim().slice(0, 18);
+  return { label: short || 'ตรวจสอบ', tone: 'warn' };
+}
+
 /* ---- แถวในตารางตรวจ ---- */
 function ReviewRow({ r, expanded, onToggle, onSelect, onChannel, onEdit }) {
   const problem = r.problems.length > 0;
@@ -717,7 +802,8 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel, onEdit }) {
           <div className="flex items-center gap-1 flex-wrap">
             {r.job_type === 'DFT' && <Badge variant="secondary" className="text-[10px]">DFT</Badge>}
             <Badge variant="secondary" className="text-[10px]">{r.customer_type === 'ลูกค้าเก่า' ? 'เก่า' : 'ใหม่'}</Badge>
-            {r.problems.map((p, i) => <span key={i} className={`text-[10px] ${r.hard ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}`}>{p}</span>)}
+            {r.problems.map((p, i) => { const { label, tone } = problemChip(p); return <span key={i} title={p} className={`inline-flex items-center whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${PROBLEM_TONE[tone]}`}>{label}</span>; })}
+            {!r.problems.length && <span className="text-[10px] text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-0.5"><Icon name="check" className="size-3" /> พร้อม</span>}
           </div>
         </td>
         <td className="px-2 py-2 text-center">
@@ -828,24 +914,27 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, ordersToday = {} }) {
   };
   return (
     <>
-      <Card className="p-3">
+      <Card className="p-3 flex flex-col justify-center">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-baseline gap-3 flex-wrap min-w-0">
-            <span className="text-[15px] font-semibold">คนทักวันนี้ · ทีม</span>
-            {teamStat.total > 0
-              ? <span className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b> ({teamStat.people} คน)</span>
-              : <span className="text-xs text-muted-foreground">ยังไม่มีใครกรอกวันนี้</span>}
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
+            <div className="min-w-0">
+              <div className="text-[15px] font-semibold">คนทักวันนี้ · ทีม</div>
+              {teamStat.total > 0
+                ? <div className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b> ({teamStat.people} คน)</div>
+                : <div className="text-xs text-muted-foreground">ยังไม่มีใครกรอกวันนี้</div>}
+            </div>
           </div>
           {isAdmin
-            ? <Button variant="outline" size="sm" disabled={!sellers.length} onClick={() => setOpen(true)}><Icon name="pencil" /> กรอก/แก้คนทัก</Button>
+            ? <Button size="sm" disabled={!sellers.length} onClick={() => setOpen(true)}><Icon name="pencil" /> กรอก/แก้คนทัก</Button>
             : <Badge variant="secondary" className="text-[11px]">แอดมินเป็นผู้กรอกคนทัก</Badge>}
         </div>
-        {/* ทีมวันนี้ ต่อแพลตฟอร์ม — ทุกคนเห็น (สด · realtime) */}
+        {/* ทีมวันนี้ ต่อแพลตฟอร์ม — ทุกคนเห็น (สด · realtime) · จุดสีช่องทาง */}
         {teamStat.total > 0 && (
-          <div className="mt-2 pt-2 border-t flex items-center gap-x-4 gap-y-1 flex-wrap text-xs">
+          <div className="mt-2 pt-2 border-t flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
             <span className="text-muted-foreground">ต่อช่องทาง:</span>
             {FUNNEL_PLATFORMS.filter(p => teamStat.byPlat[p]).map(p => (
-              <span key={p} className="text-muted-foreground">{p} <b style={{ color: 'var(--ink)' }}>{N(teamStat.byPlat[p])}</b></span>
+              <span key={p} className="inline-flex items-center gap-1.5 text-muted-foreground"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(p) }} />{p} <b style={{ color: 'var(--ink)' }}>{N(teamStat.byPlat[p])}</b></span>
             ))}
           </div>
         )}

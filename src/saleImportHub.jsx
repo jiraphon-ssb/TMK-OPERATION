@@ -77,7 +77,7 @@ export function SalesAliasManager() {
       {handles === null ? <div className="cap" style={{ color: 'var(--ink-4)' }}>กำลังโหลด…</div>
         : handles.length === 0 ? <div className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่มีชื่อเซลล์ในออเดอร์</div>
           : <>
-            {handles.length > 12 && <div className="mb-2 max-w-xs"><SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาบัญชี…" className="h-8" /></div>}
+            {handles.length > 12 && <div className="mb-2 max-w-xs"><SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" className="h-8" /></div>}
             <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}><Table>
               <TableHeader><TableRow><TableHead>บัญชีในระบบ</TableHead><TableHead style={{ textAlign: 'right' }}>ออเดอร์</TableHead><TableHead>ชื่อจริงที่ใช้รวม</TableHead></TableRow></TableHeader>
               <TableBody>{shown.map(([h, n]) => (

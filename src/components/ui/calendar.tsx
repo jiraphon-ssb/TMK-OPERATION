@@ -51,14 +51,14 @@ function Calendar({
         ),
         day: cn(
           buttonVariants({ variant: "ghost" }),
-          "size-9 rounded-none p-0 font-normal aria-selected:opacity-100"
+          "size-9 rounded-lg p-0 font-normal aria-selected:opacity-100"
         ),
         day_range_start:
-          "day-range-start aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:font-semibold",
+          "day-range-start aria-selected:bg-[var(--accent)] aria-selected:text-white aria-selected:font-semibold",
         day_range_end:
-          "day-range-end aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:font-semibold",
+          "day-range-end aria-selected:bg-[var(--accent)] aria-selected:text-white aria-selected:font-semibold",
         day_selected:
-          "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
+          "bg-[var(--accent)] text-white hover:bg-[var(--accent-2)] hover:text-white focus:bg-[var(--accent)] focus:text-white",
         day_today:
           "relative font-semibold after:absolute after:bottom-1 after:left-1/2 after:size-1 after:-translate-x-1/2 after:rounded-full after:bg-current",
         day_outside:

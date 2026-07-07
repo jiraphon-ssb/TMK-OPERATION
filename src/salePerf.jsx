@@ -225,14 +225,16 @@ export function SalePerfView() {
     try {
       const from = `${month}-01`, to = `${month}-31`;
       const pm = prevMonthOf(month), pFrom = `${pm}-01`, pTo = `${pm}-31`;
-      const [ordersR, skusR, funnelR, receiptsR, prevR, tg] = await Promise.all([
+      // กัน skeleton ค้าง: ถ้า fetch ค้าง (เน็ต/auth หลุด) → timeout 15 วิ → เข้า catch → เลิก skeleton โชว์ empty
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000));
+      const [ordersR, skusR, funnelR, receiptsR, prevR, tg] = await Promise.race([timeout, Promise.all([
         cachedFetchRange('tmk_mp_orders', ORDERS_SEL, from, to, 'order_date', force),
         cachedFetchRange('tmk_mp_skus', SKUS_SEL, from, to, 'order_date', force),
         supabase.from('tmk_sales_funnel').select('*').gte('date', from).lte('date', to),
         supabase.from('tmk_sale_receipts').select('order_no,salesperson,sales,qty,order_date,status,confirmed,channel').eq('order_month', month),
         cachedFetchRange('tmk_mp_orders', 'salesperson,sales,status,order_date', pFrom, pTo, 'order_date', force),
         fetchTargets(month),
-      ]);
+      ])]);
       const tmap = {}; (tg || []).forEach(t => { tmap[t.salesperson] = t; }); setTargets(tmap);
       setData({
         orders: ordersR.data || [], skus: skusR.data || [],
@@ -307,7 +309,7 @@ export function SalePerfView() {
               <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>{monthOpts.map(m => <SelectItem key={m} value={m}>{monthLabel(m)}</SelectItem>)}</SelectContent>
             </Select>
-            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาเซลล์" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />
+            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className={'h-8 gap-1.5' + (nFilters ? ' border-[var(--accent)] text-[var(--accent-2)]' : '')}>
                 <Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}

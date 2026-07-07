@@ -116,7 +116,7 @@ export function NotificationsCenter() {
           <p className="text-sm text-muted-foreground mt-0.5">กล่องข้อความของคุณ · สัญญาณภาพรวม · กิจกรรมทั้งระบบ</p>
         </div>
         <div className="flex items-center gap-2">
-          <SearchInput value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหา…" className="w-full sm:w-52" />
+          <SearchInput value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหา" className="w-full sm:w-52" />
           <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={onMarkAll} disabled={!unreadCount}><Icon name="checkCheck" className="size-4" /> อ่านทั้งหมด</Button>
           <Button variant={prefsOpen ? 'secondary' : 'outline'} size="icon" className="size-9" title="ตั้งค่าการแจ้งเตือน" aria-label="ตั้งค่าการแจ้งเตือน" onClick={() => setPrefsOpen(o => !o)}><Icon name="system" className="size-4" /></Button>
         </div>

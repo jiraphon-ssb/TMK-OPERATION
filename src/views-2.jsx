@@ -78,7 +78,7 @@ const fmtRange = (from, to) => {
   if (fy === ty) return `${fd} ${_TH_MON[fm - 1]} – ${td} ${_TH_MON[tm - 1]} ${ty}`;
   return `${_fmtTh(from)} – ${_fmtTh(to)}`;
 };
-function DateRangePicker({ from, to, onChange, presets = [], activePreset, onPickPreset }) {
+export function DateRangePicker({ from, to, onChange, presets = [], activePreset, onPickPreset }) {
   const [open, setOpen] = React.useState(false);
   const [sel, setSel] = React.useState({ from: _isoToDate(from), to: _isoToDate(to) });
   const presetLabel = (presets.find(([id]) => id === activePreset) || [])[1];
@@ -213,7 +213,7 @@ function PlannerFilters({ filterCamp, setFilterCamp, filterStatus, setFilterStat
         ) : <span className="text-xs text-muted-foreground hidden md:inline">ยังไม่ได้กรอง — แสดงทุกงาน</span>}
         {anyActive && <Button variant="ghost" size="sm" onClick={clearAll} title="ล้างตัวกรองทั้งหมด"><Icon name="x" /> ล้าง</Button>}
         <div className="flex-1" />
-        <SearchInput placeholder="ค้นหางาน..." value={search} onChange={e => setSearch(e.target.value)} wrapperClassName="w-full sm:w-[200px] shrink-0" />
+        <SearchInput placeholder="ค้นหา" value={search} onChange={e => setSearch(e.target.value)} wrapperClassName="w-full sm:w-[200px] shrink-0" />
       </div>
       {/* พาเนลตัวกรอง (กางออก) — สถานะ + แคมเปญ/หน้าที่/ความสำคัญ/แท็ก/ช่องทาง */}
       {open && (
@@ -1110,11 +1110,12 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
   const [rmProg, setRmProg] = useState(0);
 
   const load = async () => {
-    const s = await fetchAllRows('tmk_mp_skus', 'source,channel,design,color,product_code,qty,raw_sku_or_name,attrs,match_how');
-    if (s.error) { setErr(s.error.message); return; }
+    const s = await fetchAllRows('tmk_mp_skus', 'source,channel,design,color,size,product_code,qty,raw_sku_or_name,attrs,match_how');
+    if (s.error) { setErr(s.error.message); return null; }
     setSkus(s.data);
     const a = await supabase.from('tmk_mp_aliases').select('*').order('created_at', { ascending: false });
     if (a.error) { setNoTable(true); setAliases([]); } else { setNoTable(false); setAliases(a.data || []); }
+    return s.data;
   };
   useEffect(() => { load(); }, []);
 
@@ -1142,9 +1143,13 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     const { error } = await supabase.from('tmk_mp_aliases').upsert(row, { onConflict: 'id' });
     setBusy(false);
     if (error) { window.__toast && window.__toast(noTable ? 'ต้องรัน migration tmk_mp_aliases ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    window.__toast && window.__toast('ตั้ง alias แล้ว — จะมีผลรอบนำเข้าถัดไป', 'success');
     logAudit({ action: 'create', entityType: 'data', entityName: 'alias', summary: `ตั้ง alias ${form.kind} "${term}"${row.code ? ' → ' + row.code : ''}` });
-    setForm(null); load();
+    setForm(null); const fresh = await load();
+    // auto-scan ให้เห็นผลกับออเดอร์เก่าทันที (ไม่ต้องกด "ตรวจการจับคู่ใหม่" เอง · ไม่ต้องรอรอบนำเข้าถัดไป)
+    const M = buildMatchers(GOLDEN_CATALOG_GRID, [row, ...aliases.filter(a => a.id !== row.id)]);
+    const plan = planRematch(fresh || [], M);
+    if (plan.changes.length) { setRematch(plan); window.__toast && window.__toast(`ตั้ง alias แล้ว — พบ ${plan.changes.length} กลุ่มที่อัปเดตได้ กด "ใช้การจับคู่ใหม่" เพื่อแก้ออเดอร์เก่า`, 'success'); }
+    else window.__toast && window.__toast('ตั้ง alias แล้ว (ยังไม่พบแถวเก่าที่ตรง)', 'success');
   };
   const delAlias = async (a) => {
     const { error } = await supabase.from('tmk_mp_aliases').delete().eq('id', a.id);
@@ -1176,10 +1181,16 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
       const patch = { design: c.design, product_code: c.product_code, match_how: c.match_how };
       if (c.color) patch.color = c.color;   // เติมสี/ไซซ์ให้แถวเก่าที่ว่าง (ใบเสร็จ) — ไม่ทับของที่มีอยู่
       if (c.size) patch.size = c.size;
-      let q = supabase.from('tmk_mp_skus').update(patch)
-        .eq('source', c.source).eq('raw_sku_or_name', c.raw);
-      q = c.oldCode ? q.eq('product_code', c.oldCode) : q.or('product_code.is.null,product_code.eq.');
-      const { error } = await q;
+      const runUpdate = (p) => {
+        let q = supabase.from('tmk_mp_skus').update(p).eq('source', c.source).eq('raw_sku_or_name', c.raw);
+        return (c.oldCode ? q.eq('product_code', c.oldCode) : q.or('product_code.is.null,product_code.eq.'));
+      };
+      let { error } = await runUpdate(patch);
+      // graceful: ถ้าคอลัมน์ color/size มีปัญหา → เขียนลาย/รหัสอย่างเดียวให้ persist แน่ (ไม่ให้ทั้งก้อนพัง)
+      if (error && /color|size|column/i.test(error.message || '') && (patch.color !== undefined || patch.size !== undefined)) {
+        const base = { design: c.design, product_code: c.product_code, match_how: c.match_how };
+        ({ error } = await runUpdate(base));
+      }
       if (error) fail++; else ok++;
       setRmProg(Math.round((i + 1) / ch.length * 100));
     }
@@ -1188,7 +1199,11 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     logAudit({ action: 'update', entityType: 'data', entityName: 're-match', summary: `จับคู่ลายใหม่ ${total} แถว (เติม ${rematch.filled} · แก้ ${rematch.fixed})` });
     clearSaleCache();
     window.__toast && window.__toast(fail ? `อัปเดต ${ok} กลุ่มสำเร็จ · ${fail} กลุ่มล้มเหลว` : `อัปเดตการจับคู่สำเร็จ ${ok} กลุ่ม (${total} แถว)`, fail ? 'warn' : 'success');
-    setRematch(null); load();
+    // converge: โหลดสด แล้วสแกนซ้ำจากข้อมูลใหม่ — เหลือเฉพาะที่ยังไม่ตรงจริง (ไม่ "ขึ้นซ้ำ" ทั้งชุดเดิม)
+    const fresh = await load();
+    const M2 = buildMatchers(GOLDEN_CATALOG_GRID, aliases);
+    const plan2 = planRematch(fresh || [], M2);
+    setRematch(plan2.changes.length ? plan2 : null);
   };
 
   // รวม 3 ชนิดปัญหาเป็นตารางเดียว "ต้องตรวจ" — เรียงตามจำนวนแถวมาก→น้อย
@@ -1256,7 +1271,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
             <span style={{ color: issues.length ? 'var(--warn)' : 'var(--good)' }}><Icon name="shield" /></span> ต้องตรวจ
             <Badge variant={issues.length ? 'warning' : 'success'}>{issues.length ? `${N(issues.length)} รายการ` : 'ปกติ'}</Badge>
           </span>
-          {issues.length > 10 && <SearchInput value={issueQ} onChange={e => setIssueQ(e.target.value)} placeholder="ค้นหา…" className="h-8" wrapperClassName="w-52" />}
+          {issues.length > 10 && <SearchInput value={issueQ} onChange={e => setIssueQ(e.target.value)} placeholder="ค้นหา" className="h-8" wrapperClassName="w-52" />}
         </div>
         {issues.length === 0
           ? <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--good)', fontSize: 13 }}><Icon name="check" /> ข้อมูลสะอาด — ทุกแถวจับคู่ลายได้ ไม่มีลาย/สีแปลกใหม่</div>
@@ -1289,7 +1304,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
             <Badge variant="secondary">{N(aliases.length)} รายการ</Badge>
           </span>
           <div className="row" style={{ gap: 8 }}>
-            {aliases.length > 10 && <SearchInput value={aliasQ} onChange={e => setAliasQ(e.target.value)} placeholder="ค้นหา…" className="h-8" wrapperClassName="w-52" />}
+            {aliases.length > 10 && <SearchInput value={aliasQ} onChange={e => setAliasQ(e.target.value)} placeholder="ค้นหา" className="h-8" wrapperClassName="w-52" />}
             <Button variant="outline" size="sm" onClick={() => openAlias('design', '')}><Icon name="plus" /> เพิ่ม alias</Button>
           </div>
         </div>
@@ -1443,7 +1458,7 @@ function OrderDatePicker({ from, to, min, max, onChange, presets = [], activePre
 }
 
 // ---------- multiselect dropdown (checkbox) — แบบเดียวกับหน้ารายงานขาย ----------
-function MultiSelect({ label, options, value, onChange }) {
+export function MultiSelect({ label, options, value, onChange }) {
   const toggle = (v) => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
   const n = value.length;
   return (
@@ -1658,35 +1673,30 @@ function MpOrdersView() {
   return (
     <div className="content-inner rise">
       <Card className="p-[22px]">
-        {/* หัว: ชื่อ (ไม่มีไอคอน) · ค้นหาอยู่มุมขวาบน */}
-        <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-0 pb-3.5">
-          <h3 className="m-0 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์จากไฟล์นำเข้า</h3>
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา ออเดอร์ / ลูกค้า / เบอร์ / จังหวัด / ลาย" wrapperClassName="flex-1 sm:w-[340px]" />
-            <Button size="sm" className="shrink-0 gap-1.5" disabled={window.__canEdit === false} onClick={() => setAddOpen(true)}><Icon name="plus" /> เพิ่มออเดอร์</Button>
-          </div>
-        </CardHeader>
-
-        {/* แถบเครื่องมือ: ช่วงวัน · ตัวกรอง · ชิป | (ขวา) ล้าง · คอลัมน์ */}
+        {/* หัว + เครื่องมือ แถวเดียว: ชื่อ · ช่วงวัน · ตัวกรอง · ล้าง | (ขวา) ค้นหา · คอลัมน์ · เพิ่มออเดอร์ */}
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="m-0 mr-1 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์</h3>
             <OrderDatePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max}
               onChange={(a, b) => setRange({ from: a, to: b })} presets={PRESETS} activePreset={activePreset} onPickPreset={pickPreset} />
-            <span className="h-5 w-px bg-[var(--line)]" />
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className="gap-2 rounded-full">
                 <Icon name="filter" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
                 <Icon name={filtersOpen ? 'up' : 'down'} />
               </Button>
             </CollapsibleTrigger>
-            {activeChips.length > 0
-              ? activeChips.map(({ dim, v, clear }) => <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>)
-              : <span className="cap" style={{ color: 'var(--ink-4)' }}>ยังไม่ได้กรอง — แสดงทุกออเดอร์</span>}
+            {nFilters > 0 && <Button variant="ghost" size="sm" className="text-[var(--bad)]" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>}
             <div className="ml-auto flex items-center gap-2">
-              {nFilters > 0 && <Button variant="ghost" size="sm" className="text-[var(--bad)]" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>}
+              <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[220px]" />
               <ColumnToggle columns={ORDERS_COLS} visible={colVisible} onToggle={toggleCol} />
+              <Button size="sm" className="shrink-0 gap-1.5" disabled={window.__canEdit === false} onClick={() => setAddOpen(true)}><Icon name="plus" /> เพิ่มออเดอร์</Button>
             </div>
           </div>
+          {activeChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              {activeChips.map(({ dim, v, clear }) => <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>)}
+            </div>
+          )}
           <CollapsibleContent>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 12, marginTop: 10, borderTop: '1px solid var(--line)' }}>
               <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 600, width: 64, flexShrink: 0 }}>ตัวกรอง</span>
@@ -1755,10 +1765,10 @@ function MpOrdersView() {
   );
 }
 
-function DrawerField({ label, children }) {
+export function DrawerField({ label, children }) {
   return <div><span className="cap">{label}</span><b>{children}</b></div>;
 }
-function DrawerGroup({ icon, title, children }) {
+export function DrawerGroup({ icon, title, children }) {
   return (
     <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface-2, transparent)' }}>
       <div className="mb-3 flex items-center gap-2">
@@ -1771,6 +1781,8 @@ function DrawerGroup({ icon, title, children }) {
 }
 const JOB_TYPES_DRAWER = ['ปลีก', 'OEM', 'DFT'];
 const DRAWER_CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
+// รหัสลูกค้า = คีย์ CRM ภายใน (P<เบอร์>/N<ชื่อ>) — โชว์อ่านง่าย: ตัด prefix + ซ่อนถ้าซ้ำชื่อ (ไม่โชว์คีย์ดิบ)
+const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
 const DRAWER_PAYMENTS = ['โอน', 'COD', 'มาร์เก็ตเพลส', 'ไม่ระบุ'];
 function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }) {
   const designs = buildDesigns(sk);
@@ -1929,9 +1941,11 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
     setLineEdit(null); onSaved && onSaved();
   };
   const stMap = { completed: 'สำเร็จ', delivered: 'ส่งแล้ว', cancelled: 'ยกเลิก', pending: 'รอดำเนินการ', processing: 'กำลังทำ', shipped: 'จัดส่งแล้ว' };
-  const money = [{ label: 'ยอดขาย', val: B(o.sales) }];
+  // COD เต็มจำนวน (ยอด COD = ยอดขาย) → โชว์ป้าย "เก็บปลายทาง" แทนเลขซ้ำ · COD บางส่วน → โชว์เลขจริง
+  const isFullCod = o.cod_amount > 0 && Number(o.cod_amount) === Number(o.sales);
+  const money = [{ label: 'ยอดขาย', val: B(o.sales), badge: isFullCod ? 'เก็บปลายทาง (COD)' : '' }];
   if (o.mkt_commission > 0) money.push({ label: 'ค่าธรรมเนียม', val: '−' + B(o.mkt_commission) });
-  if (o.cod_amount > 0) money.push({ label: 'ยอด COD', val: B(o.cod_amount) });
+  if (o.cod_amount > 0 && !isFullCod) money.push({ label: 'ยอด COD', val: B(o.cod_amount) });
   // ปุ่มจัดการอยู่ที่ footer (กันทับ badge บนหัว) — ตอนแก้ไขเหลือแค่ "ปิด" (ฟอร์มมี Save/Cancel เอง)
   const footerActions = edit ? <Button variant="outline" onClick={onClose}>ปิด</Button> : (
     <div className="flex w-full items-center gap-2 flex-wrap">
@@ -1946,12 +1960,13 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
   return <SideSheet size="lg" icon="listChecks" title={`ออเดอร์ ${o.order_no}`}
     sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span><span style={{ color: 'var(--ink-4)' }}>{o.order_date || o.order_month}</span><b style={{ color: 'var(--ink)' }}>{B(o.sales)}</b></span>}
     onClose={onClose} footer={footerActions}>
-    <div className="quality-row items-center" style={{ marginBottom: 14 }}>
-      {isCancelled && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-red-500/15 text-red-600 dark:text-red-400">ยกเลิกแล้ว</Badge>}
-      {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
-      {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
-      {hasOv && <Badge variant="outline" className="rounded-full text-[10px] font-medium" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}><Icon name="pencil" /> แก้มือ</Badge>}
-    </div>
+    {(isCancelled || sk.length === 0 || designs.some(d => d.design === '(จับคู่ไม่ได้)')) && (
+      <div className="quality-row items-center" style={{ marginBottom: 14 }}>
+        {isCancelled && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-red-500/15 text-red-600 dark:text-red-400">ยกเลิกแล้ว</Badge>}
+        {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
+        {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
+      </div>
+    )}
 
     {edit && (
       <div className="mb-4 rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
@@ -2001,7 +2016,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       {money.map((c, i) => (
         <div key={c.label} className="flex-1 px-3 py-2.5 text-center" style={i > 0 ? { borderLeft: '1px solid var(--line)' } : undefined}>
           <div className="text-[15px] font-bold leading-tight tabular-nums" style={{ color: c.color || 'var(--ink)' }}>{c.val}</div>
-          <div className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-4)' }}>{c.label}</div>
+          <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px]" style={{ color: 'var(--ink-4)' }}>{c.label}{c.badge && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">{c.badge}</Badge>}</div>
         </div>
       ))}
     </div>
@@ -2028,8 +2043,8 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       </DrawerGroup>
       <DrawerGroup icon="user" title="ลูกค้า">
         <DrawerField label="ลูกค้า">{o.customer_name || '—'}</DrawerField>
-        {o.customer_code && <DrawerField label="รหัสลูกค้า">{o.customer_code}</DrawerField>}
-        {o.customer_social && <DrawerField label="โซเชียล">{o.customer_social}</DrawerField>}
+        {custCodeShow(o.customer_code, o.customer_name) && <DrawerField label="รหัสลูกค้า">{custCodeShow(o.customer_code, o.customer_name)}</DrawerField>}
+        {o.customer_social && o.customer_social !== o.customer_name && <DrawerField label="โซเชียล">{o.customer_social}</DrawerField>}
         <DrawerField label="สถานะลูกค้า">{o.customer_type || '—'}</DrawerField>
         {o.cust_total_orders > 0 && <DrawerField label="ออเดอร์สะสม">{N(o.cust_total_orders)} ครั้ง</DrawerField>}
         {o.province && <DrawerField label="จังหวัด">{o.province}</DrawerField>}
@@ -2865,10 +2880,7 @@ function AuditView() {
         <CardContent className="p-0">
           {/* ค้นหา + ช่วงวันที่ + ปุ่มลัด */}
           <div className="flex flex-col md:flex-row gap-4 p-4 border-b border-border/50 bg-background/50">
-            <div className="relative flex-1 min-w-[200px]">
-              <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input className="pl-9 bg-background" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา (สรุป / ชื่อ)" />
-            </div>
+            <SearchInput className="bg-background" wrapperClassName="flex-1 min-w-[200px]" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="ค้นหา" />
             
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2 bg-background border rounded-md p-1 h-10">

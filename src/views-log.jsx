@@ -345,7 +345,7 @@ export function LogView() {
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา (สรุป / ชื่อ)" wrapperClassName="ml-auto w-full sm:w-56" className="h-8" />
+          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหา" wrapperClassName="ml-auto w-full sm:w-56" className="h-8" />
         </div>
         {/* ช่วงวันที่ */}
         <div className="flex flex-wrap items-center gap-2">
