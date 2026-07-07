@@ -21,9 +21,13 @@ import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { SortableTable } from './components/DataTableParts.jsx';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { SearchInput } from '@/components/ui/search-input';
+import { SortableTable, ColumnToggle, CardTable } from './components/DataTableParts.jsx';
+import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { MetricCard, ComboChart, DonutChart, HBars, Heatmap, Sparkline, channelColor } from './charts.jsx';
+import { ComboChart, DonutChart, HBars, Sparkline, Gauge, channelColor } from './charts.jsx';
 
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
 const NO_SELLER = 'ไม่ระบุเซลล์';
@@ -37,6 +41,33 @@ const dayOf = (iso) => Number(String(iso || '').slice(8, 10)) || 0;
 const isCancelled = (o) => String(o.status || '').toLowerCase() === 'cancelled';
 const spOf = (o) => (o.salesperson && String(o.salesperson).trim()) || NO_SELLER;
 const deltaPct = (cur, prev) => (prev > 0 ? (cur - prev) / prev * 100 : null);
+const MEDAL = ['#e3b341', '#b8c0cc', '#cd8b5e'];   // ทอง/เงิน/ทองแดง
+const initialOf = (name) => { const s = String(name || '').trim(); if (!s) return '?'; const p = s.split(/\s+/); return ((p[0][0] || '') + (p[1]?.[0] || '')).toUpperCase() || s[0].toUpperCase(); };
+const closeTone = (v) => v == null ? 'var(--ink-4)' : v >= 15 ? 'var(--good)' : v >= 8 ? 'var(--warn)' : 'var(--bad)';
+const dPill = (d) => d == null ? null : (
+  <span className={`text-[11px] font-medium ${d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{d >= 0 ? '▲' : '▼'} {Math.abs(Math.round(d))}%</span>
+);
+
+/* MultiSelect เล็ก (ช่องทาง) — DropdownMenu + checkbox (ว่าง = ทั้งหมด) */
+function MultiSelect({ label, options, value, onChange }) {
+  const toggle = (v) => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
+  const n = value.length;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal gap-1' + (n ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
+          {label}{n > 0 && <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[11px]">{n}</Badge>}<Icon name="down" className="size-3.5" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-auto">
+        <DropdownMenuLabel className="flex items-center justify-between py-1"><span>{label}</span>{n > 0 && <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={e => { e.preventDefault(); onChange([]); }}>ล้าง</button>}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {options.length === 0 && <div className="px-2 py-2 text-[13px] text-[var(--ink-4)]">ไม่มีข้อมูล</div>}
+        {options.map(o => <DropdownMenuCheckboxItem key={o} checked={value.includes(o)} onSelect={e => { e.preventDefault(); toggle(o); }}>{o || '(ไม่ระบุ)'}</DropdownMenuCheckboxItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /* ---- aggregate ต่อเดือน ---- */
 function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
@@ -111,6 +142,65 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
   return { rows, team, dim };
 }
 
+const PERF_COLS = [
+  { key: 'rank', label: '#', sortable: false, always: true },
+  { key: 'name', label: 'เซลล์', sortable: true, always: true },
+  { key: 'sales', label: 'ยอดขาย', align: 'right', sortable: true, always: true },
+  { key: 'orders', label: 'ออเดอร์', align: 'right', sortable: true },
+  { key: 'qty', label: 'ตัว', align: 'right', sortable: true },
+  { key: 'aov', label: 'AOV', align: 'right', sortable: true },
+  { key: 'newC', label: 'ลูกค้าใหม่', align: 'right', sortable: true },
+  { key: 'leads', label: 'คนทัก', align: 'right', sortable: true },
+  { key: 'closeRate', label: '%ปิด', align: 'right', sortable: true, accessor: r => r.closeRate ?? -1 },
+  { key: 'pctTarget', label: 'เป้า', align: 'right', sortable: true, accessor: r => r.pctTarget ?? -1 },
+  { key: 'comm', label: 'คอม', align: 'right', sortable: true },
+  { key: 'projected', label: 'คาดสิ้นเดือน', align: 'right', sortable: true },
+  { key: '_trend', label: 'แนวโน้ม', align: 'left', sortable: false },
+];
+
+/* ---- การ์ดเซลล์รายคน (โหมด default แท็บรายเดือน) — คลิกเปิด drawer เดิม ---- */
+function SellerCard({ r, rank, share, onOpen }) {
+  const noSeller = r.name === NO_SELLER;
+  return (
+    <div onClick={onOpen}
+      className="rounded-xl border bg-card p-4 flex flex-col gap-3 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5">
+      <div className="flex items-center gap-2.5">
+        <span className="font-bold text-sm w-5 text-center shrink-0" style={{ color: rank < 3 ? MEDAL[rank] : 'var(--ink-4)' }}>{rank + 1}</span>
+        <span className="grid place-items-center rounded-full size-9 text-xs font-bold shrink-0" style={{ background: noSeller ? 'var(--surface-3)' : 'var(--accent-soft)', color: noSeller ? 'var(--ink-3)' : 'var(--accent-2)' }}>{noSeller ? <Icon name="external" className="size-4" /> : initialOf(r.name)}</span>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-sm truncate">{noSeller ? 'ไม่ระบุเซลล์' : r.name}</div>
+          {noSeller && <div className="text-[10px] text-muted-foreground">มาร์เก็ตเพลส</div>}
+        </div>
+        {dPill(r.dSales)}
+      </div>
+      <div>
+        <div className="num text-2xl font-bold leading-tight" style={{ color: 'var(--accent-2)' }}>{fmtB(r.sales)}</div>
+        <div className="mt-1.5 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{ width: Math.min(100, share) + '%', background: 'var(--accent)' }} /></div>
+        <div className="text-[11px] text-muted-foreground mt-1">{Math.round(share)}% ของยอดทีม</div>
+      </div>
+      <div className="flex items-center gap-4 text-sm flex-wrap">
+        <span className="whitespace-nowrap"><span className="text-muted-foreground text-xs">ออเดอร์</span> <b className="num">{N(r.orders)}</b></span>
+        <span className="whitespace-nowrap"><span className="text-muted-foreground text-xs">ตัว</span> <b className="num">{N(r.qty)}</b></span>
+        <span className="whitespace-nowrap"><span className="text-muted-foreground text-xs">AOV</span> <b className="num">{fmtB(r.aov)}</b></span>
+      </div>
+      {r.target > 0 ? (
+        <div>
+          <div className="flex items-center justify-between text-xs mb-1">
+            <span className="text-muted-foreground">เป้า {fmtB(r.target)}</span>
+            <b className="num" style={{ color: r.sales >= r.target ? 'var(--good)' : undefined }}>{Math.round(r.pctTarget)}%</b>
+          </div>
+          <Progress value={Math.min(100, r.pctTarget)} className="h-1.5" indicatorColor={r.sales >= r.target ? 'var(--good)' : 'var(--accent)'} />
+          {r.comm > 0 && <div className="text-xs mt-1.5">คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b></div>}
+        </div>
+      ) : (!noSeller && window.__canEdit !== false && (
+        <button type="button" className="text-xs text-muted-foreground hover:text-[var(--accent-2)] text-left w-fit"
+          onClick={(e) => { e.stopPropagation(); window.__goSection?.('settings', 'targets'); }}>ตั้งเป้า/คอม →</button>
+      ))}
+      <div className="mt-auto pt-2 border-t border-border/50"><Sparkline data={r.daily.map(d => d.sales)} w={220} h={30} /></div>
+    </div>
+  );
+}
+
 export function SalePerfView() {
   const beat = useBeat(350);
   const [month, setMonth] = useState(curMonth());
@@ -118,9 +208,17 @@ export function SalePerfView() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevOrders: [] });
   const [targets, setTargets] = useState({});
-  const [detail, setDetail] = useState(null);   // เซลล์ที่เปิด drawer
-  const [dayNo, setDayNo] = useState(() => Math.min(new Date().getDate(), 28));
+  const [detail, setDetail] = useState(null);   // เซลล์ที่เปิด drawer (รายเดือน)
   const monthOpts = useMemo(() => monthOptions(12), []);
+  // เครื่องมือ: ค้นหา/ตัวกรอง/คอลัมน์/ความหนาแน่น (จำค่า localStorage)
+  const [q, setQ] = useState('');
+  const [channelF, setChannelF] = useState([]);
+  const [onlyTargets, setOnlyTargets] = useState(false);
+  const [hideNoSeller, setHideNoSeller] = usePersistedState('tmk-perf-hidenoseller', false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // default = คอลัมน์เนื้อๆ (# เซลล์ ยอด ออเดอร์ เป้า คอม แนวโน้ม) · ที่เหลือเปิดเพิ่มได้จากปุ่ม "คอลัมน์" (key v2 ให้ default ใหม่มีผล)
+  const [hiddenCols, setHiddenCols] = usePersistedState('tmk-perf-cols-v2', ['qty', 'aov', 'newC', 'leads', 'closeRate', 'projected']);
+  const [viewMode, setViewMode] = usePersistedState('tmk-perf-view', 'cards');   // รายเดือน: การ์ดเซลล์ (default) | ตาราง
 
   const load = useCallback(async (force = false) => {
     if (!force) setLoading(true);   // realtime refetch (force) = อัปเดตในที่ ไม่ต้องล้างเป็น skeleton (กันจอกระพริบ)
@@ -144,48 +242,116 @@ export function SalePerfView() {
     finally { setLoading(false); }
   }, [month]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { const dim = daysInMonth(month); setDayNo(d => Math.min(d, dim)); }, [month]);   // กันเลือกวันเกินจำนวนวันของเดือน (สลับไปเดือนสั้น)
   useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel'], () => { invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); load(true); });
 
-  const perf = useMemo(() => buildPerf(month, data.orders, data.skus, data.funnel, data.receipts, targets, data.prevOrders), [month, data, targets]);
+  // ช่องทางทั้งหมด (ทำ option ตัวกรอง)
+  const channels = useMemo(() => [...new Set((data.orders || []).map(o => o.channel).filter(Boolean))].sort(), [data.orders]);
+  // กรองช่องทาง → orders/skus ที่กรองแล้ว (ใช้ทั้ง buildPerf + drill-down รายวันรายออเดอร์)
+  const { ordersF, skusF } = useMemo(() => {
+    const chSet = channelF.length ? new Set(channelF) : null;
+    return {
+      ordersF: chSet ? data.orders.filter(o => chSet.has(o.channel)) : data.orders,
+      skusF: chSet ? data.skus.filter(k => chSet.has(k.channel)) : data.skus,
+    };
+  }, [data.orders, data.skus, channelF]);
+  const perf = useMemo(() => buildPerf(month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevOrders),
+    [month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevOrders]);
+  const [dayDrill, setDayDrill] = useState(null);   // { name, day } — เซลล์+วันที่เปิดดูออเดอร์รายตัว (drill-down รายวัน)
+  // กรอง rows ฝั่งแสดงผล (ค้นหา/เฉพาะมีเป้า/ซ่อนไม่ระบุเซลล์) + คำนวณทีมใหม่ + จัดอันดับตามยอด
+  const ql = q.trim().toLowerCase();
+  const rowsView = useMemo(() => perf.rows.filter(r =>
+    (!ql || r.name.toLowerCase().includes(ql)) &&
+    (!onlyTargets || r.target > 0) &&
+    (!hideNoSeller || r.name !== NO_SELLER)
+  ), [perf.rows, ql, onlyTargets, hideNoSeller]);
+  const teamView = useMemo(() => {
+    const t = rowsView.reduce((a, r) => ({ sales: a.sales + r.sales, orders: a.orders + r.orders, qty: a.qty + r.qty, leads: a.leads + r.leads, newC: a.newC + r.newC }), { sales: 0, orders: 0, qty: 0, leads: 0, newC: 0 });
+    t.closeRate = t.leads > 0 ? t.orders / t.leads * 100 : null;
+    t.dSales = perf.team.dSales;
+    return t;
+  }, [rowsView, perf.team.dSales]);
+  const rankMap = useMemo(() => { const m = new Map(); [...rowsView].sort((a, b) => b.sales - a.sales).forEach((r, i) => m.set(r.name, i)); return m; }, [rowsView]);
+  const perfView = useMemo(() => ({ rows: rowsView, team: teamView, dim: perf.dim }), [rowsView, teamView, perf.dim]);
   const openSp = perf.rows.find(r => r.name === detail) || null;
+
+  // คอลัมน์: ล็อก name/sales · toggle ที่เหลือ (จำค่า)
+  const toggleCols = PERF_COLS.filter(c => !c.always);
+  const visKeys = new Set(PERF_COLS.filter(c => c.always || !hiddenCols.includes(c.key)).map(c => c.key));
+  const visibleColumns = PERF_COLS.filter(c => visKeys.has(c.key));
+  const colVisibleSet = new Set(toggleCols.filter(c => !hiddenCols.includes(c.key)).map(c => c.key));
+  const toggleCol = (k) => setHiddenCols(h => h.includes(k) ? h.filter(x => x !== k) : [...h, k]);
+  const nFilters = channelF.length + (onlyTargets ? 1 : 0) + (hideNoSeller ? 1 : 0);
+  const pad = 'py-2.5';
+  const show = (k) => visKeys.has(k);
+  const commTotal = useMemo(() => rowsView.reduce((s, r) => s + (r.comm || 0), 0), [rowsView]);
 
   if (beat) return <PageSkeleton />;
 
-  const dPill = (d) => d == null ? null : (
-    <span className={`text-[11px] font-medium ${d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{d >= 0 ? '▲' : '▼'} {Math.abs(Math.round(d))}%</span>
-  );
-
-  const exportMonth = () => downloadCsv(`ประสิทธิภาพเซลล์-${month}`, perf.rows, [
+  const exportMonth = () => downloadCsv(`ประสิทธิภาพเซลล์-${month}`, rowsView, [
     { key: 'name', label: 'เซลล์' }, { key: 'sales', label: 'ยอดขาย' }, { key: 'orders', label: 'ออเดอร์' },
     { key: 'qty', label: 'จำนวนตัว' }, { label: 'AOV', map: r => Math.round(r.aov) }, { key: 'newC', label: 'ลูกค้าใหม่' },
     { key: 'leads', label: 'คนทัก' }, { label: '%ปิด', map: r => r.closeRate == null ? '' : Math.round(r.closeRate) },
     { label: 'เป้า', map: r => r.target }, { label: '%เป้า', map: r => r.pctTarget == null ? '' : Math.round(r.pctTarget) },
     { label: 'คอมมิชชัน', map: r => Math.round(r.comm) },
   ]);
+  const clearFilters = () => { setChannelF([]); setOnlyTargets(false); setHideNoSeller(false); };
 
   return (
     <div className="content-inner rise flex flex-col gap-4">
-      {/* หัว + สรุปทีม */}
+      {/* หัว: เครื่องมือแถวเดียว + แถบสรุปทีม inline (เนื้อๆ · ตัวเลข 0 ซ่อนอัตโนมัติ) */}
       <Card className="p-4">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
+        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-semibold">ประสิทธิภาพเซลล์</span>
             <Select value={month} onValueChange={setMonth}>
               <SelectTrigger className="h-8 w-[130px] text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>{monthOpts.map(m => <SelectItem key={m} value={m}>{monthLabel(m)}</SelectItem>)}</SelectContent>
             </Select>
+            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาเซลล์" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" size="sm" className={'h-8 gap-1.5' + (nFilters ? ' border-[var(--accent)] text-[var(--accent-2)]' : '')}>
+                <Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
+              </Button>
+            </CollapsibleTrigger>
+            <div className="flex items-center h-8 rounded-md border overflow-hidden">
+              <button type="button" title="มุมมองการ์ด" onClick={() => setViewMode('cards')} className={`grid place-items-center h-full px-2.5 transition-colors ${viewMode === 'cards' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}><Icon name="grid" className="size-3.5" /></button>
+              <button type="button" title="มุมมองตาราง" onClick={() => setViewMode('table')} className={`grid place-items-center h-full px-2.5 transition-colors border-l ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}><Icon name="menu" className="size-3.5" /></button>
+            </div>
+            {viewMode === 'table' && <ColumnToggle columns={toggleCols} visible={colVisibleSet} onToggle={toggleCol} />}
+            <Button variant="outline" size="sm" className="h-8" disabled={!rowsView.length} onClick={exportMonth}><Icon name="external" className="size-3.5" /> CSV</Button>
           </div>
-          <Button variant="outline" size="sm" className="h-8" disabled={!perf.rows.length} onClick={exportMonth}><Icon name="external" className="size-3.5" /> CSV</Button>
+          {nFilters > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap mt-2">
+              {channelF.map(c => <Badge key={c} variant="outline" className="cursor-pointer" onClick={() => setChannelF(channelF.filter(x => x !== c))}>ช่องทาง: {c} <Icon name="x" className="size-3" /></Badge>)}
+              {onlyTargets && <Badge variant="outline" className="cursor-pointer" onClick={() => setOnlyTargets(false)}>เฉพาะมีเป้า <Icon name="x" className="size-3" /></Badge>}
+              {hideNoSeller && <Badge variant="outline" className="cursor-pointer" onClick={() => setHideNoSeller(false)}>ซ่อนไม่ระบุเซลล์ <Icon name="x" className="size-3" /></Badge>}
+              <Button variant="ghost" size="sm" className="h-7 text-[var(--bad)]" onClick={clearFilters}><Icon name="x" className="size-3" /> ล้าง</Button>
+            </div>
+          )}
+          <CollapsibleContent>
+            <div className="flex items-center gap-2 flex-wrap pt-3 mt-3 border-t">
+              <MultiSelect label="ช่องทาง" options={channels} value={channelF} onChange={setChannelF} />
+              <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal' + (onlyTargets ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')} onClick={() => setOnlyTargets(v => !v)}>{onlyTargets ? '✓ ' : ''}เฉพาะที่มีเป้า</Button>
+              <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal' + (hideNoSeller ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')} onClick={() => setHideNoSeller(v => !v)}>{hideNoSeller ? '✓ ' : ''}ซ่อนไม่ระบุเซลล์</Button>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+        {/* แถบสรุปทีม */}
+        <div className="mt-3.5 pt-3.5 border-t flex items-end gap-x-8 gap-y-3 flex-wrap">
+          <div>
+            <div className="text-[11px] text-muted-foreground font-medium">ยอดทีม · {monthLabel(month)}</div>
+            <div className="num text-2xl font-bold leading-tight flex items-center gap-2" style={{ color: 'var(--accent-2)' }}>{fmtB(teamView.sales)} {dPill(teamView.dSales)}</div>
+          </div>
+          {[['ออเดอร์', N(teamView.orders)], ['จำนวนตัว', N(teamView.qty)], ['คอมรวม', commTotal ? fmtB(commTotal) : '—']].map(([l, v]) => (
+            <div key={l}><div className="text-[11px] text-muted-foreground font-medium">{l}</div><div className="num text-lg font-bold leading-tight">{v}</div></div>
+          ))}
+          {teamView.leads > 0 && <>
+            <div><div className="text-[11px] text-muted-foreground font-medium">คนทัก</div><div className="num text-lg font-bold leading-tight">{N(teamView.leads)}</div></div>
+            <div><div className="text-[11px] text-muted-foreground font-medium">%ปิดทีม</div><div className="num text-lg font-bold leading-tight" style={{ color: closeTone(teamView.closeRate) }}>{teamView.closeRate == null ? '—' : Math.round(teamView.closeRate) + '%'}</div></div>
+          </>}
+          {teamView.newC > 0 && <div><div className="text-[11px] text-muted-foreground font-medium">ลูกค้าใหม่</div><div className="num text-lg font-bold leading-tight">{N(teamView.newC)}</div></div>}
         </div>
-        <div className="grid gap-2 mt-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
-          <MetricCard label="ยอดทีม" value={fmtB(perf.team.sales)} sub={perf.team.dSales != null ? `${perf.team.dSales >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(perf.team.dSales))}% vs เดือนก่อน` : ''} animate={false} />
-          <MetricCard label="ออเดอร์" value={N(perf.team.orders)} animate={false} />
-          <MetricCard label="จำนวนตัว" value={N(perf.team.qty)} animate={false} />
-          <MetricCard label="คนทักรวม" value={N(perf.team.leads)} animate={false} />
-          <MetricCard label="%ปิดทีม" value={perf.team.closeRate == null ? '—' : Math.round(perf.team.closeRate) + '%'} animate={false} />
-          <MetricCard label="ลูกค้าใหม่" value={N(perf.team.newC)} animate={false} />
-        </div>
+        {channelF.length > 0 && <div className="mt-2 text-[11px] text-muted-foreground">* กรองช่องทาง {channelF.join('/')} — %ปิดอิงคนทักทั้งหมด (คนทักไม่แยกช่องทาง)</div>}
       </Card>
 
       {loading ? <PageSkeleton /> : !perf.rows.length ? (
@@ -199,130 +365,159 @@ export function SalePerfView() {
 
           {/* ---------- รายเดือน ---------- */}
           <TabsContent value="month">
+            {!rowsView.length ? (
+              <Card className="p-8 text-center text-sm text-muted-foreground">ไม่พบเซลล์ตามตัวกรอง · <button className="text-[var(--accent)] hover:underline" onClick={() => { setQ(''); clearFilters(); }}>ล้างตัวกรอง</button></Card>
+            ) : viewMode === 'cards' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {rowsView.map(r => (
+                <SellerCard key={r.name} r={r} rank={rankMap.get(r.name) ?? 99}
+                  share={teamView.sales > 0 ? r.sales / teamView.sales * 100 : 0}
+                  onOpen={() => setDetail(r.name)} />
+              ))}
+            </div>
+            ) : (
             <Card className="p-0 overflow-hidden">
-              <SortableTable
+              <SortableTable cards
                 initial={{ key: 'sales', dir: 'desc' }}
-                columns={[
-                  { key: 'name', label: 'เซลล์', sortable: true },
-                  { key: 'sales', label: 'ยอดขาย', align: 'right', sortable: true },
-                  { key: 'orders', label: 'ออเดอร์', align: 'right', sortable: true },
-                  { key: 'qty', label: 'ตัว', align: 'right', sortable: true },
-                  { key: 'aov', label: 'AOV', align: 'right', sortable: true },
-                  { key: 'newC', label: 'ลูกค้าใหม่', align: 'right', sortable: true },
-                  { key: 'leads', label: 'คนทัก', align: 'right', sortable: true },
-                  { key: 'closeRate', label: '%ปิด', align: 'right', sortable: true, accessor: r => r.closeRate ?? -1 },
-                  { key: 'pctTarget', label: 'เป้า', align: 'right', sortable: true, accessor: r => r.pctTarget ?? -1 },
-                  { key: 'comm', label: 'คอม', align: 'right', sortable: true },
-                  { key: '_trend', label: 'แนวโน้ม', align: 'left', sortable: false },
-                ]}
-                rows={perf.rows}
-                renderRow={(r) => (
-                  <tr key={r.name} className="border-t hover:bg-muted/30 cursor-pointer" onClick={() => setDetail(r.name)}>
-                    <td className="px-3 py-2 font-medium">{r.name}{r.name === NO_SELLER && <span className="ml-1 text-[10px] text-muted-foreground">(มาร์เก็ตเพลส)</span>}</td>
-                    <td className="px-2 py-2 text-right"><div className="flex items-center justify-end gap-1.5">{fmtB(r.sales)} {dPill(r.dSales)}</div></td>
-                    <td className="px-2 py-2 text-right">{N(r.orders)}</td>
-                    <td className="px-2 py-2 text-right">{N(r.qty)}</td>
-                    <td className="px-2 py-2 text-right">{fmtB(r.aov)}</td>
-                    <td className="px-2 py-2 text-right">{N(r.newC)}</td>
-                    <td className="px-2 py-2 text-right">{N(r.leads)}</td>
-                    <td className="px-2 py-2 text-right">{r.closeRate == null ? '—' : Math.round(r.closeRate) + '%'}</td>
-                    <td className="px-2 py-2 text-right min-w-[110px]">
-                      {r.target > 0
-                        ? <div><div className="text-[11px]">{Math.round(r.pctTarget)}%</div><Progress value={Math.min(100, r.pctTarget)} className="h-1.5 mt-0.5" indicatorColor={r.sales >= r.target ? 'var(--good)' : 'var(--accent)'} /></div>
-                        : <span className="text-muted-foreground text-xs">—</span>}
-                    </td>
-                    <td className="px-2 py-2 text-right">{r.comm ? fmtB(r.comm) : '—'}</td>
-                    <td className="px-2 py-2"><Sparkline data={r.daily.map(d => d.sales)} w={90} h={26} /></td>
-                  </tr>
-                )}
+                columns={visibleColumns}
+                rows={rowsView}
+                renderRow={(r) => {
+                  const rank = rankMap.get(r.name) ?? 99;
+                  const share = teamView.sales > 0 ? r.sales / teamView.sales * 100 : 0;
+                  return (
+                    <tr key={r.name} className={`border-t hover:bg-muted/40 cursor-pointer ${rank === 0 ? 'bg-amber-500/[0.06]' : ''}`} onClick={() => setDetail(r.name)}>
+                      <td className={`px-3 ${pad} text-center`}><span className="font-bold" style={{ color: rank < 3 ? MEDAL[rank] : 'var(--ink-4)' }}>{rank + 1}</span></td>
+                      <td className={`px-2 ${pad}`}>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="grid place-items-center rounded-full size-7 text-[11px] font-bold shrink-0" style={{ background: r.name === NO_SELLER ? 'var(--surface-3)' : 'var(--accent-soft)', color: r.name === NO_SELLER ? 'var(--ink-3)' : 'var(--accent-2)' }}>{r.name === NO_SELLER ? <Icon name="external" className="size-3.5" /> : initialOf(r.name)}</span>
+                          <span className="font-medium truncate">{r.name === NO_SELLER ? 'ไม่ระบุเซลล์' : r.name}{r.name === NO_SELLER && <span className="ml-1 text-[10px] text-muted-foreground">มาร์เก็ตเพลส</span>}</span>
+                        </div>
+                      </td>
+                      <td className={`px-2 ${pad} text-right`}>
+                        <div className="flex items-center justify-end gap-1.5">{fmtB(r.sales)} {dPill(r.dSales)}</div>
+                        <div className="mt-1 ml-auto w-20 h-1 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{ width: Math.min(100, share) + '%', background: 'var(--accent)' }} /></div>
+                      </td>
+                      {show('orders') && <td className={`px-2 ${pad} text-right`}>{N(r.orders)}</td>}
+                      {show('qty') && <td className={`px-2 ${pad} text-right`}>{N(r.qty)}</td>}
+                      {show('aov') && <td className={`px-2 ${pad} text-right`}>{fmtB(r.aov)}</td>}
+                      {show('newC') && <td className={`px-2 ${pad} text-right`}>{N(r.newC)}</td>}
+                      {show('leads') && <td className={`px-2 ${pad} text-right`}>{N(r.leads)}</td>}
+                      {show('closeRate') && <td className={`px-2 ${pad} text-right`}>{r.closeRate == null ? <span className="text-muted-foreground">—</span> : <span className="inline-block rounded-full px-1.5 py-0.5 text-[11px] font-semibold" style={{ color: closeTone(r.closeRate), background: `color-mix(in srgb, ${closeTone(r.closeRate)} 12%, transparent)` }}>{Math.round(r.closeRate)}%</span>}</td>}
+                      {show('pctTarget') && <td className={`px-2 ${pad} text-right min-w-[110px]`}>{r.target > 0 ? <div><div className="text-[11px]">{Math.round(r.pctTarget)}%</div><Progress value={Math.min(100, r.pctTarget)} className="h-1.5 mt-0.5" indicatorColor={r.sales >= r.target ? 'var(--good)' : 'var(--accent)'} /></div> : <span className="text-muted-foreground text-xs">—</span>}</td>}
+                      {show('comm') && <td className={`px-2 ${pad} text-right`}>{r.comm ? fmtB(r.comm) : '—'}</td>}
+                      {show('projected') && <td className={`px-2 ${pad} text-right text-muted-foreground`}>{fmtB(r.projected)}</td>}
+                      {show('_trend') && <td className={`px-2 ${pad}`}><Sparkline data={r.daily.map(d => d.sales)} w={90} h={26} /></td>}
+                    </tr>
+                  );
+                }}
               />
               {/* แถวทีมรวม */}
-              <div className="flex items-center gap-4 px-3 py-2 border-t bg-muted/30 text-sm flex-wrap">
-                <b>ทีมรวม</b>
-                <span>ยอด <b>{fmtB(perf.team.sales)}</b></span>
-                <span>ออเดอร์ <b>{N(perf.team.orders)}</b></span>
-                <span>ตัว <b>{N(perf.team.qty)}</b></span>
-                <span>คนทัก <b>{N(perf.team.leads)}</b></span>
-                <span>%ปิด <b>{perf.team.closeRate == null ? '—' : Math.round(perf.team.closeRate) + '%'}</b></span>
+              <div className="flex items-center gap-4 px-3 py-2.5 border-t bg-muted/40 text-sm flex-wrap">
+                <b>ทีมรวม ({rowsView.length} คน)</b>
+                <span>ยอด <b>{fmtB(teamView.sales)}</b></span>
+                <span>ออเดอร์ <b>{N(teamView.orders)}</b></span>
+                <span>ตัว <b>{N(teamView.qty)}</b></span>
+                <span>คอมรวม <b>{commTotal ? fmtB(commTotal) : '—'}</b></span>
+                {teamView.leads > 0 && <span>คนทัก <b>{N(teamView.leads)}</b> · %ปิด <b>{teamView.closeRate == null ? '—' : Math.round(teamView.closeRate) + '%'}</b></span>}
               </div>
             </Card>
+            )}
           </TabsContent>
 
           {/* ---------- รายวัน ---------- */}
           <TabsContent value="day">
-            <DailyPanel perf={perf} month={month} dayNo={dayNo} setDayNo={setDayNo} onOpenSp={setDetail} />
+            <DailyPanel perf={perfView} month={month} orders={ordersF} onOpenDay={(name, day) => setDayDrill({ name, day })} />
           </TabsContent>
         </Tabs>
       )}
 
-      {/* Drawer เซลล์รายคน */}
+      {/* Drawer เซลล์รายคน (รายเดือน) */}
       <Sheet open={!!openSp} onOpenChange={o => { if (!o) setDetail(null); }}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
           {openSp && <SpDetail sp={openSp} month={month} />}
+        </SheetContent>
+      </Sheet>
+
+      {/* Drawer ออเดอร์รายตัวของเซลล์ในวันนั้น (drill-down รายวัน — ตรวจสอบ/คิดคอม) */}
+      <Sheet open={!!dayDrill} onOpenChange={o => { if (!o) setDayDrill(null); }}>
+        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+          {dayDrill && <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />}
         </SheetContent>
       </Sheet>
     </div>
   );
 }
 
-/* ---- แท็บรายวัน: Heatmap วัน×เซลล์ + ตารางวันที่เลือก ---- */
-function DailyPanel({ perf, month, dayNo, setDayNo, onOpenSp }) {
+/* ---- แท็บรายวัน: กราฟภาพรวมเดือน + สมุดบันทึกรายวัน (เฉพาะวันที่มียอด · คลิกเซลล์เปิดออเดอร์รายตัว) ---- */
+const TH_DAY = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+function DailyPanel({ perf, month, orders, onOpenDay }) {
   const dim = perf.dim;
-  const days = Array.from({ length: dim }, (_, i) => i + 1);
-  const salesByDay = (sp, day) => sp.daily[day - 1]?.sales || 0;
-  const cellFn = (spName, day) => { const sp = perf.rows.find(r => r.name === spName); return sp ? salesByDay(sp, day) : 0; };
-  const dayRows = perf.rows.map(sp => {
-    const d = sp.daily[dayNo - 1] || { sales: 0, orders: 0, leads: 0 };
-    const recs = sp.receipts.filter(r => dayOf(r.order_date) === dayNo);
-    const qty = recs.reduce((s, r) => s + (Number(r.qty) || 0), 0);
-    return { name: sp.name, sales: d.sales, orders: d.orders, leads: d.leads, qty, recs, closeRate: d.leads > 0 ? d.orders / d.leads * 100 : null };
-  }).filter(r => r.sales > 0 || r.orders > 0 || r.leads > 0).sort((a, b) => b.sales - a.sales);
-  const dayTotal = dayRows.reduce((a, r) => ({ sales: a.sales + r.sales, orders: a.orders + r.orders, leads: a.leads + r.leads, qty: a.qty + r.qty }), { sales: 0, orders: 0, leads: 0, qty: 0 });
+  const names = new Set(perf.rows.map(r => r.name));
+  // รวมยอดต่อวัน→ต่อเซลล์ จากออเดอร์จริง (เคารพตัวกรองของหน้า — เซลล์ที่ถูกค้นหา/กรองออกไม่นับ)
+  const byDay = new Map();
+  (orders || []).forEach(o => {
+    if (isCancelled(o)) return;
+    const name = spOf(o); if (!names.has(name)) return;
+    const d = dayOf(o.order_date); if (d < 1 || d > dim) return;
+    let day = byDay.get(d); if (!day) { day = { sales: 0, orders: 0, qty: 0, sellers: new Map() }; byDay.set(d, day); }
+    const amt = Number(o.sales) || 0, q = Number(o.qty) || 0;
+    day.sales += amt; day.orders += 1; day.qty += q;
+    let s = day.sellers.get(name); if (!s) { s = { sales: 0, orders: 0, qty: 0 }; day.sellers.set(name, s); }
+    s.sales += amt; s.orders += 1; s.qty += q;
+  });
+  const leadsOfDay = (d) => perf.rows.reduce((a, r) => a + (r.daily[d - 1]?.leads || 0), 0);
+  const teamBars = Array.from({ length: dim }, (_, i) => perf.rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0));
+  const [yy, mm] = month.split('-').map(Number);
+  const wd = (d) => TH_DAY[new Date(yy, mm - 1, d).getDay()];
+  const todayD = month === curMonth() ? new Date().getDate() : 0;
+  const days = [...byDay.entries()].sort((a, b) => b[0] - a[0]);   // วันล่าสุดขึ้นก่อน (กราฟด้านบนเป็นลำดับเวลาอยู่แล้ว)
+  const best = Math.max(1, ...days.map(([, v]) => v.sales));
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="p-3 overflow-x-auto">
-        <div className="text-sm font-semibold mb-2">ยอดรายวัน (วัน × เซลล์) — คลิกคอลัมน์เพื่อดูรายละเอียดวันนั้น</div>
-        <Heatmap rows={perf.rows.map(r => r.name)} cols={days} cell={cellFn} fmt={(v) => v ? fmtB(v) : ''} />
-        <div className="flex items-center gap-2 mt-2 flex-wrap">
-          <span className="text-xs text-muted-foreground">เลือกวัน:</span>
-          <Select value={String(dayNo)} onValueChange={v => setDayNo(Number(v))}>
-            <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>{days.map(d => <SelectItem key={d} value={String(d)}>{d} {TH_MON[Number(month.slice(5, 7)) - 1]}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
+      {/* ภาพรวมทั้งเดือน */}
+      <Card className="p-4">
+        <div className="text-sm font-semibold mb-1.5">ยอดทีมรายวัน · {monthLabel(month)}</div>
+        <ComboChart labels={Array.from({ length: dim }, (_, i) => String(i + 1))} bars={teamBars} barLabel="ยอดขาย" barFmt={fmtB} height={150} />
       </Card>
 
+      {/* สมุดบันทึกรายวัน — โชว์เฉพาะวันที่มียอด */}
       <Card className="p-0 overflow-hidden">
-        <div className="px-3 py-2 border-b bg-muted/20 flex items-center gap-4 flex-wrap text-xs">
-          <b className="text-sm">วันที่ {dayNo} {monthLabel(month)}</b>
-          <span>ยอด <b>{fmtB(dayTotal.sales)}</b></span>
-          <span>ออเดอร์ <b>{N(dayTotal.orders)}</b></span>
-          <span>ตัว <b>{N(dayTotal.qty)}</b></span>
-          <span>คนทัก <b>{N(dayTotal.leads)}</b></span>
+        <div className="px-4 py-2.5 border-b bg-muted/20 text-sm">
+          <b>บันทึกรายวัน</b> <span className="text-xs text-muted-foreground">· {days.length} วันที่มียอด — คลิกเซลล์เพื่อดูออเดอร์รายตัว</span>
         </div>
-        {!dayRows.length ? <div className="p-6 text-center text-sm text-muted-foreground">ไม่มีความเคลื่อนไหววันนี้</div> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-muted-foreground bg-muted/40">
-                <tr><th className="text-left px-3 py-2">เซลล์</th><th className="text-right px-2 py-2">ยอด</th><th className="text-right px-2 py-2">ออเดอร์</th><th className="text-right px-2 py-2">ตัว</th><th className="text-right px-2 py-2">คนทัก</th><th className="text-right px-2 py-2">%ปิด</th><th className="text-left px-2 py-2">ใบเสร็จ</th></tr>
-              </thead>
-              <tbody>
-                {dayRows.map(r => (
-                  <tr key={r.name} className="border-t hover:bg-muted/30 cursor-pointer" onClick={() => onOpenSp(r.name)}>
-                    <td className="px-3 py-2 font-medium">{r.name}</td>
-                    <td className="px-2 py-2 text-right">{fmtB(r.sales)}</td>
-                    <td className="px-2 py-2 text-right">{N(r.orders)}</td>
-                    <td className="px-2 py-2 text-right">{N(r.qty)}</td>
-                    <td className="px-2 py-2 text-right">{N(r.leads)}</td>
-                    <td className="px-2 py-2 text-right">{r.closeRate == null ? '—' : Math.round(r.closeRate) + '%'}</td>
-                    <td className="px-2 py-2 text-xs text-muted-foreground truncate max-w-[220px]">{r.recs.map(x => x.order_no).join(', ') || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {!days.length ? (
+          <div className="p-8 text-center text-sm text-muted-foreground">ยังไม่มียอดเดือนนี้</div>
+        ) : days.map(([d, v]) => {
+          const leads = leadsOfDay(d);
+          return (
+            <div key={d} className="border-b last:border-b-0">
+              {/* หัววัน */}
+              <div className="flex items-center gap-x-4 gap-y-1 px-4 py-2 bg-muted/30 flex-wrap">
+                <div className="flex items-center gap-2 w-[130px] shrink-0">
+                  <b className="text-sm">{d} {TH_MON[mm - 1]}</b>
+                  <span className="text-[11px] text-muted-foreground">{wd(d)}</span>
+                  {d === todayD && <Badge variant="secondary" className="px-1.5 py-0 text-[10px] bg-[var(--accent-soft)] text-[var(--accent-2)]">วันนี้</Badge>}
+                </div>
+                <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
+                  <div className="h-full rounded-full" style={{ width: (v.sales / best * 100) + '%', background: 'var(--accent)' }} />
+                </div>
+                <span className="num text-sm font-bold">{fmtB(v.sales)}</span>
+                <span className="text-xs text-muted-foreground">{N(v.orders)} ออเดอร์ · {N(v.qty)} ตัว{leads > 0 ? ` · คนทัก ${N(leads)}` : ''}</span>
+              </div>
+              {/* เซลล์ในวันนั้น — คลิกเปิดออเดอร์รายตัว */}
+              {[...v.sellers.entries()].sort((a, b) => b[1].sales - a[1].sales).map(([name, s]) => (
+                <div key={name} onClick={() => onOpenDay(name, d)} className="flex items-center gap-3 pl-6 pr-4 py-2 hover:bg-muted/40 cursor-pointer transition-colors">
+                  <span className="grid place-items-center rounded-full size-6 text-[10px] font-bold shrink-0" style={{ background: name === NO_SELLER ? 'var(--surface-3)' : 'var(--accent-soft)', color: name === NO_SELLER ? 'var(--ink-3)' : 'var(--accent-2)' }}>{name === NO_SELLER ? '?' : initialOf(name)}</span>
+                  <span className="text-sm font-medium flex-1 truncate">{name === NO_SELLER ? 'ไม่ระบุเซลล์' : name}</span>
+                  <span className="num text-sm font-semibold">{fmtB(s.sales)}</span>
+                  <span className="text-xs text-muted-foreground w-[120px] text-right hidden sm:inline">{N(s.orders)} ออเดอร์ · {N(s.qty)} ตัว</span>
+                  <span className="inline-flex items-center gap-0.5 text-[11px] text-[var(--accent-2)] font-medium shrink-0">ดูออเดอร์ <Icon name="chevR" className="size-3.5" /></span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </Card>
     </div>
   );
@@ -348,8 +543,14 @@ function SpDetail({ sp, month }) {
           ))}
         </div>
         {sp.target > 0 && (
-          <div><div className="flex justify-between text-xs text-muted-foreground mb-1"><span>เป้า {fmtB(sp.target)}</span><span>{Math.round(sp.pctTarget)}%{sp.comm ? ` · คอม ${fmtB(sp.comm)}` : ''} · คาดสิ้นเดือน {fmtB(sp.projected)}</span></div>
-            <Progress value={Math.min(100, sp.pctTarget)} indicatorColor={sp.sales >= sp.target ? 'var(--good)' : 'var(--accent)'} /></div>
+          <div className="flex items-center gap-4 rounded-lg border p-3">
+            <div className="shrink-0" style={{ width: 120 }}><Gauge value={sp.pctTarget} max={100} label="ของเป้า" sub={Math.round(sp.pctTarget) + '%'} height={110} /></div>
+            <div className="text-sm min-w-0">
+              <div>เป้าเดือนนี้ <b>{fmtB(sp.target)}</b></div>
+              <div className="text-muted-foreground mt-0.5">ทำได้ {fmtB(sp.sales)}{sp.comm ? ` · คอม ${fmtB(sp.comm)}` : ''}</div>
+              <div className="text-muted-foreground">คาดสิ้นเดือน {fmtB(sp.projected)}</div>
+            </div>
+          </div>
         )}
         <div>
           <div className="text-sm font-semibold mb-1">ยอด &amp; คนทัก รายวัน</div>
@@ -362,16 +563,109 @@ function SpDetail({ sp, month }) {
         {sp.receipts.length > 0 && (
           <div>
             <div className="text-sm font-semibold mb-1">ใบเสร็จเดือนนี้ ({sp.receipts.length})</div>
-            <div className="rounded-lg border overflow-hidden max-h-64 overflow-y-auto">
+            <CardTable className="rounded-lg border overflow-hidden max-h-64 overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="bg-muted/50 text-muted-foreground sticky top-0"><tr><th className="text-left px-2 py-1">เลขที่</th><th className="text-left px-2 py-1">วันที่</th><th className="text-left px-2 py-1">ลูกค้า</th><th className="text-right px-2 py-1">ยอด</th></tr></thead>
                 <tbody>{sp.receipts.slice().sort((a, b) => String(b.order_date).localeCompare(String(a.order_date))).map(r => (
-                  <tr key={r.order_no} className="border-t"><td className="px-2 py-1 font-mono">{r.order_no}</td><td className="px-2 py-1">{String(r.order_date || '').slice(8, 10)}/{String(r.order_date || '').slice(5, 7)}</td><td className="px-2 py-1">{r.confirmed?.customer_name || '—'}</td><td className="px-2 py-1 text-right">{fmtB(r.sales)}</td></tr>
+                  <tr key={r.order_no} className="border-t"><td className="px-2 py-1 font-mono cell-title">{r.order_no}</td><td className="px-2 py-1">{String(r.order_date || '').slice(8, 10)}/{String(r.order_date || '').slice(5, 7)}</td><td className="px-2 py-1">{r.confirmed?.customer_name || '—'}</td><td className="px-2 py-1 text-right">{fmtB(r.sales)}</td></tr>
                 ))}</tbody>
               </table>
-            </div>
+            </CardTable>
           </div>
         )}
+      </div>
+    </>
+  );
+}
+
+/* ---- Drill-down รายวัน: ออเดอร์รายตัวของเซลล์ในวันนั้น (ตรวจสอบ/คิดคอม) ---- */
+function DaySellerDetail({ name, day, month, orders, skus, target, onOpenMonth }) {
+  // ออเดอร์ของเซลล์คนนี้ในวันนี้ (ตัดยกเลิก) เรียงยอดมาก→น้อย
+  const ords = (orders || []).filter(o => !isCancelled(o) && spOf(o) === name && dayOf(o.order_date) === day)
+    .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
+  // index sku ต่อ order_no (line items ลาย/สี/ไซซ์/ยอด)
+  const skuBy = new Map();
+  (skus || []).forEach(k => { const arr = skuBy.get(k.order_no) || []; arr.push(k); skuBy.set(k.order_no, arr); });
+  const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
+  const qty = ords.reduce((s, o) => s + (Number(o.qty) || 0), 0);
+  const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
+  const comm = target ? commissionFor(sales, target) : 0;
+  const tierMode = target && Array.isArray(target.tiers) && target.tiers.length;
+  const rate = target && !tierMode ? Number(target.commission_rate) || 0 : null;
+  const jobColor = { DFT: 'var(--info)', OEM: 'var(--accent-2)' };
+
+  return (
+    <>
+      <SheetHeader>
+        <SheetTitle className="flex items-center gap-2 flex-wrap">
+          <span className="grid place-items-center rounded-full size-8 text-xs font-bold shrink-0" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>{initialOf(name)}</span>
+          {name === NO_SELLER ? 'ไม่ระบุเซลล์' : name}
+          <Badge variant="secondary">วันที่ {day} {monthLabel(month)}</Badge>
+        </SheetTitle>
+      </SheetHeader>
+
+      <div className="flex flex-col gap-4 mt-3">
+        {/* สรุปวัน */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+          {[['ยอดวันนี้', fmtB(sales)], ['ออเดอร์', N(ords.length)], ['จำนวนตัว', N(qty)], ['ลูกค้าใหม่', N(newC)]].map(([l, v]) => (
+            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div></div>
+          ))}
+        </div>
+        {/* คอมของวัน (ประมาณ) — คิดจากยอดวันนี้ × เรต · หมายเหตุ: คอมจริงคิดจากยอดรวมทั้งเดือน */}
+        {target && (
+          <div className="rounded-lg border p-3 text-sm flex items-center gap-3 flex-wrap" style={{ background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}>
+            <div><div className="text-[11px] text-muted-foreground">คอมประมาณ (จากยอดวันนี้)</div><div className="font-bold text-[var(--accent-2)]">{fmtB(comm)}</div></div>
+            <div className="text-xs text-muted-foreground">{tierMode ? 'เรตขั้นบันได — ตามยอดสะสม' : `เรต ${rate}%`} · เป้าเดือน {fmtB(Number(target.sales_target) || 0)}</div>
+            {onOpenMonth && <Button variant="ghost" size="sm" className="ml-auto h-7 text-xs" onClick={onOpenMonth}>สรุปเดือน <Icon name="chevR" className="size-3.5" /></Button>}
+          </div>
+        )}
+
+        {/* รายการออเดอร์รายตัว + line items */}
+        <div>
+          <div className="text-sm font-semibold mb-1.5">ออเดอร์วันนี้ ({ords.length})</div>
+          {ords.length === 0 ? (
+            <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">ไม่มีออเดอร์ของเซลล์คนนี้ในวันนี้</div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {ords.map(o => {
+                const lines = skuBy.get(o.order_no) || [];
+                const isCod = /cod|ปลายทาง/i.test(String(o.payment_type || ''));
+                return (
+                  <div key={o.order_no} className="rounded-lg border overflow-hidden">
+                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 flex-wrap">
+                      <span className="font-mono text-xs font-bold">{o.order_no}</span>
+                      {o.channel && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: channelColor(o.channel) + '22', color: channelColor(o.channel) }}>{o.channel}</span>}
+                      <span className="text-sm truncate max-w-[160px]">{o.customer_name || '—'}</span>
+                      {o.customer_type === 'ลูกค้าใหม่' && <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] px-1.5 py-0">ใหม่</Badge>}
+                      {o.job_type && o.job_type !== 'ปลีก' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: (jobColor[o.job_type] || 'var(--ink-3)') + '1a', color: jobColor[o.job_type] || 'var(--ink-3)' }}>{o.job_type}</span>}
+                      <span className="ml-auto font-bold whitespace-nowrap">{fmtB(o.sales)}</span>
+                    </div>
+                    {lines.length > 0 && (
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {lines.map((k, i) => (
+                            <tr key={k.id || i} className="border-t border-border/50">
+                              <td className="px-3 py-1.5">{(k.design && String(k.design).trim()) || k.product_code || 'ไม่ระบุลาย'}</td>
+                              <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">{[k.color, k.size].filter(Boolean).join(' · ') || '—'}</td>
+                              <td className="px-2 py-1.5 text-right whitespace-nowrap">×{N(k.qty)}</td>
+                              <td className="px-3 py-1.5 text-right whitespace-nowrap">{k.line_sales != null ? fmtB(k.line_sales) : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    <div className="flex items-center gap-3 px-3 py-1.5 border-t border-border/50 text-[11px] text-muted-foreground flex-wrap">
+                      <span>จำนวน {N(o.qty)} ตัว</span>
+                      <span>ชำระ: {isCod ? `COD ${fmtB(o.cod_amount || o.sales)}` : (o.payment_type || 'โอน')}</span>
+                      {o.province && <span>· {o.province}</span>}
+                      {o.note && <span className="truncate max-w-[200px]">· {o.note}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </>
   );

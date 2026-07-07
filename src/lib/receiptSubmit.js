@@ -48,7 +48,10 @@ const monthOf = (iso) => String(iso || '').slice(0, 7);
 const normPhone = (p) => String(p || '').replace(/\D/g, '');
 // คีย์ลูกค้าจากใบเสร็จ — ใช้ทั้งบน orders.customer_code และ tmk_mp_customers.customer_code (ต้องตรงกัน 100%)
 // 'P<เบอร์>' (≥9 หลัก) else 'N<ชื่อ>' — คนละ keyspace กับ CE#### จาก import เก่า
+// ลูกค้าถูกปกปิด (Shopee/Lazada mask ชื่อ/เบอร์) → ไม่มีคีย์จริง (กัน CRM ขยะ · ออเดอร์ยังบันทึกปกติ)
+const isMaskedCustomer = (it) => !!it.customer_masked || /\*{2,}/.test(String(it.customer_name || ''));
 export const customerKeyOf = (it) => {
+  if (isMaskedCustomer(it)) return '';
   const p = normPhone(it.customer_phone);
   if (p.length >= 9) return 'P' + p;
   const n = String(it.customer_name || '').trim();
@@ -247,11 +250,18 @@ const sanitizeConfirmed = (item) => ({
    ============================================================ */
 export async function confirmReceipts(items, user, { onProgress } = {}) {
   const batch = 'receipt:' + Date.now().toString(36);
-  const [typeOf, M] = await Promise.all([customerTypeLookup(items), loadReceiptMatcher()]);
   const ok = []; const skipped = [];
+  // guard: ใบที่ไม่มีเลขที่เอกสาร → ข้าม (กัน id 'shipnity:' เสีย · ต้องแก้ในตารางตรวจก่อน)
+  const valid = [];
+  for (const it of (items || [])) {
+    if (!String(it.order_no || '').trim()) skipped.push({ order_no: it.order_no || '(ว่าง)', reason: 'ไม่มีเลขที่เอกสาร — ตรวจก่อนบันทึก' });
+    else valid.push(it);
+  }
+  if (!valid.length) return { ok, skipped };
+  const [typeOf, M] = await Promise.all([customerTypeLookup(valid), loadReceiptMatcher()]);
 
   // เตรียมแถวทั้งหมด (จับคู่ลาย/สี/ไซซ์ ให้ SKU ตอนเขียน)
-  const prepared = items.map(it => buildRows(
+  const prepared = valid.map(it => buildRows(
     { ...it, customer_type: it.customer_type || typeOf(it) }, user, batch, M,
   ));
 
@@ -418,9 +428,15 @@ export async function editReceipt(orig, edited, editor, { salespersonOverride = 
   if (moved) {
     // ลบร่องรอยเลขเก่า (ลบไม่ได้ → มาร์คแทน กันแถว phantom ค้างในรายงาน/feed)
     const delRec = await supabase.from('tmk_sale_receipts').delete().eq('order_no', oldNo);
-    if (delRec.error) await supabase.from('tmk_sale_receipts').update({ status: 'void', void_by: editor.name || editor.email || '', void_reason: 'ย้ายเลขที่ → ' + newNo, void_at: nowISO() }).eq('order_no', oldNo);
+    if (delRec.error) {
+      const fb = await supabase.from('tmk_sale_receipts').update({ status: 'void', void_by: editor.name || editor.email || '', void_reason: 'ย้ายเลขที่ → ' + newNo, void_at: nowISO() }).eq('order_no', oldNo);
+      if (fb.error) throw new Error(`ลบ/ยกเลิกใบเก่า ${oldNo} ไม่สำเร็จ — ${delRec.error.message}`);   // ทั้งลบและมาร์คไม่ได้ = กัน phantom (ให้ UI เห็น)
+    }
     const del = await supabase.from('tmk_mp_orders').delete().eq('id', receiptId(oldNo));
-    if (del.error) await supabase.from('tmk_mp_orders').update({ status: 'cancelled' }).eq('id', receiptId(oldNo));
+    if (del.error) {
+      const fb = await supabase.from('tmk_mp_orders').update({ status: 'cancelled' }).eq('id', receiptId(oldNo));
+      if (fb.error) throw new Error(`ลบ/ยกเลิกออเดอร์เก่า ${oldNo} ไม่สำเร็จ — ${del.error.message}`);
+    }
     try { await supabase.from('tmk_order_overrides').delete().eq('order_id', receiptId(oldNo)); } catch { /* optional */ }
   }
 

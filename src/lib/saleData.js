@@ -111,20 +111,43 @@ export function invalidateSaleCache(prefix) {
 }
 
 /* ---------- คนทัก (funnel) — helper กลาง ----------
-   แถวใหม่เก็บ "ทักรวมต่อแพลตฟอร์ม" ใน jsonb `leads` เช่น {Facebook: 12, LINE: 8}
-   แถวเก่าเก็บ 4 คอลัมน์ fb/line ใหม่-เก่า → แปลงให้เป็นรูปเดียวกัน (back-compat) */
-export function funnelPlatforms(r) {
+   3 รูปแบบที่รองรับ (back-compat):
+   (ก) ใหม่สุด: jsonb `leads` = {Facebook: {new:5, old:3}, LINE: {new:2, old:0}} (แยกใหม่/เก่า)
+   (ข) เดิม:    jsonb `leads` = {Facebook: 12, LINE: 8}                        (ทักรวมต่อแพลตฟอร์ม)
+   (ค) legacy:  4 คอลัมน์ leads_fb_new/old + leads_line_new/old
+   → funnelPlatforms คืน "รวมต่อแพลตฟอร์ม" (ทั้ง 3 รูป) · funnelBreakdown คืน {plat:{new,old}} · funnelNewOld คืน {new,old} รวม */
+export function funnelBreakdown(r) {
   const j = r?.leads;
+  const out = {};
   if (j && typeof j === 'object' && Object.keys(j).length) {
-    const out = {};
-    for (const [k, v] of Object.entries(j)) { const n = Number(v) || 0; if (n > 0) out[k] = (out[k] || 0) + n; }
+    for (const [k, v] of Object.entries(j)) {
+      if (v && typeof v === 'object') {            // (ก) {new,old}
+        const nw = Number(v.new) || 0, od = Number(v.old) || 0;
+        if (nw + od > 0) out[k] = { new: nw, old: od };
+      } else {                                      // (ข) number แบน — ไม่รู้ใหม่/เก่า
+        const n = Number(v) || 0;
+        if (n > 0) out[k] = { new: 0, old: 0, unknown: n };
+      }
+    }
     return out;
   }
-  const fb = (Number(r?.leads_fb_new) || 0) + (Number(r?.leads_fb_old) || 0);
-  const ln = (Number(r?.leads_line_new) || 0) + (Number(r?.leads_line_old) || 0);
-  const out = {};
-  if (fb > 0) out.Facebook = fb;
-  if (ln > 0) out.LINE = ln;
+  const fbN = Number(r?.leads_fb_new) || 0, fbO = Number(r?.leads_fb_old) || 0;   // (ค) legacy
+  const lnN = Number(r?.leads_line_new) || 0, lnO = Number(r?.leads_line_old) || 0;
+  if (fbN + fbO > 0) out.Facebook = { new: fbN, old: fbO };
+  if (lnN + lnO > 0) out.LINE = { new: lnN, old: lnO };
   return out;
+}
+const platTotal = (v) => (Number(v?.new) || 0) + (Number(v?.old) || 0) + (Number(v?.unknown) || 0);
+export function funnelPlatforms(r) {
+  const bd = funnelBreakdown(r);
+  const out = {};
+  for (const [k, v] of Object.entries(bd)) { const n = platTotal(v); if (n > 0) out[k] = n; }
+  return out;
+}
+export function funnelNewOld(r) {
+  const bd = funnelBreakdown(r);
+  let nw = 0, od = 0;
+  for (const v of Object.values(bd)) { nw += Number(v.new) || 0; od += Number(v.old) || 0; }
+  return { new: nw, old: od };
 }
 export const funnelTotal = (r) => Object.values(funnelPlatforms(r)).reduce((a, v) => a + v, 0);

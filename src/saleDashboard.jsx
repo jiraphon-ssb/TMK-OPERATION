@@ -24,7 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
-import { SortableTable } from './components/DataTableParts.jsx';
+import { SortableTable, CardTable } from './components/DataTableParts.jsx';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -669,11 +669,11 @@ export function SaleDashboard() {
         <Card className="p-[22px]">
           <CardTitle className="m-0 text-base font-semibold mb-[12px]">ช่องทาง × {gran === 'day' ? 'วัน' : gran === 'week' ? 'สัปดาห์' : gran === 'month' ? 'เดือน' : 'ไตรมาส'} (ยอดขาย)</CardTitle>
           <ChannelHeatmap orders={orders} eff={eff} gran={gran} range={range} channels={A.byChannel.map(c => c.key)} />
-          <div className="table-wrap" style={{ marginTop: 14 }}><Table>
+          <CardTable style={{ marginTop: 14 }}><Table>
             <TableHeader><TableRow><TableHead>ช่องทาง</TableHead><TableHead style={{ textAlign: 'right' }}>ยอดขาย</TableHead><TableHead style={{ textAlign: 'right' }}>ออเดอร์</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead><TableHead style={{ textAlign: 'right' }}>AOV</TableHead><TableHead style={{ textAlign: 'right' }}>%share</TableHead>{prevA && <TableHead style={{ textAlign: 'right' }}>%Δ</TableHead>}</TableRow></TableHeader>
             <TableBody>{A.byChannel.map(c => { const mv = prevA ? movers(A.byChannel, prevA.byChannel, 'sales').find(m => m.key === c.key) : null; return (
               <TableRow key={c.key} onClick={() => toggleFilter('channel', c.key)} style={{ cursor: 'pointer' }}>
-                <TableCell><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: channelColor(c.key), marginRight: 7 }} />{c.key}</TableCell>
+                <TableCell className="cell-title"><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: channelColor(c.key), marginRight: 7 }} />{c.key}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(c.sales)}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right' }}>{N(c.orders)}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right' }}>{N(c.qty)}</TableCell>
@@ -681,7 +681,7 @@ export function SaleDashboard() {
                 <TableCell className="num" style={{ textAlign: 'right' }}>{Math.round(c.share * 100)}%</TableCell>
                 {prevA && <TableCell className="num" style={{ textAlign: 'right', color: mv && mv.d >= 0 ? 'var(--good)' : 'var(--bad)' }}>{mv ? (mv.d >= 0 ? '+' : '') + Math.round(mv.d * 100) + '%' : '—'}</TableCell>}
               </TableRow>); })}</TableBody>
-          </Table></div>
+          </Table></CardTable>
         </Card>
       )}
 
@@ -746,11 +746,11 @@ export function SaleDashboard() {
                 <CardTitle className="m-0 text-base font-semibold">รายชื่อลูกค้า{custTier !== 'all' ? ` · ระดับ${custTier}` : ''}</CardTitle>
                 <div className="card-action"><Tabs value={custTier} onValueChange={setCustTier}><TabsList>{['all', 'เพชร', 'ทอง', 'เงิน', 'ทองแดง'].map(t => <TabsTrigger key={t} value={t}>{t === 'all' ? 'ทั้งหมด' : t}</TabsTrigger>)}</TabsList></Tabs></div>
               </CardHeader>
-              {shown.length ? <div className="table-wrap" style={{ maxHeight: 460, overflow: 'auto' }}><Table>
+              {shown.length ? <CardTable style={{ maxHeight: 460, overflow: 'auto' }}><Table>
                 <TableHeader><TableRow><TableHead>ลูกค้า</TableHead><TableHead>ระดับ</TableHead><TableHead style={{ textAlign: 'right' }}>ยอดซื้อ</TableHead><TableHead style={{ textAlign: 'right' }}>ครั้ง</TableHead><TableHead style={{ textAlign: 'right' }}>เฉลี่ย/ครั้ง</TableHead><TableHead style={{ textAlign: 'right' }}>ช่อง</TableHead><TableHead style={{ textAlign: 'right' }}>ซื้อล่าสุด</TableHead><TableHead>สถานะ</TableHead></TableRow></TableHeader>
                 <TableBody>{shown.map((c, i) => (
                   <TableRow key={c.code} onClick={() => setCustDetail(c)} className="cursor-pointer">
-                    <TableCell><span className="num" style={{ color: 'var(--ink-4)', marginRight: 8 }}>{i + 1}</span>{c.name}</TableCell>
+                    <TableCell className="cell-title"><span className="num" style={{ color: 'var(--ink-4)', marginRight: 8 }}>{i + 1}</span>{c.name}</TableCell>
                     <TableCell><span className={`tier-chip ${TIER_CHIP[c.tier] || ''}`}>{c.tier}</span></TableCell>
                     <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(c.sales)}</TableCell>
                     <TableCell className="num" style={{ textAlign: 'right' }}>{N(c.orders)}</TableCell>
@@ -760,7 +760,7 @@ export function SaleDashboard() {
                     <TableCell><span className="row" style={{ gap: 6, justifyContent: 'space-between' }}>{c.flag ? <Badge variant="outline" style={{ fontSize: 10, color: flagTone(c.flag) }}>{c.flag}</Badge> : <span />}<Icon name="arrowR" /></span></TableCell>
                   </TableRow>
                 ))}</TableBody>
-              </Table></div> : <div className="cap" style={{ color: 'var(--ink-4)', padding: 12 }}>ไม่มีลูกค้าในระดับนี้</div>}
+              </Table></CardTable> : <div className="cap" style={{ color: 'var(--ink-4)', padding: 12 }}>ไม่มีลูกค้าในระดับนี้</div>}
               <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>แสดง {N(shown.length)} จาก {N(custTier === 'all' ? rows.length : rows.filter(r => r.tier === custTier).length)} คน · เฉพาะออเดอร์ที่มีรหัสลูกค้า (~70%)</div>
             </Card>
           </>);
@@ -818,10 +818,10 @@ export function SaleDashboard() {
             </Card>
             <Card className="p-[22px]">
               <CardTitle className="m-0 text-base font-semibold mb-[12px]">ปิดการขายต่อเซลล์</CardTitle>
-              <div className="table-wrap"><Table>
+              <CardTable><Table>
                 <TableHeader><TableRow><TableHead>เซลล์</TableHead><TableHead style={{ textAlign: 'right' }}>คนทัก</TableHead><TableHead style={{ textAlign: 'right' }}>ปิดได้</TableHead><TableHead style={{ textAlign: 'right' }}>%ปิด</TableHead></TableRow></TableHeader>
-                <TableBody>{spRows.map(r => <TableRow key={r.sp}><TableCell>{r.sp}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.leads)}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.orders)}</TableCell><TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: r.close >= 15 ? 'var(--good)' : r.close >= 8 ? 'var(--warn)' : 'var(--bad)' }}>{r.close}%</TableCell></TableRow>)}</TableBody>
-              </Table></div>
+                <TableBody>{spRows.map(r => <TableRow key={r.sp}><TableCell className="cell-title">{r.sp}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.leads)}</TableCell><TableCell className="num" style={{ textAlign: 'right' }}>{N(r.orders)}</TableCell><TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: r.close >= 15 ? 'var(--good)' : r.close >= 8 ? 'var(--warn)' : 'var(--bad)' }}>{r.close}%</TableCell></TableRow>)}</TableBody>
+              </Table></CardTable>
             </Card>
           </div>
         </>);
@@ -1074,7 +1074,7 @@ function GeoPanel({ ords, skus, metric, setMetric, region, setRegion, selected, 
         {/* ส่วน B — ตารางรวมทุกภาค (คลิกแถวเพื่อดูรายภาค) */}
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
           <div className="cap" style={{ color: 'var(--ink-3)', fontWeight: 600, marginBottom: 8 }}>ทุกภาค <span className="dim" style={{ fontWeight: 400 }}>· แตะแถวเพื่อดูลาย/สีขายดีของภาค</span></div>
-          <SortableTable initial={{ key: 'sales', dir: 'desc' }}
+          <SortableTable cards initial={{ key: 'sales', dir: 'desc' }}
             columns={[
               { key: 'key', label: 'ภาค', accessor: r => r.key },
               { key: 'design', label: 'ลายเด่น', accessor: r => r.topDesign?.key || '' },
@@ -1203,7 +1203,7 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
         </div>
       )}
       {/* ตารางเต็ม */}
-      <div className="table-wrap"><Table>
+      <CardTable><Table>
         <TableHeader><TableRow>
           <TableHead style={{ width: 32 }}>#</TableHead>
           <TableHead>เซลล์</TableHead>
@@ -1228,8 +1228,8 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
           const commCalc = tgt ? commissionFor(s.sales, tgt) : 0;
           return (
             <TableRow key={s.key} onClick={() => onFilter('salesperson', s.key)} style={{ cursor: 'pointer' }}>
-              <TableCell className="num" style={{ fontWeight: 800, color: i < 3 ? medal[i] : 'var(--ink-4)' }}>{i + 1}</TableCell>
-              <TableCell><span className="row" style={{ gap: 6, alignItems: 'center' }}>{name}{s.auto && <Badge variant="secondary" style={{ fontSize: 10 }}>อัตโนมัติ</Badge>}</span></TableCell>
+              <TableCell className="num cell-hide-m" style={{ fontWeight: 800, color: i < 3 ? medal[i] : 'var(--ink-4)' }}>{i + 1}</TableCell>
+              <TableCell className="cell-title"><span className="row" style={{ gap: 6, alignItems: 'center' }}>{name}{s.auto && <Badge variant="secondary" style={{ fontSize: 10 }}>อัตโนมัติ</Badge>}</span></TableCell>
               <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{baht(s.sales)}</TableCell>
               <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.orders)}</TableCell>
               <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</TableCell>
@@ -1254,7 +1254,7 @@ function SalesLeaderboard({ ords, items, prevItems, cmp, onFilter, range, prevLa
             </TableRow>
           );
         })}</TableBody>
-      </Table></div>
+      </Table></CardTable>
       <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 10 }}>"คาดสิ้นช่วง" = ประมาณการจากอัตราขายที่ผ่านมา {periodPct}% ของช่วง ({N(elapsedDays)}/{N(totalDays)} วัน) · คลิกแถวเพื่อกรองทั้งหน้า</div>
     </Card>
   );
@@ -1334,7 +1334,7 @@ function CustomerDrawer({ cust, ords, skus, onClose }) {
       </Card>
     </div>}
     <CardTitle className="m-0 text-base font-semibold mb-[10px]">ประวัติการสั่งซื้อ <span className="dim">· {N(myOrds.length)} ครั้ง</span></CardTitle>
-    <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}><Table>
+    <CardTable style={{ maxHeight: 320, overflow: 'auto' }}><Table>
       <TableHeader><TableRow><TableHead>วันที่</TableHead><TableHead>เลขออเดอร์</TableHead><TableHead>ช่องทาง</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead></TableRow></TableHeader>
       <TableBody>{myOrds.map((o, i) => (
         <TableRow key={o.order_no || i}>
@@ -1345,6 +1345,6 @@ function CustomerDrawer({ cust, ords, skus, onClose }) {
           <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-3)' }}>{N(Number(o.qty) || 0)}</TableCell>
         </TableRow>
       ))}</TableBody>
-    </Table></div>
+    </Table></CardTable>
   </SideSheet>;
 }

@@ -204,7 +204,7 @@ const CHANNEL_PATTERNS = [
   [/tiktok|ติ๊?กต็?อก|ทิกทอก/i, 'TikTok'],
   [/shopee|ช้?อปปี|ช็อปปี/i, 'Shopee'],
   [/lazada|ลาซาด/i, 'Lazada'],
-  [/phone|โทร|เบอร์|มือถือ|\btel\b/i, 'Phone'],
+  [/phone|โทร(?!สาร)|เบอร์|มือถือ|\btel\b/i, 'Phone'],   // โทร(?!สาร) กัน "โทรสาร" (แฟกซ์) ชน Phone
   [/หน้าร้าน|walk[- ]?in|\bpos\b|storefront/i, 'POS'],
 ];
 function channelFromText(s) {
@@ -217,6 +217,34 @@ const cleanSocial = (s) => {
   const t = String(s || '').replace(/[^A-Za-zก-๙0-9@._/\- ]/gu, ' ').replace(/\s+/g, ' ').trim();
   return ((t.match(/[A-Za-zก-๙]/g) || []).length >= 2) ? t : '';
 };
+// มีอักขระควบคุม (<0x20) ในชิ้น = ฟอนต์ใบเสร็จ map วรรณยุกต์/สระเป็น null → มาร์คหาย (กู้ไม่ได้)
+const hasLostMark = (items) => (items || []).some(i => [...(i.s || '')].some(c => c.charCodeAt(0) < 0x20));
+// ต่อบรรทัดห่อ: ไทย↔ไทย = ไม่เว้นวรรค (คำเดียวขึ้นบรรทัดใหม่ เช่น "แก่น"+"ทองแดง") · อื่น = เว้นวรรค ("Laweewan"+"Sribuam")
+const joinWrap = (base, cont) => {
+  if (!cont) return base;
+  const noSpace = /[ก-๙]$/.test(base) && /^[ก-๙]/.test(cont);
+  return base + (noSpace ? '' : ' ') + cont;
+};
+// ต่อ "บรรทัดห่อ" ของค่า (ชื่อ/social) — สแกนแถวถัดลงมา ≤3 แถว เอาชิ้นในช่วง x [xFrom,xTo]
+// (แถว label เช่น "เลขที่เอกสาร:" อาจแทรกอยู่ระหว่างชื่อ↔บรรทัดห่อ → ข้ามแล้วสแกนต่อ)
+// หยุดเมื่อ: ถึงบล็อกที่อยู่/ภาษี (custTax) · แถว Tel · ห่างเกิน ~3 บรรทัด · ค่าที่ได้เป็น label เอง
+function wrappedCont(body, custRow, xFrom, xTo, sc) {
+  const bi = body.indexOf(custRow);
+  const lineH = 12 * sc;
+  const labelSet = LKS([...L.docNo, ...L.title, ...L.date, ...L.payment, ...L.carrier, ...L.discCode, ...L.note, ...L.checker]);
+  for (let d = 1; d <= 3; d++) {
+    const n = body[bi + d];
+    if (!n || custRow.y - n.y > lineH * 3) break;
+    if (/^tel/i.test(n.text.trim())) break;
+    if (LKS(L.custTax).some(k => n.key.includes(k))) break;            // ถึงบล็อกที่อยู่/ภาษี = จบโซนชื่อ
+    const parts = n.items.filter(i => i.x >= xFrom && i.x < xTo && num(i.s) == null && !/[:;]/.test(i.s) && !channelFromText(i.s));
+    const cont = joinItems(parts, sc).trim();
+    if (!cont) continue;                                               // แถวนี้ไม่มีอะไรในโซน → สแกนต่อ
+    if (labelSet.some(k => labelKey(cont).includes(k))) continue;      // เป็น label ที่หลุดเข้าโซน → ข้าม
+    if ((cont.match(/[A-Za-zก-๙]/g) || []).length >= 2) return cont;
+  }
+  return '';
+}
 
 /* ---------- หา "จังหวัด" จากที่อยู่ (เทียบ list จริง 77 จังหวัด · เลือกชื่อที่ยาวสุดที่เจอ) ---------- */
 function provinceFrom(address) {
@@ -362,7 +390,7 @@ function parsePage(rows, pageNo, pageW) {
   /* ---- ลูกค้า (ฝั่งซ้าย) + ช่องทางติดต่อ ----
      ช่องทางอยู่คอลัมน์กลาง (โซน ~215-275 ×SC — ก่อนถึงคอลัมน์ขวา) ตามด้วย ":" + ค่า
      กัน false-match ชื่อลูกค้าที่บังเอิญมีคำช่องทาง ด้วยการล็อกโซนตำแหน่ง */
-  let customer_name = '', customer_social = '', channel_hint = '', channel_token = '';
+  let customer_name = '', customer_social = '', channel_hint = '', channel_token = '', nameLossy = false;
   const midMin = 150 * sc, midMax = Math.min(285 * sc, rightCol - 10 * sc);
   const hasLetters = (s) => (String(s).match(/[A-Za-zก-๙]/g) || []).length >= 2;
   // หาบรรทัดช่องทาง = แถวแรก (จากบน) ที่มีโทเคนช่องทางรูปแบบ "channel:" — ไม่ผูกโซน x (รองรับ layout ต่าง)
@@ -398,24 +426,25 @@ function parsePage(rows, pageNo, pageW) {
     // ขอบขวาโซนชื่อ (ก่อน docNo) — ใช้กับ fragment ห่อบรรทัด · ไม่ล้ำเข้าคอลัมน์ขวา (docNo/วันที่ ฯลฯ)
     const nameRightX = docStartIdx > chanIdx ? custRow.items[docStartIdx].x - 10 * sc : Math.min(rightCol - 8 * sc, cx + 90 * sc);
     // ชื่อฝั่งซ้ายโทเคน (เคสปกติ "ชื่อ  facebook: social")
-    const leftText = joinItems(custRow.items.slice(0, chanIdx).filter(i => i.x < cx && num(i.s) == null && !/[:;]/.test(i.s)), sc).replace(/[:;]\s*$/, '').trim();
+    const leftItems = custRow.items.slice(0, chanIdx).filter(i => i.x < cx && num(i.s) == null && !/[:;]/.test(i.s));
+    const leftText = joinItems(leftItems, sc).replace(/[:;]\s*$/, '').trim();
     // ค่าหลังโทเคน (social · หรือชื่อ กรณี channel-first) — ตัดก่อน docNo บนแถวเดียวกัน
-    let afterText = joinItems(custRow.items.slice(chanIdx + 1, afterEnd).filter(i => !/^[:;\s]+$/.test(i.s)), sc).replace(/^[:;]\s*/, '').trim();
+    const afterItems = custRow.items.slice(chanIdx + 1, afterEnd).filter(i => !/^[:;\s]+$/.test(i.s));
+    let afterText = joinItems(afterItems, sc).replace(/^[:;]\s*/, '').trim();
     channel_hint = channelFromText(custRow.items[chanIdx].s) || channelFromText(custRow.text);
     if (hasLetters(leftText)) {
-      customer_name = leftText;
-      customer_social = cleanSocial(afterText) || cleanSocial(leftText);
+      // เคสปกติ: ชื่อ = ซ้าย · social = ขวาโทเคน — ต่อ "บรรทัดห่อ" แยกโซน (ชื่อ x<cx · social ขวาโทเคน)
+      const nameCont = wrappedCont(body, custRow, 0, cx - 5 * sc, sc);
+      const socCont = wrappedCont(body, custRow, cx - 2 * sc, nameRightX, sc);
+      customer_name = joinWrap(leftText, nameCont).trim();
+      customer_social = cleanSocial(joinWrap(afterText, socCont).trim()) || cleanSocial(customer_name);
+      if (hasLostMark(leftItems)) nameLossy = true;
     } else {
-      // channel-first: ไม่มีชื่อฝั่งซ้าย → ชื่อ = ค่าหลังโทเคน (แฮนเดิลช่องทาง)
-      customer_name = cleanSocial(afterText);
+      // channel-first: ไม่มีชื่อฝั่งซ้าย → ชื่อ = ค่าหลังโทเคน (แฮนเดิลช่องทาง) + บรรทัดห่อ
+      const cont = wrappedCont(body, custRow, cx - 5 * sc, nameRightX, sc);
+      customer_name = cleanSocial(joinWrap(afterText, cont).trim());
       customer_social = customer_name;
-      // ชื่อห่อบรรทัด: ต่อ fragment แถวถัดไปในช่วง x เดียวกับค่า (ไม่ใช่ label/ตัวเลข/ช่องทาง)
-      const bi = body.indexOf(custRow), nxt = body[bi + 1];
-      if (nxt && customer_name) {
-        const cont = joinItems(nxt.items.filter(i => i.x >= cx - 5 * sc && i.x < nameRightX && num(i.s) == null && !/[:;]/.test(i.s) && !channelFromText(i.s)), sc).trim();
-        const isLabelRow = LKS([...L.docNo, ...L.title, ...L.custTax, ...L.date, ...L.payment, ...L.carrier, ...L.discCode, ...L.note, ...L.checker]).some(k => nxt.key.includes(k));
-        if (cont && hasLetters(cont) && !isLabelRow) { customer_name += cont; customer_social = cleanSocial(customer_name); }
-      }
+      if (hasLostMark(afterItems)) nameLossy = true;
     }
   }
   if (!custRow) {
@@ -440,6 +469,7 @@ function parsePage(rows, pageNo, pageW) {
     }
   }
   if (!customer_name) warnings.push('ชื่อลูกค้า');
+  if (nameLossy) warnings.push('ชื่ออาจมีวรรณยุกต์/สระหาย (ฟอนต์ใบเสร็จ) — โปรดตรวจ');
   // ขายหน้าร้าน (การจัดส่ง/ชำระเงิน = "ขายหน้าร้าน") → เดาช่องทาง POS ให้ (ยังแก้ได้ในตารางตรวจ)
   if (!channel_hint && /หน้าร้าน/.test(`${carrier} ${payment_method}`)) channel_hint = 'POS';
 
@@ -461,6 +491,11 @@ function parsePage(rows, pageNo, pageW) {
   }
   const province = provinceFrom(customer_address);
   if (!province) warnings.push('จังหวัด');
+
+  // ลูกค้ามาร์เก็ตเพลสถูกปกปิด (Shopee/Lazada/TikTok mask ชื่อ/เบอร์) — เตือน + กัน CRM ขยะ (ดู receiptSubmit)
+  const customer_masked = /\*{2,}/.test(customer_name)
+    || (/(shopee|lazada|tiktok)/i.test(channel_hint) && customer_phone.length > 0 && customer_phone.length < 6);
+  if (customer_masked) warnings.push('ลูกค้าถูกปกปิด (มาร์เก็ตเพลส) — ชื่อ/เบอร์ไม่ครบ');
 
   /* ---- หมายเหตุ (ฝั่งซ้ายล่าง — เก็บหลายบรรทัดจนชน label ถัดไป) ---- */
   const noteIdx = body.findIndex(r => r.items[0] && r.items[0].x < 120 * sc && LKS(L.note).some(k => r.key.startsWith(k)));
@@ -501,7 +536,7 @@ function parsePage(rows, pageNo, pageW) {
 
   return {
     continuation: false, page: pageNo,
-    order_no, order_date, customer_name, customer_phone, customer_social,
+    order_no, order_date, customer_name, customer_phone, customer_social, customer_masked,
     customer_address, province, lines,
     subtotal, discount, shipping, vat, total: total ?? 0,
     payment_method, carrier, note, channel_hint, channel_token, warnings,
@@ -552,6 +587,8 @@ export async function parseReceiptPdf(file) {
   // ตรวจความสอดคล้อง sum(lines) vs ยอดบนใบ — ผ่านสูตรใดสูตรหนึ่ง = ok
   for (const r of receipts) {
     if (!r.lines.length) { r.warnings.push('รายการสินค้า'); continue; }
+    // บรรทัดที่มียอดแต่ไม่มีรหัสสินค้า → design matching อาจพลาดเงียบ (เตือนให้ตรวจ)
+    if (r.lines.some(l => (l.amount || 0) > 0 && !String(l.code || '').trim())) r.warnings.push('บางรายการไม่มีรหัสสินค้า — ตรวจการจับคู่ลาย');
     const sum = r.lines.reduce((s, l) => s + (l.amount || 0), 0);
     const near = (a, b) => Math.abs(a - b) <= 0.01;
     const ok = (r.subtotal != null && near(sum, r.subtotal))

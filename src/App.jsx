@@ -28,6 +28,7 @@ const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default
 const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
 const SaleDataHub = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SaleDataHub })));
 const SalePerfView = lazy(() => import('./salePerf.jsx').then(m => ({ default: m.SalePerfView })));
+const LogView = lazy(() => import('./views-log.jsx').then(m => ({ default: m.LogView })));
 const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
 import { RecordSalesModal, TaskModal, ProductModal, OrderModal, CampaignModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
@@ -278,6 +279,8 @@ const NAV_DEF = [
     { id: 'data', labelKey: 'subDataHub', icon: 'checkCheck' },
     { id: 'shirts', labelKey: 'subShirts', icon: 'bag' },
   ]},
+  // บันทึกกิจกรรม / Log — คุมสิทธิ์รายคนผ่าน locked_sections (LockPicker) เหมือนหน้าอื่น (default เข้าได้ · admin ล็อกรายคน)
+  { id: 'logs', labelKey: 'navLogs', icon: 'clock' },
 ];
 // Resolve labels from i18n at render time
 function useNav() {
@@ -751,6 +754,7 @@ function AppInner() {
           : section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SaleDataHub />
           : section === 'sales' ? <EntryView sub={sub} />
           : section === 'notifications' ? <NotificationsCenter />
+          : section === 'logs' ? <LogView />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
           : section === 'catalog' ? <CatalogView sub={sub} />
@@ -906,24 +910,7 @@ function AppInner() {
                   <DropdownMenuGroup>
                     <DropdownMenuItem onClick={() => go('settings', 'general')} className="cursor-pointer">
                       <Icon name="system" className="size-4 mr-2 text-muted-foreground" />
-                      ตั้งค่าทั่วไป
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => go('settings', 'roles')} className="cursor-pointer">
-                      <Icon name="users" className="size-4 mr-2 text-muted-foreground" />
-                      จัดการทีม
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => go('settings', 'campaigns')} className="cursor-pointer">
-                      <Icon name="megaphone" className="size-4 mr-2 text-muted-foreground" />
-                      จัดการแคมเปญ
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => go('settings', 'audit')} className="cursor-pointer">
-                      <Icon name="clock" className="size-4 mr-2 text-muted-foreground" />
-                      ประวัติระบบ
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => go('settings', 'updates')} className="cursor-pointer">
-                      <Icon name="sparkle" className="size-4 mr-2 text-muted-foreground" />
-                      มีอะไรใหม่
-                      {unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
+                      ตั้งค่า
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
@@ -1185,13 +1172,19 @@ function AppInner() {
                 // รายละเอียดประวัติ: สร้าง = ค่าที่กรอก / แก้ไข = ก่อน→หลัง
                 const _stTH = { todo: 'รอทำ', inprogress: 'กำลังทำ', review: 'รอตรวจ', done: 'เสร็จ' };
                 const _campName = (id) => (TMK.campaigns.find(c => c.id === id)?.name) || (id ? '-' : 'ไม่มี');
+                const _prioTH = { high: 'สูง', medium: 'กลาง', low: 'ต่ำ' };
+                const _sub = (t) => (Array.isArray(t?.subtasks) ? t.subtasks : []);
                 const _norm = (t) => ({
                   'หัวข้อ': t?.title || '',
                   'วันที่': t?.dateISO || parseTaskDate(t?.date) || t?.date || '',
+                  'วันสิ้นสุด': t?.dateEnd || t?.date_end || '—',
                   'สถานะ': _stTH[t?.status] || t?.status || '',
+                  'ความสำคัญ': _prioTH[t?.priority] || t?.priority || '—',
                   'แคมเปญ': _campName(t?.camp),
                   'ช่องทาง': (Array.isArray(t?.channel) ? t.channel : String(t?.channel || '').split(',').map(s => s.trim()).filter(Boolean)).join(', ') || 'ไม่มี',
                   'ผู้รับผิดชอบ': (Array.isArray(t?.responsible) ? t.responsible : String(t?.responsible || '').split(',').map(s => s.trim()).filter(Boolean)).join(', ') || '—',
+                  'แท็ก': (Array.isArray(t?.tags) ? t.tags : []).join(', ') || '—',
+                  'เช็คลิสต์': _sub(t).length ? `${_sub(t).filter(s => s.done).length}/${_sub(t).length}` : '—',
                 });
                 const _after = _norm(task);
                 let _fields = null, _changes = null;
@@ -1201,7 +1194,7 @@ function AppInner() {
                 } else {
                   _fields = Object.entries(_after).map(([k, v]) => ({ label: k, value: v }));
                 }
-                logAudit({ action: modal.data?.id ? 'update' : 'create', entityType: 'task', entityName: task.title,
+                logAudit({ action: modal.data?.id ? 'update' : 'create', entityType: 'task', entityName: task.title, entityId: task.id,
                   summary: `${modal.data?.id ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"`, fields: _fields, changes: _changes, flowId: task.flow_id ?? task.flow ?? '' });
                 // แจ้งเตือนผู้ที่เพิ่งถูกมอบหมาย (assignee ใหม่ที่ไม่มีในงานเดิม)
                 const _oldResp = modal.data?.id ? (Array.isArray(modal.data.responsible) ? modal.data.responsible : String(modal.data.responsible || '').split(',').map(s => s.trim()).filter(Boolean)) : [];

@@ -16,7 +16,7 @@ import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { logAudit } from './lib/audit.js';
-import { useTableSort, SortHead } from './components/DataTableParts.jsx';
+import { useTableSort, SortHead, CardTable } from './components/DataTableParts.jsx';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -111,8 +111,10 @@ function buildDirectory(profiles, orders, asOf) {
     }
     return r;
   };
-  // 1) โปรไฟล์ (tmk_mp_customers) — ข้อมูลติดต่อ/เจ้าของ/แท็ก
+  const isMasked = (v) => /\*{2,}/.test(String(v || ''));
+  // 1) โปรไฟล์ (tmk_mp_customers) — ข้อมูลติดต่อ/เจ้าของ/แท็ก (ข้ามโปรไฟล์ปกปิดที่หลุดเข้ามาก่อนหน้า)
   (profiles || []).forEach(p => {
+    if (isMasked(p.name) || isMasked(p.customer_code)) return;
     const r = ensure(p.customer_code);
     r.profile = p; r.name = p.name || p.customer_code; r.contact = p.phone || '';
     r.social = p.social_name || ''; r.address = p.address || ''; r.district = p.district || ''; r.postcode = p.postcode || '';
@@ -124,6 +126,8 @@ function buildDirectory(profiles, orders, asOf) {
   });
   // 2) ออเดอร์สด (tmk_mp_orders) — ยอด/ครั้ง/ล่าสุด ต่อคน (ตัดใบยกเลิก → ยอดไม่ค้าง)
   const orderKey = (o) => {
+    // ลูกค้าปกปิด (Shopee mask "ณ******์") → ไม่คลัสเตอร์ (เช็คชื่อ/รหัสก่อน · ครอบออเดอร์เก่าที่ code เป็นคีย์ปกปิด)
+    if (isMasked(o.customer_name) || isMasked(o.customer_code)) return '';
     const c = String(o.customer_code || '').trim();
     if (c) return c;
     const n = String(o.customer_name || '').trim();
@@ -336,7 +340,7 @@ export function CrmView() {
           </CollapsibleContent>
         </Collapsible>
 
-        <div className="table-wrap cozy"><Table>
+        <CardTable className="cozy"><Table>
           <TableHeader><TableRow>
             <SortHead field="name" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ลูกค้า</SortHead>
             <TableHead>ติดต่อ</TableHead>
@@ -353,7 +357,7 @@ export function CrmView() {
             )}
             {pageRows.map(c => (
               <TableRow key={c.key} onClick={() => setSel(c)} style={{ cursor: 'pointer' }}>
-                <TableCell>
+                <TableCell className="cell-title">
                   <div className="crm-person">
                     <span className={`crm-avatar ${!c.contact ? 'muted' : ''}`}>{initial(c.name)}</span>
                     <div style={{ minWidth: 0 }}>
@@ -376,7 +380,7 @@ export function CrmView() {
               </TableRow>
             ))}
           </TableBody>
-        </Table></div>
+        </Table></CardTable>
 
         {filtered.length > PER_PAGE && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -575,19 +579,19 @@ function CustomerDetail({ c, onClose, onSaved }) {
         <div className="cap mb-2" style={{ fontWeight: 600, color: 'var(--ink-3)', marginTop: 16 }}>ประวัติการซื้อ ({N((c.orders || []).length)})</div>
         {(c.orders || []).length === 0
           ? <div className="cap" style={{ color: 'var(--ink-4)', padding: 12 }}>ไม่มีประวัติออเดอร์ในระบบ</div>
-          : <div className="table-wrap" style={{ maxHeight: 300, overflow: 'auto' }}><Table>
+          : <CardTable className="table-wrap" style={{ maxHeight: 300, overflow: 'auto' }}><Table>
             <TableHeader><TableRow><TableHead>วันที่</TableHead><TableHead>ออเดอร์</TableHead><TableHead>ช่อง</TableHead><TableHead>ลาย</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead></TableRow></TableHeader>
             <TableBody>{(c.orders || []).map((o, i) => (
               <TableRow key={o.order_no + '#' + i}>
                 <TableCell className="cap">{o.date || '—'}</TableCell>
-                <TableCell className="num">{o.order_no}</TableCell>
+                <TableCell className="num cell-title">{o.order_no}</TableCell>
                 <TableCell className="cap">{o.channel || '—'}</TableCell>
                 <TableCell className="cap">{desByOrder[o.order_no] ? [...desByOrder[o.order_no]].join(', ') : '—'}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(o.sales)}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</TableCell>
               </TableRow>
             ))}</TableBody>
-          </Table></div>}
+          </Table></CardTable>}
       </>) : (
         /* ---------- โหมดแก้ไขโปรไฟล์ ---------- */
         <div style={{ display: 'grid', gap: 12 }}>

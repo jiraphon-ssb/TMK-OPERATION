@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
+import { CardTable } from './components/DataTableParts.jsx';
 
 const DD = TMK;
 
@@ -427,7 +428,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
         {dailyRows.length === 0
           ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '6px 0' }}>ยังไม่มีรายการ — กดกรอกด้านบน</div>
           : (
-            <div style={{ flex: 1, minHeight: 80, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)' }}>
+            <CardTable style={{ flex: 1, minHeight: 80, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 'var(--r-sm)' }}>
               <table className="tbl" style={{ width: '100%', fontSize: 'var(--fs-cap)' }}>
                 <thead><tr style={{ position: 'sticky', top: 0, background: 'var(--surface-2)' }}>
                   <th style={{ textAlign: 'left', padding: '6px 8px' }}>วันที่</th>
@@ -438,7 +439,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
                 <tbody>
                   {dailyRows.map(r => (
                     <tr key={r.day} onClick={() => canEdit && window.__openModal('record', { date: isoFor(r.day) })} style={{ cursor: canEdit ? 'pointer' : 'default', borderTop: '1px solid var(--line-2)' }} title={canEdit ? 'กดเพื่อแก้ไข' : ''}>
-                      <td style={{ padding: '6px 8px', fontWeight: 600 }}>{r.day} {monthLabel}</td>
+                      <td className="cell-title" style={{ padding: '6px 8px', fontWeight: 600 }}>{r.day} {monthLabel}</td>
                       <td className="num" style={{ textAlign: 'right', padding: '6px 8px' }}>{B(r.rev)}</td>
                       <td className="num" style={{ textAlign: 'right', padding: '6px 8px' }}>{r.ord || '—'}</td>
                       <td className="num" style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--ink-3)' }}>{r.ad > 0 ? B(r.ad) : '—'}</td>
@@ -446,7 +447,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </CardTable>
           )}
       </div>
     </div>

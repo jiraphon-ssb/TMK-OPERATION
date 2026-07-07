@@ -1,0 +1,797 @@
+{
+  "Order.pdf": {
+    "order_no": "SK8880",
+    "order_date": "2026-07-02",
+    "customer_name": "อุบลรัตน์ แก้วกองนอก",
+    "customer_social": "Ubon Kaewkongnok",
+    "province": "มหาสารคาม",
+    "channel": "Facebook",
+    "payment": "COD",
+    "total": 1036,
+    "lines": 3,
+    "l0": {
+      "code": "JSK02-BK-S",
+      "qty": 2,
+      "amount": 518
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-S",
+        "qty": 2,
+        "amount": 518
+      },
+      {
+        "code": "JSK02-BK-XL",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JSK02-N-XL",
+        "qty": 1,
+        "amount": 259
+      }
+    ],
+    "customer_phone": "0926047219"
+  },
+  "Order1.pdf": {
+    "order_no": "K8870",
+    "order_date": "2026-07-02",
+    "customer_name": "คุณศิวาพร วงษ์มา",
+    "customer_social": "Mo",
+    "province": "กรุงเทพมหานคร",
+    "channel": "Phone",
+    "payment": "โอน",
+    "total": 8541,
+    "lines": 8,
+    "l0": {
+      "code": "JJK111-N-XL",
+      "qty": 4,
+      "amount": 876
+    },
+    "lines_detail": [
+      {
+        "code": "JJK111-N-XL",
+        "qty": 4,
+        "amount": 876
+      },
+      {
+        "code": "JJK111-N-2XL",
+        "qty": 2,
+        "amount": 438
+      },
+      {
+        "code": "JJK111-N-4XL",
+        "qty": 1,
+        "amount": 219
+      },
+      {
+        "code": "JJK111-N-5XL",
+        "qty": 1,
+        "amount": 219
+      },
+      {
+        "code": "JJK111-N-XS",
+        "qty": 3,
+        "amount": 657
+      },
+      {
+        "code": "JJK111-N-S",
+        "qty": 6,
+        "amount": 1314
+      },
+      {
+        "code": "JJK111-N-M",
+        "qty": 12,
+        "amount": 2628
+      },
+      {
+        "code": "JJK111-N-L",
+        "qty": 10,
+        "amount": 2190
+      }
+    ],
+    "customer_phone": "0944185544"
+  },
+  "Order11.pdf": {
+    "order_no": "K8875",
+    "order_date": "2026-07-02",
+    "customer_name": "วิชิต ภาคสะอาด",
+    "customer_social": "Wichit Paksaard",
+    "province": "จันทบุรี",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JDB111-BK-L",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JDB111-BK-L",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0894035120"
+  },
+  "Order111.pdf": {
+    "order_no": "SK8877",
+    "order_date": "2026-07-02",
+    "customer_name": "ทองจันทร์ กันพยา",
+    "customer_social": "ทองจันทร์ กันพยา",
+    "province": "กรุงเทพมหานคร",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JDRR111-N-3XL",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-N-3XL",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0861071920"
+  },
+  "Order1111.pdf": {
+    "order_no": "K8871",
+    "order_date": "2026-07-02",
+    "customer_name": "คุณศิวาพร วงษ์มา",
+    "customer_social": "Mo",
+    "province": "กรุงเทพมหานคร",
+    "channel": "Phone",
+    "payment": "โอน",
+    "total": 1345,
+    "lines": 3,
+    "l0": {
+      "code": "JJK111-N-S",
+      "qty": 2,
+      "amount": 538
+    },
+    "lines_detail": [
+      {
+        "code": "JJK111-N-S",
+        "qty": 2,
+        "amount": 538
+      },
+      {
+        "code": "JJK111-N-L",
+        "qty": 2,
+        "amount": 538
+      },
+      {
+        "code": "JJK111-N-5XL",
+        "qty": 1,
+        "amount": 269
+      }
+    ],
+    "customer_phone": "0944185544"
+  },
+  "Order22.pdf": {
+    "order_no": "K8882",
+    "order_date": "2026-07-02",
+    "customer_name": "คุณศิวาพร วงษ์มา",
+    "customer_social": "Mo",
+    "province": "กรุงเทพมหานคร",
+    "channel": "Phone",
+    "payment": "โอน",
+    "total": 657,
+    "lines": 3,
+    "l0": {
+      "code": "JSK02-WH-XL",
+      "qty": 1,
+      "amount": 219
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-WH-XL",
+        "qty": 1,
+        "amount": 219
+      },
+      {
+        "code": "JSK111-WH-L",
+        "qty": 1,
+        "amount": 219
+      },
+      {
+        "code": "JSK111-WH-M",
+        "qty": 1,
+        "amount": 219
+      }
+    ],
+    "customer_phone": "0944185544"
+  },
+  "Order222.pdf": {
+    "order_no": "SK8877",
+    "order_date": "2026-07-02",
+    "customer_name": "ทองจันทร์ กันพยา",
+    "customer_social": "ทองจันทร์ กันพยา",
+    "province": "กรุงเทพมหานคร",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JDRR111-N-3XL",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-N-3XL",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0861071920"
+  },
+  "Order2222.pdf": {
+    "order_no": "K8878",
+    "order_date": "2026-07-02",
+    "customer_name": "คุณศิริพร วังริยา",
+    "customer_social": "Aueang Siriporn",
+    "province": "นครพนม",
+    "channel": "Facebook",
+    "payment": "COD",
+    "total": 1554,
+    "lines": 5,
+    "l0": {
+      "code": "JJK111-WH-XS",
+      "qty": 1,
+      "amount": 259
+    },
+    "lines_detail": [
+      {
+        "code": "JJK111-WH-XS",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JJK111-WH-S",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JJK111-WH-M",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JJK111-WH-L",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JJK111-WH-XL",
+        "qty": 2,
+        "amount": 518
+      }
+    ],
+    "customer_phone": "0987454221"
+  },
+  "Order3.pdf": {
+    "order_no": "K8839",
+    "order_date": "2026-07-01",
+    "customer_name": "สหกรณ์",
+    "customer_social": "",
+    "province": "",
+    "channel": "POS",
+    "payment": "โอน",
+    "total": 1250,
+    "lines": 3,
+    "l0": {
+      "code": "JDRR111-BK-S",
+      "qty": 3,
+      "amount": 750
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-BK-S",
+        "qty": 3,
+        "amount": 750
+      },
+      {
+        "code": "JDRR111-BK-M",
+        "qty": 1,
+        "amount": 250
+      },
+      {
+        "code": "JDRR111-BK-2XL",
+        "qty": 1,
+        "amount": 250
+      }
+    ]
+  },
+  "Order33.pdf": {
+    "order_no": "SK8838",
+    "order_date": "2026-07-01",
+    "customer_name": "ณภาพร ภูคำ",
+    "customer_social": "นภาพร ภูคำ",
+    "province": "ปราจีนบุรี",
+    "channel": "Facebook",
+    "payment": "COD",
+    "total": 309,
+    "lines": 1,
+    "l0": {
+      "code": "JSK02-BK-S",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-S",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0843489946"
+  },
+  "Order4.pdf": {
+    "order_no": "SK8831",
+    "order_date": "2026-07-01",
+    "customer_name": "ธัญลักษณ์ อุเพ็งจันทร์",
+    "customer_social": "Supannee Suwanamajo",
+    "province": "นครพนม",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JDRR111-BK-L",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-BK-L",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0872226959"
+  },
+  "Order44.pdf": {
+    "order_no": "SK8830",
+    "order_date": "2026-07-01",
+    "customer_name": "ณทชา แสงบ้านยาง ครูปอป",
+    "customer_social": "Nathacha Pop",
+    "province": "นครศรีธรรมราช",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 718,
+    "lines": 2,
+    "l0": {
+      "code": "JDB111-Y-2XL",
+      "qty": 1,
+      "amount": 359
+    },
+    "nameLossy": true,
+    "lines_detail": [
+      {
+        "code": "JDB111-Y-2XL",
+        "qty": 1,
+        "amount": 359
+      },
+      {
+        "code": "JDB111-Y-XS",
+        "qty": 1,
+        "amount": 359
+      }
+    ],
+    "customer_phone": "0622922594"
+  },
+  "Order55.pdf": {
+    "order_no": "SK8816",
+    "order_date": "2026-07-01",
+    "customer_name": "วิรินดา สิริสุวรรณ์",
+    "customer_social": "Wirinda Sirisuwan",
+    "province": "นครปฐม",
+    "channel": "LINE",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JSK02-BK-5XL",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-5XL",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0867680279"
+  },
+  "Order555.pdf": {
+    "order_no": "K8814",
+    "order_date": "2026-07-01",
+    "customer_name": "น.ส.วณัฐธิดา ไชยมานันต์",
+    "customer_social": "Wanuttida Chaimanun",
+    "province": "หนองคาย",
+    "channel": "Phone",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JDRR111-BK-XS",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-BK-XS",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0935162693"
+  },
+  "Order6.pdf": {
+    "order_no": "SK8823",
+    "order_date": "2026-07-01",
+    "customer_name": "พรทิพย์ ฉิมฉวี",
+    "customer_social": "Pond",
+    "province": "นครศรีธรรมราช",
+    "channel": "LINE",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JDRR111-BK-M",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-BK-M",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0818933342"
+  },
+  "Order7.pdf": {
+    "order_no": "SK8881",
+    "order_date": "2026-07-02",
+    "customer_name": "นาง ธันยพร ถาธัญ",
+    "customer_social": "นุชธันยพร246",
+    "province": "เชียงใหม่",
+    "channel": "LINE",
+    "payment": "โอน",
+    "total": 2629,
+    "lines": 5,
+    "l0": {
+      "code": "JDRR111-BK-XS",
+      "qty": 4,
+      "amount": 956
+    },
+    "lines_detail": [
+      {
+        "code": "JDRR111-BK-XS",
+        "qty": 4,
+        "amount": 956
+      },
+      {
+        "code": "JDRR111-BK-S",
+        "qty": 3,
+        "amount": 717
+      },
+      {
+        "code": "JDRR111-BK-M",
+        "qty": 2,
+        "amount": 478
+      },
+      {
+        "code": "JDRR111-BK-XL",
+        "qty": 1,
+        "amount": 239
+      },
+      {
+        "code": "JDRR111-BK-3XL",
+        "qty": 1,
+        "amount": 239
+      }
+    ],
+    "customer_phone": "0617982556"
+  },
+  "OrderNoDate.pdf": {
+    "order_no": "SK8979",
+    "customer_name": "พรสวรรค์ เสียนเขียว",
+    "customer_social": "พรสวรรค์ เสียนเขียว",
+    "province": "",
+    "channel": "Facebook",
+    "payment": "",
+    "total": 349,
+    "lines": 1,
+    "l0": {
+      "code": "JJK111-WH-S",
+      "qty": 1,
+      "amount": 349
+    },
+    "_note": "order_date เว้นไว้ — ใบไม่มีวันที่ parser เติมวันนี้ (dynamic)",
+    "lines_detail": [
+      {
+        "code": "JJK111-WH-S",
+        "qty": 1,
+        "amount": 349
+      }
+    ]
+  },
+  "Orderใบเสร็จ.pdf": {
+    "order_no": "SK8859",
+    "order_date": "2026-07-02",
+    "customer_name": "สมหมาย จันทะเวช",
+    "customer_social": "สมหมาย จันทะเวช",
+    "province": "อุบลราชธานี",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JSK02-BK-XL",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-XL",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0992034022"
+  },
+  "new-M1K9046.pdf": {
+    "order_no": "M1K9046",
+    "order_date": "2026-07-06",
+    "customer_name": "ณ******์",
+    "customer_social": "natwadisiripiboon",
+    "province": "กาญจนบุรี",
+    "channel": "Shopee",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "KN112-BK-S",
+      "qty": 1,
+      "amount": 279
+    },
+    "masked": true,
+    "lines_detail": [
+      {
+        "code": "KN112-BK-S",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "96"
+  },
+  "new-SK8926.pdf": {
+    "order_no": "SK8926",
+    "order_date": "2026-07-03",
+    "customer_name": "จารุวรรณ แลสันกลาง",
+    "customer_social": "จารุวรรณ แลสันกลาง",
+    "province": "เชียงราย",
+    "channel": "Facebook",
+    "payment": "COD",
+    "total": 309,
+    "lines": 1,
+    "l0": {
+      "code": "JSK02-BK-XL",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-XL",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0873581058"
+  },
+  "new-SK9001.pdf": {
+    "order_no": "SK9001",
+    "order_date": "2026-07-05",
+    "customer_name": "ณิชกุล พงษาเวียง",
+    "customer_social": "ณิชกุล พงษาเวียง",
+    "province": "ขอนแก่น",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JSK111-BK-M",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JSK111-BK-M",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0942912738"
+  },
+  "new-SK9018.pdf": {
+    "order_no": "SK9018",
+    "order_date": "2026-07-05",
+    "customer_name": "นางนงคราญ แก้วเฝอ",
+    "customer_social": "Nongkran Kaewfuea",
+    "province": "ตาก",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 10500,
+    "lines": 7,
+    "l0": {
+      "code": "JJK111-N-S",
+      "qty": 2,
+      "amount": 420
+    },
+    "nameLossy": true,
+    "lines_detail": [
+      {
+        "code": "JJK111-N-S",
+        "qty": 2,
+        "amount": 420
+      },
+      {
+        "code": "JJK111-N-M",
+        "qty": 17,
+        "amount": 3570
+      },
+      {
+        "code": "JJK111-N-L",
+        "qty": 12,
+        "amount": 2520
+      },
+      {
+        "code": "JJK111-N-XL",
+        "qty": 13,
+        "amount": 2730
+      },
+      {
+        "code": "JJK111-N-2XL",
+        "qty": 3,
+        "amount": 630
+      },
+      {
+        "code": "JJK111-N-3XL",
+        "qty": 2,
+        "amount": 420
+      },
+      {
+        "code": "JJK111-N-4XL",
+        "qty": 1,
+        "amount": 210
+      }
+    ],
+    "customer_phone": "0908960359"
+  },
+  "new-SK9027.pdf": {
+    "order_no": "SK9027",
+    "order_date": "2026-07-06",
+    "customer_name": "ลลิสา จันทรา",
+    "customer_social": "Lalisa Chantha",
+    "province": "กาญจนบุรี",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 1036,
+    "lines": 4,
+    "l0": {
+      "code": "JDB111-BK-M",
+      "qty": 1,
+      "amount": 259
+    },
+    "lines_detail": [
+      {
+        "code": "JDB111-BK-M",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JDB111-N-M",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JSK111-BK-L",
+        "qty": 1,
+        "amount": 259
+      },
+      {
+        "code": "JJK111-WH-M",
+        "qty": 1,
+        "amount": 259
+      }
+    ],
+    "customer_phone": "0849116553"
+  },
+  "new-SK9036.pdf": {
+    "order_no": "SK9036",
+    "order_date": "2026-07-06",
+    "customer_name": "นางลวีวรรณ์ ศรีบู้อำ",
+    "customer_social": "Laweewan Sribuam",
+    "province": "มหาสารคาม",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 2629,
+    "lines": 5,
+    "l0": {
+      "code": "JSK111-WH-XS",
+      "qty": 2,
+      "amount": 478
+    },
+    "nameLossy": true,
+    "lines_detail": [
+      {
+        "code": "JSK111-WH-XS",
+        "qty": 2,
+        "amount": 478
+      },
+      {
+        "code": "JSK111-WH-S",
+        "qty": 1,
+        "amount": 239
+      },
+      {
+        "code": "JSK111-WH-M",
+        "qty": 2,
+        "amount": 478
+      },
+      {
+        "code": "JSK111-WH-L",
+        "qty": 2,
+        "amount": 478
+      },
+      {
+        "code": "JSK111-WH-XL",
+        "qty": 4,
+        "amount": 956
+      }
+    ],
+    "customer_phone": "0956626531"
+  },
+  "new-SK9038.pdf": {
+    "order_no": "SK9038",
+    "order_date": "2026-07-06",
+    "customer_name": "พัชรินทร์ แก่นทองแดง",
+    "customer_social": "พัชรินทร์ แก่นทองแดง",
+    "province": "นครนายก",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 279,
+    "lines": 1,
+    "l0": {
+      "code": "JSK02-BK-XL",
+      "qty": 1,
+      "amount": 279
+    },
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-XL",
+        "qty": 1,
+        "amount": 279
+      }
+    ],
+    "customer_phone": "0852784825"
+  },
+  "new-multi3.pdf": {
+    "_multi": 3,
+    "order_nos": [
+      "K8839",
+      "SK8831",
+      "K8814"
+    ]
+  }
+}

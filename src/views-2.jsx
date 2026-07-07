@@ -13,15 +13,18 @@ import { ShirtCatalogView } from './saleCatalog.jsx';
 import { WhatsNewPage } from './WhatsNew.jsx';
 import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';
 import { makeSkuResolver, loadResolverMaps, skuOverrideKey } from './lib/designResolve.js';
-import { buildMatchers, planRematch, qtyBand } from './lib/mpReport.js';
+import { buildMatchers, planRematch, qtyBand, deriveColorSize } from './lib/mpReport.js';
+import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, findDesign } from './components/ProductPicker.jsx';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
 import { useData, computeMonth } from './dataContext.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable } from './components/DataTableParts.jsx';
+import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable, CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
 import { voidReceipt, restoreReceipt } from './lib/receiptSubmit.js';
+import { ManualSaleSheet } from './ManualSaleSheet.jsx';
+import { useUser } from './userContext.jsx';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
@@ -981,7 +984,7 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
               {list.length === 0 ? (
                 <div className="px-4 py-3 text-xs text-muted-foreground">ไม่มีงานในสถานะนี้</div>
               ) : (
-                <Table>
+                <CardTable><Table>
                   <TableHeader>
                     <TableRow>
                       {canEdit && <TableHead className="w-9"><ShadcnCheckbox checked={allOn} onCheckedChange={() => toggleGroup(list)} aria-label="เลือกทั้งหมด" /></TableHead>}
@@ -998,7 +1001,7 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
                       return (
                         <TableRow key={t.id} data-state={sel.has(t.id) ? 'selected' : undefined} className={readOnly ? '' : 'cursor-pointer'} onClick={readOnly ? undefined : () => window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}>
                           {canEdit && <TableCell onClick={e => e.stopPropagation()}><ShadcnCheckbox checked={sel.has(t.id)} onCheckedChange={() => toggle(t.id)} aria-label="เลือกงาน" /></TableCell>}
-                          <TableCell>
+                          <TableCell className="cell-title">
                             <div className="font-medium text-[13px] flex items-center gap-2" style={{ borderLeft: `3px solid ${col}`, paddingLeft: 8 }}>{t.title}</div>
                             {(t.tags || []).length > 0 && <div className="flex flex-wrap gap-1 mt-1 pl-2">{t.tags.slice(0, 4).map(tg => <span key={tg} className="text-[10px] px-1.5 rounded-full bg-muted text-muted-foreground">{tg}</span>)}</div>}
                           </TableCell>
@@ -1010,7 +1013,7 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
                       );
                     })}
                   </TableBody>
-                </Table>
+                </Table></CardTable>
               )}
               {!readOnly && <button onClick={() => window.__openModal('task', { ...newTaskBase, status: col.id })} className="w-full px-4 py-2 text-xs text-muted-foreground hover:bg-muted/30 flex items-center gap-1.5 border-t"><Icon name="plus" className="size-3.5" /> เพิ่มงานใน "{col.label}"</button>}
             </div>
@@ -1093,46 +1096,6 @@ const HealthStat = ({ label, value, tone }) => (
 );
 
 // Combobox เลือกชื่อลายมาตรฐาน (shadcn Popover + Command/cmdk) — เลื่อนได้แม้อยู่ใน SideSheet
-function DesignCombobox({ value, code, onPick }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" aria-expanded={open}
-          className="w-full justify-between font-normal" style={{ color: value ? 'var(--ink-1)' : 'var(--ink-4)' }}>
-          <span className="truncate">{value ? <>{value}{code ? <span className="dim"> · {code}</span> : null}</> : 'พิมพ์/เลือกชื่อลาย เช่น ราษฎร์ภักดี'}</span>
-          <Icon name="chevD" className="opacity-60 flex-none" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="p-0 w-[var(--radix-popover-trigger-width)]" style={{ minWidth: 280 }}>
-        <Command>
-          <CommandInput placeholder="ค้นหาชื่อลาย / รหัส / ประเภท…" />
-          <CommandList>
-            <CommandEmpty>ไม่พบลายที่ตรงกัน</CommandEmpty>
-            <CommandGroup>
-              {GOLDEN_DESIGNS.map(d => {
-                const sel = d.name === value;
-                return (
-                  <CommandItem key={d.code + d.name} value={`${d.name} ${d.code} ${d.type}`}
-                    onSelect={() => { onPick({ name: d.name, code: d.code }); setOpen(false); }}>
-                    <span className="row between w-full" style={{ gap: 8, minWidth: 0 }}>
-                      <span className="row" style={{ gap: 8, minWidth: 0, alignItems: 'center' }}>
-                        <span style={{ width: 16, color: 'var(--accent)', flex: 'none' }}>{sel && <Icon name="check" />}</span>
-                        <span className="truncate" style={{ fontWeight: sel ? 600 : 400 }}>{d.name}</span>
-                      </span>
-                      <span className="cap flex-none" style={{ color: 'var(--ink-4)' }}>{d.code} · {d.type}</span>
-                    </span>
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 export function HealthHub() { // แท็บ "คุณภาพข้อมูล" ใน SaleDataHub (views-sale-submit.jsx) — การ์ดนำเข้าแยกไปแท็บของตัวเองแล้ว
   const [skus, setSkus] = useState(null);
   const [aliases, setAliases] = useState([]);
@@ -1267,17 +1230,17 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
         </div>
         <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>ตั้ง alias / แก้แคตตาล็อกแล้ว กด "ตรวจการจับคู่ใหม่" เพื่ออัปเดตออเดอร์เก่าทั้งหมด — ไม่ต้องนำเข้าไฟล์ซ้ำ</div>
         {rematch && rematch.changes.length > 0 && <>
-          <div className="table-wrap" style={{ maxHeight: 240, overflow: 'auto', marginTop: 10 }}><Table>
+          <CardTable style={{ maxHeight: 240, overflow: 'auto', marginTop: 10 }}><Table>
             <TableHeader><TableRow><TableHead>ข้อความในไฟล์</TableHead><TableHead>ลายใหม่</TableHead><TableHead>รหัส</TableHead><TableHead style={{ textAlign: 'right' }}>แถว</TableHead></TableRow></TableHeader>
             <TableBody>{rematch.changes.slice(0, 60).map((c, i) => (
               <TableRow key={i}>
-                <TableCell className="num" style={{ maxWidth: 240, whiteSpace: 'normal', wordBreak: 'break-word' }}>{c.raw || '—'}</TableCell>
+                <TableCell className="cell-title num" style={{ maxWidth: 240, whiteSpace: 'normal', wordBreak: 'break-word' }}>{c.raw || '—'}</TableCell>
                 <TableCell>{c.design} {c.filled ? <Badge variant="success" className="ml-1">เติม</Badge> : <Badge variant="secondary" className="ml-1">แก้</Badge>}</TableCell>
                 <TableCell className="num">{c.product_code || '—'}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right' }}>{N(c.rows)}</TableCell>
               </TableRow>
             ))}</TableBody>
-          </Table></div>
+          </Table></CardTable>
           {rematch.changes.length > 60 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 4 }}>…และอีก {N(rematch.changes.length - 60)} กลุ่ม</div>}
           <div className="row" style={{ gap: 10, marginTop: 12, alignItems: 'center' }}>
             <Button onClick={applyRematch} disabled={rmBusy}><Icon name="check" /> {rmBusy ? `กำลังอัปเดต… ${rmProg}%` : `ใช้การจับคู่ใหม่ (${N(rematch.changes.length)} กลุ่ม)`}</Button>
@@ -1299,7 +1262,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
           ? <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--good)', fontSize: 13 }}><Icon name="check" /> ข้อมูลสะอาด — ทุกแถวจับคู่ลายได้ ไม่มีลาย/สีแปลกใหม่</div>
           : shownIssues.length === 0
             ? <div style={{ padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบรายการที่ตรงกับ "{issueQ}"</div>
-            : <div style={{ maxHeight: 440, overflow: 'auto' }}><Table>
+            : <CardTable style={{ maxHeight: 440, overflow: 'auto' }}><Table>
               <TableHeader><TableRow>
                 <TableHead>ปัญหา</TableHead><TableHead>รายการ</TableHead>
                 <TableHead style={{ textAlign: 'right' }}>แถว</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead>
@@ -1315,7 +1278,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
                   <TableCell style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{d.act && <Button variant="outline" size="sm" onClick={() => openAlias(d.kind, d.key)}><Icon name="plus" /> {d.act}</Button>}</TableCell>
                 </TableRow>
               ))}</TableBody>
-            </Table></div>}
+            </Table></CardTable>}
       </Card>
 
       {/* ตาราง Alias ที่ตั้งไว้ */}
@@ -1336,7 +1299,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
             : aliases;
           if (aliases.length === 0) return <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}><Icon name="sparkle" /> ยังไม่มี alias — กด "ผูกลาย/เพิ่มสี" จากตารางต้องตรวจ หรือเพิ่มเอง</div>;
           if (shownAliases.length === 0) return <div style={{ padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบ alias ที่ตรงกับ "{aliasQ}"</div>;
-          return <div style={{ maxHeight: 360, overflow: 'auto' }}><Table>
+          return <CardTable style={{ maxHeight: 360, overflow: 'auto' }}><Table>
             <TableHeader><TableRow><TableHead>ชนิด</TableHead><TableHead>คำในไฟล์</TableHead><TableHead>แมปเป็น</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>{shownAliases.map(a => (
               <TableRow key={a.id}>
@@ -1346,7 +1309,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
                 <TableCell style={{ textAlign: 'right' }}><Button variant="outline" size="sm" style={{ color: 'var(--bad)' }} onClick={() => delAlias(a)}><Icon name="trash" /></Button></TableCell>
               </TableRow>
             ))}</TableBody>
-          </Table></div>;
+          </Table></CardTable>;
         })()}
       </Card>
 
@@ -1517,6 +1480,7 @@ const ORDERS_COLS = [
   { key: 'customer', label: 'ลูกค้า' },
   { key: 'designs', label: 'ลายเสื้อ' },
   { key: 'job', label: 'งาน' },
+  { key: 'payment', label: 'การชำระ' },
   { key: 'status', label: 'สถานะ' },
   { key: 'note', label: 'หมายเหตุ' },
   { key: 'qty', label: 'ตัว' },
@@ -1528,6 +1492,7 @@ const ORDERS_SORT = {
   date: (o) => o.order_date || o.order_month || '',
   channel: (o) => o.channel || '',
   customer: (o) => o.customer_name || o.customer_code || '',
+  payment: (o) => o.payment_type || '',
   qty: (o) => Number(o.qty) || 0,
   sales: (o) => Number(o.sales) || 0,
 };
@@ -1544,9 +1509,12 @@ function MpOrdersView() {
   const [jobF, setJobF] = useState([]);
   const [sellerF, setSellerF] = useState([]);
   const [statusF, setStatusF] = useState([]);   // ['ใช้งาน','ยกเลิก'] · ว่าง = ทั้งหมด
+  const [payF, setPayF] = useState([]);          // การชำระ (โอน/COD/…) · ว่าง = ทั้งหมด
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [q, setQ] = useState('');
   const [openId, setOpenId] = useState(null);
+  const [addOpen, setAddOpen] = useState(false); // เปิด sheet เพิ่มออเดอร์เอง
+  const { user } = useUser();
   const PER_PAGE = 50;
   const [page, setPage] = useState(1);
   const [density, setDensity] = usePersistedState('tmk-orders-density', 'cozy');
@@ -1618,6 +1586,12 @@ function MpOrdersView() {
     rawSkus.forEach(x => {
       const r = resolver(x);
       const s2 = { ...x, design: r.design || x.design, product_code: r.product_code || x.product_code, _resolveSrc: r.source };
+      // แก้บรรทัด (override) เปลี่ยนรหัสสินค้า → derive สี/ไซซ์ใหม่จากรหัส (JSK01-WH-XL) ให้ตรงที่แก้ ไม่ค้างค่าเดิม
+      if (r.source === 'override' && r.product_code) {
+        const cs = deriveColorSize('', r.product_code);
+        if (cs.color) s2.color = cs.color;
+        if (cs.size) s2.size = cs.size;
+      }
       (byO[s2.order_no] = byO[s2.order_no] || []).push(s2);
     });
     return byO;
@@ -1627,19 +1601,22 @@ function MpOrdersView() {
   const pickPreset = (id) => { const r = presetRange(id, todayISO(), bounds.min, bounds.max); setRange({ from: r.from, to: r.to }); };
   const channels = useMemo(() => [...new Set((ordersM || []).map(o => o.channel).filter(Boolean))], [ordersM]);
   const sellers = useMemo(() => [...new Set((ordersM || []).map(o => o.salesperson).filter(Boolean))].sort(), [ordersM]);
+  const payments = useMemo(() => [...new Set((ordersM || []).map(o => o.payment_type || 'ไม่ระบุ'))].sort(), [ordersM]);
   // ตัวกรองแบบ multi-select (ว่าง = แสดงทั้งหมด) — แพทเทิร์นเดียวกับหน้ารายงานขาย
-  const nFilters = jobF.length + channelF.length + sellerF.length + statusF.length;
+  const nFilters = jobF.length + channelF.length + sellerF.length + statusF.length + payF.length;
   const activeChips = [
     ...statusF.map(v => ({ dim: 'สถานะ', v, clear: () => setStatusF(statusF.filter(x => x !== v)) })),
     ...jobF.map(v => ({ dim: 'งาน', v, clear: () => setJobF(jobF.filter(x => x !== v)) })),
     ...channelF.map(v => ({ dim: 'ช่องทาง', v, clear: () => setChannelF(channelF.filter(x => x !== v)) })),
+    ...payF.map(v => ({ dim: 'ชำระ', v, clear: () => setPayF(payF.filter(x => x !== v)) })),
     ...sellerF.map(v => ({ dim: 'เซลล์', v, clear: () => setSellerF(sellerF.filter(x => x !== v)) })),
   ];
-  const clearFilters = () => { setJobF([]); setChannelF([]); setSellerF([]); setStatusF([]); };
+  const clearFilters = () => { setJobF([]); setChannelF([]); setSellerF([]); setStatusF([]); setPayF([]); };
   const ql = q.trim().toLowerCase();
   const filtered = (ordersM || []).filter(o =>
     (statusF.length === 0 || statusF.includes(o.status === 'cancelled' ? 'ยกเลิก' : 'ใช้งาน')) &&
     (channelF.length === 0 || channelF.includes(o.channel)) &&
+    (payF.length === 0 || payF.includes(o.payment_type || 'ไม่ระบุ')) &&
     (jobF.length === 0 || jobF.includes(o.job_type || 'ปลีก')) &&
     (sellerF.length === 0 || sellerF.includes(o.salesperson || '')) &&
     (!ql || `${o.order_no} ${o.marketplace_id || ''} ${o.customer_name || ''} ${o.customer_code || ''} ${o.customer_social || ''} ${o.province || ''} ${o.salesperson || ''}`.toLowerCase().includes(ql) || (skusByOrder[o.order_no] || []).some(s => `${s.design || ''} ${s.color || ''} ${s.raw_sku_or_name || ''}`.toLowerCase().includes(ql)))
@@ -1653,7 +1630,7 @@ function MpOrdersView() {
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
 
   // แบ่งหน้า — รีเซ็ตกลับหน้า 1 เมื่อเปลี่ยนช่วงวันที่/ตัวกรอง/คำค้น/การเรียง
-  useEffect(() => { setPage(1); }, [range.from, range.to, jobF, channelF, sellerF, statusF, q, sortKey, sortDir]);
+  useEffect(() => { setPage(1); }, [range.from, range.to, jobF, channelF, sellerF, statusF, payF, q, sortKey, sortDir]);
   const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
   const pageClamped = Math.min(page, totalPages);
   const pageRows = sorted.slice((pageClamped - 1) * PER_PAGE, pageClamped * PER_PAGE);
@@ -1684,7 +1661,10 @@ function MpOrdersView() {
         {/* หัว: ชื่อ (ไม่มีไอคอน) · ค้นหาอยู่มุมขวาบน */}
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-0 pb-3.5">
           <h3 className="m-0 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์จากไฟล์นำเข้า</h3>
-          <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา ออเดอร์ / ลูกค้า / เบอร์ / จังหวัด / ลาย" wrapperClassName="w-full sm:w-[340px]" />
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา ออเดอร์ / ลูกค้า / เบอร์ / จังหวัด / ลาย" wrapperClassName="flex-1 sm:w-[340px]" />
+            <Button size="sm" className="shrink-0 gap-1.5" disabled={window.__canEdit === false} onClick={() => setAddOpen(true)}><Icon name="plus" /> เพิ่มออเดอร์</Button>
+          </div>
         </CardHeader>
 
         {/* แถบเครื่องมือ: ช่วงวัน · ตัวกรอง · ชิป | (ขวา) ล้าง · คอลัมน์ */}
@@ -1713,12 +1693,13 @@ function MpOrdersView() {
               <MultiSelect label="สถานะ" options={['ใช้งาน', 'ยกเลิก']} value={statusF} onChange={setStatusF} />
               <MultiSelect label="งาน" options={['ปลีก', 'DFT', 'OEM']} value={jobF} onChange={setJobF} />
               <MultiSelect label="ช่องทาง" options={channels} value={channelF} onChange={setChannelF} />
+              {payments.length > 0 && <MultiSelect label="การชำระ" options={payments} value={payF} onChange={setPayF} />}
               {sellers.length > 0 && <MultiSelect label="เซลล์" options={sellers} value={sellerF} onChange={setSellerF} />}
             </div>
           </CollapsibleContent>
         </Collapsible>
 
-        <div className={'table-wrap table-sticky-first mt-4 ' + density}><Table>
+        <CardTable className={'table-sticky-first mt-4 ' + density}><Table>
           <TableHeader><TableRow>
             <SortHead field="order_no" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ออเดอร์</SortHead>
             {colVisible.has('date') && <SortHead field="date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>วันที่</SortHead>}
@@ -1726,6 +1707,7 @@ function MpOrdersView() {
             {colVisible.has('customer') && <SortHead field="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ลูกค้า</SortHead>}
             {colVisible.has('designs') && <TableHead>ลายเสื้อ</TableHead>}
             {colVisible.has('job') && <TableHead>งาน</TableHead>}
+            {colVisible.has('payment') && <SortHead field="payment" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>การชำระ</SortHead>}
             {colVisible.has('status') && <TableHead>สถานะ</TableHead>}
             {colVisible.has('note') && <TableHead>หมายเหตุ</TableHead>}
             {colVisible.has('qty') && <SortHead field="qty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right">ตัว</SortHead>}
@@ -1734,19 +1716,20 @@ function MpOrdersView() {
           <TableBody>{pageRows.map(o => { const designs = buildDesigns(skusByOrder[o.order_no] || []);
             return (
               <TableRow key={o.order_no} className={`mp-order-row ${openId === o.order_no ? 'is-open' : ''} ${o.status === 'cancelled' ? 'opacity-55' : ''}`} onClick={() => setOpenId(o.order_no)} style={{ cursor: 'pointer' }}>
-                <TableCell><span style={{ fontWeight: 600, textDecoration: o.status === 'cancelled' ? 'line-through' : 'none' }}>{o.order_no}</span></TableCell>
+                <TableCell className="cell-title"><span style={{ fontWeight: 600, textDecoration: o.status === 'cancelled' ? 'line-through' : 'none' }}>{o.order_no}</span></TableCell>
                 {colVisible.has('date') && <TableCell className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</TableCell>}
                 {colVisible.has('channel') && <TableCell><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span></TableCell>}
                 {colVisible.has('customer') && <TableCell>{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}{!o.customer_name && !o.customer_code && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มีลูกค้า</Badge>}</TableCell>}
-                {colVisible.has('designs') && <TableCell>{designs.length === 0 ? <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ fontWeight: 600 }}>{designs.slice(0, 2).map(d => d.design).join(', ')}{designs.length > 2 ? ` +${designs.length - 2}` : ''}</span>}</TableCell>}
+                {colVisible.has('designs') && <TableCell className="cell-hide-m">{designs.length === 0 ? <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ fontWeight: 600 }}>{designs.slice(0, 2).map(d => d.design).join(', ')}{designs.length > 2 ? ` +${designs.length - 2}` : ''}</span>}</TableCell>}
                 {colVisible.has('job') && <TableCell>{(o.job_type && o.job_type !== 'ปลีก') ? <span className={'chip ' + jobChip(o.job_type)}>{o.job_type}</span> : <span className="cap">ปลีก</span>}</TableCell>}
+                {colVisible.has('payment') && <TableCell><span className="cap" style={o.payment_type ? undefined : { color: 'var(--ink-4)' }}>{o.payment_type || '—'}</span></TableCell>}
                 {colVisible.has('status') && <TableCell>{o.status && !['completed', 'active'].includes(o.status) ? <span className={'chip ' + statusChip(o.status)}>{statusLabel(o.status)}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
-                {colVisible.has('note') && <TableCell>{o.note ? <span className="block max-w-[160px] truncate text-[13px]" title={o.note}>{o.note}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
+                {colVisible.has('note') && <TableCell className="cell-hide-m">{o.note ? <span className="block max-w-[160px] truncate text-[13px]" title={o.note}>{o.note}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
                 {colVisible.has('qty') && <TableCell className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</TableCell>}
                 <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}><span className="row" style={{ gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>{B(o.sales)}<Icon name="arrowR" /></span></TableCell>
               </TableRow>
           ); })}</TableBody>
-        </Table></div>
+        </Table></CardTable>
         {filtered.length > PER_PAGE && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <span className="cap" style={{ color: 'var(--ink-4)' }}>แสดง {N((pageClamped - 1) * PER_PAGE + 1)}–{N(Math.min(pageClamped * PER_PAGE, filtered.length))} จาก {N(filtered.length)} ออเดอร์</span>
@@ -1766,6 +1749,8 @@ function MpOrdersView() {
         if (!o) return null;
         return <OrderDrawer order={o} sk={skusByOrder[o.order_no] || []} buildDesigns={buildDesigns} onClose={() => setOpenId(null)} onSaved={reloadOverrides} onChanged={reloadAll} />;
       })()}
+
+      {addOpen && <ManualSaleSheet user={user} onClose={() => setAddOpen(false)} onSaved={reloadAll} />}
     </div>
   );
 }
@@ -1797,7 +1782,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
   const [edit, setEdit] = useState(null);                  // null | ฟอร์มแก้เต็มทุกช่อง
   const [busy, setBusy] = useState(false);
   const [lineEdit, setLineEdit] = useState(null);          // index ของบรรทัดที่กำลังแก้ลาย
-  const [linePick, setLinePick] = useState({ design: '', code: '' });
+  const [linePick, setLinePick] = useState({ design: '', code: '', color: '', size: '' });
   const ovId = `${o.source || ''}:${o.order_no}`;
   const toast = (m, t) => window.__toast && window.__toast(m, t);
   const startEdit = () => setEdit({
@@ -1932,7 +1917,10 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
   };
   const saveLine = async (s) => {
     setBusy(true);
-    const row = { key: skuOverrideKey(o.order_no, s.raw_sku_or_name), order_no: o.order_no, design: linePick.design.trim(), product_code: (linePick.code || '').trim(), updated_at: new Date().toISOString() };
+    // รหัสสินค้าเต็ม = รหัสฐาน + สี + ไซซ์ (JSK01-WH-XL) → derive สี/ไซซ์ตอนอ่าน · ไม่ต้องคอลัมน์ใหม่
+    const baseCode = (linePick.code || '').trim();
+    const fullCode = buildLineSku(baseCode, linePick.color, linePick.size) || baseCode;
+    const row = { key: skuOverrideKey(o.order_no, s.raw_sku_or_name), order_no: o.order_no, design: linePick.design.trim(), product_code: fullCode, updated_at: new Date().toISOString() };
     const { error } = await supabase.from('tmk_sku_overrides').upsert(row, { onConflict: 'key' });
     setBusy(false);
     if (error) { window.__toast && window.__toast(/relation|does not exist|schema cache/i.test(error.message) ? 'ต้องรัน migration tmk_sku_overrides ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
@@ -2059,32 +2047,34 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
     </>}
     {sk.length > 0 && <>
       <div className="cap" style={{ margin: '16px 0 6px', fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ตัว)</div>
-      <div className="table-wrap"><Table>
+      <CardTable className="table-wrap"><Table>
         <TableHeader><TableRow><TableHead>ลาย</TableHead><TableHead>รหัส</TableHead><TableHead>สี</TableHead><TableHead>ไซซ์</TableHead><TableHead style={{ textAlign: 'right' }}>จำนวน</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead>จับคู่</TableHead><TableHead /></TableRow></TableHeader>
         <TableBody>{sk.map((s, i) => [
           <TableRow key={i}>
-            <TableCell style={{ fontWeight: 600 }}>{s.design || <span style={{ color: 'var(--bad)' }}>จับคู่ไม่ได้</span>}{s._resolveSrc === 'override' && <Badge variant="outline" className="ml-1.5 text-[10px]" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>แก้มือ</Badge>}{s.raw_sku_or_name && s.raw_sku_or_name !== s.design && <div className="cap" style={{ color: 'var(--ink-4)' }}>{s.raw_sku_or_name}</div>}</TableCell>
+            <TableCell className="cell-title" style={{ fontWeight: 600 }}>{s.design || <span style={{ color: 'var(--bad)' }}>จับคู่ไม่ได้</span>}{s._resolveSrc === 'override' && <Badge variant="outline" className="ml-1.5 text-[10px]" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>แก้มือ</Badge>}{s.raw_sku_or_name && s.raw_sku_or_name !== s.design && <div className="cap" style={{ color: 'var(--ink-4)' }}>{s.raw_sku_or_name}</div>}</TableCell>
             <TableCell className="cap">{s.product_code || '—'}</TableCell>
             <TableCell className="cap">{s.color || '—'}</TableCell>
             <TableCell className="cap">{s.size || '—'}</TableCell>
             <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</TableCell>
             <TableCell className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</TableCell>
             <TableCell><span className="cap" style={{ color: s.match_how ? 'var(--ink-3)' : 'var(--bad)' }}>{s.match_how || '—'}</span></TableCell>
-            <TableCell style={{ textAlign: 'right' }}>{lineEdit !== i && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => { setLineEdit(i); setLinePick({ design: s.design || '', code: s.product_code || '' }); }} title="แก้ลายบรรทัดนี้"><Icon name="pencil" /></Button>}</TableCell>
+            <TableCell style={{ textAlign: 'right' }}>{lineEdit !== i && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => { setLineEdit(i); const d = findDesign(s.design); setLinePick({ design: s.design || '', code: d?.code || s.product_code || '', color: s.color || '', size: s.size || '' }); }} title="แก้ลาย/สี/ไซซ์บรรทัดนี้"><Icon name="pencil" /></Button>}</TableCell>
           </TableRow>,
           lineEdit === i && <TableRow key={i + '-edit'}>
             <TableCell colSpan={8} style={{ background: 'var(--surface-2)' }}>
-              <div className="cap cap-head mb-2" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ลายของ "{s.raw_sku_or_name || s.design}" (override รายบรรทัด)</div>
+              <div className="cap cap-head mb-2" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ลาย/สี/ไซซ์ของ "{s.raw_sku_or_name || s.design}" (เลือกจากสินค้า หรือพิมพ์รหัสเอง)</div>
               <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ minWidth: 240 }}><DesignCombobox value={linePick.design} code={linePick.code} onPick={({ name, code }) => setLinePick({ design: name, code: code || linePick.code })} /></div>
-                <Input value={linePick.code} onChange={e => setLinePick({ ...linePick, code: e.target.value })} placeholder="รหัส (เช่น JRP111)" style={{ maxWidth: 160 }} />
+                <div style={{ minWidth: 220 }}><DesignCombobox value={linePick.design} code={linePick.code} onPick={({ name, code, design: d }) => setLinePick(p => ({ design: name, code: code || p.code, color: (p.color && d?.colors?.length && !d.colors.includes(p.color)) ? '' : p.color, size: (p.size && d?.sizes?.length && !d.sizes.includes(p.size)) ? '' : p.size }))} /></div>
+                <div style={{ minWidth: 120 }}><ColorSelect design={findDesign(linePick.design)} value={linePick.color} onChange={v => setLinePick(p => ({ ...p, color: v }))} /></div>
+                <div style={{ minWidth: 90 }}><SizeSelect design={findDesign(linePick.design)} value={linePick.size} onChange={v => setLinePick(p => ({ ...p, size: v }))} /></div>
+                <Input value={linePick.code} onChange={e => setLinePick({ ...linePick, code: e.target.value })} placeholder="รหัสฐาน เช่น JRP111" style={{ maxWidth: 150 }} />
                 <Button size="sm" onClick={() => saveLine(s)} disabled={busy || !linePick.design.trim()}><Icon name="check" /> บันทึก</Button>
                 <Button size="sm" variant="ghost" onClick={() => setLineEdit(null)} disabled={busy}>ยกเลิก</Button>
               </div>
             </TableCell>
           </TableRow>,
         ])}</TableBody>
-      </Table></div>
+      </Table></CardTable>
     </>}
   </SideSheet>;
 }
@@ -2321,7 +2311,7 @@ function SettingsBody({ sub, dark, setDark }) {
     { id: 'duties', label: 'หน้าที่', icon: 'shield' },
     { id: 'targets', label: 'เป้า & คอม', icon: 'target' },
     { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'users' },
-    { id: 'audit', label: 'ประวัติการใช้งาน', icon: 'clock' },
+    // 'audit' (ประวัติการใช้งาน) รวมเข้า section "บันทึกกิจกรรม" (LogView · admin-only · PART 54) แล้ว
     { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
     { id: 'updates', label: 'มีอะไรใหม่', icon: 'sparkle' },
   ].filter(t => (t.id === 'roles' ? _isAdmin : (t.id === 'trash' || t.id === 'targets') ? _canEdit : true)); // สิทธิ์ผู้ใช้=admin, ถังขยะ/เป้า=ผู้แก้ไขขึ้นไป
@@ -2374,9 +2364,6 @@ function SettingsBody({ sub, dark, setDark }) {
         </TabsContent>
         <TabsContent value="roles" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           {_isAdmin && <RolesView />}
-        </TabsContent>
-        <TabsContent value="audit" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
-          <AuditView />
         </TabsContent>
         <TabsContent value="trash" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           {_canEdit && <TrashView />}
@@ -3999,6 +3986,7 @@ function RolesView() {
     { id: 'sales', label: 'ยอดขาย', icon: 'sales' },
     { id: 'flows', label: 'โครงการ', icon: 'grid' },
     { id: 'catalog', label: 'Sale', icon: 'box' },
+    { id: 'logs', label: 'บันทึกกิจกรรม', icon: 'clock' },
     { id: 'settings', label: 'ตั้งค่า', icon: 'system' },
   ];
   // กลุ่มชิปเลือกหน้าที่จะล็อก — ใช้ทั้ง modal แก้ไข + dialog เพิ่มผู้ใช้ (admin = ซ่อน เข้าได้ทุกหน้า)
@@ -4018,6 +4006,33 @@ function RolesView() {
   );
   // หน้าที่ — ดึงจาก tmk_duties (Supabase) — เพิ่ม/แก้/ลบได้ใน tab "หน้าที่"
   const DUTIES = TMK.duties || [];
+
+  // dropdown ย่อ (แทนชิปเยอะๆ) — ใช้ร่วมทั้ง add + edit · Radix Select ห้าม value="" → ใช้ '__none__'
+  const DutySelect = ({ value, onChange }) => (
+    <Select value={value || '__none__'} onValueChange={(v) => onChange(v === '__none__' ? '' : v)}>
+      <SelectTrigger className="bg-background"><SelectValue placeholder="— ไม่ระบุ —" /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">— ไม่ระบุ —</SelectItem>
+        {DUTIES.map(d => (
+          <SelectItem key={d.id} value={d.id}>
+            <span className="flex items-center gap-2"><span className="size-2 rounded-full" style={{ background: d.color }} />{d.name}</span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+  const RoleSelect = ({ value, onChange }) => (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        {Object.entries(roleMeta).map(([k, v]) => (
+          <SelectItem key={k} value={k}>
+            <span className="flex items-center gap-2"><Icon name={v.icon} className="size-4" />{v.l}</span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 
   // ใช้ TMK.roles + TMK.staff โดยตรง (re-render เมื่อ Supabase อัปเดต)
   const users = (TMK.roles || []).map(r => {
@@ -4311,73 +4326,34 @@ function RolesView() {
 
       {/* เพิ่มผู้ใช้ใหม่ Dialog */}
       <Dialog open={showAdd} onOpenChange={(open) => { if (!open) closeAdd(); }}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[640px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Icon name="userPlus" className="size-5" /> เพิ่มผู้ใช้ใหม่
             </DialogTitle>
-            <DialogDescription>
-              กรอกข้อมูลเพื่อเพิ่มสมาชิกเข้าทีม บันทึกลง Supabase อัตโนมัติ
-            </DialogDescription>
+            <DialogDescription className="sr-only">เพิ่มสมาชิกใหม่เข้าทีม</DialogDescription>
           </DialogHeader>
-          
-          <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto px-1">
-            <div className="grid gap-2">
-              <Label>อีเมล <span className="text-destructive">*</span></Label>
-              <Input type="email" placeholder="name@tmk.co" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
-              <p className="text-xs text-muted-foreground">ใช้สำหรับเข้าสู่ระบบ</p>
+
+          <div className="grid gap-4 py-3 max-h-[70vh] overflow-y-auto px-1">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label>อีเมล <span className="text-destructive">*</span></Label>
+                <Input type="email" placeholder="name@tmk.co" value={newEmail} onChange={e => setNewEmail(e.target.value)} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>ชื่อที่แสดง</Label>
+                <Input placeholder="เว้นว่าง = ใช้ชื่อหน้าอีเมล" value={newName} onChange={e => setNewName(e.target.value)} />
+              </div>
             </div>
 
-            <div className="grid gap-2">
-              <Label>ชื่อที่แสดง</Label>
-              <Input placeholder="เช่น คุณ A หรือชื่อทีม" value={newName} onChange={e => setNewName(e.target.value)} />
-              <p className="text-xs text-muted-foreground">เว้นว่างได้ — ระบบจะใช้ชื่อหน้าอีเมลแทน</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label>หน้าที่ / แผนก</Label>
-              {DUTIES.length === 0 ? (
-                <div className="text-sm text-amber-600 flex items-center gap-2 bg-amber-50 p-2 rounded">
-                  <Icon name="flame" className="size-4" /> ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน
-                </div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap gap-2">
-                    <button type="button" className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${!newDutyId ? 'bg-primary text-primary-foreground border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setNewDutyId('')}>
-                      — ไม่ระบุ —
-                    </button>
-                    {DUTIES.map(d => (
-                      <button key={d.id} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${newDutyId === d.id ? 'bg-primary/10 border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setNewDutyId(d.id)}>
-                        <span className="size-2 rounded-full" style={{ background: d.color }}></span>
-                        {d.name}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">ใช้มอบหมายงานใน task · kanban · ปฏิทิน</p>
-                </>
-              )}
-            </div>
-
-            <div className="grid gap-3">
-              <Label>สิทธิ์การเข้าถึง</Label>
-              <div className="grid gap-2">
-                {Object.entries(roleMeta).map(([k, v]) => {
-                  const on = newRole === k;
-                  return (
-                    <button key={k} type="button" onClick={() => { setNewRole(k); if (k === 'admin') setNewLocks([]); }}
-                      className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/50'}`}>
-                      <div className={`mt-0.5 size-4 rounded-full border flex items-center justify-center shrink-0 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
-                        {on && <Icon name="check" className="size-3" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-sm font-semibold flex items-center gap-2 ${on ? 'text-primary' : 'text-foreground'}`}>
-                          <Icon name={v.icon} className="size-4" /> {v.l}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1">{v.d}</div>
-                      </div>
-                    </button>
-                  );
-                })}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label>หน้าที่ / แผนก</Label>
+                <DutySelect value={newDutyId} onChange={setNewDutyId} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label>สิทธิ์การเข้าถึง</Label>
+                <RoleSelect value={newRole} onChange={(v) => { setNewRole(v); if (v === 'admin') setNewLocks([]); }} />
               </div>
             </div>
 
@@ -4396,7 +4372,7 @@ function RolesView() {
 
       {/* แก้ไขผู้ใช้ Dialog */}
       <Dialog open={!!editing} onOpenChange={(open) => { if (!open) cancelEdit(); }}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[640px]">
           {editing && (() => {
             const u = users.find(x => x.email === editing);
             if (!u) return null;
@@ -4413,66 +4389,35 @@ function RolesView() {
                   </DialogDescription>
                 </DialogHeader>
                 
-                <div className="grid gap-6 py-4 max-h-[70vh] overflow-y-auto px-1">
+                <div className="grid gap-4 py-3 max-h-[72vh] overflow-y-auto px-1">
                   <div className="flex gap-4 items-end">
-                    <Avatar name={u.name} color={u.color || '#888'} size={52} />
-                    <div className="grid gap-2 flex-1">
+                    <Avatar name={u.name} color={u.color || 'var(--ink-3)'} size={52} />
+                    <div className="grid gap-1.5 flex-1">
                       <Label>ชื่อที่แสดง <span className="text-xs font-normal text-muted-foreground">(ลิงก์กับงาน)</span></Label>
                       <Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="ชื่อที่ใช้แสดงในระบบ" className="font-semibold" />
                     </div>
                   </div>
 
-                  <div className="grid gap-2">
-                    <Label>หน้าที่ / แผนก</Label>
-                    {DUTIES.length === 0 ? (
-                      <div className="text-sm text-amber-600 bg-amber-50 p-2 rounded">ยังไม่มีหน้าที่ — สร้างที่แท็บ "หน้าที่" ก่อน</div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        <button type="button" className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${!editDutyId ? 'bg-primary text-primary-foreground border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setEditDutyId('')}>
-                          — ไม่ระบุ —
-                        </button>
-                        {DUTIES.map(d => (
-                          <button key={d.id} type="button" className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${editDutyId === d.id ? 'bg-primary/10 border-primary font-medium' : 'bg-background hover:bg-muted'}`} onClick={() => setEditDutyId(d.id)}>
-                            <span className="size-2 rounded-full" style={{ background: d.color }}></span>
-                            {d.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid gap-3">
-                    <Label>สิทธิ์การเข้าถึง</Label>
-                    <div className="grid gap-2">
-                      {Object.entries(roleMeta).map(([k, v]) => {
-                        const on = editRole === k;
-                        return (
-                          <button key={k} type="button" onClick={() => { setEditRole(k); if (k === 'admin') setEditLocks([]); }}
-                            className={`flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${on ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border bg-card hover:border-primary/50'}`}>
-                            <div className={`mt-0.5 size-4 rounded-full border flex items-center justify-center shrink-0 ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
-                              {on && <Icon name="check" className="size-3" />}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className={`text-sm font-semibold flex items-center gap-2 ${on ? 'text-primary' : 'text-foreground'}`}>
-                                <Icon name={v.icon} className="size-4" /> {v.l}
-                              </div>
-                              <div className="text-xs text-muted-foreground mt-1">{v.d}</div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="grid gap-1.5">
+                      <Label>หน้าที่ / แผนก</Label>
+                      <DutySelect value={editDutyId} onChange={setEditDutyId} />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>สิทธิ์การเข้าถึง</Label>
+                      <RoleSelect value={editRole} onChange={(v) => { setEditRole(v); if (v === 'admin') setEditLocks([]); }} />
                     </div>
                   </div>
 
                   <LockPicker role={editRole} locks={editLocks} setLocks={setEditLocks} />
 
                   {tasks > 0 && (
-                    <div className="text-xs text-primary flex items-center gap-2 bg-primary/10 p-2 rounded">
-                      <Icon name="listChecks" className="size-4 shrink-0" /> เปลี่ยนชื่อจะอัปเดตอัตโนมัติใน {tasks} งานที่เกี่ยวข้อง
+                    <div className="text-xs text-primary flex items-center gap-2 bg-primary/10 px-2.5 py-1.5 rounded">
+                      <Icon name="listChecks" className="size-4 shrink-0" /> เปลี่ยนชื่อจะอัปเดตใน {tasks} งานที่เกี่ยวข้อง
                     </div>
                   )}
 
-                  <div className="grid gap-3 pt-4 border-t border-dashed">
+                  <div className="grid gap-1.5 pt-3 border-t border-dashed">
                     <Label>รหัสผ่านเข้าระบบ</Label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
@@ -4488,7 +4433,6 @@ function RolesView() {
                         {pwBusy ? 'กำลังตั้ง...' : 'ตั้งรหัส'}
                       </Button>
                     </div>
-                    <p className="text-xs text-muted-foreground">บัญชีใหม่ต้องสร้างใน Supabase Dashboard ก่อน แล้วตั้ง/รีเซ็ตรหัสที่นี่ได้</p>
                   </div>
                 </div>
 

@@ -74,7 +74,7 @@ const QUERIES = {
   brands:      () => supabase.from('tmk_brands').select('*').is('deleted_at', null).order('sort_order'),
   flows:       () => supabase.from('tmk_flows').select('*').is('deleted_at', null).order('sort_order'),
   products:    () => supabase.from('tmk_products').select('id,name,price,actual_units,stock_on_hand,reorder_point,strategy,image_url,category,supplier,sku,barcode,lots,reservations').is('deleted_at', null).order('created_at'),
-  audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at').order('created_at', { ascending: false }).limit(200),
+  audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at,flow_id,entity_type,entity_id,severity').order('created_at', { ascending: false }).limit(200),
   roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
   staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
   duties:      () => supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
@@ -435,9 +435,12 @@ function mapToTMK(raw) {
     const type = ACTION_TYPE[a.action] || (details.summary?.includes('สร้าง') ? 'create' : details.summary?.includes('ลบ') ? 'delete' : 'update');
     return {
       user: a.user_email?.split('@')[0] || 'system',
+      userEmail: a.user_email || '', // อีเมลเต็ม — ให้ฟีดหน้าหลัก resolve staff (ชื่อ/สี avatar) ได้เหมือนหน้าบันทึกกิจกรรม
       action: a.action,
       type,
-      entity: details.entityType || 'system',
+      entity: a.entity_type || details.entityType || 'system',
+      entityId: a.entity_id ?? details.entityId ?? '',
+      severity: a.severity || (/(delete|purge)/.test(a.action || '') ? 'warn' : 'info'), // คอลัมน์ severity (PART 54) · fallback เดา
       name: details.entityName || '',
       time: new Date(a.created_at).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }),
       ts: a.created_at, // วันที่ดิบ (ISO) — สำหรับจัดกลุ่มตามวัน + เวลาแบบ relative ในหน้าหลัก

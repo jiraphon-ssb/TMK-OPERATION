@@ -288,7 +288,7 @@ export function ParetoChart({ items, valKey = 'sales', height = 230, fmt, ariaLa
 }
 
 // ---- Heatmap (matrix) — HTML grid ----
-export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4f46e5', height: _height }) {
+export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4f46e5', height: _height, onCell }) {
   const all = [];
   (rows || []).forEach(r => (cols || []).forEach(c => all.push(cell(r, c) || 0)));
   const max = Math.max(1, ...all);
@@ -306,7 +306,9 @@ export function Heatmap({ rows, cols, cell, fmt = (v) => N(v), color = '#4f46e5'
               const v = cell(r, c) || 0;
               const a = v / max;
               return (
-                <div key={ci} title={`${r.label ?? r} · ${c.label ?? c}: ${fmt(v)}`} style={{ aspectRatio: '1.4', minHeight: 26, borderRadius: 4, background: v ? hexA(color, 0.12 + a * 0.78) : 'var(--surface-2, rgba(130,140,160,.06))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: a > 0.55 ? '#fff' : 'var(--ink-3)', fontWeight: a > 0.55 ? 600 : 400 }}>
+                <div key={ci} title={`${r.label ?? r} · ${c.label ?? c}: ${fmt(v)}`}
+                  onClick={onCell ? () => onCell(r, c, v) : undefined}
+                  style={{ aspectRatio: '1.4', minHeight: 26, borderRadius: 4, background: v ? hexA(color, 0.12 + a * 0.78) : 'var(--surface-2, rgba(130,140,160,.06))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: a > 0.55 ? '#fff' : 'var(--ink-3)', fontWeight: a > 0.55 ? 600 : 400, cursor: onCell ? 'pointer' : undefined }}>
                   {v ? fmt(v) : ''}
                 </div>
               );

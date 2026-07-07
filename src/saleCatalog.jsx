@@ -370,7 +370,7 @@ export function ShirtCatalogView() {
           <div className="mt-4 p-8" style={{ textAlign: 'center', color: 'var(--ink-4)' }}>ไม่พบรายการที่ค้น</div>
         ) : (
           <div className="mt-4">
-          <SortableTable density="cozy" initial={{ key: 'code', dir: 'asc' }}
+          <SortableTable cards density="cozy" initial={{ key: 'code', dir: 'asc' }}
             columns={[
               { key: 'code', label: 'รหัส', accessor: it => it.code || '' },
               { key: 'name', label: 'ชื่อลาย', accessor: it => it.name || '' },

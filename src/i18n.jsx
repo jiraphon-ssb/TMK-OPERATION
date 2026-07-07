@@ -23,7 +23,7 @@ const T = {
 
     // ---- Nav ----
     navHome: 'หน้าหลัก', navNotif: 'การแจ้งเตือน', navSales: 'ยอดขาย', navPlanner: 'วางแผน', navFlows: 'โครงการ',
-    navCatalog: 'Sale', navSystem: 'ตั้งค่า', subFlowBoard: 'โครงการทั้งหมด', subFlowList: 'รายการงาน', subFlowHistory: 'ประวัติกิจกรรม', subMyTasks: 'งานของฉัน',
+    navCatalog: 'Sale', navSystem: 'ตั้งค่า', navLogs: 'บันทึกกิจกรรม', subFlowBoard: 'โครงการทั้งหมด', subFlowList: 'รายการงาน', subFlowHistory: 'ประวัติกิจกรรม', subMyTasks: 'งานของฉัน',
     subOverview: 'ภาพรวมยอดขาย', subChannels: 'ช่องทางการขาย',
     subAds: 'โฆษณา & แชท', subCustomers: 'ลูกค้า',
     subDaily: 'บันทึกรายวัน', subMonthly: 'บันทึก & ภาพรวมเดือน', subStatus: 'สถานะการกรอก', subDataHub: 'ส่งยอด & ข้อมูล',
@@ -258,7 +258,7 @@ const T = {
 
     // ---- Nav ----
     navHome: 'Home', navNotif: 'Notifications', navSales: 'Sales', navPlanner: 'Planner', navFlows: 'Projects', subFlowBoard: 'All Projects', subFlowList: 'Task List', subFlowHistory: 'Activity', subMyTasks: 'My Tasks',
-    navCatalog: 'Sale', navSystem: 'Settings', subOverview: 'Sales Overview', subChannels: 'Sales Channels',
+    navCatalog: 'Sale', navSystem: 'Settings', navLogs: 'Activity Log', subOverview: 'Sales Overview', subChannels: 'Sales Channels',
     subAds: 'Ads & Chat', subCustomers: 'Customers',
     subDaily: 'Daily Entry', subMonthly: 'Daily & Monthly', subStatus: 'Entry Status', subDataHub: 'Sales & data',
     subCalendar: 'Calendar', subKanban: 'Kanban Board', subTimeline: 'Timeline',

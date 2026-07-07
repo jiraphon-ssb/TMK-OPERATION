@@ -10,14 +10,15 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
 import { useUser } from './userContext.jsx';
+import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { SideSheet } from './modals.jsx';
 import { logAudit } from './lib/audit.js';
-import { funnelPlatforms } from './lib/saleData.js';
+import { funnelPlatforms, funnelBreakdown, funnelNewOld } from './lib/saleData.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { deriveColorSize } from './lib/mpReport.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { useTableSort, SortHead } from './components/DataTableParts.jsx';
+import { useTableSort, SortHead, CardTable } from './components/DataTableParts.jsx';
 import { DatePicker } from '@/components/ui/date-picker';
 import { parseReceiptFiles, jobTypeFromNote } from './lib/receiptParse.js';
 import {
@@ -37,6 +38,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { HealthHub } from './views-2.jsx';
 import { ImportExportHub } from './saleImportHub.jsx';
+import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 
 const CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
 const JOB_TYPES = ['ปลีก', 'OEM', 'DFT'];
@@ -157,6 +159,7 @@ function RowEditor({ row, onChange, showChannel = true }) {
 export function SubmitSalesView() {
   const beat = useBeat(350);
   const { user } = useUser();
+  const { staff } = useData();
   const canEdit = window.__canEdit !== false;
   const isAdmin = window.__isAdmin === true;
 
@@ -240,6 +243,18 @@ export function SubmitSalesView() {
     return { total: scopedFeed.length, sales, voids, avg: active.length ? sales / active.length : 0 };
   }, [scopedFeed]);
   const sellerOpts = useMemo(() => [...new Set((feed || []).map(r => r.salesperson).filter(Boolean))].sort(), [feed]);
+  // รายชื่อเซลล์สำหรับคนทัก (staff + คนที่มีใบเสร็จ) · จำนวนออเดอร์ยืนยันวันนี้ต่อคน (ไว้คิด %ปิด)
+  const funnelSellers = useMemo(() => {
+    const set = new Set();
+    (staff || []).forEach(s => { if (s?.name) set.add(s.name); });
+    (feed || []).forEach(r => { if (r?.salesperson) set.add(r.salesperson); });
+    return [...set].sort();
+  }, [staff, feed]);
+  const ordersToday = useMemo(() => {
+    const m = {}, t = todayISO();
+    (feed || []).forEach(r => { if (r.status === 'confirmed' && r.order_date === t && r.salesperson) m[r.salesperson] = (m[r.salesperson] || 0) + 1; });
+    return m;
+  }, [feed]);
   const feedSortAcc = useMemo(() => ({
     order_no: r => r.order_no, order_date: r => r.order_date, salesperson: r => r.salesperson,
     sales: r => Number(r.sales) || 0, qty: r => Number(r.qty) || 0, customer: r => r.confirmed?.customer_name || '', channel: r => r.channel,
@@ -449,9 +464,8 @@ export function SubmitSalesView() {
         </Card>
       )}
 
-      {/* คนทักวันนี้ (funnel) — ย้ายจากหน้าบันทึกขาย */}
-      <FunnelCard salesperson={user?.name || user?.email || ''} createdBy={user?.email || ''} canEnter={canEdit}
-        ordersCount={(feed || []).filter(r => r.status === 'confirmed' && r.order_date === todayISO() && r.uploader_email === user?.email).length} />
+      {/* คนทักวันนี้ (funnel) — แยกใหม่/เก่า ต่อแพลตฟอร์ม · แอดมินกรอกให้ทั้งทีม */}
+      <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={isAdmin} ordersToday={ordersToday} />
 
       {/* ขั้น 2: ตารางตรวจ */}
       {rows.length > 0 && (
@@ -553,7 +567,7 @@ export function SubmitSalesView() {
           : !scopedFeed.length ? <div className="p-6 text-center text-sm text-muted-foreground">ไม่มีใบเสร็จตามเงื่อนไข — {feedScope === 'mine' ? 'เริ่มส่งใบแรกได้เลย' : 'ลองเปลี่ยนเดือน/ตัวกรอง'}</div>
           : (
             <>
-            <div className="overflow-x-auto">
+            <CardTable className="cozy">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted-foreground bg-muted/40">
                   <tr>
@@ -570,7 +584,7 @@ export function SubmitSalesView() {
                 <tbody>
                   {pageRows.map(r => (
                     <tr key={r.id} className="border-t hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(r)}>
-                      <td className="px-3 py-2 font-mono text-xs">{r.order_no}</td>
+                      <td className="px-3 py-2 font-mono text-xs cell-title">{r.order_no}</td>
                       <td className="px-2 py-2 text-xs">{fmtD(r.order_date)}</td>
                       {feedScope === 'team' && <td className="px-2 py-2 text-xs">{r.salesperson}</td>}
                       <td className="px-2 py-2 text-xs max-w-[160px] truncate">{r.confirmed?.customer_name || '—'}</td>
@@ -582,7 +596,7 @@ export function SubmitSalesView() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </CardTable>
             {pages > 1 && (
               <div className="flex items-center justify-between px-3 py-2 border-t text-xs text-muted-foreground">
                 <span>หน้า {curPage}/{pages} · {N(scopedFeed.length)} ใบ</span>
@@ -616,10 +630,12 @@ export function SubmitSalesView() {
                   </div>
                   {Array.isArray(detail.confirmed?.lines) && detail.confirmed.lines.length > 0 && (
                     <div className="rounded-lg border overflow-hidden">
+                      <CardTable>
                       <table className="w-full text-xs">
                         <thead className="bg-muted/50 text-muted-foreground"><tr><th className="text-left px-2 py-1">รหัส</th><th className="text-left px-2 py-1">สินค้า</th><th className="text-left px-2 py-1">สี/ไซซ์</th><th className="text-right px-2 py-1">จำนวน</th><th className="text-right px-2 py-1">ยอด</th></tr></thead>
-                        <tbody>{detail.confirmed.lines.map((l, i) => { const cs = deriveColorSize(l.name || '', l.code || ''); const c = l.color || cs.color, sz = l.size || cs.size; return <tr key={i} className="border-t"><td className="px-2 py-1 font-mono">{l.code}</td><td className="px-2 py-1">{l.name}</td><td className="px-2 py-1 text-muted-foreground">{[c, sz].filter(Boolean).join(' · ') || '—'}</td><td className="px-2 py-1 text-right">{l.qty}</td><td className="px-2 py-1 text-right">{fmtB(l.amount)}</td></tr>; })}</tbody>
+                        <tbody>{detail.confirmed.lines.map((l, i) => { const cs = deriveColorSize(l.name || '', l.code || ''); const c = l.color || cs.color, sz = l.size || cs.size; return <tr key={i} className="border-t"><td className="px-2 py-1 font-mono cell-title">{l.code}</td><td className="px-2 py-1">{l.name}</td><td className="px-2 py-1 text-muted-foreground">{[c, sz].filter(Boolean).join(' · ') || '—'}</td><td className="px-2 py-1 text-right">{l.qty}</td><td className="px-2 py-1 text-right">{fmtB(l.amount)}</td></tr>; })}</tbody>
                       </table>
+                      </CardTable>
                       <div className="px-2 py-1 border-t bg-muted/30 text-right text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว</div>
                     </div>
                   )}
@@ -726,131 +742,76 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel, onEdit }) {
    ============================================================
    [ส่งยอดใบเสร็จ (default — เซลล์ใช้ทุกวัน)] [นำเข้ามาร์เก็ตเพลส] [คุณภาพข้อมูล]
    แต่ละแท็บเป็น component เดิมทั้งก้อน (มี content-inner ของตัวเอง) — แค่รวมทางเข้า */
-/* ============================================================
-   คีย์มือ (ขายไม่มีใบเสร็จ) — ยุบจากหน้า "บันทึกขาย" (PART 47)
-   เขียนท่อเดียวกับใบเสร็จ (confirmReceipts) → กันเลขซ้ำ/เติมลูกค้า CRM/ขึ้นรายงาน ครบเหมือนใบเสร็จ
-   ============================================================ */
-function ManualSaleSheet({ user, onClose, onSaved }) {
-  const blank = { order_date: todayISO(), order_no: '', channel: '', job_type: 'ปลีก', payment: 'โอน', customer_type: 'ลูกค้าใหม่', customer_name: '', customer_phone: '', province: '', design: '', qty: '1', total: '', note: '' };
-  const [f, setF] = useState(blank);
-  const [busy, setBusy] = useState(false);
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
-  const valid = f.channel && Number(f.total) > 0 && Number(f.qty) >= 1;
-  const save = async () => {
-    if (!valid) { toast('เลือกช่องทาง + ใส่ยอด/จำนวนให้ถูกก่อน', 'warn'); return; }
-    setBusy(true);
-    try {
-      const ono = f.order_no.trim().toUpperCase().replace(/\s+/g, '') || ('MN' + Date.now().toString(36).toUpperCase());
-      const item = {
-        order_no: ono, order_date: f.order_date,
-        customer_name: f.customer_name.trim(), customer_phone: f.customer_phone.trim(), customer_social: '', customer_address: '',
-        province: f.province.trim(),
-        lines: [{ code: '', name: f.design.trim() || 'ไม่ระบุลาย', qty: Number(f.qty) || 1, amount: Number(f.total) || 0 }],
-        subtotal: Number(f.total) || 0, discount: 0, shipping: 0, total: Number(f.total) || 0,
-        payment_method: f.payment === 'COD' ? 'cod' : 'โอน', carrier: '', note: f.note.trim(),
-        channel: f.channel, job_type: f.job_type, customer_type: f.customer_type,
-        source_tool: 'manual', warnings: [],
-      };
-      const res = await confirmReceipts([item], { email: user?.email || '', name: user?.name || '' });
-      if (res.skipped.length) { toast(`บันทึกไม่ได้: ${res.skipped[0].reason}`, 'error'); return; }
-      logAudit({ action: 'create', entityType: 'data', entityName: 'คีย์มือ', summary: `คีย์มือ ${ono} · ${fmtB(item.total)} (${user?.name || user?.email})` });
-      toast(`บันทึกแล้ว ${ono} ✓ — คีย์ต่อได้เลย`, 'success');
-      onSaved?.();
-      setF(p => ({ ...blank, order_date: p.order_date, channel: p.channel, job_type: p.job_type, payment: p.payment }));   // เคลียร์เฉพาะยอด/ลูกค้า — คีย์ต่อเร็ว
-    } catch (e) { toast('บันทึกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
-    finally { setBusy(false); }
-  };
-  return (
-    <SideSheet size="md" icon="pencil" title="คีย์มือ (ขายไม่มีใบเสร็จ)" sub={`เซลล์: ${user?.name || user?.email || '—'} · เข้าระบบเดียวกับใบเสร็จ`} onClose={onClose}
-      footer={<><Button variant="outline" onClick={onClose}>ปิด</Button><Button disabled={busy || !valid} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-        <div className="field"><label>วันที่</label><DatePicker value={f.order_date} max={todayISO()} clearable={false} onChange={v => set('order_date', v)} /></div>
-        <div className="field"><label>เลขออเดอร์ (ว่าง = สร้างให้)</label><Input value={f.order_no} onChange={e => set('order_no', e.target.value)} placeholder="เช่น SK1234" /></div>
-        <div className="field"><label>ช่องทาง *</label>
-          <Select value={f.channel || undefined} onValueChange={v => set('channel', v)}>
-            <SelectTrigger><SelectValue placeholder="เลือก" /></SelectTrigger>
-            <SelectContent>{CHANNELS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="field"><label>งาน</label>
-          <Select value={f.job_type} onValueChange={v => set('job_type', v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{JOB_TYPES.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="field"><label>ชำระ</label>
-          <Select value={f.payment} onValueChange={v => set('payment', v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{['โอน', 'COD'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="field"><label>ยอด (฿) *</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.total} onChange={e => set('total', e.target.value)} placeholder="0" /></div>
-        <div className="field"><label>จำนวน (ตัว)</label><Input type="number" inputMode="numeric" min="1" value={f.qty} onChange={e => set('qty', e.target.value)} /></div>
-        <div className="field"><label>ลาย</label><Input value={f.design} onChange={e => set('design', e.target.value)} placeholder="เช่น สิริกานต์" /></div>
-        <div className="field"><label>ลูกค้า</label>
-          <Select value={f.customer_type} onValueChange={v => set('customer_type', v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>{['ลูกค้าใหม่', 'ลูกค้าเก่า'].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-          </Select>
-        </div>
-        <div className="field"><label>ชื่อลูกค้า</label><Input value={f.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="ชื่อ/ชื่อเล่น" /></div>
-        <div className="field"><label>เบอร์/LINE/FB</label><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} placeholder="ไว้ตามต่อ" /></div>
-        <div className="field"><label>จังหวัด</label><Input value={f.province} onChange={e => set('province', e.target.value)} /></div>
-      </div>
-      <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Input value={f.note} onChange={e => set('note', e.target.value)} placeholder="เช่น DFT / แบ่งชำระ" /></div>
-    </SideSheet>
-  );
-}
+/* ManualSaleSheet ("คีย์มือ") ย้ายไปไฟล์แยก src/ManualSaleSheet.jsx (reuse ในหน้าออเดอร์ด้วย) */
 
 /* ============================================================
-   คนทักวันนี้ (funnel) — ทักรวม "ต่อแพลตฟอร์ม" (ไม่แยกใหม่/เก่าแล้ว)
-   เก็บ jsonb `leads` {Facebook: 12, ...} · เขียนคอลัมน์เก่า fb/line ด้วย (back-compat แดชบอร์ด)
+   คนทักวันนี้ (funnel) — แยก "คนใหม่/คนเก่า" ต่อแพลตฟอร์ม · แอดมินกรอกให้ทั้งทีม
+   เก็บ jsonb `leads` {Facebook:{new,old}, ...} · เขียนคอลัมน์เก่า fb/line ด้วย (back-compat แดชบอร์ด)
+   สิทธิ์: เฉพาะแอดมิน (isAdmin) เลือกเซลล์แล้วกรอกให้ · คนอื่นดูแถบทีมอย่างเดียว
    ============================================================ */
 const FUNNEL_PLATFORMS = ['Facebook', 'LINE', 'Instagram', 'TikTok', 'Phone', 'อื่นๆ'];
-function FunnelCard({ salesperson, createdBy, canEnter, ordersCount }) {
+const emptyLeads = () => Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, { new: '', old: '' }]));
+function FunnelCard({ sellers = [], createdBy, isAdmin, ordersToday = {} }) {
   const date = todayISO();
-  const blankLeads = Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, '']));
-  const [leads, setLeads] = useState(blankLeads);
+  const [leads, setLeads] = useState(emptyLeads);
   const [busy, setBusy] = useState(false);
   const [exists, setExists] = useState(false);
   const [open, setOpen] = useState(false);
-  const id = `${date}:${salesperson}`;
+  const [selSeller, setSelSeller] = useState('');
   const [team, setTeam] = useState([]);   // ทีมวันนี้ (ทุกคน) — ทุกคนเห็นทีมได้
-  const loadMine = useCallback(async () => {
-    if (!salesperson) { setExists(false); return; }
-    const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('id', id).maybeSingle();
-    if (data) {
-      const pf = funnelPlatforms(data);
-      setLeads({ ...blankLeads, ...Object.fromEntries(Object.entries(pf).map(([k, v]) => [k, String(v)])) });
-      setExists(true);
-    } else { setLeads(blankLeads); setExists(false); }
-  }, [id, salesperson]); // eslint-disable-line
+  const nv = (v) => Number(v) || 0;
+  // แถวใบเดียว → เติมฟอร์มใหม่/เก่า (legacy/แบน unknown → รวมเข้าช่อง "เก่า" กันข้อมูลหาย)
+  const fillFromRow = (data) => {
+    const bd = funnelBreakdown(data);
+    return Object.fromEntries(FUNNEL_PLATFORMS.map(p => {
+      const v = bd[p]; if (!v) return [p, { new: '', old: '' }];
+      const nw = Number(v.new) || 0, od = (Number(v.old) || 0) + (Number(v.unknown) || 0);
+      return [p, { new: nw ? String(nw) : '', old: od ? String(od) : '' }];
+    }));
+  };
+  const loadSeller = useCallback(async (name) => {
+    if (!name) { setLeads(emptyLeads()); setExists(false); return; }
+    const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('id', `${date}:${name}`).maybeSingle();
+    if (data) { setLeads(fillFromRow(data)); setExists(true); } else { setLeads(emptyLeads()); setExists(false); }
+  }, [date]);
   const loadTeam = useCallback(async () => {
     const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('date', date);
     setTeam(data || []);
   }, [date]);
-  useEffect(() => { loadMine(); }, [loadMine]);
+  // เลือกเซลล์คนแรกให้อัตโนมัติ (แอดมินเปิดมาพร้อมกรอก)
+  useEffect(() => { if (!selSeller && sellers.length) setSelSeller(sellers[0]); }, [sellers, selSeller]);
+  useEffect(() => { if (selSeller) loadSeller(selSeller); }, [selSeller, loadSeller]);
   useEffect(() => { loadTeam(); }, [loadTeam]);
-  // realtime: เพื่อนกรอกคนทัก → แถบทีมวันนี้ขยับสด (+ sync ของตัวเองถ้าแก้จากที่อื่น)
-  useSaleRealtime(['tmk_sales_funnel'], () => { loadMine(); loadTeam(); });
+  // realtime: ใครกรอกคนทัก → แถบทีม + ฟอร์มเซลล์ที่เลือกขยับสด
+  // realtime: refresh แถบทีมเสมอ · แต่ "ไม่" รีโหลดฟอร์มขณะแอดมินเปิดชีตกรอก (กันทับค่าที่พิมพ์ค้าง)
+  useSaleRealtime(['tmk_sales_funnel'], () => { loadTeam(); if (selSeller && !open) loadSeller(selSeller); });
   const teamStat = useMemo(() => {
-    const byPlat = {}; let total = 0;
-    (team || []).forEach(r => { const pf = funnelPlatforms(r); Object.entries(pf).forEach(([k, v]) => { byPlat[k] = (byPlat[k] || 0) + v; total += v; }); });
-    return { total, byPlat, people: (team || []).length };
+    const byPlat = {}; let total = 0, newT = 0, oldT = 0;
+    (team || []).forEach(r => {
+      const pf = funnelPlatforms(r); Object.entries(pf).forEach(([k, v]) => { byPlat[k] = (byPlat[k] || 0) + v; total += v; });
+      const no = funnelNewOld(r); newT += no.new; oldT += no.old;
+    });
+    return { total, byPlat, newT, oldT, people: (team || []).length };
   }, [team]);
-  const nv = (v) => Number(v) || 0;
-  const totalLeads = FUNNEL_PLATFORMS.reduce((a, p) => a + nv(leads[p]), 0);
+  const platTot = (p) => nv(leads[p]?.new) + nv(leads[p]?.old);
+  const totalLeads = FUNNEL_PLATFORMS.reduce((a, p) => a + platTot(p), 0);
+  const totalNew = FUNNEL_PLATFORMS.reduce((a, p) => a + nv(leads[p]?.new), 0);
+  const totalOld = FUNNEL_PLATFORMS.reduce((a, p) => a + nv(leads[p]?.old), 0);
+  const ordersCount = nv(ordersToday[selSeller]);
   const close = totalLeads ? Math.round(ordersCount / totalLeads * 100) : 0;
   const closeTone = close >= 15 ? 'var(--good)' : close >= 8 ? 'var(--warn)' : 'var(--bad)';
-  const setNum = (k, v) => setLeads(p => ({ ...p, [k]: v === '' ? '' : String(Math.max(0, Math.floor(Number(v) || 0))) }));
+  const setNum = (p, field, v) => setLeads(prev => ({ ...prev, [p]: { ...prev[p], [field]: v === '' ? '' : String(Math.max(0, Math.floor(Number(v) || 0))) } }));
   const save = async () => {
-    if (!canEnter) { toast('สิทธิ์ดูอย่างเดียว', 'error'); return; }
+    if (!isAdmin) { toast('เฉพาะแอดมินกรอกคนทัก', 'error'); return; }
+    if (!selSeller) { toast('เลือกเซลล์ก่อน', 'warn'); return; }
     setBusy(true);
-    const leadsJson = Object.fromEntries(FUNNEL_PLATFORMS.filter(p => nv(leads[p]) > 0).map(p => [p, nv(leads[p])]));
+    const leadsJson = {};
+    FUNNEL_PLATFORMS.forEach(p => { const nw = nv(leads[p]?.new), od = nv(leads[p]?.old); if (nw + od > 0) leadsJson[p] = { new: nw, old: od }; });
     const row = {
-      id, date, salesperson, leads: leadsJson,
-      // back-compat: คอลัมน์เก่าเก็บยอดรวมต่อแพลตฟอร์ม (ช่อง _old = 0) — แถวเก่า/กราฟเก่ายังอ่านได้
-      leads_fb_new: nv(leads.Facebook), leads_fb_old: 0, leads_line_new: nv(leads.LINE), leads_line_old: 0,
+      id: `${date}:${selSeller}`, date, salesperson: selSeller, leads: leadsJson,
+      // back-compat: คอลัมน์เก่าเก็บใหม่/เก่าของ FB/LINE ตรงความหมาย — แถวเก่า/กราฟเก่ายังอ่านได้
+      leads_fb_new: nv(leads.Facebook?.new), leads_fb_old: nv(leads.Facebook?.old),
+      leads_line_new: nv(leads.LINE?.new), leads_line_old: nv(leads.LINE?.old),
       note: '', created_by: createdBy, updated_at: new Date().toISOString(),
     };
     let { error } = await supabase.from('tmk_sales_funnel').upsert(row, { onConflict: 'id' });
@@ -862,43 +823,69 @@ function FunnelCard({ salesperson, createdBy, canEnter, ordersCount }) {
     }
     setBusy(false);
     if (error) { toast(/funnel|does not exist/.test(error.message) ? 'ต้องรัน migration tmk_sales_funnel ก่อน' : 'บันทึกไม่สำเร็จ', 'error'); return; }
-    toast('บันทึกคนทักแล้ว ✓', 'success'); setExists(true); setOpen(false); loadTeam();
-    logAudit({ action: exists ? 'update' : 'create', entityType: 'data', entityName: 'คนทัก', summary: `คนทัก ${salesperson} ${date} รวม ${totalLeads} · ปิด ${ordersCount}` });
+    toast(`บันทึกคนทัก ${selSeller} แล้ว ✓`, 'success'); setExists(true); setOpen(false); loadTeam();
+    logAudit({ action: exists ? 'update' : 'create', entityType: 'data', entityName: 'คนทัก', summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld} · ปิด ${ordersCount}` });
   };
   return (
     <>
       <Card className="p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-baseline gap-3 flex-wrap min-w-0">
-            <span className="text-[15px] font-semibold">คนทักวันนี้</span>
-            {exists
-              ? <span className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(totalLeads)}</b> · ปิด <b style={{ color: 'var(--accent)' }}>{N(ordersCount)}</b> · <b style={{ color: closeTone }}>{close}%</b></span>
-              : <span className="text-xs text-muted-foreground">ยังไม่กรอกวันนี้</span>}
+            <span className="text-[15px] font-semibold">คนทักวันนี้ · ทีม</span>
+            {teamStat.total > 0
+              ? <span className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b> ({teamStat.people} คน)</span>
+              : <span className="text-xs text-muted-foreground">ยังไม่มีใครกรอกวันนี้</span>}
           </div>
-          <Button variant="outline" size="sm" disabled={!salesperson} onClick={() => setOpen(true)}><Icon name="pencil" /> {exists ? 'แก้คนทัก' : 'กรอกคนทักวันนี้'}</Button>
+          {isAdmin
+            ? <Button variant="outline" size="sm" disabled={!sellers.length} onClick={() => setOpen(true)}><Icon name="pencil" /> กรอก/แก้คนทัก</Button>
+            : <Badge variant="secondary" className="text-[11px]">แอดมินเป็นผู้กรอกคนทัก</Badge>}
         </div>
-        {/* ทีมวันนี้ — ทุกคนเห็นรวมทีม (สด · realtime) */}
+        {/* ทีมวันนี้ ต่อแพลตฟอร์ม — ทุกคนเห็น (สด · realtime) */}
         {teamStat.total > 0 && (
           <div className="mt-2 pt-2 border-t flex items-center gap-x-4 gap-y-1 flex-wrap text-xs">
-            <span className="text-muted-foreground">ทีมวันนี้ · <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> ทัก ({teamStat.people} คน):</span>
+            <span className="text-muted-foreground">ต่อช่องทาง:</span>
             {FUNNEL_PLATFORMS.filter(p => teamStat.byPlat[p]).map(p => (
               <span key={p} className="text-muted-foreground">{p} <b style={{ color: 'var(--ink)' }}>{N(teamStat.byPlat[p])}</b></span>
             ))}
           </div>
         )}
       </Card>
-      {open && <SideSheet size="sm" icon="users" title="คนทักวันนี้" sub={`${salesperson || '—'} · ${date} · ใส่จำนวนคนทักรวมของแต่ละช่องทาง`} onClose={() => setOpen(false)}
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
-        <div className="grid grid-cols-2 gap-3 mb-4">
+      {open && <SideSheet size="md" icon="users" title="คนทักวันนี้ (แอดมินกรอกให้ทีม)" sub={`${date} · เลือกเซลล์ แล้วใส่จำนวนคนทัก แยกใหม่/เก่า ต่อช่องทาง`} onClose={() => setOpen(false)}
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
+        {!sellers.length
+          ? <div className="rounded-xl border p-4 text-sm text-muted-foreground" style={{ borderColor: 'var(--line)' }}>ยังไม่มีรายชื่อเซลล์ในระบบ — เพิ่มทีมงานที่ ตั้งค่า → สมาชิก ก่อน แล้วจึงกรอกคนทัก</div>
+          : <div className="field mb-4">
+          <label>เซลล์ที่กรอกให้</label>
+          <div className="flex items-center gap-2">
+            <Select value={selSeller || undefined} onValueChange={setSelSeller}>
+              <SelectTrigger className="max-w-[260px]"><SelectValue placeholder="เลือกเซลล์" /></SelectTrigger>
+              <SelectContent>{sellers.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+            <Badge variant={exists ? 'secondary' : 'outline'} className="text-[11px]">{exists ? 'มีข้อมูลวันนี้แล้ว' : 'ยังไม่กรอก'}</Badge>
+          </div>
+        </div>}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           {FUNNEL_PLATFORMS.map(p => (
-            <div key={p} className="field" style={{ marginBottom: 0 }}>
-              <label>{p}</label>
-              <Input type="number" inputMode="numeric" min="0" step="1" className="num" value={leads[p]} onChange={e => setNum(p, e.target.value)} placeholder="0" />
+            <div key={p} className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+              <div className="text-[13px] font-medium mb-2 flex items-center justify-between">
+                <span>{p}</span>
+                {platTot(p) > 0 && <span className="text-[11px] text-muted-foreground">รวม {N(platTot(p))}</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label className="text-[11px]" style={{ color: 'var(--good)' }}>ลูกค้าใหม่</label>
+                  <Input type="number" inputMode="numeric" min="0" step="1" className="num" value={leads[p]?.new ?? ''} onChange={e => setNum(p, 'new', e.target.value)} placeholder="0" />
+                </div>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label className="text-[11px]" style={{ color: 'var(--ink-3)' }}>ลูกค้าเก่า</label>
+                  <Input type="number" inputMode="numeric" min="0" step="1" className="num" value={leads[p]?.old ?? ''} onChange={e => setNum(p, 'old', e.target.value)} placeholder="0" />
+                </div>
+              </div>
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {[['ทักรวม', N(totalLeads), ''], ['ปิดได้', N(ordersCount), 'var(--accent)'], ['%ปิด', close + '%', closeTone]].map(([lb, val, c]) => (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
+          {[['ทักรวม', N(totalLeads), ''], ['ใหม่', N(totalNew), 'var(--good)'], ['เก่า', N(totalOld), 'var(--ink-3)'], ['ปิดได้', N(ordersCount), 'var(--accent)'], ['%ปิด', close + '%', closeTone]].map(([lb, val, c]) => (
             <div key={lb} className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
               <div className="text-[11px] text-muted-foreground">{lb}</div>
               <div className="num text-xl font-bold" style={c ? { color: c } : undefined}>{val}</div>

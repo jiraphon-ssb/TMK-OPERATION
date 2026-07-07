@@ -7,7 +7,7 @@
    - ColumnToggle: DropdownMenu + Checkbox ซ่อน/โชว์คอลัมน์ (shadcn)
    ทุกชิ้น shadcn/Radix ล้วน
    ============================================================ */
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { Table, TableHeader, TableRow, TableHead, TableBody } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -41,6 +41,42 @@ export function useTableSort(rows, { key = null, dir = 'desc', accessors = {} } 
   return { sorted, sortKey, sortDir, toggleSort };
 }
 
+// ---- การ์ดตารางบนมือถือ: เซ็ต td[data-label] จากหัวตาราง อัตโนมัติ (สด · รองรับ sort/filter/หน้า) ----
+// ใช้คู่กับ CSS .table-cards (index.css). ข้ามเซลล์ colspan / cell-title / cell-hide-m / หัวว่าง
+export function useCardLabels(ref, enabled = true) {
+  useEffect(() => {
+    if (!enabled) return; // desktop-only table (cards=false) → ไม่ต้องเซ็ตป้าย
+    const root = ref.current; if (!root) return;
+    const apply = () => {
+      const table = root.querySelector('table'); if (!table) return; // ตารางอาจ mount ทีหลัง (skeleton/lazy) → observer จับตอนโผล่
+      const heads = [...table.querySelectorAll('thead th')].map(th => (th.textContent || '').trim());
+      table.querySelectorAll('tbody tr, tfoot tr').forEach(tr => {
+        const tds = tr.children;
+        // ข้ามแถวที่มี colspan cell ใดก็ตาม (empty-state / แถวสรุป / edit-row colspan+ปุ่ม) — กันป้ายเพี้ยน
+        if ([...tds].some(td => td.hasAttribute('colspan'))) return;
+        for (let i = 0; i < tds.length; i++) {
+          const td = tds[i];
+          if (td.classList.contains('cell-title') || td.classList.contains('cell-hide-m')) { td.removeAttribute('data-label'); continue; }
+          const lbl = heads[i] || '';
+          if (lbl) td.setAttribute('data-label', lbl); else td.removeAttribute('data-label');
+        }
+      });
+    };
+    apply();
+    // observe wrapper (มีแน่ตอน mount) ไม่ใช่ <table> โดยตรง → รองรับตารางที่ render ทีหลัง + การเปลี่ยนแถว/เซลล์ (sort/filter/หน้า/colVisible/tfoot)
+    const mo = new MutationObserver(apply);
+    mo.observe(root, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []); // enabled/cards เป็น prop คงที่ตลอดอายุตาราง → deps [] คงเดิม (กัน deps-size warning · ไม่ต้อง re-subscribe)
+}
+
+// ---- wrapper .table-wrap ที่แปลงเป็นการ์ดบนมือถือ (drop-in แทน <div className="table-wrap">) ----
+export function CardTable({ className = '', children, style }) {
+  const ref = useRef(null);
+  useCardLabels(ref);
+  return <div ref={ref} className={('table-wrap table-cards ' + className).trim()} style={style}>{children}</div>;
+}
+
 // ---- TableHead ที่คลิกเรียงได้ ----
 export function SortHead({ field, sortKey, sortDir, onSort, align = 'left', className = '', children, ...props }) {
   const active = field === sortKey;
@@ -65,7 +101,7 @@ export function SortHead({ field, sortKey, sortDir, onSort, align = 'left', clas
 // columns: [{ key, label, align?, style?, sortable?, accessor? }]  · sortable=false = หัวธรรมดา
 // renderRow(row, i, ctx) → <TableRow> · ctx = { sortKey, sortDir, density }
 // initial: { key, dir } default sort · density: 'dense'|'cozy' (เติม class .row-dense)
-export function SortableTable({ columns, rows, renderRow, initial = {}, density, maxHeight, wrapClassName = 'table-wrap', wrapStyle }) {
+export function SortableTable({ columns, rows, renderRow, initial = {}, density, maxHeight, wrapClassName = 'table-wrap', wrapStyle, cards = false }) {
   const accessors = useMemo(() => {
     const a = {};
     columns.forEach(c => { if (c.accessor) a[c.key] = c.accessor; });
@@ -73,9 +109,11 @@ export function SortableTable({ columns, rows, renderRow, initial = {}, density,
   }, [columns]);
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(rows, { key: initial.key || null, dir: initial.dir || 'desc', accessors });
   const style = maxHeight ? { maxHeight, overflowY: 'auto', ...(wrapStyle || {}) } : wrapStyle;
-  const cls = [wrapClassName, density].filter(Boolean).join(' ');
+  const cls = [wrapClassName, density, cards && 'table-cards'].filter(Boolean).join(' ');
+  const ref = useRef(null);
+  useCardLabels(ref, cards);
   return (
-    <div className={cls} style={style}>
+    <div ref={ref} className={cls} style={style}>
       <Table>
         <TableHeader>
           <TableRow>

@@ -125,7 +125,7 @@ export function NotificationsCenter() {
       {prefsOpen && (
         <div className="rounded-xl border bg-card p-4">
           <div className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="system" className="size-4" /> เปิด/ปิด การแจ้งเตือนแต่ละชนิด</div>
-          <div className="grid sm:grid-cols-2 gap-x-8 gap-y-4">
+          <div className="grid sm:grid-cols-2 gap-x-4 sm:gap-x-8 gap-y-4">
             <PrefGroup title="กล่องข้อความ" items={PREF_INBOX} prefOn={prefOn} setPref={actions.setPref} />
             <PrefGroup title="สัญญาณภาพรวม" items={PREF_SIGNALS} prefOn={prefOn} setPref={actions.setPref} />
           </div>

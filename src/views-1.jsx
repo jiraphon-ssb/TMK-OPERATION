@@ -14,6 +14,9 @@ import { Button } from '@/components/ui/button';
 import { Avatar as ShadcnAvatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { usePersistedState } from './hooks/usePersistedState.js';
+import { CardTable } from './components/DataTableParts.jsx';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
@@ -53,6 +56,9 @@ const LOG_FILTERS = [
   { id: 'task', label: 'งาน', match: a => a.entity === 'task' },
   { id: 'user', label: 'ผู้ใช้/ระบบ', match: a => a.entity === 'user' || a.action === 'login' || a.action === 'logout' },
 ];
+// เอาสไตล์แถวจากหน้า "บันทึกกิจกรรม" (LogView) มาใช้ในฟีดหน้าหลัก — ขอบซ้ายสีตามระดับ + ชิป entity/โครงการ + badge การกระทำ
+const SEV_COLOR = { info: 'var(--info)', warn: 'var(--warn)', urgent: 'var(--bad)' };
+const ENTITY_TH_HOME = { task: 'งาน', flow: 'โครงการ', order: 'ออเดอร์', comment: 'คอมเมนต์', product: 'สินค้า', campaign: 'แคมเปญ', channel: 'ช่องทาง', duty: 'หน้าที่', brand: 'แบรนด์', user: 'ผู้ใช้', daily: 'ยอดขาย', monthly: 'รายเดือน', segment: 'กลุ่มลูกค้า', ad: 'แอด', po: 'สต็อก', target: 'เป้า/คอม', settings: 'ตั้งค่า', data: 'ข้อมูล', auth: 'ระบบ', system: 'ระบบ' };
 
 /* ---------- ทีมวันนี้ — ออนไลน์/ออฟไลน์ จาก tmk_presence (heartbeat) ---------- */
 const ONLINE_MS = 150000; // 2.5 นาที — heartbeat ทุก 45 วิ ให้ margin พอ
@@ -136,35 +142,37 @@ function TeamTodayCard({ go }) {
                 เคลื่อนไหววันนี้ {activeCount} คน
               </Badge>
             </div>
-            <div className="flex flex-col gap-3">
-              {members.slice(0, 6).map((m, i) => (
-                <div key={m.email || i} className="flex items-center gap-3">
-                  <div className="relative flex-shrink-0">
-                    <ShadcnAvatar className="h-8 w-8">
-                      <AvatarFallback className="text-xs font-medium" style={{ backgroundColor: m.color || '#e2e8f0', color: m.color ? '#fff' : '#334155' }}>
-                        {m.name ? m.name.substring(0, 2).toUpperCase() : 'U'}
-                      </AvatarFallback>
-                    </ShadcnAvatar>
-                    <span className={`absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background ${m.online ? 'bg-green-500' : 'bg-muted-foreground'}`}></span>
+            {/* การ์ดสมาชิก 3 คอลัมน์/แถว — โชว์ทุกคน (สไตล์การ์ด talent · adapt ข้อมูลจริง: หน้าที่/ออนไลน์/งานค้าง) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {members.map((m, i) => (
+                <div key={m.email || i} className="rounded-2xl border bg-card p-3.5 flex flex-col gap-2.5 hover:shadow-md hover:-translate-y-0.5 transition-all">
+                  <div className="flex items-start justify-between gap-2">
+                    {m.department
+                      ? <span className="text-[11px] font-medium px-2 py-1 rounded-lg truncate max-w-[75%]" style={{ background: (m.color || '#64748b') + '1a', color: m.color || '#64748b' }}>{m.department}</span>
+                      : <span className="text-[11px] font-medium px-2 py-1 rounded-lg bg-muted text-muted-foreground">สมาชิก</span>}
+                    <span className={`h-2.5 w-2.5 rounded-full shrink-0 mt-0.5 ${m.online ? 'bg-green-500' : 'bg-muted-foreground/35'}`} title={m.online ? 'ออนไลน์' : 'ออฟไลน์'} />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {m.name}
-                      {m.load > 0 && <span className="ml-1 text-xs font-normal text-muted-foreground">· งานค้าง {m.load}</span>}
+                  <div className="flex items-center gap-3">
+                    <div className="relative shrink-0">
+                      <Avatar name={m.name} color={m.color || 'var(--ink-3)'} size={44} />
+                      {m.online && <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-green-500 border-2 border-card" />}
                     </div>
-                    <div className={`text-xs truncate ${m.online ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'}`}>
-                      {m.online ? `ออนไลน์${m.page ? ` · ดู${PAGE_LABEL[m.page] || m.page}` : ''}` : ago(m.last)}
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm truncate">{m.name}</div>
+                      <div className={`text-xs truncate ${m.online ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'}`}>
+                        {m.online ? `ออนไลน์${m.page ? ` · ${PAGE_LABEL[m.page] || m.page}` : ''}` : ago(m.last)}
+                      </div>
                     </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-auto pt-0.5">
+                    {m.load > 0
+                      ? <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">งานค้าง {m.load}</span>
+                      : <span className="text-[11px] px-2 py-0.5 rounded-md bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 font-medium">ไม่มีงานค้าง</span>}
+                    {m.activeToday && <span className="text-[11px] px-2 py-0.5 rounded-md bg-muted text-muted-foreground">เคลื่อนไหววันนี้</span>}
                   </div>
                 </div>
               ))}
-              {members.length > 6 && <div className="text-center text-xs text-muted-foreground pt-1">+ อีก {members.length - 6} คน</div>}
             </div>
-            {topLoad.length > 0 && (
-              <div className="mt-4 pt-4 border-t text-xs text-muted-foreground">
-                งานค้างมากสุด: {topLoad.map(m => `${m.name} (${m.load})`).join(' · ')}
-              </div>
-            )}
           </>
         )}
       </CardContent>
@@ -173,7 +181,9 @@ function TeamTodayCard({ go }) {
 }
 
 /* ---------- แคมเปญ — donut total/กำลังรัน/เสี่ยง จาก TMK.campaigns ---------- */
+const CAMP_TABS = [['all', 'ทั้งหมด'], ['live', 'กำลังรัน'], ['risk', 'เสี่ยง'], ['upcoming', 'รอเริ่ม']];
 function CampaignsCard({ go }) {
+  const [campFilter, setCampFilter] = useState('all'); // filter เลือกดูแคมเปญตามสถานะ
   const today = todayISO();
   // ใกล้จบใน 5 วัน — คำนวณแบบ pure จาก today (เลี่ยง Date.now ระหว่าง render)
   const [_ty, _tm, _td] = today.split('-').map(Number);
@@ -204,61 +214,78 @@ function CampaignsCard({ go }) {
           <Button variant="outline" size="sm" onClick={() => go('settings', 'campaigns')}>สร้างแคมเปญ</Button>
         </div>
       ) : (<>
-        <div className="row" style={{ justifyContent: 'space-around', gap: 8, padding: '6px 0 4px' }}>
-          <div style={{ textAlign: 'center' }}>
-            <Ring pct={100} size={68} stroke={7} color="var(--accent)"><span className="num" style={{ fontSize: 20, fontWeight: 800 }}>{total}</span></Ring>
-            <div className="cap" style={{ marginTop: 6 }}>ทั้งหมด</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <Ring pct={pctOf(live.length)} size={68} stroke={7} color="var(--good)"><span className="num" style={{ fontSize: 20, fontWeight: 800 }}>{live.length}</span></Ring>
-            <div className="cap" style={{ marginTop: 6 }}>กำลังรัน</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <Ring pct={pctOf(atRisk.length)} size={68} stroke={7} color="var(--warn)"><span className="num" style={{ fontSize: 20, fontWeight: 800, color: atRisk.length ? 'var(--warn)' : undefined }}>{atRisk.length}</span></Ring>
-            <div className="cap" style={{ marginTop: 6 }}>เสี่ยง</div>
-          </div>
+        {/* KPI rings — คลิกเพื่อกรองรายการด้านล่าง */}
+        <div className="grid grid-cols-4 gap-2">
+          {(() => { const upc = all.filter(c => c.status === 'upcoming').length; return [
+            { id: 'all', n: total, l: 'ทั้งหมด', c: 'var(--accent)', pct: 100 },
+            { id: 'live', n: live.length, l: 'กำลังรัน', c: 'var(--good)', pct: pctOf(live.length) },
+            { id: 'risk', n: atRisk.length, l: 'เสี่ยง', c: 'var(--warn)', pct: pctOf(atRisk.length) },
+            { id: 'upcoming', n: upc, l: 'รอเริ่ม', c: 'var(--info)', pct: pctOf(upc) },
+          ]; })().map(k => (
+            <button key={k.id} onClick={() => setCampFilter(k.id)} title={`ดูเฉพาะ${k.l}`}
+              className={`flex flex-col items-center gap-1.5 py-2.5 rounded-xl border transition-all ${campFilter === k.id ? 'border-primary/40 bg-primary/5' : 'border-transparent hover:bg-muted/50'}`}>
+              <Ring pct={k.pct} size={56} stroke={6} color={k.c}><span className="num" style={{ fontSize: 17, fontWeight: 800, color: k.id === 'risk' && k.n ? 'var(--warn)' : undefined }}>{k.n}</span></Ring>
+              <span className="text-xs text-muted-foreground font-medium">{k.l}</span>
+            </button>
+          ))}
         </div>
-        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+        {/* ต้องดูด่วน */}
+        <div className="mt-3 pt-3 border-t border-border/60">
           {urgent ? (
-            <div className="row" onClick={() => go('settings', 'campaigns')} style={{ gap: 9, cursor: 'pointer', alignItems: 'center' }}>
-              <span style={{ width: 9, height: 9, borderRadius: 3, background: urgent.color || 'var(--warn)', flexShrink: 0 }}></span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  <span style={{ color: 'var(--warn)', fontWeight: 700 }}>ต้องดูด่วน</span> · {urgent.name}</div>
-                <div className="cap">{urgent.status === 'paused' ? 'ถูกพักไว้' : urgent.endISO && urgent.endISO < today ? `เลยกำหนด (จบ ${urgent.end})` : `ใกล้จบ ${urgent.end}`}</div>
+            <div onClick={() => go('settings', 'campaigns')} className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 cursor-pointer" style={{ background: 'color-mix(in srgb, var(--warn) 9%, transparent)' }}>
+              <span className="size-2 rounded-full shrink-0" style={{ background: urgent.color || 'var(--warn)' }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold truncate"><span style={{ color: 'var(--warn)' }}>ต้องดูด่วน</span> · {urgent.name}</div>
+                <div className="text-xs text-muted-foreground truncate">{urgent.status === 'paused' ? 'ถูกพักไว้' : urgent.endISO && urgent.endISO < today ? `เลยกำหนด (จบ ${urgent.end})` : `ใกล้จบ ${urgent.end}`}</div>
               </div>
-              <span style={{ flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="arrowR" /></span>
+              <Icon name="arrowR" className="size-4 text-muted-foreground shrink-0" />
             </div>
           ) : (
-            <div className="cap cap-head" style={{ color: 'var(--good)', fontWeight: 600 }}><Icon name="check" /> ทุกแคมเปญอยู่ในแผน</div>
+            <div className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--good)' }}><Icon name="check" className="size-4" /> ทุกแคมเปญอยู่ในแผน</div>
           )}
         </div>
-        {/* ความคืบหน้าแต่ละแคมเปญ — รันไปกี่ % แล้ว (ครบทุกตัว) */}
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-3)' }}>ช่วงเวลาแคมเปญ <span style={{ fontWeight: 500, color: 'var(--ink-4)' }}>(เวลาผ่านไปกี่ % — ไม่ใช่งานที่เสร็จ)</span></div>
-          {all.map(c => {
-            const p = progressOf(c);
-            const sm = stMeta[c.status] || { l: c.status, c: 'var(--ink-3)' };
-            return (
-              <div key={c.id} onClick={() => go('settings', 'campaigns')} style={{ cursor: 'pointer' }}>
-                <div className="row between" style={{ gap: 8, marginBottom: 5, alignItems: 'center' }}>
-                  <span className="row" style={{ gap: 7, minWidth: 0, flex: 1 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: c.color || 'var(--ink-3)', flexShrink: 0 }}></span>
-                    <span className="sm" style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
-                  </span>
-                  <span className="cap num" style={{ flexShrink: 0, color: sm.c, fontWeight: 700 }}>{p == null ? sm.l : `${Math.round(p)}%`}</span>
+        {/* filter + รายการความคืบหน้า (เวลาผ่านไปกี่ %) */}
+        <div className="mt-3 pt-3 border-t border-border/60 flex flex-col gap-2.5">
+          <div className="flex flex-wrap gap-1.5">
+            {CAMP_TABS.map(([id, label]) => {
+              const n = id === 'all' ? all.length : id === 'live' ? live.length : id === 'risk' ? atRisk.length : all.filter(c => c.status === 'upcoming').length;
+              return (
+                <button key={id} onClick={() => setCampFilter(id)}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${campFilter === id ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground border-border hover:bg-muted'}`}>
+                  {label} {n > 0 && <span className={campFilter === id ? 'opacity-80' : 'opacity-60'}>{n}</span>}
+                </button>
+              );
+            })}
+          </div>
+          {/* รายการเลื่อนได้เมื่อแคมเปญเยอะ — ไม่ให้การ์ดสูงเกินคอลัมน์ซ้าย */}
+          <div className="flex flex-col gap-2.5 overflow-y-auto pr-1 -mr-1" style={{ maxHeight: 300 }}>
+          {(() => {
+            const shown = all.filter(c => campFilter === 'all' ? true : campFilter === 'live' ? c.status === 'live' : campFilter === 'risk' ? atRisk.includes(c) : c.status === 'upcoming');
+            if (shown.length === 0) return <div className="text-center text-xs text-muted-foreground py-2.5">ไม่มีแคมเปญในหมวดนี้</div>;
+            return shown.map(c => {
+              const p = progressOf(c);
+              const sm = stMeta[c.status] || { l: c.status, c: 'var(--ink-3)' };
+              return (
+                <div key={c.id} onClick={() => go('settings', 'campaigns')} className="rounded-lg px-2 py-1.5 -mx-1 hover:bg-muted/40 cursor-pointer transition-colors">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="size-2 rounded-sm shrink-0" style={{ background: c.color || 'var(--ink-3)' }} />
+                    <span className="text-sm font-semibold flex-1 truncate">{c.name}</span>
+                    <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-md shrink-0 tabular-nums" style={{ background: sm.c + '1a', color: sm.c }}>{p == null ? sm.l : `${Math.round(p)}%`}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full transition-all" style={{ width: `${p == null ? 0 : p}%`, background: c.color || 'var(--accent)' }} /></div>
+                  <div className="text-[11px] text-muted-foreground mt-1 truncate">{sm.l}{c.start && c.end ? ` · ${c.start}–${c.end}` : ''}</div>
                 </div>
-                <div className="bar" style={{ height: 6 }}><span style={{ width: `${p == null ? 0 : p}%`, background: c.color || 'var(--accent)' }}></span></div>
-                <div className="cap" style={{ marginTop: 4, color: 'var(--ink-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sm.l}{c.start && c.end ? ` · ${c.start}–${c.end}` : ''}</div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
+          </div>
         </div>
       </>)}
       </CardContent>
     </Card>
   );
 }
+
 
 /* Skeleton หน้าหลัก: greeting + การ์ด todo + การ์ดสรุป */
 function HomeSkeleton() {
@@ -300,7 +327,6 @@ function SalesSkeleton() {
 export function HomeView({ go }) {
   const { user } = useUser() || {};
   const userName = user?.name || 'มัง';
-  const [filter, setFilter] = useState('all');
   const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
   if (beat) return <HomeSkeleton />;
 
@@ -340,22 +366,6 @@ export function HomeView({ go }) {
     try { navigator.clipboard.writeText(t); window.__toast && window.__toast('คัดลอกสรุปแล้ว — แปะส่งไลน์ได้เลย', 'success'); } catch { window.__toast && window.__toast('คัดลอกไม่สำเร็จ', 'error'); }
   };
 
-  // อัพเดท/log — กรอง + จัดกลุ่มตามวัน
-  const f = LOG_FILTERS.find(x => x.id === filter);
-  const logs = (D.audit || []).filter(a => filter === 'all' || (f && f.match && f.match(a)));
-  // วันแบบเวลาท้องถิ่น (ไม่ใช่ UTC) — กันรายการช่วงเช้ามืด/ค่ำถูกจัดผิดวัน
-  const localDay = (ts) => { if (!ts) return ''; const d = new Date(ts); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  const _today = todayISO();
-  const _yest = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
-  const todayCount = (D.audit || []).filter(a => localDay(a.ts) === _today).length;
-  const groups = [];
-  logs.forEach(a => {
-    const day = localDay(a.ts);
-    const key = day === _today ? 'วันนี้' : day === _yest ? 'เมื่อวาน' : (a.ts ? new Date(a.ts).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' }) : 'ก่อนหน้า');
-    let g = groups.find(x => x.key === key); if (!g) { g = { key, items: [] }; groups.push(g); }
-    g.items.push(a);
-  });
-
   return (
     <div className="content-inner rise">
       {/* greeting */}
@@ -391,15 +401,27 @@ export function HomeView({ go }) {
             <div className="cap" style={{ textAlign: 'center', padding: '18px 0', color: 'var(--good)', fontWeight: 600 }}><Icon name="check" /> ไม่มีอะไรค้าง — เคลียร์หมดแล้ว</div>
           )}
           {todayTasks.length > 0 && (<>
-            <div className="cap" style={{ marginBottom: 8, fontWeight: 700, color: 'var(--ink-3)' }}>{'งานวันนี้'} ({todayTasks.length})</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">งานวันนี้ <span className="opacity-70">({todayTasks.length})</span></div>
+            <div className="flex flex-col divide-y divide-border/50">
               {todayTasks.slice(0, 6).map(t => {
                 const stMap = { todo: { l: 'รอทำ', c: 'var(--ink-3)' }, inprogress: { l: 'กำลังทำ', c: 'var(--info)' }, review: { l: 'รอตรวจ', c: 'var(--warn)' }, done: { l: 'เสร็จ', c: 'var(--good)' } }[t.status] || { l: '—', c: 'var(--ink-3)' };
+                // ผู้รับผิดชอบ — resolve ชื่อ → staff/หน้าที่ (สี avatar)
+                const names = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
+                const assignees = names.map(n => { const st = (D.staff || []).find(s => s.name === n); const du = (D.duties || []).find(d => d.name === n); return { name: n, color: st?.color || du?.color || 'var(--ink-3)' }; });
                 return (
-                  <div key={t.id} className="row" onClick={() => window.__openModal && window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })} style={{ gap: 10, padding: '8px 4px', cursor: 'pointer' }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: stMap.c, flexShrink: 0 }}></span>
-                    <span className="sm" style={{ flex: 1, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</span>
-                    <span className="cap" style={{ color: stMap.c, fontWeight: 600, flexShrink: 0 }}>{stMap.l}</span>
+                  <div key={t.id} onClick={() => window.__openModal && window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
+                    className="flex items-center gap-3 px-2 py-2.5 -mx-1 rounded-lg hover:bg-muted/40 cursor-pointer transition-colors">
+                    <span className="size-2 rounded-full shrink-0" style={{ background: stMap.c }} />
+                    <span className="text-sm font-medium flex-1 truncate">{t.title}</span>
+                    {assignees.length > 0 && (
+                      <div className="flex -space-x-1.5 shrink-0" title={assignees.map(a => a.name).join(', ')}>
+                        {assignees.slice(0, 2).map((a, i) => (
+                          <span key={i} className="inline-flex rounded-full ring-2 ring-card"><Avatar name={a.name} color={a.color} size={22} /></span>
+                        ))}
+                        {assignees.length > 2 && <span className="inline-flex items-center justify-center size-[22px] rounded-full ring-2 ring-card bg-muted text-[10px] font-semibold text-muted-foreground">+{assignees.length - 2}</span>}
+                      </div>
+                    )}
+                    <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0" style={{ background: stMap.c + '1a', color: stMap.c }}>{stMap.l}</span>
                   </div>
                 );
               })}
@@ -440,77 +462,15 @@ export function HomeView({ go }) {
           </CardContent>
         </Card>
 
-        {/* แคมเปญ — ใต้สรุปเมื่อวาน */}
-        <CampaignsCard go={go} />
         </div>
 
-        {/* คอลัมน์ขวา — ทีมวันนี้ + อัพเดทล่าสุด */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+        {/* คอลัมน์ขวา — แคมเปญ */}
+        <CampaignsCard go={go} />
+      </div>
+
+      {/* ทีมวันนี้ — การ์ดสมาชิกทุกคน (เต็มความกว้าง · 3 คอลัมน์/แถว) */}
+      <div style={{ marginTop: 16 }}>
         <TeamTodayCard go={go} />
-        {/* อัพเดท / ความเคลื่อนไหว — พระเอก */}
-        <Card className="flex flex-col">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <div className="space-y-1">
-              <CardTitle className="flex items-center text-base font-semibold">
-                <Icon name="clock" className="mr-2 h-4 w-4 text-primary" />
-                อัพเดทล่าสุด
-                {todayCount > 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">· วันนี้ {todayCount} รายการ</span>}
-              </CardTitle>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => go('settings', 'audit')} className="h-8 text-xs">
-              ดูประวัติทั้งหมด <Icon name="arrowR" className="ml-2 h-3 w-3" />
-            </Button>
-          </CardHeader>
-          <CardContent className="flex flex-1 flex-col">
-            <div className="flex flex-wrap gap-2 mb-4">
-              {LOG_FILTERS.map(x => (
-                <Badge
-                  key={x.id}
-                  variant={filter === x.id ? 'default' : 'outline'}
-                  className="cursor-pointer"
-                  onClick={() => setFilter(x.id)}
-                >
-                  {x.label}
-                </Badge>
-              ))}
-            </div>
-            <div className="flex-1 overflow-y-auto max-h-[560px] flex flex-col pr-2">
-              {logs.length === 0 && <div className="text-center py-8 text-sm text-muted-foreground">ยังไม่มีความเคลื่อนไหวในหมวดนี้</div>}
-              {groups.map(g => (
-                <div key={g.key}>
-                  <div className="sticky top-0 z-10 bg-card py-2 text-xs font-bold text-muted-foreground">
-                    {g.key}
-                  </div>
-                  {g.items.map((a, i) => {
-                    const m = logMeta(a.action);
-                    const s = (D.staff || []).find(x => x.name === a.user) || { color: 'var(--ink-3)' };
-                    const tm = a.ts ? new Date(a.ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : a.time;
-                    return (
-                      <div key={i} className="flex items-start gap-3 py-2">
-                        <ShadcnAvatar className="h-7 w-7 mt-0.5">
-                          <AvatarFallback className="text-[10px] font-medium" style={{ backgroundColor: s.color || '#e2e8f0', color: s.color ? '#fff' : '#334155' }}>
-                            {a.user ? a.user.substring(0, 2).toUpperCase() : 'U'}
-                          </AvatarFallback>
-                        </ShadcnAvatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm leading-tight">
-                            <span className="font-semibold mr-1">{a.user}</span>
-                            <span style={{ color: m.c }} className="font-medium">{m.l}</span>
-                            {a.name && a.entity !== 'auth' ? <span className="text-muted-foreground ml-1">{a.name}</span> : null}
-                          </div>
-                          {a.entity !== 'auth' && <div className="text-xs text-muted-foreground mt-0.5 truncate">{a.summary}</div>}
-                          {a.fields && a.fields.length > 0 && <div className="text-[11px] text-muted-foreground/80 mt-1">{a.fields.slice(0, 3).map(fd => `${fd.label}: ${fd.value}`).join(' · ')}</div>}
-                        </div>
-                        <span className="text-[11px] text-muted-foreground whitespace-nowrap flex-shrink-0 mt-0.5">{tm}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-        </div>
       </div>
     </div>
   );
@@ -804,7 +764,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
           <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'เป้า · ผลงาน · คุมงบโฆษณา — รายแพลตฟอร์ม (เดือนนี้)'}</CardTitle>
           <span className="cap">{'เพดาน ACOS'} {consts.ACOS_CEIL}%</span>
         </CardHeader>
-        <div className="table-wrap"><Table>
+        <CardTable><Table>
           <TableHeader><TableRow>
             <TableHead>{'ช่องทาง'}</TableHead>
             <TableHead style={{ textAlign: 'right' }}>{'เป้าเดือน'}</TableHead>
@@ -821,7 +781,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
               const adPct = ch.actual > 0 ? (ch.ad / ch.actual) * 100 : null; // ACOS
               return (
                 <TableRow key={ch.id}>
-                  <TableCell><span className="row" style={{ gap: 8, fontWeight: 600 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>{ch.name}</span></TableCell>
+                  <TableCell className="cell-title"><span className="row" style={{ gap: 8, fontWeight: 600 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: ch.hex, flexShrink: 0 }}></span>{ch.name}</span></TableCell>
                   <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{ch.target > 0 ? Bk(ch.target) : '—'}</TableCell>
                   <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{Bk(ch.actual)}</TableCell>
                   <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: targetColor(tgtPct) }}>{tgtPct == null ? '—' : P(tgtPct, 0)}</TableCell>
@@ -853,7 +813,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
               );
             })()}
           </TableFooter>
-        </Table></div>
+        </Table></CardTable>
       </Card>
 
       {/* charts */}
@@ -1201,7 +1161,7 @@ function SalesAds({ dateProps, md }) {
       {/* Ad performance table */}
       <Card className="p-[22px] mb-4">
         <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4"><CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{color:'var(--accent)'}}><Icon name="zap" /></span> {'ประสิทธิภาพโฆษณา'}</CardTitle></CardHeader>
-        <div className="table-wrap"><Table>
+        <CardTable><Table>
           <TableHeader><TableRow><TableHead>{'ช่องทาง'}</TableHead><TableHead style={{textAlign:'right'}}>{'รายได้'}</TableHead><TableHead style={{textAlign:'right'}}>{'ค่าแอด'}</TableHead><TableHead style={{textAlign:'right'}}>{'งบ'}</TableHead><TableHead style={{textAlign:'right'}}>{'ใช้/งบ'}</TableHead><TableHead style={{textAlign:'right'}}>ROAS</TableHead><TableHead style={{textAlign:'right'}}>ACOS</TableHead></TableRow></TableHeader>
           <TableBody>
             {channels.filter(c=>c.hasAd).length === 0 && (
@@ -1214,7 +1174,7 @@ function SalesAds({ dateProps, md }) {
               const usePct = bud > 0 ? (c.ad/bud)*100 : null;
               return (
                 <TableRow key={c.id}>
-                  <TableCell><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></TableCell>
+                  <TableCell className="cell-title"><span className="row" style={{gap:8, fontWeight:600}}><span style={{width:9,height:9,borderRadius:3,background:c.hex}}></span>{c.name}</span></TableCell>
                   <TableCell className="num" style={{textAlign:'right', fontWeight:600}}>{Bk(c.actual)}</TableCell>
                   <TableCell className="num" style={{textAlign:'right', color:'var(--ink-2)'}}>{Bk(c.ad)}</TableCell>
                   <TableCell className="num" style={{textAlign:'right', color:'var(--ink-3)'}}>{bud > 0 ? Bk(bud) : '—'}</TableCell>
@@ -1225,7 +1185,7 @@ function SalesAds({ dateProps, md }) {
               );
             })}
           </TableBody>
-        </Table></div>
+        </Table></CardTable>
       </Card>
 
       {/* Ad campaigns table — ไว้ล่างสุด (ส่วนใหญ่ยังว่าง ไม่ควรคั่นข้อมูลหลัก) */}
@@ -1240,7 +1200,7 @@ function SalesAds({ dateProps, md }) {
             <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="plus" /> สร้างแคมเปญแอด</Button>
           </div>
         ) : (
-        <div className="table-wrap"><Table>
+        <CardTable><Table>
           <TableHeader><TableRow><TableHead>{'ชื่อแคมเปญ'}</TableHead><TableHead>{'แพลตฟอร์ม'}</TableHead><TableHead style={{textAlign:'right'}}>{'งบ'}</TableHead><TableHead style={{textAlign:'right'}}>{'ใช้ไป'}</TableHead><TableHead style={{textAlign:'right'}}>ROAS</TableHead><TableHead>{'สถานะ'}</TableHead></TableRow></TableHeader>
           <TableBody>
             {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).map((c, i) => {
@@ -1248,7 +1208,7 @@ function SalesAds({ dateProps, md }) {
               const s = stMap[c.status] || stMap.done;
               return (
                 <TableRow key={i}>
-                  <TableCell style={{ fontWeight: 600 }}>{c.name}</TableCell>
+                  <TableCell className="cell-title" style={{ fontWeight: 600 }}>{c.name}</TableCell>
                   <TableCell><span className="cap">{c.platform}</span></TableCell>
                   <TableCell className="num" style={{ textAlign: 'right' }}>{Bk(c.budget)}</TableCell>
                   <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-2)' }}>{Bk(c.spent)}</TableCell>
@@ -1258,7 +1218,7 @@ function SalesAds({ dateProps, md }) {
               );
             })}
           </TableBody>
-        </Table></div>
+        </Table></CardTable>
         )}
       </Card>
     </div>
@@ -1412,7 +1372,7 @@ function SalesCustomers({ dateProps, md }) {
       {false && (
       <Card className="p-[22px] mb-4">
         <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4"><CardTitle className="m-0 text-lg font-semibold flex items-center gap-2">{'ตาราง'} Cohort Retention</CardTitle></CardHeader>
-        <div className="table-wrap"><Table>
+        <CardTable><Table>
           <TableHeader>
             <TableRow>
               <TableHead>{'เดือนเริ่มต้น'}</TableHead>
@@ -1424,7 +1384,7 @@ function SalesCustomers({ dateProps, md }) {
           <TableBody>
             {([]).map((row, i) => (  /* Cohort table — empty until tmk_cohort table is added */
               <TableRow key={i}>
-                <TableCell style={{ fontWeight: 600 }}>{row.month}</TableCell>
+                <TableCell className="cell-title" style={{ fontWeight: 600 }}>{row.month}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right' }}>
                   <Badge variant="success">{row.m1}%</Badge>
                 </TableCell>
@@ -1441,7 +1401,7 @@ function SalesCustomers({ dateProps, md }) {
               </TableRow>
             ))}
           </TableBody>
-        </Table></div>
+        </Table></CardTable>
       </Card>
       )}
 
