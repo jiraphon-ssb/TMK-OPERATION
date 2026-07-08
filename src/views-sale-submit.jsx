@@ -584,7 +584,7 @@ export function SubmitSalesView() {
           </Tabs>
           <DateRangePicker from={range.from} to={range.to} onChange={pickRange} presets={PRESETS} activePreset={datePreset || ''} onPickPreset={pickPreset} />
           <CollapsibleTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5"><Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 ? ` (${nFilters})` : ''} <Icon name="chevD" className={'size-3.5 opacity-60 transition-transform ' + (filtersOpen ? 'rotate-180' : '')} /></Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5"><Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 ? ` (${nFilters})` : ''} <span className={'inline-flex size-3.5 shrink-0 items-center justify-center opacity-60 transition-transform ' + (filtersOpen ? 'rotate-180' : '')}><Icon name="chevD" className="size-3.5" /></span></Button>
           </CollapsibleTrigger>
           <SearchInput value={fSearch} onChange={e => setFSearch(e.target.value)} placeholder="ค้นหา" className="h-8 text-xs" wrapperClassName="ml-auto w-full sm:w-[200px]" />
         </div>

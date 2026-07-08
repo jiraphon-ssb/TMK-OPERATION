@@ -311,7 +311,7 @@ function FlowsNav({ n, section, sub, go, activeFlow, pickFlow }) {
         <CollapsibleTrigger asChild>
           <SidebarMenuButton tooltip={n.label} isActive={section === 'flows' && sub === 'overview'} onClick={() => go('flows', 'overview')}>
             <Icon name={n.icon} /><span>{n.label}</span>
-            <Icon name="chevR" className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+            <span className="ml-auto inline-flex shrink-0 items-center justify-center transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"><Icon name="chevR" /></span>
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -433,7 +433,7 @@ function PublicTrackPage({ code }) {
           <div className="card">
             <div className="row between" style={{ marginBottom: 4 }}>
               <span style={{ fontWeight: 800, fontSize: 16 }}>{order.code}</span>
-              {isCancelled && <span className="chip chip-bad">ยกเลิกแล้ว</span>}
+              {isCancelled && <Badge variant="destructive">ยกเลิกแล้ว</Badge>}
             </div>
             <div className="cap" style={{ marginBottom: 16 }}>{order.customer_name || ''} · {new Date(order.created_at || Date.now()).toLocaleDateString('th-TH')}</div>
 
@@ -456,7 +456,7 @@ function PublicTrackPage({ code }) {
               </div>
             )}
 
-            {order.tracking_no && <div style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 12 }}><div className="cap">เลขพัสดุ {order.carrier ? `· ${order.carrier}` : ''}</div><div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{order.tracking_no}</div></div>}
+            {order.tracking_no && <div style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 12 }}><div className="cap">เลขพัสดุ {order.carrier ? `· ${order.carrier}` : ''}</div><div style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{order.tracking_no}</div></div>}
 
             <div className="eyebrow" style={{ marginBottom: 8 }}>รายการ</div>
             {(order.items || []).map((it, i) => (
@@ -819,7 +819,7 @@ function AppInner() {
                           <Icon name={n.icon} />
                           <span>{n.label}</span>
                           {n.badge && <span className="ml-2 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">{n.badge}</span>}
-                          <Icon name="chevR" className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                          <span className="ml-auto inline-flex shrink-0 items-center justify-center transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"><Icon name="chevR" /></span>
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
@@ -1028,7 +1028,7 @@ function AppInner() {
                 <div className="rail-brand" style={{ margin: 0, width: 38, height: 38 }}><img src={tmkLogo} alt="TMK" /></div>
                 <div><div className="h3">TMK Operation</div><div className="cap">ศูนย์ปฏิบัติการ</div></div>
               </div>
-              <button className="icon-btn" onClick={() => setDrawer(false)}><Icon name="x" /></button>
+              <Button variant="ghost" size="icon" onClick={() => setDrawer(false)}><Icon name="x" /></Button>
             </div>
             {NAV.map(n => (
               <div key={n.id} style={{ marginBottom: 2 }}>

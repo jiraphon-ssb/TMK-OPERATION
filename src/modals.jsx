@@ -25,6 +25,7 @@ import { buildMaster, buildSku, summarize, detectFileKind, buildMatchers, auditI
 import { writeMonthlyRollup } from './lib/monthlyRollup.js';
 import { invalidateSaleCache } from './lib/saleData.js';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -34,6 +35,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import * as RDialog from '@radix-ui/react-dialog';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
 import { logAudit } from './lib/audit.js';
@@ -139,7 +141,7 @@ const dialogCloseHandler = (onClose, confirmOnClose) => (open) => {
 
 // เปิด/ปิดแบบมีอนิเมชัน: คุม open เอง + หน่วง onClose ~200ms ให้ Radix เล่น exit (data-state=closed) ก่อน unmount
 // (คู่กับ forceMount ที่ Overlay/Content) — ทำให้ sheetOut/fadeOut/dialog animate-out ทำงานจริง
-function useAnimatedClose(onClose, confirmOnClose) {
+function useAnimatedClose(onClose, confirmOnClose, delay = 200) {
   const [open, setOpen] = useState(true);
   const closing = useRef(false);
   const onOpenChange = (o) => {
@@ -148,7 +150,7 @@ function useAnimatedClose(onClose, confirmOnClose) {
     if (closing.current) return;
     closing.current = true;
     setOpen(false);
-    setTimeout(() => onClose && onClose(), 200);
+    setTimeout(() => onClose && onClose(), delay);
   };
   return { open, onOpenChange };
 }
@@ -192,27 +194,34 @@ export function Modal({ icon, title, sub, onClose, footer, wide, xl, children, c
   );
 }
 
-/* ---------- Side sheet (Radix Dialog — แก้บั๊ก Radix Select/Dropdown ภายในใช้ไม่ได้) ---------- */
+/* ---------- Side sheet — สร้างบน shadcn Sheet (มาตรฐานเดียวกับหน้าบันทึกกิจกรรม)
+   คง props/หัว-เนื้อ-ฟุตเตอร์เดิม · ไม่ใช้ custom .side-sheet shell แล้ว ---------- */
+const SIDE_SHEET_W = {
+  sm: 'w-full sm:w-[440px] sm:max-w-[440px]',
+  md: 'w-full sm:w-[560px] sm:max-w-[560px]',
+  lg: 'w-full sm:w-[680px] sm:max-w-[680px]',
+  xl: 'w-full sm:w-[760px] sm:max-w-[760px]',
+};
 export function SideSheet({ icon, title, sub, onClose, footer, size = 'md', children, confirmOnClose, showCloseButton = true, position = 'right' }) {
-  const { open, onOpenChange } = useAnimatedClose(onClose, confirmOnClose);
+  // หน่วงปิด ~430ms ให้ animate-out ของ Sheet เล่นจบก่อน parent ถอด component
+  const { open, onOpenChange } = useAnimatedClose(onClose, confirmOnClose, 430);
   return (
-    <RDialog.Root open={open} onOpenChange={onOpenChange}>
-      <RDialog.Portal forceMount>
-        <RDialog.Overlay className="sheet-scrim" forceMount />
-        <RDialog.Content className={`side-sheet side-sheet-${size}${position === 'left' ? ' side-sheet-left' : ''}`} aria-describedby={undefined} forceMount>
-          <div className="side-sheet-head">
-            {icon && <div className="mh-icon"><Icon name={icon} /></div>}
-            <div style={{ minWidth: 0 }}>
-              <RDialog.Title className="dialog-title">{title}</RDialog.Title>
-              <RDialog.Description className={sub ? 'dialog-description' : 'sr-only'}>{sub || title}</RDialog.Description>
-            </div>
-            {showCloseButton && <RDialog.Close asChild><Button variant="ghost" size="icon" className="dialog-close" aria-label="ปิด"><Icon name="x" /></Button></RDialog.Close>}
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side={position === 'left' ? 'left' : 'right'} hideClose
+        aria-describedby={undefined}
+        className={`${SIDE_SHEET_W[size] || SIDE_SHEET_W.md} p-0 gap-0 flex flex-col overflow-hidden`}>
+        <div className="side-sheet-head">
+          {icon && <div className="mh-icon"><Icon name={icon} /></div>}
+          <div style={{ minWidth: 0 }}>
+            <RDialog.Title className="dialog-title">{title}</RDialog.Title>
+            <RDialog.Description className={sub ? 'dialog-description' : 'sr-only'}>{sub || title}</RDialog.Description>
           </div>
-          <div className="side-sheet-body">{children}</div>
-          {footer && <div className="side-sheet-foot">{footer}</div>}
-        </RDialog.Content>
-      </RDialog.Portal>
-    </RDialog.Root>
+          {showCloseButton && <RDialog.Close asChild><Button variant="ghost" size="icon" className="dialog-close" aria-label="ปิด"><Icon name="x" /></Button></RDialog.Close>}
+        </div>
+        <div className="side-sheet-body">{children}</div>
+        {footer && <div className="side-sheet-foot">{footer}</div>}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -1452,7 +1461,7 @@ export function ProductModal({ data, onClose }) {
               {/* หัวการ์ด (คลิกพับ/กาง) */}
               <div className="row between" style={{ padding: '10px 12px', cursor: 'pointer', gap: 8 }} onClick={() => setOpen(o => ({ ...o, [l.id]: !o[l.id] }))}>
                 <div className="row" style={{ gap: 8, minWidth: 0 }}>
-                  <span style={{ transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--ink-3)' }}><Icon name="chevR" /></span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: 'none', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', color: 'var(--ink-3)' }}><Icon name="chevR" /></span>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700 }}>ล็อต {i + 1}{l.lotNo ? ` · ${l.lotNo}` : ''}</div>
                     <div className="cap" style={{ color: 'var(--ink-3)' }}>รวม {N(calcLotTotal(l))} ตัว · {l.colors.length} สี × {l.sizes.length} ไซส์{calcLotValue(l) ? ` · มูลค่า ${B(calcLotValue(l))}` : ''}</div>
@@ -2435,8 +2444,8 @@ export function MonthlyTargetModal({ data, onClose }) {
         <div className="row between" style={{ marginTop: 8 }}>
           <span className="cap">รวมช่องทาง: {B(chSum)}</span>
           {match
-            ? <span className="chip chip-good">ตรงกับเป้ารวม</span>
-            : <span className="chip chip-warn">ต่างจากเป้ารวม {B(Math.abs(chSum - total))}</span>}
+            ? <Badge className="border-transparent bg-[var(--good-soft)] text-[var(--good)] hover:bg-[var(--good-soft)]">ตรงกับเป้ารวม</Badge>
+            : <Badge className="border-transparent bg-[var(--warn-soft)] text-[var(--warn)] hover:bg-[var(--warn-soft)]">ต่างจากเป้ารวม {B(Math.abs(chSum - total))}</Badge>}
         </div>
       </div>
 

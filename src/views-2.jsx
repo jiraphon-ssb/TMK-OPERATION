@@ -663,9 +663,9 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
           <div className="p-[22px]">
             <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4 flex-wrap gap-[10px]">
               <div className="row" style={{ gap: 8 }}>
-                <button className="icon-btn" onClick={() => shiftMonth(-1)} title="เดือนก่อน"><span style={{ transform: 'rotate(180deg)', display: 'grid' }}><Icon name="chevR" /></span></button>
+                <Button variant="ghost" size="icon" onClick={() => shiftMonth(-1)} title="เดือนก่อน"><span style={{ transform: 'rotate(180deg)', display: 'grid' }}><Icon name="chevR" /></span></Button>
                 <h3 style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>{MONTHS_TH[ym.m]} {ym.y}</h3>
-                <button className="icon-btn" onClick={() => shiftMonth(1)} title="เดือนถัดไป"><Icon name="chevR" /></button>
+                <Button variant="ghost" size="icon" onClick={() => shiftMonth(1)} title="เดือนถัดไป"><Icon name="chevR" /></Button>
                 <Button variant="outline" size="sm" onClick={goToday}>วันนี้</Button>
               </div>
             </CardHeader>
@@ -2038,7 +2038,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
         <DrawerField label="วันที่">{o.order_date || o.order_month}</DrawerField>
         <div><span className="cap">ช่องทาง</span><b><span className="row" style={{ gap: 6, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: 3, background: channelColor(o.channel), flex: 'none' }} />{o.channel}</span></b></div>
         <div><span className="cap">ประเภทงาน</span><b>{jt === 'ปลีก' ? 'ปลีก' : <span className={'chip ' + jtCls}>{jt}</span>}</b></div>
-        {o.status && o.status !== 'completed' && o.status !== 'active' && <div><span className="cap">สถานะ</span><b><span className="chip">{stMap[o.status] || o.status}</span></b></div>}
+        {o.status && o.status !== 'completed' && o.status !== 'active' && <div><span className="cap">สถานะ</span><b><Badge variant="secondary">{stMap[o.status] || o.status}</Badge></b></div>}
         <DrawerField label="การชำระ">{o.payment_type || '—'}</DrawerField>
       </DrawerGroup>
       <DrawerGroup icon="user" title="ลูกค้า">

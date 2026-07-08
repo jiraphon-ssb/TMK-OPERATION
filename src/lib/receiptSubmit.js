@@ -267,6 +267,7 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
 
   /* 1) receipts — insert ทีละใบ (กันซ้ำด้วย unique order_no · ใบ void เดิม = ปลุกกลับ) */
   const passed = [];
+  const freshNos = []; // ใบที่ "insert ใหม่" รอบนี้ (ไม่รวมใบ void-ปลุกกลับ) — เผื่อ rollback ถ้า orders/skus พัง
   for (const p of prepared) {
     let ins = await supabase.from('tmk_sale_receipts').insert(p.receiptRow);
     if (ins.error && String(ins.error.code) === '23505') {
@@ -285,25 +286,33 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
       continue;
     }
     passed.push(p);
+    freshNos.push(p.receiptRow.order_no);
   }
   onProgress?.('receipts', passed.length, items.length);
   if (!passed.length) return { ok, skipped };
 
-  /* 2) orders — upsert ชุด */
-  for (const ch of chunk(passed.map(p => p.orderRow), 400)) {
-    const { error } = await supabase.from('tmk_mp_orders').upsert(ch, { onConflict: 'id' });
-    if (error) throw error;
-  }
-  /* 3) skus — ลบของ order เหล่านี้ก่อน (แพทเทิร์น import) แล้ว insert ใหม่ */
-  const nos = passed.map(p => p.orderRow.order_no);
-  for (const ids of chunk(nos, 150)) {
-    const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').in('order_no', ids);
-    if (error) throw error;
-  }
-  const allSkus = passed.flatMap(p => p.skuRows);
-  for (const ch of chunk(allSkus, 400)) {
-    const { error } = await supabase.from('tmk_mp_skus').insert(ch);
-    if (error) throw error;
+  /* 2-3) orders + skus — ถ้าพังกลางทาง: ลบใบเสร็จที่เพิ่ง insert รอบนี้ทิ้ง (rollback)
+     กัน "ใบ confirmed ผี" ที่บล็อกการส่งซ้ำแต่ไม่มีออเดอร์/ยอด → ส่งใหม่ได้จริง (idempotent) */
+  try {
+    /* 2) orders — upsert ชุด */
+    for (const ch of chunk(passed.map(p => p.orderRow), 400)) {
+      const { error } = await supabase.from('tmk_mp_orders').upsert(ch, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    /* 3) skus — ลบของ order เหล่านี้ก่อน (แพทเทิร์น import) แล้ว insert ใหม่ */
+    const nos = passed.map(p => p.orderRow.order_no);
+    for (const ids of chunk(nos, 150)) {
+      const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').in('order_no', ids);
+      if (error) throw error;
+    }
+    const allSkus = passed.flatMap(p => p.skuRows);
+    for (const ch of chunk(allSkus, 400)) {
+      const { error } = await supabase.from('tmk_mp_skus').insert(ch);
+      if (error) throw error;
+    }
+  } catch (err) {
+    if (freshNos.length) { for (const ids of chunk(freshNos, 150)) { try { await supabase.from('tmk_sale_receipts').delete().in('order_no', ids); } catch { /* best-effort rollback */ } } }
+    throw err;
   }
   /* 4) overrides — ผูกชื่อเซลล์ให้รอดข้าม reimport (optional table — เงียบถ้าไม่มี) */
   try {
@@ -474,15 +483,17 @@ export async function restoreReceipt(receipt, { by } = {}) {
   const { data: rec, error: e0 } = await supabase.from('tmk_sale_receipts').select('*').eq('order_no', no).maybeSingle();
   if (e0) throw e0;
   if (!rec) throw new Error('ไม่พบใบเสร็จ ' + no);
+  // สร้าง row จาก payload ก่อน (void ลบ sku ไปแล้ว) — ใช้ตัวสร้างเดียวกับตอนส่ง
+  const item = rec.confirmed || rec.parsed;
+  const M = await loadReceiptMatcher();
+  const built = (item && Array.isArray(item.lines) && item.lines.length)
+    ? buildRows(item, { name: rec.salesperson || '', email: rec.uploader_email || '' }, 'restore:' + nowISO(), M) : null;
+  // ไม่มี payload รายการสินค้า → ถ้านำกลับ ออเดอร์จะไม่มี sku (ยอด/สี/ไซซ์/ลายเพี้ยนถาวร) → กันไว้ก่อน un-void ให้ UI เห็น
+  if (!built) throw new Error(`นำใบ ${no} กลับไม่ได้ — ไม่มีข้อมูลรายการสินค้าที่บันทึกไว้ (โปรดส่งใบใหม่แทน)`);
   // un-void ใบ
   { const { error } = await supabase.from('tmk_sale_receipts')
       .update({ status: 'confirmed', void_by: null, void_reason: null, void_at: null, updated_at: nowISO() })
       .eq('order_no', no); if (error) throw error; }
-  // สร้าง row จาก payload (void ลบ sku ไปแล้ว) — ใช้ตัวสร้างเดียวกับตอนส่ง
-  const item = rec.confirmed || rec.parsed;
-  const M = await loadReceiptMatcher();
-  const built = (item && Array.isArray(item.lines))
-    ? buildRows(item, { name: rec.salesperson || '', email: rec.uploader_email || '' }, 'restore:' + nowISO(), M) : null;
   // ออเดอร์กลับ active — เช็คว่ามีแถวจริง (คงค่าที่แก้ไว้) · ถ้าแถวหาย (เช่นหลังย้ายเลข) upsert คืนจาก payload กัน sku ลอย
   { const { data, error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: nowISO() }).eq('id', receiptId(no)).select('id');
     if (error) throw error;

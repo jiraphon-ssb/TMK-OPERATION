@@ -31,6 +31,46 @@ const tipRow = (fmt) => (value, name, item) => (
     </div>
   </>
 );
+// tooltip แยกช่องทาง — โชว์แต่ละช่องทาง: ยอด + % ของช่วงนั้น + แถว "รวม"
+//  • โหมดแท่งซ้อน (StackedBars): ทุกชุดใน payload = ช่องทาง
+//  • โหมดคอมโบ (ComboChart): ชุดหลัก (แท่ง/เส้น/เทียบ) โชว์ก่อน แล้วต่อด้วยแยกช่องทางจาก row._bd
+function ChannelTip({ active, payload, label, fmt = B, mainKeys }) {
+  if (!active || !payload || !payload.length) return null;
+  const row0 = payload[0]?.payload || {};
+  const bd = row0._bd; // combo: [{name,value,color}] ต่อ bucket
+  const isCombo = Array.isArray(bd);
+  const mains = isCombo
+    ? payload.filter(p => mainKeys?.includes(p.dataKey) && p.value != null)
+        .map(p => ({ name: p.name, value: Number(p.value) || 0, color: p.color, key: p.dataKey }))
+    : [];
+  let channels = (isCombo ? bd : payload)
+    .map(c => ({ name: c.name, value: Number(c.value) || 0, color: c.color || c.payload?.fill }))
+    .filter(c => c.value !== 0)
+    .sort((a, b) => b.value - a.value);
+  const total = channels.reduce((s, c) => s + c.value, 0);
+  return (
+    <div className="min-w-[11rem] rounded-lg border bg-background px-2.5 py-2 text-xs shadow-md">
+      <div className="mb-1.5 font-medium text-foreground">{label}</div>
+      {mains.map((m, i) => (
+        <div key={'m' + i} className="mb-0.5 flex items-center gap-2">
+          <span className="inline-block size-2.5 shrink-0 rounded-[3px]" style={{ background: m.color }} />
+          <span className="flex-1 text-muted-foreground">{m.name}</span>
+          <span className="font-semibold tabular-nums text-foreground">{(m.key === 'line' ? N : fmt)(m.value)}</span>
+        </div>
+      ))}
+      {mains.length > 0 && channels.length > 0 && <div className="my-1.5 h-px bg-border" />}
+      {channels.map((c, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <span className="inline-block size-2.5 shrink-0 rounded-[3px]" style={{ background: c.color }} />
+          <span className="flex-1 text-muted-foreground">{c.name}</span>
+          <span className="font-semibold tabular-nums text-foreground">{fmt(c.value)}</span>
+          <span className="w-9 text-right tabular-nums text-muted-foreground">{total ? Math.round(c.value / total * 100) : 0}%</span>
+        </div>
+      ))}
+      {channels.length > 1 && <div className="mt-1.5 flex items-center justify-between border-t pt-1"><span className="text-muted-foreground">รวม</span><span className="font-semibold tabular-nums text-foreground">{fmt(total)}</span></div>}
+    </div>
+  );
+}
 // config ขั้นต่ำให้ ChartContainer (label lookup) จาก [key,label] คู่ๆ
 const mkCfg = (pairs) => Object.fromEntries(pairs.map(([k, label]) => [k, { label }]));
 const CC_CLS = '!aspect-auto w-full';
@@ -213,14 +253,16 @@ export function MiniBars({ data, color, height = 44 }) {
 }
 
 // ---- คอมโบ: แท่ง(ยอด) + เส้น(ออเดอร์) สองแกน + เส้นเทียบช่วงก่อน ----
-export function ComboChart({ labels, bars, line, cmpBars, barLabel = 'ยอดขาย', lineLabel = 'ออเดอร์', barFmt, lineFmt, cmpLabel = 'ช่วงก่อน', height = 230, ariaLabel = 'กราฟยอดขายตามเวลา' }) {
+export function ComboChart({ labels, bars, line, cmpBars, breakdown, barLabel = 'ยอดขาย', lineLabel = 'ออเดอร์', barFmt, lineFmt, cmpLabel = 'ช่วงก่อน', height = 230, ariaLabel = 'กราฟยอดขายตามเวลา' }) {
   const hasCmp = cmpBars && cmpBars.some(v => v != null);
   const hasLine = line != null;
+  const hasBd = Array.isArray(breakdown) && breakdown.some(b => b && b.length);
   const chartData = (labels || []).map((label, i) => ({
     label,
     bars: bars[i] ?? null,
     line: hasLine ? (line[i] ?? null) : undefined,
     cmpBars: hasCmp ? (cmpBars[i] ?? null) : undefined,
+    _bd: hasBd ? breakdown[i] : undefined,
   }));
   const comboFmt = { bars: barFmt || B, cmpBars: barFmt || B, line: lineFmt || (v => v) };
   return (
@@ -230,7 +272,9 @@ export function ComboChart({ labels, bars, line, cmpBars, barLabel = 'ยอด�
         <XAxis dataKey="label" tick={TICK} {...AXP} interval="preserveStartEnd" />
         <YAxis yAxisId="y" tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />
         {hasLine && <YAxis yAxisId="y1" orientation="right" tick={TICK} {...AXP} width={32} />}
-        <ChartTooltip content={<ChartTooltipContent formatter={tipRow(comboFmt)} />} />
+        {hasBd
+          ? <ChartTooltip content={<ChannelTip fmt={barFmt || B} mainKeys={['bars', 'cmpBars', 'line']} />} />
+          : <ChartTooltip content={<ChartTooltipContent formatter={tipRow(comboFmt)} />} />}
         <Bar yAxisId="y" dataKey="bars" name={barLabel} fill="#4338ca" fillOpacity={0.85} radius={4} maxBarSize={34} />
         {hasCmp && <Bar yAxisId="y" dataKey="cmpBars" name={cmpLabel} fill="rgba(130,140,160,.28)" radius={4} maxBarSize={34} />}
         {hasLine && <Line type="monotone" yAxisId="y1" dataKey="line" name={lineLabel} stroke="#4f46e5" strokeWidth={2} dot={{ r: 2 }} connectNulls />}
@@ -253,7 +297,7 @@ export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = '
         <CartesianGrid {...GRID} vertical={false} />
         <XAxis dataKey="label" tick={TICK} {...AXP} interval="preserveStartEnd" />
         <YAxis tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />
-        <ChartTooltip content={<ChartTooltipContent formatter={tipRow(fmt || B)} />} />
+        <ChartTooltip content={<ChannelTip fmt={fmt || B} />} />
         {ds.map((d, i) => (
           <Bar key={i} dataKey={`d${i}`} name={d.label} stackId="a" fill={d.color || CAT_COLORS[i % CAT_COLORS.length]} radius={i === ds.length - 1 ? [2, 2, 0, 0] : 0} maxBarSize={40} />
         ))}

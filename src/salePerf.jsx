@@ -10,7 +10,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
-  cachedFetchRange, ORDERS_SEL, SKUS_SEL, funnelTotal, invalidateSaleCache,
+  cachedFetchRange, ORDERS_SEL, SKUS_SEL, funnelTotal, funnelBreakdown, funnelNewOld, invalidateSaleCache,
 } from './lib/saleData.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
@@ -80,7 +80,8 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
   const ensure = (name) => {
     if (!bySp.has(name)) bySp.set(name, {
       name, sales: 0, orders: 0, qty: 0, newC: 0, leads: 0,
-      channels: {}, designs: {}, daily: Array.from({ length: dim }, (_, i) => ({ day: i + 1, sales: 0, leads: 0, orders: 0 })),
+      channels: {}, chStats: {}, leadsByPlat: {}, newOld: { new: 0, old: 0 }, custMap: {},
+      designs: {}, daily: Array.from({ length: dim }, (_, i) => ({ day: i + 1, sales: 0, leads: 0, orders: 0 })),
       receipts: [],
     });
     return bySp.get(name);
@@ -92,7 +93,13 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
     const amt = Number(o.sales) || 0, q = Number(o.qty) || 0;
     s.sales += amt; s.orders += 1; s.qty += q;
     if (o.customer_type === 'ลูกค้าใหม่') s.newC += 1;
-    if (o.channel) s.channels[o.channel] = (s.channels[o.channel] || 0) + amt;
+    if (o.channel) {
+      s.channels[o.channel] = (s.channels[o.channel] || 0) + amt;
+      const cs = s.chStats[o.channel] || (s.chStats[o.channel] = { orders: 0, sales: 0 });
+      cs.orders += 1; cs.sales += amt;
+    }
+    const ck = (o.customer_name && String(o.customer_name).trim()) || (o.customer_code && String(o.customer_code).trim());
+    if (ck) { const c = s.custMap[ck] || (s.custMap[ck] = { name: o.customer_name || ck, sales: 0, count: 0, isNew: o.customer_type === 'ลูกค้าใหม่' }); c.sales += amt; c.count += 1; }
     const d = dayOf(o.order_date); if (d >= 1 && d <= dim) { s.daily[d - 1].sales += amt; s.daily[d - 1].orders += 1; }
   });
   // skus → design tally ต่อเซลล์ (join ผ่าน order_no)
@@ -102,11 +109,13 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
     const dz = (k.design && String(k.design).trim()) || 'ไม่ระบุลาย';
     s.designs[dz] = (s.designs[dz] || 0) + (Number(k.qty) || 0);
   });
-  // funnel → leads ต่อเซลล์ + รายวัน
+  // funnel → leads ต่อเซลล์ + รายวัน + ต่อแพลตฟอร์ม (คนทัก) + ใหม่/เก่า
   (funnel || []).forEach(f => {
     const name = (f.salesperson && String(f.salesperson).trim()); if (!name) return;
     const s = ensure(name); const tot = funnelTotal(f);
     s.leads += tot;
+    const bd = funnelBreakdown(f); Object.entries(bd).forEach(([plat, v]) => { s.leadsByPlat[plat] = (s.leadsByPlat[plat] || 0) + ((Number(v.new) || 0) + (Number(v.old) || 0)); });
+    const no = funnelNewOld(f); s.newOld.new += Number(no.new) || 0; s.newOld.old += Number(no.old) || 0;
     const d = dayOf(f.date); if (d >= 1 && d <= dim) s.daily[d - 1].leads += tot;
   });
   // receipts → รายการต่อเซลล์ (โชว์ใน drawer/รายวัน)
@@ -123,12 +132,21 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
     const target = Number(t?.sales_target) || 0;
     const closeRate = s.leads > 0 ? s.orders / s.leads * 100 : null;
     const projected = isCur && daysPassed > 0 ? s.sales / daysPassed * dim : s.sales;
+    // %ปิดต่อช่องทาง — จับคู่ leads(แพลตฟอร์ม) กับ orders(channel) ชื่อเดียวกัน (มาร์เก็ตเพลส/POS ไม่มีคนทัก → closeRate null)
+    const channelClose = Object.keys({ ...s.chStats, ...s.leadsByPlat }).map(ch => {
+      const orders = s.chStats[ch]?.orders || 0, csales = s.chStats[ch]?.sales || 0, leads = s.leadsByPlat[ch] || 0;
+      return { ch, orders, sales: csales, leads, closeRate: leads > 0 ? orders / leads * 100 : null };
+    }).sort((a, b) => (b.leads + b.orders) - (a.leads + a.orders));
+    const pace = target > 0 ? (s.sales >= target ? 'over' : projected >= target ? 'ontrack' : 'risk') : null;
+    const topCustomers = Object.values(s.custMap).sort((a, b) => b.sales - a.sales).slice(0, 5);
+    const daysActive = s.daily.filter(d => d.sales > 0).length;
     return {
       ...s,
       aov: s.orders ? s.sales / s.orders : 0,
       closeRate, target, pctTarget: target ? s.sales / target * 100 : null,
-      comm: t ? commissionFor(s.sales, t) : 0,
-      projected, dSales: deltaPct(s.sales, prevSp.get(s.name) || 0),
+      comm: t ? commissionFor(s.sales, t) : 0, tgt: t,
+      projected, pace, channelClose, topCustomers, daysActive,
+      dSales: deltaPct(s.sales, prevSp.get(s.name) || 0),
     };
   }).sort((a, b) => b.sales - a.sales);
 
@@ -197,6 +215,139 @@ function SellerCard({ r, rank, share, onOpen }) {
           onClick={(e) => { e.stopPropagation(); window.__goSection?.('settings', 'targets'); }}>ตั้งเป้า/คอม →</button>
       ))}
       <div className="mt-auto pt-2 border-t border-border/50"><Sparkline data={r.daily.map(d => d.sales)} w={220} h={30} /></div>
+    </div>
+  );
+}
+
+/* ---- คอมขั้นบันได: หา tier ถัดไปที่ยังไม่ถึง → gap + rate ---- */
+const nextTierOf = (tgt, sales) => {
+  if (!tgt || !Array.isArray(tgt.tiers) || !tgt.tiers.length) return null;
+  const tiers = tgt.tiers.map(t => ({ min: Number(t.min) || 0, rate: Number(t.rate) || 0 })).sort((a, b) => a.min - b.min);
+  const next = tiers.find(t => t.min > sales);
+  return next ? { gap: next.min - sales, rate: next.rate } : null;
+};
+const PACE_META = {
+  over: { label: 'เกินเป้าแล้ว 🎉', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+  ontrack: { label: 'ทันเป้า ✅', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+  risk: { label: 'เสี่ยงไม่ถึงเป้า ⚠️', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+};
+
+/* ---- HERO B1: ฟันเนล คนทัก→ปิด + %ปิดต่อช่องทาง (leading→lagging · หัวใจธุรกิจ) ---- */
+function FunnelCard({ leads, orders, closeRate, newOld, channels, solo, delta }) {
+  const hasLeads = leads > 0;
+  const dropPct = hasLeads ? Math.max(6, Math.min(100, orders / leads * 100)) : 100;
+  const withLeads = channels.filter(c => c.leads > 0);
+  const noLeadCh = channels.some(c => c.leads === 0 && c.orders > 0);
+  return (
+    <Card className="p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg [&_svg]:size-4" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="filter" /></span>
+        <div className="text-sm font-bold">ฟันเนล คนทัก → ปิดการขาย{!solo ? ' · ทีม' : ''}</div>
+        <div className="ml-auto text-right">
+          <div className="text-[11px] text-muted-foreground flex items-center justify-end gap-1">%ปิด {delta != null && dPill(delta)}</div>
+          <div className="text-2xl font-bold leading-none tabular-nums" style={{ color: closeTone(closeRate) }}>{closeRate == null ? '—' : Math.round(closeRate) + '%'}</div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <div>
+          <div className="flex justify-between text-xs mb-0.5"><span className="text-muted-foreground">คนทัก{newOld && (newOld.new || newOld.old) ? ` · ใหม่ ${N(newOld.new)} · เก่า ${N(newOld.old)}` : ''}</span><b className="tabular-nums">{N(leads)}</b></div>
+          <div className="h-3 rounded-md" style={{ background: 'var(--accent-soft)' }} />
+        </div>
+        <div>
+          <div className="flex justify-between text-xs mb-0.5"><span className="text-muted-foreground">ปิดการขาย (ออเดอร์)</span><b className="tabular-nums">{N(orders)}</b></div>
+          <div className="h-3 rounded-md" style={{ width: dropPct + '%', minWidth: 24, background: 'var(--accent)' }} />
+        </div>
+      </div>
+      {withLeads.length > 0 && (
+        <div className="rounded-lg border overflow-hidden text-xs">
+          <table className="w-full">
+            <thead className="bg-muted/40 text-muted-foreground"><tr><th className="text-left px-2 py-1 font-medium">ช่องทาง</th><th className="text-right px-2 py-1 font-medium">คนทัก</th><th className="text-right px-2 py-1 font-medium">ปิด</th><th className="text-right px-2 py-1 font-medium">%ปิด</th></tr></thead>
+            <tbody>{withLeads.map(c => (
+              <tr key={c.ch} className="border-t"><td className="px-2 py-1"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.ch) }} />{c.ch}</span></td><td className="px-2 py-1 text-right tabular-nums">{N(c.leads)}</td><td className="px-2 py-1 text-right tabular-nums">{N(c.orders)}</td><td className="px-2 py-1 text-right font-semibold tabular-nums" style={{ color: closeTone(c.closeRate) }}>{c.closeRate == null ? '—' : Math.round(c.closeRate) + '%'}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+      {!hasLeads && <div className="text-xs text-muted-foreground">ยังไม่มีข้อมูลคนทักเดือนนี้ — กรอกที่การ์ด "คนทักวันนี้" หน้าส่งยอด</div>}
+      {noLeadCh && <div className="text-[11px] text-muted-foreground">* ช่องทางมาร์เก็ตเพลส/หน้าร้าน ไม่มีคนทัก → ไม่คิด %ปิด</div>}
+    </Card>
+  );
+}
+
+/* ---- HERO B2: เป้า/คอม + pacing (gauge + ป้ายสถานะ + คอมขั้นถัดไป + CTA ตั้งเป้า) ---- */
+function GoalCard({ row }) {
+  const hasTarget = row.target > 0;
+  const nt = nextTierOf(row.tgt, row.sales);
+  return (
+    <Card className="p-4 flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg [&_svg]:size-4" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="target" /></span>
+        <div className="text-sm font-bold">เป้า & คอมมิชชัน{row.isTeam ? ' · ทีม' : ''}</div>
+        {hasTarget && row.pace && <Badge className={'ml-auto ' + PACE_META[row.pace].cls}>{PACE_META[row.pace].label}</Badge>}
+      </div>
+      {hasTarget ? (
+        <div className="flex items-center gap-4">
+          <div className="shrink-0" style={{ width: 120 }}><Gauge value={Math.min(100, row.pctTarget)} max={100} label="ของเป้า" sub={Math.round(row.pctTarget) + '%'} height={110} /></div>
+          <div className="text-sm min-w-0 flex flex-col gap-1">
+            <div>ยอด <b style={{ color: 'var(--accent-2)' }}>{fmtB(row.sales)}</b> <span className="text-muted-foreground">/ เป้า {fmtB(row.target)}</span></div>
+            <div className="text-muted-foreground">คาดสิ้นเดือน <b style={{ color: 'var(--ink)' }}>{fmtB(row.projected)}</b></div>
+            {row.comm > 0 && <div>คอม <b style={{ color: 'var(--accent-2)' }}>{fmtB(row.comm)}</b></div>}
+            {nt && <div className="text-[11px] text-muted-foreground">อีก {fmtB(nt.gap)} ถึงคอมขั้น +{nt.rate}%</div>}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-start gap-2 py-2">
+          <div className="text-sm text-muted-foreground">ยัง{row.isTeam ? 'ไม่มีใครตั้งเป้า' : 'ไม่ได้ตั้งเป้า'}เดือนนี้ — ตั้งเป้าเพื่อดูความคืบหน้า + คอมมิชชัน</div>
+          {window.__canEdit !== false && <Button size="sm" onClick={() => window.__goSection?.('settings', 'targets')}><Icon name="target" /> ตั้งเป้า/คอม</Button>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ---- HERO C: แนวโน้มรายวัน — ยอด(แท่ง) + คนทัก(เส้น) ทับกัน ---- */
+function TrendCard({ rows, dim, month }) {
+  const bars = Array.from({ length: dim }, (_, i) => rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0));
+  const line = Array.from({ length: dim }, (_, i) => rows.reduce((a, r) => a + (r.daily[i]?.leads || 0), 0));
+  const hasLeads = line.some(v => v > 0);
+  return (
+    <Card className="p-4">
+      <div className="text-sm font-semibold mb-1.5">แนวโน้มรายวัน · {monthLabel(month)} <span className="text-xs font-normal text-muted-foreground">— ยอดขาย (แท่ง){hasLeads ? ' + คนทัก (เส้น)' : ''}</span></div>
+      <ComboChart labels={Array.from({ length: dim }, (_, i) => String(i + 1))} bars={bars} line={hasLeads ? line : undefined} barLabel="ยอดขาย" lineLabel="คนทัก" barFmt={fmtB} height={160} />
+    </Card>
+  );
+}
+
+/* ---- โซโล่: แผงเจาะลึกคนเดียว (ช่องทาง/ลาย/ลูกค้าท็อป) + ปุ่มดูเต็ม ---- */
+function DeepPanel({ r, onOpen }) {
+  const donut = Object.entries(r.channels).sort((a, b) => b[1] - a[1]).map(([k, v]) => ({ label: k, value: v, color: channelColor(k) }));
+  const designs = Object.entries(r.designs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => ({ label: k, value: v }));
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-semibold">เจาะลึก · {r.name === NO_SELLER ? 'ไม่ระบุเซลล์' : r.name}</span>
+        <span className="text-xs text-muted-foreground">ขายจริง {N(r.daysActive)} วัน</span>
+        <Button variant="outline" size="sm" className="ml-auto h-7 text-xs" onClick={onOpen}>ดูรายละเอียดเต็ม <Icon name="chevR" className="size-3.5" /></Button>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        {donut.length > 0 && <Card className="p-4"><div className="text-sm font-semibold mb-1">ช่องทาง</div><DonutChart data={donut} height={180} /></Card>}
+        {designs.length > 0 && <Card className="p-4"><div className="text-sm font-semibold mb-1">ลายขายดี (ตัว)</div><HBars data={designs} height={180} unit=" ตัว" /></Card>}
+      </div>
+      {r.topCustomers.length > 0 && (
+        <Card className="p-4">
+          <div className="text-sm font-semibold mb-2">ลูกค้าท็อป</div>
+          <div className="flex flex-col gap-1.5">
+            {r.topCustomers.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className="grid place-items-center rounded-full size-6 text-[10px] font-bold shrink-0" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>{initialOf(c.name)}</span>
+                <span className="truncate flex-1">{c.name}{c.isNew && <Badge variant="secondary" className="ml-1.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] px-1.5 py-0">ใหม่</Badge>}</span>
+                <span className="text-xs text-muted-foreground shrink-0">{N(c.count)} ครั้ง</span>
+                <b className="tabular-nums shrink-0 w-20 text-right">{fmtB(c.sales)}</b>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -286,6 +437,28 @@ export function SalePerfView() {
   const pad = 'py-2.5';
   const show = (k) => visKeys.has(k);
   const commTotal = useMemo(() => rowsView.reduce((s, r) => s + (r.comm || 0), 0), [rowsView]);
+  // adaptive: ทีมเล็ก (≤1 คนจริง) → โซโล่ (ไม่มีอันดับ/แชร์ · เน้นคนเดียว) · หลายคน → เทียบ/อันดับ
+  const realSellers = useMemo(() => rowsView.filter(r => r.name !== NO_SELLER), [rowsView]);
+  const soloMode = realSellers.length <= 1;
+  const focus = realSellers[0] || rowsView[0] || null;
+  // ฟันเนลรวม (aggregate channelClose + ใหม่/เก่า จาก rowsView)
+  const teamFunnel = useMemo(() => {
+    const ch = {}; const newOld = { new: 0, old: 0 };
+    rowsView.forEach(r => {
+      (r.channelClose || []).forEach(c => { const e = ch[c.ch] || (ch[c.ch] = { ch: c.ch, orders: 0, sales: 0, leads: 0 }); e.orders += c.orders; e.sales += c.sales; e.leads += c.leads; });
+      newOld.new += r.newOld?.new || 0; newOld.old += r.newOld?.old || 0;
+    });
+    const channels = Object.values(ch).map(e => ({ ...e, closeRate: e.leads > 0 ? e.orders / e.leads * 100 : null })).sort((a, b) => (b.leads + b.orders) - (a.leads + a.orders));
+    return { channels, newOld };
+  }, [rowsView]);
+  // การ์ดเป้า: โซโล่ = คนนั้น · หลายคน = รวมทีม (sum เป้า/คอม/คาด)
+  const goalRow = useMemo(() => {
+    if (soloMode && focus) return focus;
+    const target = rowsView.reduce((a, r) => a + (r.target || 0), 0);
+    const projected = rowsView.reduce((a, r) => a + (r.projected || 0), 0);
+    const sales = teamView.sales;
+    return { name: 'ทีม', isTeam: true, sales, target, comm: commTotal, projected, tgt: null, pctTarget: target > 0 ? sales / target * 100 : null, pace: target > 0 ? (sales >= target ? 'over' : projected >= target ? 'ontrack' : 'risk') : null };
+  }, [soloMode, focus, rowsView, teamView.sales, commTotal]);
 
   if (beat) return <PageSkeleton />;
 
@@ -315,11 +488,11 @@ export function SalePerfView() {
                 <Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
               </Button>
             </CollapsibleTrigger>
-            <div className="flex items-center h-8 rounded-md border overflow-hidden">
+            {!soloMode && <div className="flex items-center h-8 rounded-md border overflow-hidden">
               <button type="button" title="มุมมองการ์ด" onClick={() => setViewMode('cards')} className={`grid place-items-center h-full px-2.5 transition-colors ${viewMode === 'cards' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}><Icon name="grid" className="size-3.5" /></button>
               <button type="button" title="มุมมองตาราง" onClick={() => setViewMode('table')} className={`grid place-items-center h-full px-2.5 transition-colors border-l ${viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}><Icon name="menu" className="size-3.5" /></button>
-            </div>
-            {viewMode === 'table' && <ColumnToggle columns={toggleCols} visible={colVisibleSet} onToggle={toggleCol} />}
+            </div>}
+            {!soloMode && viewMode === 'table' && <ColumnToggle columns={toggleCols} visible={colVisibleSet} onToggle={toggleCol} />}
             <Button variant="outline" size="sm" className="h-8" disabled={!rowsView.length} onClick={exportMonth}><Icon name="external" className="size-3.5" /> CSV</Button>
           </div>
           {nFilters > 0 && (
@@ -344,13 +517,9 @@ export function SalePerfView() {
             <div className="text-[11px] text-muted-foreground font-medium">ยอดทีม · {monthLabel(month)}</div>
             <div className="num text-2xl font-bold leading-tight flex items-center gap-2" style={{ color: 'var(--accent-2)' }}>{fmtB(teamView.sales)} {dPill(teamView.dSales)}</div>
           </div>
-          {[['ออเดอร์', N(teamView.orders)], ['จำนวนตัว', N(teamView.qty)], ['คอมรวม', commTotal ? fmtB(commTotal) : '—']].map(([l, v]) => (
+          {[['ออเดอร์', N(teamView.orders)], ['จำนวนตัว', N(teamView.qty)]].map(([l, v]) => (
             <div key={l}><div className="text-[11px] text-muted-foreground font-medium">{l}</div><div className="num text-lg font-bold leading-tight">{v}</div></div>
           ))}
-          {teamView.leads > 0 && <>
-            <div><div className="text-[11px] text-muted-foreground font-medium">คนทัก</div><div className="num text-lg font-bold leading-tight">{N(teamView.leads)}</div></div>
-            <div><div className="text-[11px] text-muted-foreground font-medium">%ปิดทีม</div><div className="num text-lg font-bold leading-tight" style={{ color: closeTone(teamView.closeRate) }}>{teamView.closeRate == null ? '—' : Math.round(teamView.closeRate) + '%'}</div></div>
-          </>}
           {teamView.newC > 0 && <div><div className="text-[11px] text-muted-foreground font-medium">ลูกค้าใหม่</div><div className="num text-lg font-bold leading-tight">{N(teamView.newC)}</div></div>}
         </div>
         {channelF.length > 0 && <div className="mt-2 text-[11px] text-muted-foreground">* กรองช่องทาง {channelF.join('/')} — %ปิดอิงคนทักทั้งหมด (คนทักไม่แยกช่องทาง)</div>}
@@ -369,7 +538,17 @@ export function SalePerfView() {
           <TabsContent value="month">
             {!rowsView.length ? (
               <Card className="p-8 text-center text-sm text-muted-foreground">ไม่พบเซลล์ตามตัวกรอง · <button className="text-[var(--accent)] hover:underline" onClick={() => { setQ(''); clearFilters(); }}>ล้างตัวกรอง</button></Card>
-            ) : viewMode === 'cards' ? (
+            ) : (
+            <div className="flex flex-col gap-4">
+              {/* HERO: ฟันเนล + เป้า */}
+              <div className="grid gap-4 lg:grid-cols-2 items-start">
+                <FunnelCard leads={teamView.leads} orders={teamView.orders} closeRate={teamView.closeRate} newOld={teamFunnel.newOld} channels={teamFunnel.channels} solo={soloMode} delta={null} />
+                <GoalCard row={goalRow} />
+              </div>
+              <TrendCard rows={rowsView} dim={perf.dim} month={month} />
+              {soloMode ? (
+                focus && <DeepPanel r={focus} onOpen={() => setDetail(focus.name)} />
+              ) : viewMode === 'cards' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {rowsView.map(r => (
                 <SellerCard key={r.name} r={r} rank={rankMap.get(r.name) ?? 99}
@@ -423,6 +602,8 @@ export function SalePerfView() {
                 {teamView.leads > 0 && <span>คนทัก <b>{N(teamView.leads)}</b> · %ปิด <b>{teamView.closeRate == null ? '—' : Math.round(teamView.closeRate) + '%'}</b></span>}
               </div>
             </Card>
+            )}
+            </div>
             )}
           </TabsContent>
 
@@ -544,6 +725,7 @@ function SpDetail({ sp, month }) {
             <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div></div>
           ))}
         </div>
+        <div className="text-xs text-muted-foreground -mt-1.5">ขายจริง {N(sp.daysActive)} วัน{sp.newOld && (sp.newOld.new || sp.newOld.old) ? ` · คนทัก ใหม่ ${N(sp.newOld.new)} · เก่า ${N(sp.newOld.old)}` : ''}</div>
         {sp.target > 0 && (
           <div className="flex items-center gap-4 rounded-lg border p-3">
             <div className="shrink-0" style={{ width: 120 }}><Gauge value={sp.pctTarget} max={100} label="ของเป้า" sub={Math.round(sp.pctTarget) + '%'} height={110} /></div>
@@ -558,6 +740,38 @@ function SpDetail({ sp, month }) {
           <div className="text-sm font-semibold mb-1">ยอด &amp; คนทัก รายวัน</div>
           <ComboChart labels={labels} bars={sp.daily.map(d => d.sales)} line={sp.daily.map(d => d.leads)} barLabel="ยอดขาย" lineLabel="คนทัก" barFmt={fmtB} height={200} />
         </div>
+        {(sp.channelClose.some(c => c.leads > 0) || sp.topCustomers.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {sp.channelClose.some(c => c.leads > 0) && (
+              <div>
+                <div className="text-sm font-semibold mb-1">%ปิดต่อช่องทาง</div>
+                <div className="rounded-lg border overflow-hidden text-xs">
+                  <table className="w-full">
+                    <thead className="bg-muted/40 text-muted-foreground"><tr><th className="text-left px-2 py-1 font-medium">ช่องทาง</th><th className="text-right px-2 py-1 font-medium">ทัก</th><th className="text-right px-2 py-1 font-medium">ปิด</th><th className="text-right px-2 py-1 font-medium">%</th></tr></thead>
+                    <tbody>{sp.channelClose.filter(c => c.leads > 0).map(c => (
+                      <tr key={c.ch} className="border-t"><td className="px-2 py-1"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.ch) }} />{c.ch}</span></td><td className="px-2 py-1 text-right">{N(c.leads)}</td><td className="px-2 py-1 text-right">{N(c.orders)}</td><td className="px-2 py-1 text-right font-semibold" style={{ color: closeTone(c.closeRate) }}>{c.closeRate == null ? '—' : Math.round(c.closeRate) + '%'}</td></tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {sp.topCustomers.length > 0 && (
+              <div>
+                <div className="text-sm font-semibold mb-1">ลูกค้าท็อป</div>
+                <div className="flex flex-col gap-1.5">
+                  {sp.topCustomers.map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 text-sm">
+                      <span className="grid place-items-center rounded-full size-6 text-[10px] font-bold shrink-0" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>{initialOf(c.name)}</span>
+                      <span className="truncate flex-1">{c.name}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">{N(c.count)}×</span>
+                      <b className="tabular-nums shrink-0">{fmtB(c.sales)}</b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {donut.length > 0 && <div><div className="text-sm font-semibold mb-1">ช่องทาง</div><DonutChart data={donut} height={170} /></div>}
           {designs.length > 0 && <div><div className="text-sm font-semibold mb-1">ลายขายดี (ตัว)</div><HBars data={designs} height={170} unit=" ตัว" /></div>}

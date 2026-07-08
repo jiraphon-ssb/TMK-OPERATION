@@ -88,8 +88,8 @@ export function SortHead({ field, sortKey, sortDir, onSort, align = 'left', clas
         style={{ background: 'none', border: 'none', cursor: 'pointer', color: active ? 'var(--ink)' : 'inherit', fontFamily: 'var(--font)', fontSize: 'inherit', width: '100%', justifyContent: right ? 'flex-end' : 'flex-start', flexDirection: right ? 'row-reverse' : 'row' }}
         title="คลิกเพื่อเรียง">
         <span>{children}</span>
-        <span style={{ display: 'inline-flex', width: 12, opacity: active ? 1 : 0.34, color: active ? 'var(--accent)' : 'currentColor', transform: active && sortDir === 'asc' ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease), opacity 0.12s' }}>
-          <Icon name="chevD" />
+        <span style={{ display: 'inline-flex', width: 14, height: 14, alignItems: 'center', justifyContent: 'center', flex: 'none', opacity: active ? 1 : 0.34, color: active ? 'var(--accent)' : 'currentColor', transform: active && sortDir === 'asc' ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s var(--ease), opacity 0.12s' }}>
+          <Icon name="chevD" className="size-3.5" />
         </span>
       </button>
     </TableHead>

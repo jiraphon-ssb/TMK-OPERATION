@@ -626,7 +626,7 @@ export function SaleDashboard() {
           </CardHeader>
           {trendSplit
             ? <StackedBars labels={trendByChannel.labels} datasets={trendByChannel.datasets} fmt={metricFmt} height={250} />
-            : <ComboChart labels={trend.labels} bars={trend.bars} line={trend.line} cmpBars={trend.cmpBars} barLabel={trendMetric === 'sales' ? 'ยอดขาย' : trendMetric} lineLabel="ออเดอร์" barFmt={metricFmt} lineFmt={N} cmpLabel={prevLabel} height={250} />}
+            : <ComboChart labels={trend.labels} bars={trend.bars} line={trend.line} cmpBars={trend.cmpBars} breakdown={trendByChannel.datasets.length ? trend.labels.map((_, i) => trendByChannel.datasets.map(d => ({ name: d.label, value: d.data[i], color: d.color })).filter(c => c.value > 0)) : undefined} barLabel={trendMetric === 'sales' ? 'ยอดขาย' : trendMetric} lineLabel="ออเดอร์" barFmt={metricFmt} lineFmt={N} cmpLabel={prevLabel} height={250} />}
           <div className="cap row" style={{ gap: 14, marginTop: 8, color: 'var(--ink-4)', justifyContent: 'center', flexWrap: 'wrap' }}>
             {trendSplit
               ? trendByChannel.datasets.map(d => <span key={d.label} className="row" style={{ gap: 5 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: d.color }} /> {d.label}</span>)
@@ -1049,7 +1049,7 @@ function GeoPanel({ ords, skus, metric, setMetric, region, setRegion, selected, 
             {scope.node.designs.map(d => (
               <Collapsible key={d.key} className="rounded-md border" style={{ borderColor: 'var(--line)' }}>
                 <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--surface-2)] rounded-md">
-                  <Icon name="chevD" className="-rotate-90 transition-transform group-data-[state=open]:rotate-0" />
+                  <span className="inline-flex shrink-0 items-center justify-center -rotate-90 transition-transform group-data-[state=open]:rotate-0"><Icon name="chevD" /></span>
                   <span style={{ flex: 1, fontWeight: 600, fontSize: 13, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.key} <span className="dim" style={{ fontWeight: 400 }}>· {N(d.colors.length)} สี</span></span>
                   <span className="num cap" style={{ flex: '0 0 auto', minWidth: 56, textAlign: 'right', color: 'var(--ink-3)' }}>{N(d.qty)} ตัว</span>
                   <span className="num cap" style={{ flex: '0 0 auto', minWidth: 84, textAlign: 'right', fontWeight: 600 }}>{baht(d.sales)}</span>
