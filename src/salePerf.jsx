@@ -223,8 +223,8 @@ export function SalePerfView() {
   const load = useCallback(async (force = false) => {
     if (!force) setLoading(true);   // realtime refetch (force) = อัปเดตในที่ ไม่ต้องล้างเป็น skeleton (กันจอกระพริบ)
     try {
-      const from = `${month}-01`, to = `${month}-31`;
-      const pm = prevMonthOf(month), pFrom = `${pm}-01`, pTo = `${pm}-31`;
+      const from = `${month}-01`, to = `${month}-${daysInMonth(month)}`;
+      const pm = prevMonthOf(month), pFrom = `${pm}-01`, pTo = `${pm}-${daysInMonth(pm)}`;
       // กัน skeleton ค้าง: ถ้า fetch ค้าง (เน็ต/auth หลุด) → timeout 15 วิ → เข้า catch → เลิก skeleton โชว์ empty
       const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000));
       const [ordersR, skusR, funnelR, receiptsR, prevR, tg] = await Promise.race([timeout, Promise.all([
