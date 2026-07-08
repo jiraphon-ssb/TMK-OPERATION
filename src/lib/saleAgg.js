@@ -26,7 +26,7 @@ export function orderPass(o, f) {
 export function skuPass(s, f) {
   if (!f) return true;
   return inSet(f.design, s.design) && inSet(f.product_code, s.product_code) && inSet(f.size, s.size)
-    && inSet(f.color, s.color) && inSet(f.type, codeType(s.product_code));
+    && inSet(f.color, normColor(s.color)) && inSet(f.type, codeType(s.product_code));
 }
 
 // ---- group → metrics (sort ยอดมากก่อน) ----

@@ -335,7 +335,7 @@ export function SaleDashboard() {
       qty_band: u(po, 'qty_band'), salesperson: u(po, 'salesperson'), province: u(po, 'province').sort(),
       source: u(po, 'source'), job_type: u(po, 'job_type'),
       design: u(ps, 'design').sort(), size: [...new Set(ps.map(s => s.size).filter(Boolean))].sort((a, b) => sizeRank(a) - sizeRank(b)),
-      color: u(ps, 'color').sort(), type: CATALOG_TYPES,
+      color: [...new Set(ps.map(s => normColor(s.color)).filter(Boolean))].sort(), type: CATALOG_TYPES,
     };
   }, [procOrders, procSkus]);
 
