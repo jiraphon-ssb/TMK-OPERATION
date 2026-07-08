@@ -230,7 +230,12 @@ export const MP_COLOR_WORDS = new Set([
 export function cleanColor(tok) {
   const t = String(tok || '').trim();
   if (!t) return '';
-  return t.split(/[-/]/).map(s => s.trim().replace(/^สี/, '').trim()).filter(Boolean).join('-') || t;
+  const COLOR_MAP = { 'กรม': 'กรมท่า', 'กรมม่า': 'กรมท่า', 'กรมม่วง': 'กรมท่า', 'กรมทา': 'กรมท่า' };
+  const clean = (s) => {
+    const c = s.trim().replace(/^สี/, '').trim();
+    return COLOR_MAP[c] || c;
+  };
+  return t.split(/[-/]/).map(clean).filter(Boolean).join('-') || t;
 }
 export function isMpColor(tok, extra) {
   const t = String(tok || '').trim();

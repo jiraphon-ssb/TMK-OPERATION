@@ -2014,7 +2014,8 @@ function deductVariantFIFO(lots, color, size, qty) {
   for (const idx of order) {
     if (need <= 0) break;
     const lot = newLots[idx];
-    const col = (lot.colors || []).find(c => c.name === color);
+    const norm = (name) => { const n = String(name || '').trim(); return n === 'กรม' ? 'กรมท่า' : n; };
+    const col = (lot.colors || []).find(c => norm(c.name) === norm(color));
     if (!col) continue;
     const avail = Number(lot.grid?.[col.id]?.[size]) || 0;
     if (avail <= 0) continue;
