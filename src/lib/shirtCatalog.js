@@ -10,44 +10,44 @@ export const GOLDEN_DESIGNS = [
   {"code":"JDB111","name":"ดอกบัว","type":"เสื้อโปโล","price":299,"colors":["ขาว","ดำ","กรมท่า","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","โอรส"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JDM111","name":"DIAMOND","type":"เสื้อโปโล","price":299,"colors":["ฟ้า","ชมพู","ม่วง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JSP111","name":"SPLASH","type":"เสื้อโปโล","price":299,"colors":["ขาว","ฟ้า","ชมพู"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JAN001","name":"อนงค์ กระเป๋า","type":"กระเป๋า","price":320,"colors":["ดำ","กรม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JCB111","name":"ชบา","type":"เสื้อโปโล","price":299,"colors":["ดำ","กรม","เขียว","แดง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JAN001","name":"อนงค์ กระเป๋า","type":"กระเป๋า","price":320,"colors":["ดำ","กรมท่า"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JCB111","name":"ชบา","type":"เสื้อโปโล","price":299,"colors":["ดำ","กรมท่า","เขียว","แดง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JGL111","name":"พวงมาลัย","type":"เสื้อโปโล","price":299,"colors":["ฟ้า"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JML111","name":"มะลิ","type":"เสื้อโปโล","price":299,"colors":["ฟ้า"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"CB1","name":"กระเป๋าผ้า แบบที่ 1","type":"กระเป๋า","price":0,"colors":[],"sizes":[]},
   {"code":"CB2","name":"กระเป๋าผ้า แบบที่ 2","type":"กระเป๋า","price":0,"colors":[],"sizes":[]},
   {"code":"CB3","name":"กระเป๋าผ้า แบบที่ 3","type":"กระเป๋า","price":0,"colors":[],"sizes":[]},
   {"code":"JBF111","name":"บุญบั้งไฟ","type":"เสื้อโปโล","price":320,"colors":["ฟ้า","น้ำเงิน","แดง","ชมพู"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JPK111","name":"พิกุล","type":"เสื้อโปโล","price":0,"colors":["กรม","เขียว","เหลือง","ชมพู"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JPK111","name":"พิกุล","type":"เสื้อโปโล","price":0,"colors":["กรมท่า","เขียว","เหลือง","ชมพู"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JSN111","name":"มะเส็ง","type":"เสื้อโปโล","price":0,"colors":["ขาว","แดง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JAN111","name":"อนงค์","type":"เสื้อโปโล","price":349,"colors":["กรม","ฟ้า","ชมพู","ครีม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JAN111","name":"อนงค์","type":"เสื้อโปโล","price":349,"colors":["กรมท่า","ฟ้า","ชมพู","ครีม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JLK111","name":"ลอยกระทง","type":"เสื้อโปโล","price":349,"colors":["ขาว","ฟ้า","ชมพู"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JRP-111","name":"ราษภักดี (สีขาว)","type":"เสื้อโปโล","price":349,"colors":["ดำ","น้ำเงิน","เขียว","เหลือง","แดง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","7XL"]},
   {"code":"JYP111","name":"หยาดเพชร","type":"เสื้อโปโล","price":349,"colors":["ขาว","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","7XL"]},
   {"code":"JRP112","name":"ราษภักดี-อปท","type":"เสื้อโปโล","price":0,"colors":["ฟ้า","เขียว","เหลือง","โอรส"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JSC2","name":"ถุงเท้า","type":"ถุงเท้า","price":0,"colors":[],"sizes":[]},
   {"code":"JRP211","name":"ราษภักดี แขนยาว","type":"เสื้อโปโล","price":0,"colors":["ฟ้า","โอรส"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JJK211","name":"จันทร์ แขนยาว","type":"เสื้อโปโล","price":0,"colors":["กรม","เหลือง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JJK211","name":"จันทร์ แขนยาว","type":"เสื้อโปโล","price":0,"colors":["กรมท่า","เหลือง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JTT021","name":"เสื้อกล้าม","type":"เสื้อกล้าม","price":50,"colors":[],"sizes":["S","M","L","XL","2XL"]},
   {"code":"JRP116","name":"ราษฎร์ภักดี 72 ปี","type":"เสื้อโปโล","price":0,"colors":["เหลือง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JHP111","name":"หัวใจ","type":"เสื้อโปโล","price":349,"colors":["ขาว","น้ำเงิน","เหลือง","ชมพู","ม่วง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JRP111","name":"ราษฎร์ภักดี","type":"เสื้อโปโล","price":349,"colors":["กรม","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JRP111","name":"ราษฎร์ภักดี","type":"เสื้อโปโล","price":349,"colors":["กรมท่า","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JSK131","name":"สาดสี คอวี","type":"เสื้อโปโล","price":299,"colors":[],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JSK121","name":"สาดสี คอกลม","type":"เสื้อโปโล","price":0,"colors":[],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JSK111","name":"สาดสี คอปก","type":"เสื้อโปโล","price":0,"colors":[],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JDA116","name":"ดารากานต์ 72 ปี","type":"เสื้อโปโล","price":0,"colors":["เหลือง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JDR116","name":"ดอกรัก 72 ปี","type":"เสื้อโปโล","price":0,"colors":["เหลือง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JDG111","name":"กนกมังกร ปก","type":"เสื้อโปโล","price":349,"colors":["ขาว","กรม","แดง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JDA112","name":"ดารากานต์-อปท","type":"เสื้อโปโล","price":349,"colors":["กรม","ฟ้า","ชมพู","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JDA111","name":"ดารากานต์","type":"เสื้อโปโล","price":349,"colors":["กรม","ฟ้า","แดง","ชมพู","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JDG111","name":"กนกมังกร ปก","type":"เสื้อโปโล","price":349,"colors":["ขาว","กรมท่า","แดง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JDA112","name":"ดารากานต์-อปท","type":"เสื้อโปโล","price":349,"colors":["กรมท่า","ฟ้า","ชมพู","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JDA111","name":"ดารากานต์","type":"เสื้อโปโล","price":349,"colors":["กรมท่า","ฟ้า","แดง","ชมพู","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JDR112","name":"ดอกรัก-อปท","type":"เสื้อโปโล","price":349,"colors":["ขาว","กรมท่า","ฟ้า","เหลือง","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JDR111","name":"ดอกรัก","type":"เสื้อโปโล","price":0,"colors":["ขาว","กรมท่า","ฟ้า","เขียว","เหลือง","แดง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JJK112","name":"จันทร์-อปท","type":"เสื้อโปโล","price":0,"colors":["ขาว","กรม","ฟ้า","เขียว","เหลือง","แดง","ชมพู","ม่วง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JJK112","name":"จันทร์-อปท","type":"เสื้อโปโล","price":0,"colors":["ขาว","กรมท่า","ฟ้า","เขียว","เหลือง","แดง","ชมพู","ม่วง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JNKO111","name":"ขอใหม่","type":"เสื้อโปโล","price":0,"colors":["ดำ","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JYM112","name":"ยาม-อปท","type":"เสื้อโปโล","price":0,"colors":["กรมท่า","ฟ้า","เหลือง","แดง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JKN112","name":"กนก-อปท","type":"เสื้อโปโล","price":0,"colors":["ดำ","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JKD111","name":"ขิด","type":"เสื้อโปโล","price":0,"colors":["ดำ","ฟ้า","เหลือง","แดง","ม่วง"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
-  {"code":"JJK111","name":"จันทร์","type":"เสื้อโปโล","price":299,"colors":["ขาว","ดำ","กรม","ฟ้า","เขียว","เหลือง","แดง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
+  {"code":"JJK111","name":"จันทร์","type":"เสื้อโปโล","price":299,"colors":["ขาว","ดำ","กรมท่า","ฟ้า","เขียว","เหลือง","แดง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JYM111","name":"ยาม","type":"เสื้อโปโล","price":299,"colors":["ขาว","ดำ","กรมท่า","ฟ้า","เขียว","เหลือง","แดง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"JKN111","name":"กนก","type":"เสื้อโปโล","price":299,"colors":["ดำ","ฟ้า","เขียว","เหลือง","ชมพู","ม่วง","ส้ม"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL"]},
   {"code":"OEM-ORG","name":"OEM/สกรีนองค์กร","type":"OEM","price":0,"colors":["ดำ"],"sizes":["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","7XL"]},
@@ -96,9 +96,10 @@ export function resolveDesign(text) {
   return null;
 }
 // แกะสีไทยจากข้อความ → คืน {color, code} หรือ null
+const _COLOR_KEYS_LONG = Object.keys(COLOR_TH2CODE).sort((a, b) => b.length - a.length); // ยาวก่อน → "กรมท่า" ชนะ "กรม" (กัน substring)
 export function resolveColor(text) {
   const t = (text||'').toString();
-  for (const th of Object.keys(COLOR_TH2CODE)) if (t.includes(th)) return { color: th, code: COLOR_TH2CODE[th] };
+  for (const th of _COLOR_KEYS_LONG) if (t.includes(th)) return { color: th, code: COLOR_TH2CODE[th] };
   return null;
 }
 // แกะไซซ์ (S..7XL) จากข้อความ

@@ -275,5 +275,9 @@ export function normSize(s) {
   const m = SIZE_ORDER.find(x => t === x || t === x.replace('X', 'X')); return m || (t || 'ไม่ระบุ');
 }
 const _COLOR_ALIAS = { 'กรม': 'กรมท่า', 'กรมม่า': 'กรมท่า', 'กรมม่วง': 'กรมท่า', 'กรมทา': 'กรมท่า' };
-export function normColor(c) { const t = String(c || '').replace(/\(ตราอปท\.?\)/g, '').trim() || 'ไม่ระบุ'; return _COLOR_ALIAS[t] || t; }
+export function normColor(c) {
+  let t = String(c || '').replace(/\(ตราอปท\.?\)/g, '').trim();
+  t = t.replace(/[\s-]+(?:XS|S|M|L|XL|[2-8]XL|F|Free)$/i, '').trim() || 'ไม่ระบุ'; // ตัดไซซ์ที่ปนท้ายสี เช่น "กรมท่า XL"/"กรมท่า-XL"
+  return _COLOR_ALIAS[t] || t;
+}
 export const sizeRank = (s) => { const i = SIZE_ORDER.indexOf(normSize(s)); return i < 0 ? 99 : i; };
