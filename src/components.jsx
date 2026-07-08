@@ -114,11 +114,18 @@ export function sizeBreakdown(lots) {
   return out;
 }
 // รวมจำนวนต่อสี (ตามชื่อสี) ข้ามทุกล็อต → { [colorName]: qty }
+// normalize ชื่อสี: ตัดไซซ์ต่อท้ายออก + แปลงคำพ้อง
+const _COLOR_NORM = { 'กรม': 'กรมท่า', 'กรมม่า': 'กรมท่า', 'กรมทา': 'กรมท่า' };
+function normColor(name) {
+  let c = String(name || '').trim().replace(/^สี/, '').trim();
+  c = c.replace(/[\s\-/]+(XS|[2-8]XL|XL|S|M|L)$/i, '').trim();
+  return _COLOR_NORM[c] || c;
+}
 export function colorBreakdown(lots) {
   const out = {};
   (lots || []).forEach(l => {
     if (!l?.grid || !Array.isArray(l.colors)) return;
-    l.colors.forEach(col => { const row = l.grid[col.id] || {}; let n = 0; for (const s in row) n += _q(row[s]); if (n) out[col.name] = (out[col.name] || 0) + n; });
+    l.colors.forEach(col => { const row = l.grid[col.id] || {}; let n = 0; for (const s in row) n += _q(row[s]); const nc = normColor(col.name); if (n) out[nc] = (out[nc] || 0) + n; });
   });
   return out;
 }
@@ -128,8 +135,9 @@ export function variantGrid(lots) {
   (lots || []).forEach(l => {
     if (!l?.grid || !Array.isArray(l.colors)) return;
     l.colors.forEach(col => {
+      const nc = normColor(col.name);
       const row = l.grid[col.id] || {};
-      for (const s in row) { const q = _q(row[s]); if (!q) continue; (out[col.name] || (out[col.name] = {}))[s] = (out[col.name][s] || 0) + q; }
+      for (const s in row) { const q = _q(row[s]); if (!q) continue; (out[nc] || (out[nc] = {}))[s] = (out[nc][s] || 0) + q; }
     });
   });
   return out;
