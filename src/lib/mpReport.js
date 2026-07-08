@@ -12,8 +12,8 @@
 ============================================================================ */
 import { BUILTIN_DESIGN_ALIASES, COLOR_TH2CODE } from './shirtCatalog.js'; // คำพ้องชัวร์ → ฉีดเข้า matcher อัตโนมัติ (จันทกานต์→จันทร์, สีดำ-*→OEM)
 
-// รหัสสี → ชื่อสีไทย (invert COLOR_TH2CODE · ตัวแรกชนะเมื่อรหัสซ้ำ เช่น N→กรม, OR→ส้ม)
-const CODE2COLOR_TH = (() => { const m = {}; for (const [th, code] of Object.entries(COLOR_TH2CODE)) if (!(code in m)) m[code] = th; return m; })();
+// รหัสสี → ชื่อสีไทย (invert COLOR_TH2CODE · เลือกชื่อยาวกว่าเมื่อรหัสซ้ำ เช่น N→กรมท่า, OR→โอรส เพื่อให้ตรงแคตตาล็อกหลัก)
+const CODE2COLOR_TH = (() => { const m = {}; for (const [th, code] of Object.entries(COLOR_TH2CODE)) if (!(code in m) || th.length > m[code].length) m[code] = th; return m; })();
 
 export const MP_SIZES = new Set(['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL', '8XL']);
 
@@ -162,9 +162,18 @@ function kwmatch(kw, text) {
 export function splitParenVar(varTxt) {
   let t = String(varTxt || '').trim().replace(/^\(/, '').replace(/\)$/, '').trim();
   if (!t) return { color: '', size: '' };
+  
+  // ตรวจสอบไซซ์ต่อท้ายเว้นวรรค/ขีด/สแลช เช่น "กรมท่า XL", "กรมท่า-XL"
+  const m = t.match(/[\s\-/]+(XS|[2-8]XL|XL|S|M|L)$/i);
+  if (m) {
+    const size = m[1].toUpperCase();
+    const color = t.slice(0, m.index).trim();
+    return { color, size };
+  }
+
   const p = t.split('-');
   const last = p[p.length - 1].trim();
-  if (MP_SIZES.has(last)) return { color: p.slice(0, -1).join('-').trim(), size: last };
+  if (MP_SIZES.has(last.toUpperCase())) return { color: p.slice(0, -1).join('-').trim(), size: last.toUpperCase() };
   return { color: t, size: '' };
 }
 export function splitShopeeVar(v) {
@@ -173,8 +182,13 @@ export function splitShopeeVar(v) {
     const i = v.lastIndexOf(',');
     const color = v.slice(0, i).trim();
     const rest = v.slice(i + 1).trim();
-    const size = rest ? rest.split(/\s+/)[0] : '';
+    const size = rest ? rest.split(/\s+/)[0].toUpperCase() : '';
     return { color, size };
+  }
+  // ตรวจสอบไซซ์ต่อท้าย เช่น "กรมท่า XL", "กรมท่า-XL"
+  const m = v.match(/[\s\-/]+(XS|[2-8]XL|XL|S|M|L)$/i);
+  if (m) {
+    return { color: v.slice(0, m.index).trim(), size: m[1].toUpperCase() };
   }
   return { color: v.trim(), size: '' };
 }
@@ -233,9 +247,22 @@ export function splitVariantToken(varTxt) {
   const pm = /^\(([^)]*)\)\s*/.exec(v); // qualifier นำหน้า เช่น "(สกรีน-อปท) "
   if (pm) { prefix = pm[1].trim(); v = v.slice(pm[0].length).trim(); }
   let tok = v, size = '';
+  
   const ci = v.indexOf(',');
-  if (ci >= 0) { tok = v.slice(0, ci).trim(); const rest = v.slice(ci + 1).trim(); size = rest ? rest.split(/\s+/)[0] : ''; }
-  if (tok && MP_SIZES.has(tok)) { size = size || tok; tok = ''; } // token เป็นไซซ์ล้วน
+  if (ci >= 0) {
+    tok = v.slice(0, ci).trim();
+    const rest = v.slice(ci + 1).trim();
+    size = rest ? rest.split(/\s+/)[0].toUpperCase() : '';
+  } else {
+    // ตรวจสอบไซซ์ต่อท้าย เช่น "กรมท่า XL", "กรมท่า-XL"
+    const m = v.match(/[\s\-/]+(XS|[2-8]XL|XL|S|M|L)$/i);
+    if (m) {
+      size = m[1].toUpperCase();
+      tok = v.slice(0, m.index).trim();
+    }
+  }
+  
+  if (tok && MP_SIZES.has(tok.toUpperCase())) { size = size || tok.toUpperCase(); tok = ''; } // token เป็นไซซ์ล้วน
   return { tok, size, prefix };
 }
 // จับลายจาก "token" (กรณี token เป็นลาย) → คืน {code, design}; ไม่เจอใน catalog คืน design=token
