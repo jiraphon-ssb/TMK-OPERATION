@@ -19,6 +19,7 @@ import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal } from './lib/saleData.js';
+import { useSaleRealtime } from './lib/saleRealtime.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -244,6 +245,8 @@ export function SaleDashboard() {
   })(); return () => { alive = false; }; }, [reloadKey]);
   const resolver = useMemo(() => makeSkuResolver(resolverMaps || {}), [resolverMaps]);
   useEffect(() => { saveF(f); }, [f]);
+  // realtime: ออเดอร์/ใบเสร็จ/คนทัก/แคตตาล็อก/override เปลี่ยนที่ไหน รายงานเด้งสด (ไม่ต้องรีเฟรช)
+  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_skus', 'tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_order_overrides', 'tmk_mp_customers'], () => { clearSaleCache(); setReloadKey(k => k + 1); });
 
   const bounds = dbBounds;
   const range = { from: f.from || bounds.min, to: f.to || bounds.max };

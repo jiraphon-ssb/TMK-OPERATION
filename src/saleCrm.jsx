@@ -13,6 +13,7 @@ import { N, Icon, Skel, SkelTable, useDelayedFlag } from './components.jsx';
 import { SideSheet } from './modals.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
+import { useSaleRealtime } from './lib/saleRealtime.js';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { logAudit } from './lib/audit.js';
@@ -202,6 +203,7 @@ export function CrmView() {
   const [sel, setSel] = useState(null);
   const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [rk, setRk] = useState(0); // bump จาก realtime → refetch สด
 
   useEffect(() => { (async () => {
     const [p, o] = await Promise.all([
@@ -210,7 +212,9 @@ export function CrmView() {
     ]);
     if (p.error) { setErr(p.error.message); return; }
     setData(buildDirectory(p.data || [], o.error ? [] : (o.data || []), todayISO()));
-  })(); }, []);
+  })(); }, [rk]);
+  // realtime: ออเดอร์/ลูกค้าใหม่จากใบเสร็จหรือคนอื่น → CRM เห็นสด (ไม่ต้องรีเฟรช)
+  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_customers'], () => { invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_customers'); setRk(k => k + 1); });
 
   // แก้โปรไฟล์จาก drawer → อัปเดตแถวใน list + แถวที่เปิดอยู่ in-place (ไม่ refetch)
   const applyProfile = (key, row) => {

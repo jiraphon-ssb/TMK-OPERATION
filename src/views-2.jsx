@@ -23,6 +23,7 @@ import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable, Car
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
 import { voidReceipt, restoreReceipt } from './lib/receiptSubmit.js';
+import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 import { useUser } from './userContext.jsx';
 import { PRESETS, presetRange } from './lib/saleTime.js';
@@ -1118,6 +1119,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     return s.data;
   };
   useEffect(() => { load(); }, []);
+  useSaleRealtime(['tmk_mp_skus', 'tmk_mp_aliases'], load); // นำเข้า/จับคู่ใหม่ที่ไหน คุณภาพข้อมูลเห็นสด
 
   const A = useMemo(() => {
     const rows = skus || [];
@@ -1578,6 +1580,8 @@ function MpOrdersView() {
     invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
     setReloadKey(k => k + 1); reloadOverrides();
   };
+  // realtime: ออเดอร์/รายการ/override เปลี่ยนที่ไหน (คนอื่นเพิ่ม/แก้/ยกเลิก/ลบ · ส่งยอดใบเสร็จ) → ตารางเด้งสด
+  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides', 'tmk_sale_receipts'], reloadAll);
   useEffect(() => { let cancel = false; (async () => { const m = await loadResolverMaps(supabase); if (cancel) return; setResolverMaps(m); try { const r = await supabase.from('tmk_order_overrides').select('*'); if (cancel) return; const map = {}; if (!r.error) (r.data || []).forEach(x => { map[x.order_id] = x; }); setOrderOv(map); } catch { /* ตารางยังไม่มี */ } })(); return () => { cancel = true; }; }, []);
   const orderOvKey = (o) => `${o.source || ''}:${o.order_no}`;
 

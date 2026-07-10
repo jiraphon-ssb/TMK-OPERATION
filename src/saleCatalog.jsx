@@ -5,6 +5,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, invalidateSaleCache } from './lib/saleData.js';
+import { useSaleRealtime } from './lib/saleRealtime.js';
 import { N, Icon, Skel, SkelTable, useDelayedFlag, stockMeta } from './components.jsx';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
@@ -205,6 +206,7 @@ export function ShirtCatalogView() {
     setNoTable(false); setItems(sortByUpdated(r.data || []));
   };
   useEffect(() => { load(); }, []);
+  useSaleRealtime(['tmk_shirt_catalog'], () => load(true)); // แคตตาล็อกแก้ที่ไหน เห็นสดทุกเครื่อง
   useEffect(() => { if (!edit) { setAddType(null); setSkuOpen(false); } }, [edit]);   // ปิดชีต/เปลี่ยนรายการ → รีเซ็ตโหมดฟอร์ม
 
   const types = useMemo(() => { const s = new Set(); (items || []).forEach(i => { if (i.type) s.add(i.type); }); return [...s].sort(); }, [items]);

@@ -395,7 +395,7 @@ export function SalePerfView() {
     finally { setLoading(false); }
   }, [month]);
   useEffect(() => { load(); }, [load]);
-  useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel'], () => { invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); load(true); });
+  useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => { invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); load(true); });
 
   // ช่องทางทั้งหมด (ทำ option ตัวกรอง)
   const channels = useMemo(() => [...new Set((data.orders || []).map(o => o.channel).filter(Boolean))].sort(), [data.orders]);
