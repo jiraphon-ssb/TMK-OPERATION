@@ -1532,6 +1532,9 @@ function MpOrdersView() {
   const { user } = useUser();
   const PER_PAGE = 50;
   const [page, setPage] = useState(1);
+  const [selSet, setSelSet] = useState(() => new Set()); // เลือกหลายออเดอร์ (order_no) สำหรับ action รวดเร็ว
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const canEdit = window.__canEdit !== false;
   const [density, setDensity] = usePersistedState('tmk-orders-density', 'cozy');
   const [hiddenCols, setHiddenCols] = usePersistedState('tmk-orders-hiddenCols', []);
   const colVisible = useMemo(() => new Set(ORDERS_COLS.map(c => c.key).filter(k => !hiddenCols.includes(k))), [hiddenCols]);
@@ -1577,6 +1580,52 @@ function MpOrdersView() {
   };
   useEffect(() => { let cancel = false; (async () => { const m = await loadResolverMaps(supabase); if (cancel) return; setResolverMaps(m); try { const r = await supabase.from('tmk_order_overrides').select('*'); if (cancel) return; const map = {}; if (!r.error) (r.data || []).forEach(x => { map[x.order_id] = x; }); setOrderOv(map); } catch { /* ตารางยังไม่มี */ } })(); return () => { cancel = true; }; }, []);
   const orderOvKey = (o) => `${o.source || ''}:${o.order_no}`;
+
+  // ── เลือกหลายออเดอร์ + action รวดเร็ว (ยกเลิก/นำกลับ/ลบถาวร) ─────────────
+  const isRcpt = (o) => (o.source || '') === 'shipnity';
+  // action ต่อออเดอร์ (ไม่ confirm/toast รายตัว — bulk ยืนยันครั้งเดียว) · logic เดียวกับ OrderDrawer
+  const cancelOne = async (o) => {
+    if (isRcpt(o)) return voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์ (เลือกหลายรายการ)' });
+    const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
+    if (error) throw error;
+    logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
+  };
+  const restoreOne = async (o) => {
+    if (isRcpt(o)) return restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
+    const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
+    if (error) throw error;
+    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });
+  };
+  const deleteOne = async (o) => {
+    await supabase.from('tmk_mp_skus').delete().eq('source', o.source || '').eq('order_no', o.order_no);
+    { const { error } = await supabase.from('tmk_mp_orders').delete().eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
+    try { await supabase.from('tmk_order_overrides').delete().eq('order_id', orderOvKey(o)); } catch { /* optional */ }
+    if (isRcpt(o)) { try { await supabase.from('tmk_sale_receipts').delete().eq('order_no', o.order_no); } catch { /* optional */ } }
+    logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})` });
+  };
+  const toggleSel = (no) => setSelSet(s => { const n = new Set(s); n.has(no) ? n.delete(no) : n.add(no); return n; });
+  const runBulk = async (kind) => {
+    if (!canEdit) { window.__toast?.('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    const rows = (ordersM || []).filter(o => selSet.has(o.order_no) &&
+      (kind === 'cancel' ? o.status !== 'cancelled' : kind === 'restore' ? o.status === 'cancelled' : true));
+    if (!rows.length) return;
+    const meta = {
+      cancel: { title: `ยกเลิก ${rows.length} ออเดอร์`, body: 'ยอดจะถูกตัดออกจากรายงานทันที (ส่งใบเสร็จซ้ำได้)', danger: true, confirmText: 'ยกเลิก' },
+      restore: { title: `นำ ${rows.length} ออเดอร์กลับมา`, body: 'ยอดจะกลับเข้ารายงานทันที', confirmText: 'นำกลับมา' },
+      remove: { title: `ลบ ${rows.length} ออเดอร์ถาวร`, body: 'รายการสินค้า/ใบเสร็จจะถูกลบด้วย — ย้อนกลับไม่ได้', danger: true, confirmText: 'ลบถาวร' },
+    }[kind];
+    if (!await window.__confirm?.(meta)) return;
+    setBulkBusy(true);
+    let ok = 0, fail = 0;
+    for (const o of rows) {
+      try { await (kind === 'cancel' ? cancelOne(o) : kind === 'restore' ? restoreOne(o) : deleteOne(o)); ok++; }
+      catch { fail++; }
+    }
+    setBulkBusy(false);
+    setSelSet(new Set());
+    window.__toast?.(`${meta.confirmText} ${ok} ออเดอร์${fail ? ` · ล้มเหลว ${fail}` : ''}`, fail ? 'warn' : 'success');
+    reloadAll();
+  };
 
   // resolver จาก map สด — เปลี่ยน catalog/alias/override แล้ว recompute (ไม่ต้อง reimport)
   const resolver = useMemo(() => makeSkuResolver(resolverMaps || {}), [resolverMaps]);
@@ -1645,10 +1694,16 @@ function MpOrdersView() {
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
 
   // แบ่งหน้า — รีเซ็ตกลับหน้า 1 เมื่อเปลี่ยนช่วงวันที่/ตัวกรอง/คำค้น/การเรียง
-  useEffect(() => { setPage(1); }, [range.from, range.to, jobF, channelF, sellerF, statusF, payF, q, sortKey, sortDir]);
+  useEffect(() => { setPage(1); setSelSet(new Set()); }, [range.from, range.to, jobF, channelF, sellerF, statusF, payF, q, sortKey, sortDir]);
   const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
   const pageClamped = Math.min(page, totalPages);
   const pageRows = sorted.slice((pageClamped - 1) * PER_PAGE, pageClamped * PER_PAGE);
+  // เลือกทั้งหน้า (checkbox หัวตาราง) + สรุปสิ่งที่เลือกไว้ (เพื่อโชว์ปุ่ม action ที่เกี่ยวข้อง)
+  const pageNos = pageRows.map(o => o.order_no);
+  const allOnPage = pageNos.length > 0 && pageNos.every(no => selSet.has(no));
+  const toggleAllPage = () => setSelSet(s => { const n = new Set(s); if (allOnPage) pageNos.forEach(no => n.delete(no)); else pageNos.forEach(no => n.add(no)); return n; });
+  const selRows = (ordersM || []).filter(o => selSet.has(o.order_no));
+  const selHasCancelled = selRows.some(o => o.status === 'cancelled');
 
   const showSkel = useDelayedFlag(orders === null, 120); // โผล่หลัง 120ms · อยู่อย่างน้อย 300ms · cache ไว → เด้งทันที
   if (showSkel) return <OrdersSkeleton />;
@@ -1709,8 +1764,20 @@ function MpOrdersView() {
           </CollapsibleContent>
         </Collapsible>
 
+        {canEdit && selSet.size > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: 'var(--accent)', background: 'var(--accent-soft)' }}>
+            <span className="text-[13px] font-bold" style={{ color: 'var(--accent)' }}>เลือก {N(selSet.size)} ออเดอร์</span>
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              {selHasCancelled && <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--good)' }} disabled={bulkBusy} onClick={() => runBulk('restore')}><Icon name="refresh" /> นำกลับมา</Button>}
+              <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} disabled={bulkBusy} onClick={() => runBulk('remove')}><Icon name="trash" /> ลบถาวร</Button>
+              <Button variant="ghost" size="sm" disabled={bulkBusy} onClick={() => setSelSet(new Set())}>เลิกเลือก</Button>
+            </div>
+          </div>
+        )}
+
         <CardTable className={'table-sticky-first mt-4 ' + density}><Table>
           <TableHeader><TableRow>
+            {canEdit && <TableHead className="w-9 cell-hide-m"><ShadcnCheckbox checked={allOnPage} onCheckedChange={toggleAllPage} aria-label="เลือกทั้งหน้า" /></TableHead>}
             <SortHead field="order_no" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ออเดอร์</SortHead>
             {colVisible.has('date') && <SortHead field="date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>วันที่</SortHead>}
             {colVisible.has('channel') && <SortHead field="channel" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ช่องทาง</SortHead>}
@@ -1725,7 +1792,8 @@ function MpOrdersView() {
           </TableRow></TableHeader>
           <TableBody>{pageRows.map(o => { const designs = buildDesigns(skusByOrder[o.order_no] || []);
             return (
-              <TableRow key={o.order_no} className={`mp-order-row ${openId === o.order_no ? 'is-open' : ''} ${o.status === 'cancelled' ? 'opacity-55' : ''}`} onClick={() => setOpenId(o.order_no)} style={{ cursor: 'pointer' }}>
+              <TableRow key={o.order_no} data-state={selSet.has(o.order_no) ? 'selected' : undefined} className={`mp-order-row ${openId === o.order_no ? 'is-open' : ''} ${o.status === 'cancelled' ? 'opacity-55' : ''}`} onClick={() => setOpenId(o.order_no)} style={{ cursor: 'pointer' }}>
+                {canEdit && <TableCell className="cell-hide-m" onClick={e => e.stopPropagation()}><ShadcnCheckbox checked={selSet.has(o.order_no)} onCheckedChange={() => toggleSel(o.order_no)} aria-label={`เลือก ${o.order_no}`} /></TableCell>}
                 <TableCell className="cell-title"><span style={{ fontWeight: 600, textDecoration: o.status === 'cancelled' ? 'line-through' : 'none' }}>{o.order_no}</span></TableCell>
                 {colVisible.has('date') && <TableCell className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</TableCell>}
                 {colVisible.has('channel') && <TableCell><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span></TableCell>}
