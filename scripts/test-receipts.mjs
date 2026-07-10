@@ -34,6 +34,14 @@ function diffExpected(r, exp) {
   eq('total', r.total, exp.total);
   eq('lines', r.lines.length, exp.lines);
   eq('phone', r.customer_phone, exp.customer_phone);
+  // ฟิลด์เสริม (ครบทุกอย่างบนใบ) — ตรวจเมื่อ expected ระบุ
+  eq('order_time', r.order_time, exp.order_time);
+  eq('promo_code', r.promo_code, exp.promo_code);
+  eq('vat', r.vat, exp.vat);
+  eq('customer_tax_id', r.customer_tax_id, exp.customer_tax_id);
+  eq('note', r.note, exp.note);
+  eq('carrier', r.carrier, exp.carrier);
+  eq('address', r.customer_address, exp.customer_address);
   if (exp.l0) { const l0 = r.lines[0] || {}; eq('l0.code', l0.code, exp.l0.code); eq('l0.qty', l0.qty, exp.l0.qty); eq('l0.amount', l0.amount, exp.l0.amount); }
   // ตรวจ "ทุกบรรทัด" (จับอ่านข้ามรายการ/qty-amount ผิด) — opt-in ผ่าน lines_detail:[{code?,qty,amount}]
   if (Array.isArray(exp.lines_detail)) {

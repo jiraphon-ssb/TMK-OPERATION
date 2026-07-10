@@ -548,7 +548,8 @@
         "amount": 279
       }
     ],
-    "customer_phone": "0992034022"
+    "customer_phone": "0992034022",
+    "order_time": "09:10"
   },
   "new-M1K9046.pdf": {
     "order_no": "M1K9046",
@@ -792,6 +793,36 @@
       "K8839",
       "SK8831",
       "K8814"
+    ]
+  },
+  "new-en2page.pdf": {
+    "order_no": "EN001",
+    "order_date": "2026-07-05",
+    "order_time": "14:30",
+    "customer_name": "John Smith",
+    "customer_social": "John Smith",
+    "customer_phone": "0812345678",
+    "customer_address": "123 Main Road",
+    "province": "",
+    "channel": "Facebook",
+    "payment": "COD",
+    "total": 607,
+    "vat": 39,
+    "promo_code": "SAVE10",
+    "carrier": "Kerry",
+    "note": "DFT job",
+    "lines": 2,
+    "lines_detail": [
+      {
+        "code": "JSK02-BK-XL",
+        "qty": 1,
+        "amount": 279
+      },
+      {
+        "code": "JSK03-WH-M",
+        "qty": 1,
+        "amount": 279
+      }
     ]
   }
 }

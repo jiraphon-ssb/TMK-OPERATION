@@ -400,6 +400,7 @@ export function SubmitSalesView() {
   const startEdit = () => {
     const c = detail.confirmed || {};
     setEditRow({
+      ...c,   // พกทุกฟิลด์บนใบไปด้วย (vat/promo_code/order_time/tax_id/masked/…) — แก้ใบแล้วข้อมูลที่ไม่ได้แตะต้องไม่หาย
       order_no: detail.order_no, order_date: detail.order_date || c.order_date || '',
       customer_name: c.customer_name || '', customer_phone: c.customer_phone || '',
       customer_social: c.customer_social || '', customer_address: c.customer_address || '',
@@ -681,13 +682,21 @@ export function SubmitSalesView() {
                   <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                     <DrawerGroup icon="listChecks" title="ข้อมูลใบเสร็จ">
                       <DrawerField label="เลขที่">{detail.order_no}</DrawerField>
-                      <DrawerField label="วันที่">{fmtD(detail.order_date)}</DrawerField>
+                      <DrawerField label="วันที่">{fmtD(detail.order_date)}{detail.confirmed?.order_time ? ` · ${detail.confirmed.order_time}` : ''}</DrawerField>
                       <DrawerField label="เซลล์">{detail.salesperson || '—'}</DrawerField>
                       <div><span className="cap">ช่องทาง</span><b><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(detail.channel) }} />{detail.channel || '—'}</span></b></div>
+                      <DrawerField label="การชำระ">{detail.confirmed?.payment_method || '—'}</DrawerField>
+                      <DrawerField label="ขนส่ง">{detail.confirmed?.carrier || '—'}</DrawerField>
+                      {detail.confirmed?.promo_code ? <DrawerField label="รหัสส่วนลด">{detail.confirmed.promo_code}</DrawerField> : null}
+                      {detail.confirmed?.note ? <DrawerField label="หมายเหตุ">{detail.confirmed.note}</DrawerField> : null}
                     </DrawerGroup>
                     <DrawerGroup icon="user" title="ลูกค้า">
                       <DrawerField label="ชื่อลูกค้า">{detail.confirmed?.customer_name || '—'}</DrawerField>
+                      <DrawerField label="เบอร์">{detail.confirmed?.customer_phone || '—'}</DrawerField>
+                      {detail.confirmed?.customer_social ? <DrawerField label="โซเชียล">{detail.confirmed.customer_social}</DrawerField> : null}
                       <DrawerField label="จังหวัด">{detail.confirmed?.province || '—'}</DrawerField>
+                      {detail.confirmed?.customer_address ? <DrawerField label="ที่อยู่">{detail.confirmed.customer_address}</DrawerField> : null}
+                      {detail.confirmed?.customer_tax_id ? <DrawerField label="เลขภาษี">{detail.confirmed.customer_tax_id}</DrawerField> : null}
                     </DrawerGroup>
                   </div>
                   {Array.isArray(detail.confirmed?.lines) && detail.confirmed.lines.length > 0 && (
@@ -703,7 +712,15 @@ export function SubmitSalesView() {
                         <tbody>{detail.confirmed.lines.map((l, i) => { const cs = deriveColorSize(l.name || '', l.code || ''); const c = l.color || cs.color, sz = l.size || cs.size; return <tr key={i} className="border-t hover:bg-muted/30 transition-colors"><td className="px-3 py-2 cell-title"><span className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>{l.code}</span></td><td className="px-3 py-2 font-medium">{l.name}</td><td className="px-3 py-2 text-muted-foreground">{[c, sz].filter(Boolean).join(' · ') || '—'}</td><td className="px-3 py-2 text-right tabular-nums">{l.qty}</td><td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtB(l.amount)}</td></tr>; })}</tbody>
                       </table>
                       </CardTable>
-                      <div className="px-3 py-2 border-t bg-muted/30 flex items-center justify-between text-xs"><span className="text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว</span><b className="tabular-nums">{fmtB(detail.sales)}</b></div>
+                      {/* สรุปยอดครบจากใบ: ยอด/ส่วนลด/ค่าส่ง/VAT → ยอดรวม (โชว์เฉพาะบรรทัดที่มีค่า) */}
+                      <div className="px-3 py-2 border-t bg-muted/30 text-xs space-y-1">
+                        <div className="flex items-center justify-between"><span className="text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว{detail.confirmed.subtotal != null ? ` · ยอด ${fmtB(detail.confirmed.subtotal)}` : ''}</span><span className="inline-flex items-center gap-3">
+                          {Number(detail.confirmed.discount) ? <span className="text-muted-foreground">ส่วนลด −{fmtB(detail.confirmed.discount)}</span> : null}
+                          {Number(detail.confirmed.shipping) ? <span className="text-muted-foreground">ค่าส่ง +{fmtB(detail.confirmed.shipping)}</span> : null}
+                          {Number(detail.confirmed.vat) ? <span className="text-muted-foreground">VAT +{fmtB(detail.confirmed.vat)}</span> : null}
+                          <b className="tabular-nums">{fmtB(detail.sales)}</b>
+                        </span></div>
+                      </div>
                     </div>
                   )}
                   <div className="flex items-center gap-2 flex-wrap">

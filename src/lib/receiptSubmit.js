@@ -202,7 +202,17 @@ function buildRows(item, user, batch, M) {
     customer_code: customerKeyOf(item), customer_name: item.customer_name || '', customer_social: item.customer_social || '',
     note: item.note || '',   // ลงคอลัมน์จริง — หน้าออเดอร์เห็นหมายเหตุ (เดิมเก็บแค่ attrs.lot_note = มองไม่เห็น)
     import_batch: batch,
-    attrs: { via: 'receipt', receipt_id: id, carrier: item.carrier || '', lot_note: item.note || '', payment_method: item.payment_method || '' },
+    // attrs เก็บข้อมูลบนใบให้ครบระดับออเดอร์ (ส่วนลด/ค่าส่ง/vat/รหัสส่วนลด/เวลา — เฉพาะที่มีค่า ไม่ bloat)
+    attrs: {
+      via: 'receipt', receipt_id: id, carrier: item.carrier || '', lot_note: item.note || '', payment_method: item.payment_method || '',
+      ...(Number(item.discount) ? { discount: Number(item.discount) } : {}),
+      ...(Number(item.shipping) ? { shipping: Number(item.shipping) } : {}),
+      ...(Number(item.vat) ? { vat: Number(item.vat) } : {}),
+      ...(item.subtotal != null && Number(item.subtotal) !== sales ? { subtotal: Number(item.subtotal) } : {}),
+      ...(item.promo_code ? { promo_code: item.promo_code } : {}),
+      ...(item.order_time ? { order_time: item.order_time } : {}),
+      ...(item.customer_tax_id ? { customer_tax_id: item.customer_tax_id } : {}),
+    },
     updated_at: nowISO(),
   };
   const skuRows = item.lines.map((l, i) => enrichSku({
@@ -233,12 +243,13 @@ function buildRows(item, user, batch, M) {
 }
 
 const sanitizeConfirmed = (item) => ({
-  order_no: item.order_no, order_date: item.order_date,
+  order_no: item.order_no, order_date: item.order_date, order_time: item.order_time || '',
   customer_name: item.customer_name, customer_phone: item.customer_phone,
   customer_social: item.customer_social, customer_address: item.customer_address,
+  customer_tax_id: item.customer_tax_id || '', customer_masked: !!item.customer_masked,
   province: item.province, lines: item.lines,
-  subtotal: item.subtotal, discount: item.discount, shipping: item.shipping, total: item.total,
-  payment_method: item.payment_method, carrier: item.carrier, note: item.note,
+  subtotal: item.subtotal, discount: item.discount, shipping: item.shipping, vat: item.vat ?? 0, total: item.total,
+  payment_method: item.payment_method, carrier: item.carrier, note: item.note, promo_code: item.promo_code || '',
   channel: item.channel, job_type: item.job_type, customer_type: item.customer_type,
 });
 

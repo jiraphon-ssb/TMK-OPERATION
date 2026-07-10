@@ -18,6 +18,12 @@
    - บางหน้ามีป้ายจัดส่ง (ผู้ส่ง/ผู้รับ) เหนือใบ → อ่านเฉพาะใต้หัว "ใบเสร็จรับเงิน"
    ใช้:  const receipts = await parseReceiptPdf(file)   // 1 ไฟล์ → หลายใบได้ (PDF รวมหลายหน้า)
    - แยกใบ: หน้าไหนมี "เลขที่เอกสาร" = เริ่มใบใหม่ · หน้าไม่มี = หน้าต่อ (รายการยาว)
+     หน้าต่อ merge ทั้ง "รายการ" และ "สรุปยอด/หมายเหตุ/การชำระ/ขนส่ง" กลับเข้าใบหลัก
+   ฟิลด์ที่คืนต่อใบ (ครบทุกอย่างบนใบ — ไม่ทิ้งข้อมูล):
+     order_no · order_date · order_time · customer_name/phone/social/address/tax_id ·
+     province · lines[{code,name,qty,unit_price,discount,amount}] · subtotal/discount/
+     shipping/vat/total · payment_method · carrier · note · promo_code ·
+     channel_hint/channel_token · customer_masked · warnings[]
    regression: node scripts/test-receipts.mjs [โฟลเดอร์ PDF]
    ============================================================ */
 import { PROVINCES } from './provinces.js';
@@ -150,19 +156,28 @@ function findLabel(rows, labels) {
 }
 
 /* ---------- หา "ค่า" หลัง label (label ... : value) — รับ synonym หลายคำ ----------
-   labelMinX: มองเฉพาะชิ้นที่ x ≥ ค่านี้ (กัน colon/ข้อความคอลัมน์อื่นปนบรรทัดเดียว) */
+   labelMinX: มองเฉพาะชิ้นที่ x ≥ ค่านี้ (กัน colon/ข้อความคอลัมน์อื่นปนบรรทัดเดียว)
+   ลำดับความแม่น: แถวที่ "ขึ้นต้นด้วย label + มีค่า" ชนะ → แถว "มี label ปน + มีค่า" →
+   ไม่มีค่าเลย = null (กันคำบังเอิญมี substring ตรง label เช่น "no" มา short-circuit ค่าจริง) */
 function valueAfterLabel(rows, labels, { labelMinX = 0, sc = 1 } = {}) {
   const lks = LKS(labels);
+  let loose = null;
   for (const r of rows) {
     const items = r.items.filter(i => i.x >= labelMinX);
     if (!items.length) continue;
     const key = labelKey(items.map(i => i.s).join(''));
-    if (!lks.some(lk => key.includes(lk))) continue;
+    const starts = lks.some(lk => key.startsWith(lk));
+    if (!starts && !lks.some(lk => key.includes(lk))) continue;
     const colon = items.findIndex(i => i.s.includes(':'));
-    const parts = colon >= 0 ? items.slice(colon + 1) : [];
-    return { text: joinItems(parts, sc), row: r };
+    if (colon < 0) continue;
+    // ค่าหลัง ":" — บาง generator ปล่อย ": ค่า" เป็นชิ้นเดียวกับ colon → ต้องเก็บเศษในชิ้นนั้นด้วย (ห้ามหาย)
+    const rest = items[colon].s.slice(items[colon].s.indexOf(':') + 1).trim();
+    const text = normThai((rest ? rest + ' ' : '') + joinItems(items.slice(colon + 1), sc)).trim();
+    if (!text) continue;                          // แถว label ค่าว่าง → มองแถวถัดไป
+    if (starts) return { text, row: r };
+    if (!loose) loose = { text, row: r };
   }
-  return null;
+  return loose;
 }
 
 /* ---------- วันที่หลายรูปแบบ → ISO · ปี > 2400 = พ.ศ. ----------
@@ -241,6 +256,8 @@ function wrappedCont(body, custRow, xFrom, xTo, sc) {
     const cont = joinItems(parts, sc).trim();
     if (!cont) continue;                                               // แถวนี้ไม่มีอะไรในโซน → สแกนต่อ
     if (labelSet.some(k => labelKey(cont).includes(k))) continue;      // เป็น label ที่หลุดเข้าโซน → ข้าม
+    // หน้าตาเป็น "ที่อยู่" (บ้านเลขที่/ตำบล/ถนน/เลขเยอะ) = จบโซนชื่อ — ใบที่ไม่มีบรรทัดเลขภาษีคั่นชื่อกับที่อยู่
+    if (/(\d+\/\d+)|หมู่|ตำบล|อำเภอ|จังหวัด|แขวง|เขต|ถนน|ซอย|road|street|district/i.test(cont) || (cont.match(/\d/g) || []).length >= 3) break;
     if ((cont.match(/[A-Za-zก-๙]/g) || []).length >= 2) return cont;
   }
   return '';
@@ -264,13 +281,18 @@ const DEF_RIGHT_COL = 300;    // fallback คอลัมน์ขวา (×SC) 
 
 /* รหัสสินค้า เช่น JSK02-BK-S · JJK111-N-XL · JDRR111-BK-M · JDB111-Y-2XL (ตัวอักษร≥2 + เลข + -ส่วน) */
 const CODE_RE = /^[A-Za-z]{2,}[0-9]{1,4}(-[A-Za-z0-9]{1,5}){1,3}$/;
+// รหัสเปล่าไม่มี suffix สี-ไซซ์ (เช่น JSK02 · OEM111) — ยอมรับเฉพาะเมื่ออยู่ "คอลัมน์รหัส" (กันชนคำในชื่อสินค้า)
+const CODE_PLAIN_RE = /^[A-Za-z]{2,6}[0-9]{1,4}$/;
 const DATE_PAREN_RE = /^\(?\s*\d{1,2}\/\d{1,2}\/\d{4}\s*\)?$/; // บรรทัดวันที่ผลิต "(02/07/2026)" → ทิ้ง
 
 function parseLineTable(rows, sc, rightCol) {
   // header ตาราง: มีหัวคอลัมน์ ≥4 จาก 6 กลุ่ม (แต่ละกลุ่มมี synonym)
+  // fallback: template ย่อเหลือ 3 คอลัมน์ก็อ่านได้ — แต่ต้องมี "จำนวน" + "ยอด" (กัน false-header)
   const HGROUPS = [L.hCode, L.hName, L.hQty, L.hPrice, L.hDisc, L.hAmt].map(LKS);
   const rowHits = (r) => HGROUPS.filter(g => g.some(lk => r.key.includes(lk))).length;
-  const headerRow = rows.find(r => rowHits(r) >= 4);
+  const hasG = (r, g) => LKS(g).some(lk => r.key.includes(lk));
+  const headerRow = rows.find(r => rowHits(r) >= 4)
+    || rows.find(r => rowHits(r) >= 3 && hasG(r, L.hQty) && hasG(r, L.hAmt));
   if (!headerRow) return { lines: [], found: false };
 
   // ตำแหน่งคอลัมน์จาก header จริง (ทนเทมเพลตขยับ/สเกล)
@@ -290,7 +312,14 @@ function parseLineTable(rows, sc, rightCol) {
   };
   const xName = xOfHeader(L.hName) ?? (hItems[0].x + 85 * sc);
   const xQty  = xOfHeader(L.hQty) ?? (xName + 140 * sc);
-  const numZoneX = xQty - 35 * sc; // คอลัมน์ตัวเลข (จำนวน/ราคา/ส่วนลด/ยอด) เริ่มที่นี่
+  // ตำแหน่งคอลัมน์ตัวเลข "ที่มีจริง" บน header (เรียงซ้าย→ขวา) — ใช้จับคู่ค่าตามคอลัมน์
+  // แทนการเดาลำดับตายตัว (ทน template ที่ตัดคอลัมน์ราคา/ส่วนลด หรือสลับที่)
+  const numCols = [
+    ['qty', xOfHeader(L.hQty)], ['price', xOfHeader(L.hPrice)],
+    ['disc', xOfHeader(L.hDisc)], ['amt', xOfHeader(L.hAmt)],
+  ].filter(([, x]) => x != null).sort((a, b) => a[1] - b[1]);
+  const firstNumX = numCols.length ? numCols[0][1] : xQty;
+  const numZoneX = firstNumX - 35 * sc; // คอลัมน์ตัวเลข (จำนวน/ราคา/ส่วนลด/ยอด) เริ่มที่นี่
   const nameMinX = xName - 15 * sc;
 
   // ขอบล่างของตาราง = แถวสรุปยอด/หมายเหตุ/ผู้ตรวจสอบ
@@ -330,24 +359,55 @@ function parseLineTable(rows, sc, rightCol) {
   const lines = [];
   for (const g of groups) {
     const clusterRows = [g.main, ...g.extra].sort((a, b) => b.y - a.y); // บน→ล่าง (ลำดับอ่านชื่อที่ห่อ)
-    // รหัส = token แรกที่ match CODE_RE (อยู่บรรทัดไหนก็ได้ในกลุ่ม)
+    // รหัส = token แรกที่ match CODE_RE (อยู่บรรทัดไหนก็ได้ในกลุ่ม — แยก token ในชิ้น เผื่อ generator รวมทั้งบรรทัดเป็นชิ้นเดียว)
+    // + รหัสเปล่า (ไม่มี -สี-ไซซ์) รับเฉพาะ token ในโซนคอลัมน์รหัส (ซ้ายของคอลัมน์ชื่อ)
     let code = '';
-    for (const r of clusterRows) { for (const it of r.items) { const tok = String(it.s).replace(/\s/g, ''); if (CODE_RE.test(tok)) { code = tok; break; } } if (code) break; }
+    for (const r of clusterRows) {
+      for (const it of r.items) {
+        const toks = String(it.s).split(/\s+/).filter(Boolean);
+        if (!toks.length) toks.push('');
+        const joined = String(it.s).replace(/\s/g, '');       // ไทยแตกชิ้น: token เดียวมี space ปลอมคั่น
+        for (const tok of (toks.length > 1 ? toks : [joined])) {
+          if (CODE_RE.test(tok) || (CODE_PLAIN_RE.test(tok) && tok.length >= 4 && it.x < xName - 5 * sc)) { code = tok; break; }
+        }
+        if (code) break;
+      }
+      if (code) break;
+    }
     // ชื่อ = ชิ้นในโซนชื่อ (nameMinX .. numZoneX) ที่ไม่ใช่รหัส/ตัวเลข/วันที่ · ต่อแบบ wrap-aware
+    // + ชิ้นยาวที่ "คร่อม" โซนชื่อ (generator ปล่อย "CODE ชื่อสินค้า" เป็นชิ้นเดียวจากคอลัมน์รหัส) → ตัด token รหัสทิ้ง เก็บชื่อ
     const nameFrags = [];
     for (const r of clusterRows) {
-      const parts = r.items.filter(i => i.x >= nameMinX && i.x < numZoneX
-        && num(i.s) == null && !CODE_RE.test(String(i.s).replace(/\s/g, '')) && !DATE_PAREN_RE.test(i.s.trim()));
+      const parts = [];
+      for (const i of r.items) {
+        if (num(i.s) != null || DATE_PAREN_RE.test(i.s.trim())) continue;
+        if (CODE_RE.test(String(i.s).replace(/\s/g, ''))) continue;
+        if (i.x >= nameMinX && i.x < numZoneX) { parts.push(i); continue; }
+        const endX = i.x + (i.w || 0);
+        if (i.x < nameMinX && i.x >= nameMinX - 120 * sc && endX > nameMinX + 10 * sc) {
+          const t = String(i.s).split(/\s+/).filter(tok => !CODE_RE.test(tok) && !(CODE_PLAIN_RE.test(tok) && tok.length >= 4)).join(' ').trim();
+          if (t) parts.push({ ...i, s: t });
+        }
+      }
       if (parts.length) nameFrags.push(joinItems(parts, sc));
     }
     let name = '';
     for (const p of nameFrags) { if (!name) { name = p; continue; } name += (/[-(/]$/.test(name) || /^[-)/]/.test(p)) ? p : ' ' + p; }
-    // ตัวเลขจากแถวหลัก
+    // ตัวเลขจากแถวหลัก — จับคู่ตามคอลัมน์ที่มีจริงก่อน (จำนวนค่า = จำนวนคอลัมน์ → zip ซ้าย→ขวา)
+    // แล้วค่อย fallback ลำดับตายตัว (ทน template ตัด/สลับคอลัมน์ · เลขเกิน 4 ตัว amt = ตัวขวาสุด)
     const vals = g.main._nums.map(i => num(i.s));
     let qty = null, price = null, disc = 0, amt = null;
-    if (vals.length >= 4) [qty, price, disc, amt] = vals;
-    else if (vals.length === 3) [qty, price, amt] = vals;
-    else [qty, amt] = vals;
+    if (numCols.length >= 2 && vals.length === numCols.length) {
+      const m = {};
+      numCols.forEach(([k], i) => { m[k] = vals[i]; });
+      qty = m.qty ?? 1; price = m.price ?? null; disc = m.disc ?? 0; amt = m.amt ?? null; // ไม่มีคอลัมน์จำนวน → นับ 1
+    }
+    if (amt == null) {
+      if (vals.length >= 5) { qty = vals[0]; price = vals[1]; disc = vals[2]; amt = vals[vals.length - 1]; }
+      else if (vals.length === 4) [qty, price, disc, amt] = vals;
+      else if (vals.length === 3) [qty, price, amt] = vals;
+      else [qty, amt] = vals;
+    }
     lines.push({ code, name: normThai(name), qty: Math.max(0, Math.round(qty ?? 0)), unit_price: price ?? 0, discount: disc ?? 0, amount: amt ?? 0 });
   }
   return { lines: lines.filter(l => l.qty > 0 || l.amount > 0), found: true };
@@ -366,13 +426,66 @@ function parsePage(rows, pageNo, pageW) {
 
   const docNoHit = valueAfterLabel(body, L.docNo, { labelMinX: rightCol, sc });
   const { lines } = parseLineTable(body, sc, rightCol);
-  if (!docNoHit || !normThai(docNoHit.text)) return { continuation: true, lines, page: pageNo };
+
+  /* ---- สรุปยอด + การชำระ/ขนส่ง/รหัสส่วนลด + หมายเหตุ — คำนวณ "ก่อน" เช็คใบหลัก/หน้าต่อ
+     ใบยาวข้ามหน้า: สรุปยอด/หมายเหตุพิมพ์อยู่หน้าสุดท้าย (ซึ่งไม่มีเลขที่เอกสาร = หน้าต่อ)
+     → หน้าต่อต้องพกค่าพวกนี้กลับไป merge เข้าใบหลัก ไม่งั้นข้อมูลหาย ---- */
+  const pickSum = (labels, colX = rightCol) => {
+    const lks = LKS(labels);
+    for (const r of body) {
+      const right = r.items.filter(i => i.x >= colX);
+      if (!right.length) continue;
+      const labelPart = right.filter(i => num(i.s) == null);
+      if (!lks.includes(labelKey(labelPart.map(i => i.s).join('')))) continue;
+      const v = right.filter(i => num(i.s) != null).pop();
+      if (v) return num(v.s);
+    }
+    return null;
+  };
+  // total หาไม่เจอที่คอลัมน์ขวาปกติ → ลองเลื่อนซ้าย (template ที่บล็อกสรุปอยู่กลางหน้า)
+  const total = pickSum(L.total) ?? pickSum(L.total, pageW * 0.4);
+  const subtotal = pickSum(L.subtotal);
+  const discount = pickSum(L.discount) ?? 0;
+  const shipping = pickSum(L.shipFee) ?? 0;
+  const vat = pickSum(L.vat) ?? 0;
+  const payment_method = normThai(valueAfterLabel(body, L.payment, { labelMinX: rightCol, sc })?.text || '');
+  const carrier = normThai(valueAfterLabel(body, L.carrier, { labelMinX: rightCol, sc })?.text || '');
+  const promo_code = normThai(valueAfterLabel(body, L.discCode, { labelMinX: rightCol, sc })?.text || '');
+
+  /* ---- หมายเหตุ (ฝั่งซ้ายล่าง — เก็บหลายบรรทัดจนชน label ถัดไป) ---- */
+  const noteMaxX = Math.min(285 * sc, rightCol - 10 * sc);
+  const noteIdx = body.findIndex(r => r.items[0] && r.items[0].x < 120 * sc && LKS(L.note).some(k => r.key.startsWith(k)));
+  let note = '';
+  if (noteIdx >= 0) {
+    const noteRow = body[noteIdx];
+    const colon = noteRow.items.findIndex(i => i.s.includes(':'));
+    // เศษหลัง ":" ในชิ้นเดียวกัน (": ค่า" ติดกัน) + ชิ้นถัดไปในโซนซ้าย
+    const noteRest = colon >= 0 ? noteRow.items[colon].s.slice(noteRow.items[colon].s.indexOf(':') + 1).trim() : '';
+    note = normThai((noteRest ? noteRest + ' ' : '') + joinItems((colon >= 0 ? noteRow.items.slice(colon + 1) : []).filter(i => i.x < rightCol), sc)).trim();
+    for (let i = noteIdx + 1; i < body.length; i++) {
+      const r = body[i];
+      const left = r.items.filter(x => x.x < rightCol && x.x < noteMaxX);
+      if (!left.length || left[0].x >= 120 * sc) continue;
+      const t = joinItems(left, sc);
+      if (!t || LKS(L.checker).some(k => labelKey(t).startsWith(k))) break;
+      note += (note ? ' ' : '') + t;
+    }
+  }
+
+  // ไม่มีเลขที่เอกสาร = หน้าต่อของใบก่อนหน้า (รายการยาวข้ามหน้า) — ส่งข้อมูลที่หน้านี้มีกลับไป merge
+  if (!docNoHit || !normThai(docNoHit.text)) {
+    return { continuation: true, lines, page: pageNo, total, subtotal, discount, shipping, vat, note, payment_method, carrier, promo_code };
+  }
 
   const warnings = [];
   const order_no = normThai(docNoHit.text).replace(/\s/g, '');
   if (!order_no) warnings.push('เลขที่เอกสาร');
 
-  let order_date = parseThaiDate(valueAfterLabel(body, L.date, { labelMinX: rightCol, sc })?.text);
+  const dateRaw = valueAfterLabel(body, L.date, { labelMinX: rightCol, sc })?.text || '';
+  let order_date = parseThaiDate(dateRaw);
+  // เวลาบนใบ (เช่น "02/07/2026 09:10") — เก็บไว้ครบ ไม่ทิ้ง
+  const tm = /(\d{1,2}):(\d{2})/.exec(thDigits(dateRaw));
+  const order_time = tm ? `${tm[1].padStart(2, '0')}:${tm[2]}` : '';
   if (!order_date) {
     // วันที่ว่างบนใบ (เซลล์ไม่กรอกใน Shipnity) → เติมวันที่อัปโหลด (วันนี้) + เตือนให้ตรวจ (แก้ได้ในตาราง)
     order_date = todayISO();
@@ -383,9 +496,6 @@ function parsePage(rows, pageNo, pageW) {
     if (order_date > today.toISOString().slice(0, 10)) warnings.push(`วันที่เป็นอนาคต (${order_date})`);
     else if (order_date < '2025-01-01') warnings.push(`วันที่เก่าผิดปกติ (${order_date})`);
   }
-
-  const payment_method = normThai(valueAfterLabel(body, L.payment, { labelMinX: rightCol, sc })?.text || '');
-  const carrier = normThai(valueAfterLabel(body, L.carrier, { labelMinX: rightCol, sc })?.text || '');
 
   /* ---- ลูกค้า (ฝั่งซ้าย) + ช่องทางติดต่อ ----
      ช่องทางอยู่คอลัมน์กลาง (โซน ~215-275 ×SC — ก่อนถึงคอลัมน์ขวา) ตามด้วย ":" + ค่า
@@ -401,7 +511,10 @@ function parsePage(rows, pageNo, pageW) {
     // (Shipnity ไม่ปล่อย ":" เป็น text item เสมอ จึงไม่บังคับ ":" — ใช้ skip พวก label แทน)
     if (/^tel/i.test(r.text.trim())) continue;
     if (LKS([...L.custTax, ...L.note, ...L.checker]).some(k => r.key.startsWith(k))) continue;
-    const idx = r.items.findIndex(i => channelFromText(i.s));
+    // ข้ามแถวการชำระ/จัดส่ง — ค่าอย่าง "LINE Pay"/"Lineman" ไม่ใช่ช่องทางลูกค้า (กันชื่อลูกค้าเพี้ยนทั้งใบ)
+    if (LKS([...L.payment, ...L.carrier]).some(k => r.key.startsWith(k))) continue;
+    // โทเคนช่องทางต้องอยู่ก่อนคอลัมน์ขวา (ค่าในคอลัมน์ขวา = การชำระ/ขนส่ง ไม่ใช่แถวลูกค้า)
+    const idx = r.items.findIndex(i => channelFromText(i.s) && i.x < rightCol);
     if (idx < 0) continue;
     custRow = r; chanIdx = idx; break;
   }
@@ -473,20 +586,43 @@ function parsePage(rows, pageNo, pageW) {
   // ขายหน้าร้าน (การจัดส่ง/ชำระเงิน = "ขายหน้าร้าน") → เดาช่องทาง POS ให้ (ยังแก้ได้ในตารางตรวจ)
   if (!channel_hint && /หน้าร้าน/.test(`${carrier} ${payment_method}`)) channel_hint = 'POS';
 
-  /* ---- Tel + ที่อยู่ลูกค้า (ฝั่งซ้าย ระหว่างแถวภาษีลูกค้า → Tel) ---- */
-  const telRow = body.find(r => r.items[0] && r.items[0].x < 120 * sc && /^tel/i.test(r.text.trim()));
-  const customer_phone = telRow ? (thDigits(telRow.text).replace(/[^0-9]/g, '') || '') : '';
+  /* ---- Tel + ที่อยู่ลูกค้า (ฝั่งซ้าย ระหว่างแถวภาษีลูกค้า → Tel) ----
+     label เบอร์รับหลายรูป (Tel/โทร/เบอร์โทร/มือถือ — ไม่ใช่โทรสาร) · เบอร์ = กลุ่ม 0XXXXXXXXX แรก
+     (กันแถวมี 2 เบอร์/แฟกซ์ปนแล้วเลขต่อติดกัน) · ไม่เจอกลุ่ม → เลขทั้งแถว (เคส Shopee mask "Tel: 96") */
+  const PHONE_ROW_RE = /^(tel|โทร(?!สาร)|เบอร์โทร|มือถือ|mobile)/i;
+  const telRow = body.find(r => r !== custRow && r.items[0] && r.items[0].x < 120 * sc && PHONE_ROW_RE.test(r.text.trim()));
+  let customer_phone = '';
+  if (telRow) {
+    const t = thDigits(telRow.text);
+    const m = t.match(/0\d{8,9}/);
+    customer_phone = m ? m[0] : t.replace(/[^0-9]/g, '');
+  }
 
-  let customer_address = '';
+  let customer_address = '', customer_tax_id = '';
   const custTaxIdx = body.findIndex(r => r.items[0] && r.items[0].x < 60 * sc && LKS(L.custTax).some(k => r.key.includes(k)));
   if (custTaxIdx >= 0) {
+    // เลขประจำตัวผู้เสียภาษีลูกค้า (13 หลัก — ลูกค้าองค์กร/OEM) — เก็บไว้ครบ ไม่ทิ้ง
+    const taxDigits = thDigits(body[custTaxIdx].text).replace(/[^0-9]/g, '');
+    if (taxDigits.length === 13) customer_tax_id = taxDigits;
     for (let i = custTaxIdx + 1; i < body.length; i++) {
       const r = body[i];
       const leftItems = r.items.filter(x => x.x < rightCol);
       if (!leftItems.length || leftItems[0].x >= 60 * sc) continue;
       const t = joinItems(leftItems, sc);
-      if (/^tel/i.test(t)) break;
+      if (PHONE_ROW_RE.test(t)) break;
       customer_address += (customer_address ? ' ' : '') + t;
+    }
+  } else if (custRow) {
+    // template ไม่มีบรรทัดเลขภาษี → ที่อยู่ = แถวซ้ายใต้แถวลูกค้า จนถึง Tel/หมายเหตุ/หัวตาราง (ไม่ทิ้งที่อยู่+จังหวัด)
+    const ci = body.indexOf(custRow);
+    for (let i = ci + 1; i < body.length; i++) {
+      const r = body[i];
+      if (PHONE_ROW_RE.test(r.text.trim())) break;
+      if (LKS([...L.note, ...L.checker]).some(k => r.key.startsWith(k))) break;
+      if (LKS(L.hCode).some(k => r.key.includes(k)) && LKS(L.hQty).some(k => r.key.includes(k))) break; // ถึงหัวตารางรายการ
+      const leftItems = r.items.filter(x => x.x < rightCol);
+      if (!leftItems.length || leftItems[0].x >= 60 * sc) continue;
+      customer_address += (customer_address ? ' ' : '') + joinItems(leftItems, sc);
     }
   }
   const province = provinceFrom(customer_address);
@@ -497,49 +633,14 @@ function parsePage(rows, pageNo, pageW) {
     || (/(shopee|lazada|tiktok)/i.test(channel_hint) && customer_phone.length > 0 && customer_phone.length < 6);
   if (customer_masked) warnings.push('ลูกค้าถูกปกปิด (มาร์เก็ตเพลส) — ชื่อ/เบอร์ไม่ครบ');
 
-  /* ---- หมายเหตุ (ฝั่งซ้ายล่าง — เก็บหลายบรรทัดจนชน label ถัดไป) ---- */
-  const noteIdx = body.findIndex(r => r.items[0] && r.items[0].x < 120 * sc && LKS(L.note).some(k => r.key.startsWith(k)));
-  let note = '';
-  if (noteIdx >= 0) {
-    const noteRow = body[noteIdx];
-    const colon = noteRow.items.findIndex(i => i.s.includes(':'));
-    note = joinItems((colon >= 0 ? noteRow.items.slice(colon + 1) : []).filter(i => i.x < rightCol), sc);
-    for (let i = noteIdx + 1; i < body.length; i++) {
-      const r = body[i];
-      const left = r.items.filter(x => x.x < rightCol && x.x < midMax);
-      if (!left.length || left[0].x >= 120 * sc) continue;
-      const t = joinItems(left, sc);
-      if (!t || LKS(L.checker).some(k => labelKey(t).startsWith(k))) break;
-      note += (note ? ' ' : '') + t;
-    }
-  }
-
-  /* ---- สรุปยอด (label ฝั่งขวา — อาจปนบรรทัดกับข้อความฝั่งซ้าย) — exact match กลุ่ม synonym ---- */
-  const pickSum = (labels) => {
-    const lks = LKS(labels);
-    for (const r of body) {
-      const right = r.items.filter(i => i.x >= rightCol);
-      if (!right.length) continue;
-      const labelPart = right.filter(i => num(i.s) == null);
-      if (!lks.includes(labelKey(labelPart.map(i => i.s).join('')))) continue;
-      const v = right.filter(i => num(i.s) != null).pop();
-      if (v) return num(v.s);
-    }
-    return null;
-  };
-  const total = pickSum(L.total);
-  const subtotal = pickSum(L.subtotal);
-  const discount = pickSum(L.discount) ?? 0;
-  const shipping = pickSum(L.shipFee) ?? 0;
-  const vat = pickSum(L.vat) ?? 0;
   if (total == null) warnings.push('ยอดรวม');
 
   return {
     continuation: false, page: pageNo,
-    order_no, order_date, customer_name, customer_phone, customer_social, customer_masked,
-    customer_address, province, lines,
+    order_no, order_date, order_time, customer_name, customer_phone, customer_social, customer_masked,
+    customer_address, customer_tax_id, province, lines,
     subtotal, discount, shipping, vat, total: total ?? 0,
-    payment_method, carrier, note, channel_hint, channel_token, warnings,
+    payment_method, carrier, note, promo_code, channel_hint, channel_token, warnings,
   };
 }
 
@@ -571,8 +672,23 @@ export async function parseReceiptPdf(file) {
       if (!isReceiptPage && !receipts.length) continue; // หน้าที่ไม่ใช่ใบเสร็จ (ก่อนเจอใบแรก) → ข้าม
       const parsed = parsePage(rows, p, pageW);
       if (parsed.continuation) {
+        // หน้าต่อของใบยาว — รายการเพิ่ม + "สรุปยอด/หมายเหตุ/การชำระ" มักพิมพ์อยู่หน้าสุดท้าย → เติมเข้าใบหลัก (ห้ามหาย)
         const prev = receipts[receipts.length - 1];
-        if (prev && parsed.lines.length) prev.lines = [...prev.lines, ...parsed.lines];
+        if (prev) {
+          if (parsed.lines.length) prev.lines = [...prev.lines, ...parsed.lines];
+          if (parsed.total != null && prev.warnings.includes('ยอดรวม')) {
+            prev.total = parsed.total;
+            prev.warnings = prev.warnings.filter(w => w !== 'ยอดรวม');
+          }
+          if (parsed.subtotal != null && prev.subtotal == null) prev.subtotal = parsed.subtotal;
+          if (parsed.discount && !prev.discount) prev.discount = parsed.discount;
+          if (parsed.shipping && !prev.shipping) prev.shipping = parsed.shipping;
+          if (parsed.vat && !prev.vat) prev.vat = parsed.vat;
+          if (parsed.note && !prev.note) prev.note = parsed.note;
+          if (parsed.payment_method && !prev.payment_method) prev.payment_method = parsed.payment_method;
+          if (parsed.carrier && !prev.carrier) prev.carrier = parsed.carrier;
+          if (parsed.promo_code && !prev.promo_code) prev.promo_code = parsed.promo_code;
+        }
         continue;
       }
       receipts.push(parsed);
