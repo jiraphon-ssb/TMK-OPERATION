@@ -18,7 +18,7 @@ import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal } from './lib/saleData.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal, resolveJobType } from './lib/saleData.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -296,13 +296,15 @@ export function SaleDashboard() {
     const spMap = new Map((aliases || []).filter(a => a.display_name).map(a => [a.handle, a.display_name]));
     const norm = orders.map(o => {
       const ov = orderOv[`${o.source || ''}:${o.order_no}`];
+      const ovNote = ov ? ((ov.note != null && ov.note !== '') ? ov.note : o.note) : o.note;
       const o1 = ov ? {
         ...o,
-        job_type: ov.job_type || o.job_type,
+        // re-derive DFT หลัง merge — กัน override เก่า (job_type='ปลีก') ทับ DFT ที่หมายเหตุระบุ
+        job_type: resolveJobType(ov.job_type || o.job_type, ovNote),
         customer_name: ov.customer_name || o.customer_name,
         customer_type: ov.customer_type || o.customer_type,
         salesperson: ov.salesperson || o.salesperson,
-        note: (ov.note != null && ov.note !== '') ? ov.note : o.note,
+        note: ovNote,
       } : o;
       const th = o1.province ? normalizeProvince(o1.province) : null;
       const sp = spMap.get(o1.salesperson);

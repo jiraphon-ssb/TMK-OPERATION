@@ -10,7 +10,7 @@ import { Icon } from './components.jsx';
 import { SideSheet } from './modals.jsx';
 import { logAudit } from './lib/audit.js';
 import { confirmReceipts } from './lib/receiptSubmit.js';
-import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, lineDisplayName, findDesign } from './components/ProductPicker.jsx';
+import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, lineDisplayName, findDesign, ProvinceCombobox } from './components/ProductPicker.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -208,7 +208,7 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
             </div>
             <div className="field"><label>ชื่อลูกค้า</label><Input value={f.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="ชื่อ/ชื่อเล่น" /></div>
             <div className="field"><label>เบอร์/LINE/FB</label><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} placeholder="ไว้ตามต่อ" /></div>
-            <div className="field"><label>จังหวัด</label><Input value={f.province} onChange={e => set('province', e.target.value)} /></div>
+            <div className="field"><label>จังหวัด</label><ProvinceCombobox value={f.province} onChange={v => set('province', v)} /></div>
           </div>
         </FormSection>
       </div>

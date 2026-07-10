@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { Icon } from '../components.jsx';
 import { GOLDEN_DESIGNS, COLOR_TH2CODE } from '../lib/shirtCatalog.js';
+import { PROVINCES, REGIONS, normalizeProvince } from '../lib/provinces.js';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
@@ -36,6 +37,56 @@ export function lineDisplayName(design, color, size) {
 }
 // หา design object จากชื่อลาย (ใช้ populate ตัวเลือกสี/ไซซ์ + ราคา)
 export const findDesign = (name) => GOLDEN_DESIGNS.find(d => d.name === name) || null;
+
+/* ---------- เลือกจังหวัด (Command + Popover · 77 จังหวัดจริง จัดกลุ่มตามภาค · ค้นหาได้) ----------
+   ใช้ร่วม: ตรวจ/แก้/สร้าง ใบเสร็จ + แก้ออเดอร์ · value/onChange = ชื่อจังหวัดไทย (string)
+   - normalize ค่าดิบจาก parser (อังกฤษ/มี prefix) → ชื่อไทยมาตรฐาน ตอนโชว์
+   - ค่าที่ไม่อยู่ในลิสต์ (พิมพ์เอง/ปกปิด) ยังโชว์ในปุ่มได้ + เลือกทับได้ · มีปุ่มล้าง */
+const PROV_BY_REGION = Object.keys(REGIONS).map(rc => ({ rc, label: REGIONS[rc], items: PROVINCES.filter(p => p.region === rc) }));
+export function ProvinceCombobox({ value, onChange, placeholder = 'เลือกจังหวัด', className }) {
+  const [open, setOpen] = useState(false);
+  const shown = value ? (normalizeProvince(value) || value) : '';
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={open}
+          className={'w-full justify-between font-normal ' + (className || '')} style={{ color: shown ? 'var(--ink-1)' : 'var(--ink-4)' }}>
+          <span className="truncate">{shown || placeholder}</span>
+          <Icon name="chevD" className="opacity-60 flex-none" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="p-0 w-[var(--radix-popover-trigger-width)]" style={{ minWidth: 240 }}>
+        <Command>
+          <CommandInput placeholder="ค้นหาจังหวัด…" />
+          <CommandList>
+            <CommandEmpty>ไม่พบจังหวัด</CommandEmpty>
+            {shown && (
+              <CommandGroup>
+                <CommandItem value="__clear__" onSelect={() => { onChange(''); setOpen(false); }}>
+                  <span style={{ width: 16, flex: 'none' }} /><span style={{ color: 'var(--ink-4)' }}>ล้างจังหวัด</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+            {PROV_BY_REGION.map(g => (
+              <CommandGroup key={g.rc} heading={g.label}>
+                {g.items.map(p => {
+                  const sel = p.th === shown;
+                  return (
+                    <CommandItem key={p.th} value={`${p.th} ${p.en}`}
+                      onSelect={() => { onChange(p.th); setOpen(false); }}>
+                      <span style={{ width: 16, color: 'var(--accent)', flex: 'none' }}>{sel && <Icon name="check" />}</span>
+                      <span className="truncate" style={{ fontWeight: sel ? 600 : 400 }}>{p.th}</span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /* ---------- เลือกลาย (Command + Popover จาก GOLDEN_DESIGNS) ---------- */
 export function DesignCombobox({ value, code, onPick, placeholder = 'พิมพ์/เลือกชื่อลาย เช่น ราษฎร์ภักดี' }) {

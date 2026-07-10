@@ -14,14 +14,14 @@ import { WhatsNewPage } from './WhatsNew.jsx';
 import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';
 import { makeSkuResolver, loadResolverMaps, skuOverrideKey } from './lib/designResolve.js';
 import { buildMatchers, planRematch, qtyBand, deriveColorSize } from './lib/mpReport.js';
-import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, findDesign } from './components/ProductPicker.jsx';
+import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, findDesign, ProvinceCombobox } from './components/ProductPicker.jsx';
 import { GOLDEN_CATALOG_GRID } from './lib/goldenGrid.js';
 import { useData, computeMonth } from './dataContext.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable, CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL } from './lib/saleData.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, resolveJobType } from './lib/saleData.js';
 import { voidReceipt, restoreReceipt } from './lib/receiptSubmit.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
@@ -1639,12 +1639,14 @@ function MpOrdersView() {
     if (!orderOv || !Object.keys(orderOv).length) return orders;
     return orders.map(o => {
       const ov = orderOv[orderOvKey(o)]; if (!ov) return o;
+      const note = ov.note != null && ov.note !== '' ? ov.note : o.note;
       return { ...o,
-        job_type: ov.job_type || o.job_type,
+        // re-derive DFT หลัง merge — กัน override เก่า (job_type='ปลีก') ทับ DFT ที่หมายเหตุระบุ
+        job_type: resolveJobType(ov.job_type || o.job_type, note),
         customer_name: ov.customer_name || o.customer_name,
         customer_type: ov.customer_type || o.customer_type,
         salesperson: ov.salesperson || o.salesperson,
-        note: ov.note != null && ov.note !== '' ? ov.note : o.note,
+        note,
         _ov: ov };
     });
   }, [orders, orderOv]);
@@ -2072,7 +2074,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
               <SelectContent>{[...new Set(['ลูกค้าใหม่', 'ลูกค้าเก่า', edit.customer_type].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="field"><label>จังหวัด</label><Input value={edit.province} onChange={e => setEdit({ ...edit, province: e.target.value })} placeholder="เช่น กรุงเทพมหานคร" /></div>
+          <div className="field"><label>จังหวัด</label><ProvinceCombobox value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></div>
           <div className="field"><label>เซลล์</label><Input value={edit.salesperson} onChange={e => setEdit({ ...edit, salesperson: e.target.value })} placeholder="ชื่อเซลล์" /></div>
         </div>
         <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Textarea rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></div>

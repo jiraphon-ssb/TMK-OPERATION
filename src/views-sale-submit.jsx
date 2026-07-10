@@ -21,6 +21,7 @@ import { deriveColorSize } from './lib/mpReport.js';
 import { channelColor } from './charts.jsx';
 import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, CardTable } from './components/DataTableParts.jsx';
+import { ProvinceCombobox } from './components/ProductPicker.jsx';
 import { DatePicker } from '@/components/ui/date-picker';
 import { parseReceiptFiles, jobTypeFromNote } from './lib/receiptParse.js';
 import {
@@ -100,8 +101,8 @@ function RowEditor({ row, onChange, showChannel = true }) {
           <Input value={row.customer_name || ''} onChange={e => set('customer_name', e.target.value)} /></label>
         <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">เบอร์โทร</span>
           <Input value={row.customer_phone || ''} onChange={e => set('customer_phone', e.target.value)} /></label>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">จังหวัด</span>
-          <Input value={row.province || ''} onChange={e => set('province', e.target.value)} /></label>
+        <div className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">จังหวัด</span>
+          <ProvinceCombobox value={row.province || ''} onChange={v => set('province', v)} /></div>
         <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">ยอดรวมสุทธิ</span>
           <Input type="number" inputMode="decimal" value={row.total ?? ''} onChange={e => set('total', Number(e.target.value) || 0)} /></label>
         <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">การชำระ</span>

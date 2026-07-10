@@ -183,8 +183,8 @@ function buildRows(item, user, batch, M) {
   const qty = item.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
   const sales = Number(item.total) || 0;
   const payKind = paymentKind(item.payment_method, item.carrier);
-  // ประเภทงาน: เลือกชัด (OEM/DFT) ชนะ · ถ้ายังเป็นค่า default "ปลีก" ให้หมายเหตุตัดสิน (พิมพ์ DFT ตอนแก้ = ได้ DFT จริง)
-  const jobType = (item.job_type && item.job_type !== 'ปลีก') ? item.job_type : jobTypeFromNote(item.note);
+  // ประเภทงาน: หมายเหตุเป็นเจ้าของ DFT (พิมพ์ "DFT" ในหมายเหตุ = DFT · ลบออก = ปลีก) · OEM = เลือกเองคงไว้
+  const jobType = item.job_type === 'OEM' ? 'OEM' : jobTypeFromNote(item.note);
   const orderRow = {
     id, order_no: orderNo, source: 'shipnity', status: 'active',
     channel: item.channel || '', order_date: item.order_date || null,

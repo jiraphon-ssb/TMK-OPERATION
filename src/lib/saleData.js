@@ -16,11 +16,26 @@ const inflight = new Map();
 const TTL = 5 * 60 * 1000;  // 5 นาที
 
 // ประเภทงาน: รวม "ส่ง" (ขายส่งตามจำนวน) เข้าเป็น "ปลีก" — เหลือ ปลีก / DFT / OEM
-// (DFT มาจากหมายเหตุตอน import; ข้อมูลเก่าก่อน re-import จะยังไม่มี DFT แต่ "ส่ง" จะถูกยุบเป็น "ปลีก" ทันที)
+// (DFT มาจากหมายเหตุ; ยุบ "ส่ง"→"ปลีก" ทันที)
 export const normJobType = (jt) => (jt === 'ส่ง' ? 'ปลีก' : (jt || 'ปลีก'));
+// คำ "DFT" ในหมายเหตุ (word-boundary — ตรงกับ jobTypeFromNote/isDftNote ทั้งระบบ)
+const DFT_RE = /\bdft\b/i;
+// resolve ประเภทงานตอน "อ่าน" — หมายเหตุเป็นเจ้าของ DFT (single source of truth):
+//  (1) ยุบ "ส่ง"→"ปลีก"
+//  (2) หมายเหตุมี "DFT" → DFT (promote · ครอบใบเก่า/parser จับ note ไม่ติด)
+//  (3) หมายเหตุไม่มี "DFT" แต่ค่าเก็บเป็น DFT → กลับเป็น ปลีก (demote · ลบ DFT ในหมายเหตุ = ไม่ DFT)
+//  OEM ไม่แตะ · ใช้ทั้ง normOrderRows (raw) และ "หลัง merge override"
+export function resolveJobType(jobType, note) {
+  const jt = jobType === 'ส่ง' ? 'ปลีก' : (jobType || 'ปลีก');
+  const hasDft = DFT_RE.test(String(note || ''));
+  if (jt === 'ปลีก' && hasDft) return 'DFT';
+  if (jt === 'DFT' && !hasDft) return 'ปลีก';
+  return jt;
+}
+// choke point เดียวของทุกหน้า Sale (orders/dashboard/perf โหลดผ่านที่นี่หมด)
 function normOrderRows(rows, table) {
   if (table !== 'tmk_mp_orders' || !Array.isArray(rows)) return rows;
-  for (const r of rows) { if (r && r.job_type === 'ส่ง') r.job_type = 'ปลีก'; }
+  for (const r of rows) { if (r) r.job_type = resolveJobType(r.job_type, r.note); }
   return rows;
 }
 

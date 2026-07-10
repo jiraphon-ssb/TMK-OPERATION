@@ -733,7 +733,8 @@ export async function parseReceiptFiles(files, onProgress) {
   return { receipts: out, errors };
 }
 
-/* derive ประเภทงานจากหมายเหตุ (กติกา: พิมพ์ "DFT" ในหมายเหตุ) */
-export const jobTypeFromNote = (note) => (/dft/i.test(String(note || '')) ? 'DFT' : 'ปลีก');
+/* derive ประเภทงานจากหมายเหตุ (กติกา: พิมพ์คำว่า "DFT" ในหมายเหตุ)
+   ใช้ \bdft\b ให้ตรงกับ isDftNote (marketplace import) + saleData re-derive → ทั้งระบบตัดสิน DFT เหมือนกัน */
+export const jobTypeFromNote = (note) => (/\bdft\b/i.test(String(note || '')) ? 'DFT' : 'ปลีก');
 /* การชำระ: cod/ปลายทาง/pay_later หรือขนส่งมี COD → COD · ที่เหลือมีค่า = โอน (ชื่อธนาคาร เช่น scb) */
 export const paymentKind = (method, carrier) => (/cod|ปลายทาง|เก็บเงินปลายทาง|pay[_ ]?later/i.test(`${method || ''} ${carrier || ''}`) ? 'COD' : (String(method || '').trim() ? 'โอน' : ''));
