@@ -109,7 +109,7 @@ export function lotTotal(lot) {
 export function lotValue(lot) { return lotTotal(lot) * (Number(lot?.cost) || 0); }
 
 // รวมจำนวนต่อไซส์ ข้ามทุกล็อต → { [size]: qty }
-export function sizeBreakdown(lots) {
+function sizeBreakdown(lots) {
   const out = {};
   (lots || []).forEach(l => { if (!l?.grid) return; for (const c in l.grid) { const row = l.grid[c]; for (const s in row) out[s] = (out[s] || 0) + _q(row[s]); } });
   return out;
@@ -122,7 +122,7 @@ function normColor(name) {
   c = c.replace(/[\s\-/]+(XS|[2-8]XL|XL|S|M|L)$/i, '').trim();
   return _COLOR_NORM[c] || c;
 }
-export function colorBreakdown(lots) {
+function colorBreakdown(lots) {
   const out = {};
   (lots || []).forEach(l => {
     if (!l?.grid || !Array.isArray(l.colors)) return;
@@ -163,7 +163,7 @@ export const ORDER_STATUSES = [
   { id: 'shipping', label: 'รอขนส่ง',  color: 'var(--warn)' },
   { id: 'shipped',  label: 'ส่งแล้ว',  color: 'var(--good)' },
 ];
-export const ORDER_CANCELLED = { id: 'cancelled', label: 'ยกเลิก', color: 'var(--bad)' };
+const ORDER_CANCELLED = { id: 'cancelled', label: 'ยกเลิก', color: 'var(--bad)' };
 export const orderStatusMeta = (id) => ORDER_STATUSES.find(s => s.id === id) || (id === 'cancelled' ? ORDER_CANCELLED : ORDER_STATUSES[0]);
 export const orderStatusIndex = (id) => { const i = ORDER_STATUSES.findIndex(s => s.id === id); return i < 0 ? 0 : i; };
 
@@ -171,7 +171,7 @@ export const orderStatusIndex = (id) => { const i = ORDER_STATUSES.findIndex(s =
 // ตาราง pattern มาตรฐาน Code128 (107 ค่า: 0–105 + STOP), แต่ละค่า = ความกว้างแท่ง/ช่อง 6 หลัก (STOP=7)
 const CODE128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
 // คืน array ความกว้าง module (แท่ง,ช่อง,แท่ง,...) เริ่มด้วยแท่ง — Code Set B (ASCII 32–126); คืน null ถ้าว่าง
-export function code128B(text) {
+function code128B(text) {
   const s = String(text || '').replace(/[^\x20-\x7E]/g, '');
   if (!s) return null;
   const codes = [104]; // START B
@@ -357,7 +357,7 @@ const FLOW_ICON_MAP = {
   Factory, Warehouse, Map: LMap, Compass, Book, GraduationCap, Pencil, Archive, Inbox, Calendar: LCalendar,
   Bug, Wand2, Beaker, Boxes, Sticker, Crosshair, Goal, Handshake, Wallet, Receipt,
 };
-export const FLOW_ICON_NAMES = Object.keys(FLOW_ICON_MAP);
+const FLOW_ICON_NAMES = Object.keys(FLOW_ICON_MAP);
 // แสดงไอคอนโครงการ: ชื่อ lucide → component · อีโมจิเก่า → text · ว่าง → default
 export function FlowIcon({ icon, className = 'size-5', style }) {
   const C = FLOW_ICON_MAP[icon];
@@ -448,7 +448,7 @@ export function Avatar({ name, color, size = 28 }) {
 const _AV_PALETTE = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6'];
 const _hashColor = (s) => { let h = 0; const str = String(s || ''); for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0; return _AV_PALETTE[h % _AV_PALETTE.length]; };
 // ชื่อ → สีประจำตัว: staff.color → roles.color → hash คงที่ (คนนอกระบบก็มีสีเดิมเสมอ)
-export function personColor(name) {
+function personColor(name) {
   const n = String(name || '').trim();
   if (!n) return 'var(--ink-3)';
   const s = (TMK.staff || []).find(x => x.name === n) || (TMK.roles || []).find(x => x.name === n);

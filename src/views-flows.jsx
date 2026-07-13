@@ -15,7 +15,7 @@ import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
 import { thaiDate, todayISO } from './lib/dateUtils.js';
 import { SearchInput } from '@/components/ui/search-input';
-import { PlannerView, TaskCard } from './views-2.jsx';
+import { PlannerView, TaskCard } from './views-planner.jsx';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';

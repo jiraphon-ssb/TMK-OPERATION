@@ -41,7 +41,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { HealthHub, MultiSelect, DrawerGroup, DrawerField, DateRangePicker } from './views-2.jsx';
+import { HealthHub } from './views-health.jsx';
+import { MultiSelect, DrawerGroup, DrawerField, DateRangePicker } from './saleWidgets.jsx';
 import { ImportExportHub } from './saleImportHub.jsx';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 

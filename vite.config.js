@@ -34,4 +34,21 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // แยก vendor หนักที่ import แบบ eager ออกจาก index → แคชนิ่งข้ามการแก้โค้ดแอป + index เล็กลง
+        // (xlsx/pdfjs เป็น dynamic import อยู่แล้ว → แยก chunk เอง ไม่ต้องแตะ)
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+          if (id.includes('recharts') || id.includes('victory-vendor') || /[\\/]d3-/.test(id)) return 'vendor-charts'
+          if (id.includes('@radix-ui')) return 'vendor-radix'
+          if (id.includes('@supabase')) return 'vendor-supabase'
+          if (id.includes('scheduler') || /[\\/]react-dom[\\/]/.test(id) || /[\\/]react[\\/]/.test(id)) return 'vendor-react'
+          if (id.includes('date-fns') || id.includes('react-day-picker')) return 'vendor-datefns'
+          if (id.includes('lucide-react')) return 'vendor-lucide'
+        },
+      },
+    },
+  },
 })

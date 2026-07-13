@@ -1,0 +1,784 @@
+import { useState, useEffect, useMemo } from 'react';
+import { B, P, N, Icon, PersonAvatar, Skel, useDelayedFlag } from './components.jsx';
+import { SideSheet } from './modals.jsx';
+import { channelColor } from './charts.jsx';
+import { makeSkuResolver, loadResolverMaps, skuOverrideKey } from './lib/designResolve.js';
+import { mergeOrderOverrides, resolveSkuDesigns, ORDER_OV_KEY } from './lib/saleOverrides.js';
+import { qtyBand, deriveColorSize } from './lib/mpReport.js';
+import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, findDesign, ProvinceCombobox } from './components/ProductPicker.jsx';
+import { usePersistedState } from './hooks/usePersistedState.js';
+import { useTableSort, SortHead, ColumnToggle, CardTable } from './components/DataTableParts.jsx';
+import { supabase } from './lib/supabaseClient.js';
+import { cachedFetchRange, getDateBounds, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, isDftNote } from './lib/saleData.js';
+import { voidReceipt, restoreReceipt, deleteOrders, voidReceipts } from './lib/receiptSubmit.js';
+import { useSaleRealtime } from './lib/saleRealtime.js';
+import { ManualSaleSheet } from './ManualSaleSheet.jsx';
+import { useUser } from './userContext.jsx';
+import { PRESETS, presetRange } from './lib/saleTime.js';
+import { logAudit } from './lib/audit.js';
+import { todayISO } from './lib/dateUtils.js';
+import { Card } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
+import { SearchInput } from '@/components/ui/search-input';
+import { DatePicker } from '@/components/ui/date-picker';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { th } from 'date-fns/locale';
+import { MultiSelect, DrawerField, DrawerGroup, _pageList, _isoToDate, _dateToIso, _fmtRange } from './saleWidgets.jsx';
+
+
+function OrdersSkeleton() {
+  // คอลัมน์จริง: ออเดอร์/วันที่/ช่องทาง/ลูกค้า(avatar)/ลาย/งาน/ชำระ/สถานะ/หมายเหตุ/ตัว/ยอด — นำด้วย checkbox ปิดท้ายด้วยลูกศร
+  const W = ['62%', '58%', '66%', '80%', '60%', '40%', '46%', '34%', '30%', '28%', '54%'];
+  const CUST = 3; // คอลัมน์ลูกค้า (กว้างกว่า + มี avatar)
+  return (
+    <div className="content-inner rise">
+      {/* toolbar แถวเดียว: ชื่อ + ช่วงวัน + ตัวกรอง · (ขวา) ค้นหา + คอลัมน์ + เพิ่มออเดอร์ */}
+      <Card className="p-[22px] mb-4">
+        <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Skel w={64} h={16} />
+          <Skel w={150} h={30} r={8} />
+          <Skel w={80} h={30} r={8} />
+          <Skel w={158} h={32} r={8} style={{ marginLeft: 'auto' }} />
+          <Skel w={84} h={32} r={8} />
+          <Skel w={116} h={32} r={8} />
+        </div>
+      </Card>
+      {/* ตาราง: checkbox + 11 คอลัมน์ (ลูกค้า=avatar+2บรรทัด) + ลูกศร · แถวจางลงให้รู้สึกมีของ */}
+      <Card className="p-[22px]">
+        <div style={{ display: 'grid', gap: 13 }}>
+          <div className="row" style={{ gap: 14, alignItems: 'center' }}>
+            <Skel w={16} h={16} r={4} />
+            {W.map((w, i) => <div key={i} style={{ flex: i === CUST ? 1.5 : 1 }}><Skel w={w} h={11} /></div>)}
+            <Skel w={14} h={14} r={4} />
+          </div>
+          {Array.from({ length: 10 }).map((_, r) => (
+            <div key={r} className="row" style={{ gap: 14, alignItems: 'center', opacity: Math.max(0.3, 1 - r * 0.072) }}>
+              <Skel w={16} h={16} r={4} />
+              {W.map((w, i) => i === CUST
+                ? <div key={i} className="row" style={{ flex: 1.5, gap: 8, alignItems: 'center' }}><Skel w={22} h={22} r="50%" style={{ flexShrink: 0 }} /><div style={{ flex: 1 }}><Skel w="72%" h={12} /><Skel w="46%" h={8} style={{ marginTop: 5 }} /></div></div>
+                : <div key={i} style={{ flex: 1 }}><Skel w={w} h={13} /></div>)}
+              <Skel w={14} h={14} r={4} />
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+
+function OrderDatePicker({ from, to, min, max, onChange, presets = [], activePreset, onPickPreset }) {
+  const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState({ from: _isoToDate(from), to: _isoToDate(to) });
+  const disabled = []; if (_isoToDate(min)) disabled.push({ before: _isoToDate(min) }); if (_isoToDate(max)) disabled.push({ after: _isoToDate(max) });
+  const presetLabel = (presets.find(([id]) => id === activePreset) || [])[1];
+  const main = presetLabel || 'กำหนดเอง';
+  const sub = activePreset === 'all' ? '' : _fmtRange(from, to);
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setSel({ from: _isoToDate(from), to: _isoToDate(to) }); }}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="h-8 gap-1.5 rounded-full px-3 text-[13px] font-normal">
+          <Icon name="calendarDays" /><span className="font-semibold text-[var(--ink)]">{main}</span>
+          {sub && <span className="text-[var(--ink-4)]">· {sub}</span>}
+          <Icon name="down" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <div className="flex max-sm:flex-col">
+          <div className="flex shrink-0 flex-col gap-0.5 border-b p-2 sm:min-w-[128px] sm:border-b-0 sm:border-r">
+            <span className="px-2 pb-1 text-[11px] font-semibold text-[var(--ink-4)]">ช่วงเวลา</span>
+            {presets.map(([id, lb]) => (
+              <button key={id} onClick={() => { onPickPreset(id); setOpen(false); }}
+                className={'rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ' + (id === activePreset ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-2)]' : 'text-[var(--ink-2)] hover:bg-[var(--surface-2)]')}>{lb}</button>
+            ))}
+          </div>
+          <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from) || _isoToDate(max)} selected={sel}
+            disabled={disabled.length ? disabled : undefined}
+            onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(_dateToIso(r.from), _dateToIso(r.to)); setOpen(false); } }} />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+
+// คอลัมน์ตารางออเดอร์ (สำหรับ ColumnToggle) — ออเดอร์/ยอดขาย ล็อกไว้เสมอ
+const ORDERS_COLS = [
+  { key: 'order_no', label: 'ออเดอร์', locked: true },
+  { key: 'date', label: 'วันที่' },
+  { key: 'channel', label: 'ช่องทาง' },
+  { key: 'customer', label: 'ลูกค้า' },
+  { key: 'designs', label: 'ลายเสื้อ' },
+  { key: 'job', label: 'งาน' },
+  { key: 'payment', label: 'การชำระ' },
+  { key: 'status', label: 'สถานะ' },
+  { key: 'note', label: 'หมายเหตุ' },
+  { key: 'qty', label: 'ตัว' },
+  { key: 'sales', label: 'ยอดขาย', locked: true },
+];
+// accessor สำหรับ useTableSort (ตัวเลข vs ข้อความ — null ไปท้าย)
+const ORDERS_SORT = {
+  order_no: (o) => o.order_no || '',
+  date: (o) => o.order_date || o.order_month || '',
+  channel: (o) => o.channel || '',
+  customer: (o) => o.customer_name || o.customer_code || '',
+  payment: (o) => o.payment_type || '',
+  qty: (o) => Number(o.qty) || 0,
+  sales: (o) => Number(o.sales) || 0,
+};
+
+function MpOrdersView() {
+  const [orders, setOrders] = useState(null);
+  const [rawSkus, setRawSkus] = useState([]);          // SKU ดิบจาก DB (frozen) — resolve ตอนแสดงผล
+  const [resolverMaps, setResolverMaps] = useState(null);  // catalog/alias/override สด (null = ยังไม่โหลด)
+  const [orderOv, setOrderOv] = useState({});          // override ระดับออเดอร์ (job_type/ลูกค้า/เซลล์) keyed by source:order_no
+  const [err, setErr] = useState('');
+  const [bounds, setBounds] = useState({ min: null, max: null });
+  const [range, setRange] = useState({ from: null, to: null }); // null = ยังไม่ตั้ง (รอขอบวันที่)
+  const [channelF, setChannelF] = useState([]);
+  const [jobF, setJobF] = useState([]);
+  const [sellerF, setSellerF] = useState([]);
+  const [statusF, setStatusF] = useState([]);   // ['ใช้งาน','ยกเลิก'] · ว่าง = ทั้งหมด
+  const [payF, setPayF] = useState([]);          // การชำระ (โอน/COD/…) · ว่าง = ทั้งหมด
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [openId, setOpenId] = useState(null);
+  const [addOpen, setAddOpen] = useState(false); // เปิด sheet เพิ่มออเดอร์เอง
+  const { user } = useUser();
+  const PER_PAGE = 50;
+  const [page, setPage] = useState(1);
+  const [selSet, setSelSet] = useState(() => new Set()); // เลือกหลายออเดอร์ (order_no) สำหรับ action รวดเร็ว
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const canEdit = window.__canEdit !== false;
+  const [density, setDensity] = usePersistedState('tmk-orders-density', 'cozy');
+  const [hiddenCols, setHiddenCols] = usePersistedState('tmk-orders-hiddenCols', []);
+  const colVisible = useMemo(() => new Set(ORDERS_COLS.map(c => c.key).filter(k => !hiddenCols.includes(k))), [hiddenCols]);
+  const toggleCol = (k) => setHiddenCols(hc => hc.includes(k) ? hc.filter(x => x !== k) : [...hc, k]);
+
+  const [reloadKey, setReloadKey] = useState(0);   // bump หลังแก้/ยกเลิก/ลบออเดอร์ → refetch สด
+
+  // ขอบวันที่ของข้อมูล + ตั้งช่วงเริ่มต้น = เดือนปัจจุบันจริง (anchor วันจริง · ยุค realtime)
+  useEffect(() => { (async () => {
+    const b = await getDateBounds('tmk_mp_orders');
+    setBounds({ min: b.min, max: b.max });
+    if (b.max) { const r = presetRange('month', todayISO(), b.min, b.max); setRange({ from: r.from, to: r.to }); }
+    else { setOrders([]); setRawSkus([]); }   // ตารางว่างทั้งระบบ → โชว์ empty-state (ไม่ค้าง skeleton)
+  })(); }, [reloadKey]);
+
+  // โหลดออเดอร์ตามช่วงวันที่ที่เลือก (server-side, มีแคช) — เปลี่ยนช่วงค่อยโหลดเฉพาะส่วน
+  useEffect(() => {
+    if (!range.from || !range.to) return; // รอขอบวันที่
+    let cancel = false;
+    (async () => {
+      setOrders(null); setErr('');
+      const o = await cachedFetchRange('tmk_mp_orders', ORDERS_SEL, range.from, range.to);
+      if (cancel) return;
+      if (o.error) { setErr(o.error.message || ''); setOrders([]); return; }
+      const s = await cachedFetchRange('tmk_mp_skus', SKUS_SEL, range.from, range.to);
+      if (cancel) return;
+      setRawSkus(s.error ? [] : s.data || []);
+      // คงออเดอร์ยกเลิกไว้ในลิสต์ (โชว์ dim + ชิป · กรองด้วยตัวกรองสถานะ) — ไม่กระทบรายงาน (saleAgg กรอง cancelled เอง)
+      setOrders((o.data || []).sort((a, b) => (b.order_date || '').localeCompare(a.order_date || '')));
+    })();
+    return () => { cancel = true; };
+  }, [range.from, range.to, reloadKey]);
+
+  // โหลด map สด (catalog/alias/override + override ระดับออเดอร์) → live-resolve + apply override (กับดัก reimport)
+  const reloadOverrides = async () => {
+    const m = await loadResolverMaps(supabase); setResolverMaps(m);
+    try { const r = await supabase.from('tmk_order_overrides').select('*'); const map = {}; if (!r.error) (r.data || []).forEach(x => { map[x.order_id] = x; }); setOrderOv(map); } catch { setOrderOv({}); }
+  };
+  // reload เต็ม (orders + skus + overrides) — ใช้หลังแก้ตรง/ยกเลิก/ลบ จาก drawer
+  const reloadAll = () => {
+    // reloadAll ใช้ทั้ง realtime-receive + หลังเซฟ — bust cache แต่ไม่ mark (การเขียนจริง mark เองแล้ว · กัน "หูหนวก" ต่อ event คนอื่น)
+    invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_skus', { mark: false });
+    setReloadKey(k => k + 1); reloadOverrides();
+  };
+  // realtime: ออเดอร์/รายการ/override เปลี่ยนที่ไหน (คนอื่นเพิ่ม/แก้/ยกเลิก/ลบ · ส่งยอดใบเสร็จ) → ตารางเด้งสด
+  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides', 'tmk_sale_receipts'], reloadAll);
+  useEffect(() => { let cancel = false; (async () => { const m = await loadResolverMaps(supabase); if (cancel) return; setResolverMaps(m); try { const r = await supabase.from('tmk_order_overrides').select('*'); if (cancel) return; const map = {}; if (!r.error) (r.data || []).forEach(x => { map[x.order_id] = x; }); setOrderOv(map); } catch { /* ตารางยังไม่มี */ } })(); return () => { cancel = true; }; }, []);
+  const orderOvKey = ORDER_OV_KEY;
+
+  // ── เลือกหลายออเดอร์ + action รวดเร็ว (ยกเลิก/นำกลับ/ลบถาวร) ─────────────
+  const isRcpt = (o) => (o.source || '') === 'shipnity';
+  const toggleSel = (no) => setSelSet(s => { const n = new Set(s); n.has(no) ? n.delete(no) : n.add(no); return n; });
+  const runBulk = async (kind) => {
+    if (!canEdit) { window.__toast?.('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    const rows = (ordersM || []).filter(o => selSet.has(o.order_no) &&
+      (kind === 'cancel' ? o.status !== 'cancelled' : kind === 'restore' ? o.status === 'cancelled' : true));
+    if (!rows.length) return;
+    const meta = {
+      cancel: { title: `ยกเลิก ${rows.length} ออเดอร์`, body: 'ยอดจะถูกตัดออกจากรายงานทันที (ส่งใบเสร็จซ้ำได้)', danger: true, confirmText: 'ยกเลิก' },
+      restore: { title: `นำ ${rows.length} ออเดอร์กลับมา`, body: 'ยอดจะกลับเข้ารายงานทันที', confirmText: 'นำกลับมา' },
+      remove: { title: `ลบ ${rows.length} ออเดอร์ถาวร`, body: 'รายการสินค้า/ใบเสร็จจะถูกลบด้วย — ย้อนกลับไม่ได้', danger: true, confirmText: 'ลบถาวร' },
+    }[kind];
+    if (!await window.__confirm?.(meta)) return;
+    setBulkBusy(true);
+    const by = window.__userName || window.__userEmail || '';
+    // จัดกลุ่มตาม source (batch/RPC ทีเดียวต่อกลุ่ม แทน loop ทีละแถว)
+    const bySource = (rs) => { const m = new Map(); rs.forEach(o => { const s = o.source || ''; (m.get(s) || m.set(s, []).get(s)).push(o); }); return m; };
+    const nosOf = (rs) => rs.map(o => o.order_no);
+    let fail = 0;
+    try {
+      if (kind === 'remove') {
+        for (const [src, g] of bySource(rows)) await deleteOrders(nosOf(g), { source: src, overrideIds: g.map(orderOvKey) });
+        logAudit({ action: 'delete', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `ลบถาวร ${rows.length} ออเดอร์` });
+      } else if (kind === 'cancel') {
+        const rc = rows.filter(isRcpt), other = rows.filter(o => !isRcpt(o));
+        if (rc.length) await voidReceipts(nosOf(rc), { by, reason: 'ยกเลิกจากหน้าออเดอร์ (เลือกหลายรายการ)' });
+        for (const [src, g] of bySource(other)) { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).in('order_no', nosOf(g)).eq('source', src); if (error) throw error; }
+        logAudit({ action: 'delete', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `ยกเลิก ${rows.length} ออเดอร์` });
+      } else { // restore
+        const rc = rows.filter(isRcpt), other = rows.filter(o => !isRcpt(o));
+        for (const o of rc) { try { await restoreReceipt({ order_no: o.order_no }, { by }); } catch { fail++; } } // ใบเสร็จ: ต้องสร้าง sku คืน (client · กันเคสแถวหาย)
+        for (const [src, g] of bySource(other)) { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).in('order_no', nosOf(g)).eq('source', src); if (error) throw error; }
+        logAudit({ action: 'update', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `นำ ${rows.length} ออเดอร์กลับมา` });
+      }
+    } catch (e) { fail = fail || rows.length; window.__toast?.('ทำรายการไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    setBulkBusy(false);
+    setSelSet(new Set());
+    const okN = rows.length - fail;
+    if (okN > 0) window.__toast?.(`${meta.confirmText} ${okN} ออเดอร์${fail ? ` · ล้มเหลว ${fail}` : ''}`, fail ? 'warn' : 'success');
+    invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+    reloadAll();
+  };
+
+  // resolver จาก map สด — เปลี่ยน catalog/alias/override แล้ว recompute (ไม่ต้อง reimport)
+  const resolver = useMemo(() => makeSkuResolver(resolverMaps || {}), [resolverMaps]);
+  // ออเดอร์ที่ merge override ระดับออเดอร์ทับค่า frozen (job_type/ลูกค้า/เซลล์/ยอด ที่แก้ในเว็บ) — helper กลาง saleOverrides
+  const ordersM = useMemo(() => mergeOrderOverrides(orders, orderOv), [orders, orderOv]);
+  // SKU แยกตามออเดอร์ — resolve ชื่อลาย/รหัสสด + derive สี/ไซซ์ตอน override (helper กลาง) แล้ว group ตามออเดอร์
+  const skusByOrder = useMemo(() => {
+    const byO = {};
+    resolveSkuDesigns(rawSkus, resolver, { deriveColorSize }).forEach(s2 => {
+      (byO[s2.order_no] = byO[s2.order_no] || []).push(s2);
+    });
+    return byO;
+  }, [rawSkus, resolver]);
+  // active preset (ให้ปฏิทินไฮไลต์) + ตัวจัดการเลือก preset/ช่วงเอง
+  const activePreset = useMemo(() => { if (!bounds.max) return ''; for (const [id] of PRESETS) { const r = presetRange(id, todayISO(), bounds.min, bounds.max); if (range.from === r.from && range.to === r.to) return id; } return ''; }, [range.from, range.to, bounds.min, bounds.max]);
+  const pickPreset = (id) => { const r = presetRange(id, todayISO(), bounds.min, bounds.max); setRange({ from: r.from, to: r.to }); };
+  const channels = useMemo(() => [...new Set((ordersM || []).map(o => o.channel).filter(Boolean))], [ordersM]);
+  const sellers = useMemo(() => [...new Set((ordersM || []).map(o => o.salesperson).filter(Boolean))].sort(), [ordersM]);
+  const payments = useMemo(() => [...new Set((ordersM || []).map(o => o.payment_type || 'ไม่ระบุ'))].sort(), [ordersM]);
+  // ตัวกรองแบบ multi-select (ว่าง = แสดงทั้งหมด) — แพทเทิร์นเดียวกับหน้ารายงานขาย
+  const nFilters = jobF.length + channelF.length + sellerF.length + statusF.length + payF.length;
+  const activeChips = [
+    ...statusF.map(v => ({ dim: 'สถานะ', v, clear: () => setStatusF(statusF.filter(x => x !== v)) })),
+    ...jobF.map(v => ({ dim: 'งาน', v, clear: () => setJobF(jobF.filter(x => x !== v)) })),
+    ...channelF.map(v => ({ dim: 'ช่องทาง', v, clear: () => setChannelF(channelF.filter(x => x !== v)) })),
+    ...payF.map(v => ({ dim: 'ชำระ', v, clear: () => setPayF(payF.filter(x => x !== v)) })),
+    ...sellerF.map(v => ({ dim: 'เซลล์', v, clear: () => setSellerF(sellerF.filter(x => x !== v)) })),
+  ];
+  const clearFilters = () => { setJobF([]); setChannelF([]); setSellerF([]); setStatusF([]); setPayF([]); };
+  const ql = q.trim().toLowerCase();
+  const filtered = (ordersM || []).filter(o =>
+    (statusF.length === 0 || statusF.includes(o.status === 'cancelled' ? 'ยกเลิก' : 'ใช้งาน')) &&
+    (channelF.length === 0 || channelF.includes(o.channel)) &&
+    (payF.length === 0 || payF.includes(o.payment_type || 'ไม่ระบุ')) &&
+    (jobF.length === 0 || jobF.includes(o.job_type || 'ปลีก')) &&
+    (sellerF.length === 0 || sellerF.includes(o.salesperson || '')) &&
+    (!ql || `${o.order_no} ${o.marketplace_id || ''} ${o.customer_name || ''} ${o.customer_code || ''} ${o.customer_social || ''} ${o.province || ''} ${o.salesperson || ''}`.toLowerCase().includes(ql) || (skusByOrder[o.order_no] || []).some(s => `${s.design || ''} ${s.color || ''} ${s.raw_sku_or_name || ''}`.toLowerCase().includes(ql)))
+  );
+  const tot = filtered.reduce((a, x) => a + (Number(x.sales) || 0), 0);
+  const totQty = filtered.reduce((a, x) => a + (Number(x.qty) || 0), 0);
+  const byCh = {}; filtered.forEach(o => { byCh[o.channel] = (byCh[o.channel] || 0) + (Number(o.sales) || 0); });
+  const _donutData = Object.entries(byCh).map(([k, v]) => ({ label: k, value: v, color: channelColor(k) })).sort((a, b) => b.value - a.value);
+
+  // เรียงตามคอลัมน์ (เริ่มต้น = วันที่ล่าสุดก่อน เหมือนเดิม)
+  const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
+
+  // แบ่งหน้า — รีเซ็ตกลับหน้า 1 เมื่อเปลี่ยนช่วงวันที่/ตัวกรอง/คำค้น/การเรียง
+  useEffect(() => { setPage(1); setSelSet(new Set()); }, [range.from, range.to, jobF, channelF, sellerF, statusF, payF, q, sortKey, sortDir]);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
+  const pageClamped = Math.min(page, totalPages);
+  const pageRows = sorted.slice((pageClamped - 1) * PER_PAGE, pageClamped * PER_PAGE);
+  // เลือกทั้งหน้า (checkbox หัวตาราง) + สรุปสิ่งที่เลือกไว้ (เพื่อโชว์ปุ่ม action ที่เกี่ยวข้อง)
+  const pageNos = pageRows.map(o => o.order_no);
+  const allOnPage = pageNos.length > 0 && pageNos.every(no => selSet.has(no));
+  const toggleAllPage = () => setSelSet(s => { const n = new Set(s); if (allOnPage) pageNos.forEach(no => n.delete(no)); else pageNos.forEach(no => n.add(no)); return n; });
+  const selRows = (ordersM || []).filter(o => selSet.has(o.order_no));
+  const selHasCancelled = selRows.some(o => o.status === 'cancelled');
+
+  const showSkel = useDelayedFlag(orders === null, 120); // โผล่หลัง 120ms · อยู่อย่างน้อย 300ms · cache ไว → เด้งทันที
+  if (showSkel) return <OrdersSkeleton />;
+  if (orders === null) return null;
+  // ไม่มีข้อมูลเลยทั้งระบบ (ไม่มีเดือนใดเลย) → แนะนำนำเข้า · ถ้าแค่เดือนนี้ว่าง ยังให้เลือกเดือนอื่นได้
+  if (err || (orders.length === 0 && !bounds.max)) return (
+    <div className="content-inner rise"><Card className="p-[22px]"><div className="cap" style={{ textAlign: 'center', padding: 24, color: 'var(--ink-4)' }}>
+      {/relation .* does not exist|tmk_mp_/i.test(err) ? 'ยังไม่ได้สร้างตาราง — รัน migration ก่อน' : 'ยังไม่มีออเดอร์ — ส่งยอดใบเสร็จหรือนำเข้าไฟล์มาร์เก็ตเพลสได้ที่เมนู "ส่งยอด & ข้อมูล"'}
+    </div></Card></div>
+  );
+
+  const buildDesigns = (sk) => { const dmap = {}; sk.forEach(s => { const d = s.design || '(จับคู่ไม่ได้)'; if (!dmap[d]) dmap[d] = { design: d, codes: new Set(), qty: 0, sales: 0 }; const g = dmap[d]; if (s.product_code) g.codes.add(s.product_code); g.qty += Number(s.qty) || 0; g.sales += Number(s.line_sales) || 0; }); return Object.values(dmap).sort((a, b) => b.qty - a.qty); };
+  const jobChip = (j) => ({ 'ปลีก': '', 'DFT': 'chip-accent', 'OEM': 'chip-warn' }[j] || '');
+  const statusChip = (s) => {
+    if (!s || s === 'completed' || s === 'delivered') return 'chip-delivered';
+    if (s === 'cancelled') return 'chip-cancelled';
+    if (s === 'pending' || s === 'processing') return 'chip-pending';
+    if (s === 'shipped') return 'chip-shipped';
+    return '';
+  };
+  const statusLabel = (s) => ({ 'completed': 'สำเร็จ', 'delivered': 'ส่งแล้ว', 'cancelled': 'ยกเลิก', 'pending': 'รอดำเนินการ', 'processing': 'กำลังทำ', 'shipped': 'จัดส่งแล้ว' }[s] || s || '');
+  return (
+    <div className="content-inner rise">
+      <Card className="p-[22px]">
+        {/* หัว + เครื่องมือ แถวเดียว: ชื่อ · ช่วงวัน · ตัวกรอง · ล้าง | (ขวา) ค้นหา · คอลัมน์ · เพิ่มออเดอร์ */}
+        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="m-0 mr-1 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์</h3>
+            <OrderDatePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max}
+              onChange={(a, b) => setRange({ from: a, to: b })} presets={PRESETS} activePreset={activePreset} onPickPreset={pickPreset} />
+            <CollapsibleTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2 rounded-full">
+                <Icon name="filter" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
+                <Icon name={filtersOpen ? 'up' : 'down'} />
+              </Button>
+            </CollapsibleTrigger>
+            {nFilters > 0 && <Button variant="ghost" size="sm" className="text-[var(--bad)]" onClick={clearFilters}><Icon name="x" /> ล้าง</Button>}
+            <div className="ml-auto flex items-center gap-2">
+              <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[220px]" />
+              <ColumnToggle columns={ORDERS_COLS} visible={colVisible} onToggle={toggleCol} />
+              <Button size="sm" className="shrink-0 gap-1.5" disabled={window.__canEdit === false} onClick={() => setAddOpen(true)}><Icon name="plus" /> เพิ่มออเดอร์</Button>
+            </div>
+          </div>
+          {activeChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              {activeChips.map(({ dim, v, clear }) => <Badge key={dim + v} variant="outline" onClick={clear} title="คลิกเพื่อเอาออก" style={{ cursor: 'pointer', padding: '2px 8px' }}><span style={{ color: 'var(--ink-4)' }}>{dim}:</span> {v || '(ไม่ระบุ)'} <Icon name="x" /></Badge>)}
+            </div>
+          )}
+          <CollapsibleContent>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', paddingTop: 12, marginTop: 10, borderTop: '1px solid var(--line)' }}>
+              <span className="cap" style={{ color: 'var(--ink-4)', fontWeight: 600, width: 64, flexShrink: 0 }}>ตัวกรอง</span>
+              <MultiSelect label="สถานะ" options={['ใช้งาน', 'ยกเลิก']} value={statusF} onChange={setStatusF} />
+              <MultiSelect label="งาน" options={['ปลีก', 'DFT', 'OEM']} value={jobF} onChange={setJobF} />
+              <MultiSelect label="ช่องทาง" options={channels} value={channelF} onChange={setChannelF} />
+              {payments.length > 0 && <MultiSelect label="การชำระ" options={payments} value={payF} onChange={setPayF} />}
+              {sellers.length > 0 && <MultiSelect label="เซลล์" options={sellers} value={sellerF} onChange={setSellerF} />}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        {canEdit && selSet.size > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2" style={{ borderColor: 'var(--accent)', background: 'var(--accent-soft)' }}>
+            <span className="text-[13px] font-bold" style={{ color: 'var(--accent)' }}>เลือก {N(selSet.size)} ออเดอร์</span>
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              {selHasCancelled && <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--good)' }} disabled={bulkBusy} onClick={() => runBulk('restore')}><Icon name="refresh" /> นำกลับมา</Button>}
+              <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} disabled={bulkBusy} onClick={() => runBulk('remove')}><Icon name="trash" /> ลบถาวร</Button>
+              <Button variant="ghost" size="sm" disabled={bulkBusy} onClick={() => setSelSet(new Set())}>เลิกเลือก</Button>
+            </div>
+          </div>
+        )}
+
+        <CardTable className={'table-sticky-first mt-4 ' + density}><Table>
+          <TableHeader><TableRow>
+            {canEdit && <TableHead className="w-9 cell-hide-m"><ShadcnCheckbox checked={allOnPage} onCheckedChange={toggleAllPage} aria-label="เลือกทั้งหน้า" /></TableHead>}
+            <SortHead field="order_no" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ออเดอร์</SortHead>
+            {colVisible.has('date') && <SortHead field="date" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>วันที่</SortHead>}
+            {colVisible.has('channel') && <SortHead field="channel" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ช่องทาง</SortHead>}
+            {colVisible.has('customer') && <SortHead field="customer" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>ลูกค้า</SortHead>}
+            {colVisible.has('designs') && <TableHead>ลายเสื้อ</TableHead>}
+            {colVisible.has('job') && <TableHead>งาน</TableHead>}
+            {colVisible.has('payment') && <SortHead field="payment" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort}>การชำระ</SortHead>}
+            {colVisible.has('status') && <TableHead>สถานะ</TableHead>}
+            {colVisible.has('note') && <TableHead>หมายเหตุ</TableHead>}
+            {colVisible.has('qty') && <SortHead field="qty" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right">ตัว</SortHead>}
+            <SortHead field="sales" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right">ยอดขาย</SortHead>
+          </TableRow></TableHeader>
+          <TableBody>{pageRows.map(o => { const designs = buildDesigns(skusByOrder[o.order_no] || []);
+            return (
+              <TableRow key={o.order_no} data-state={selSet.has(o.order_no) ? 'selected' : undefined} className={`mp-order-row ${openId === o.order_no ? 'is-open' : ''} ${o.status === 'cancelled' ? 'opacity-55' : ''}`} onClick={() => setOpenId(o.order_no)} style={{ cursor: 'pointer' }}>
+                {canEdit && <TableCell className="cell-hide-m" onClick={e => e.stopPropagation()}><ShadcnCheckbox checked={selSet.has(o.order_no)} onCheckedChange={() => toggleSel(o.order_no)} aria-label={`เลือก ${o.order_no}`} /></TableCell>}
+                <TableCell className="cell-title"><span style={{ fontWeight: 600, textDecoration: o.status === 'cancelled' ? 'line-through' : 'none' }}>{o.order_no}</span></TableCell>
+                {colVisible.has('date') && <TableCell className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</TableCell>}
+                {colVisible.has('channel') && <TableCell><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span></TableCell>}
+                {colVisible.has('customer') && <TableCell><div className="flex items-center gap-2 min-w-0">{o.customer_name && <PersonAvatar name={o.customer_name} color={channelColor(o.channel)} size={22} className="shrink-0" />}<div className="min-w-0">{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}{!o.customer_name && !o.customer_code && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มีลูกค้า</Badge>}</div></div></TableCell>}
+                {colVisible.has('designs') && <TableCell className="cell-hide-m">{designs.length === 0 ? <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ fontWeight: 600 }}>{designs.slice(0, 2).map(d => d.design).join(', ')}{designs.length > 2 ? ` +${designs.length - 2}` : ''}</span>}</TableCell>}
+                {colVisible.has('job') && <TableCell>{(o.job_type && o.job_type !== 'ปลีก') ? <span className={'chip ' + jobChip(o.job_type)}>{o.job_type}</span> : <span className="cap">ปลีก</span>}</TableCell>}
+                {colVisible.has('payment') && <TableCell><span className="cap" style={o.payment_type ? undefined : { color: 'var(--ink-4)' }}>{o.payment_type || '—'}</span></TableCell>}
+                {colVisible.has('status') && <TableCell>{o.status && !['completed', 'active'].includes(o.status) ? <span className={'chip ' + statusChip(o.status)}>{statusLabel(o.status)}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
+                {colVisible.has('note') && <TableCell className="cell-hide-m">{o.note ? <span className="block max-w-[160px] truncate text-[13px]" title={o.note}>{o.note}</span> : <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span>}</TableCell>}
+                {colVisible.has('qty') && <TableCell className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</TableCell>}
+                <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}><span className="row" style={{ gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>{B(o.sales)}<Icon name="arrowR" /></span></TableCell>
+              </TableRow>
+          ); })}</TableBody>
+        </Table></CardTable>
+        {filtered.length > PER_PAGE && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="cap" style={{ color: 'var(--ink-4)' }}>แสดง {N((pageClamped - 1) * PER_PAGE + 1)}–{N(Math.min(pageClamped * PER_PAGE, filtered.length))} จาก {N(filtered.length)} ออเดอร์</span>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" className="gap-1" disabled={pageClamped <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}><Icon name="left" /> ก่อนหน้า</Button>
+              {_pageList(pageClamped, totalPages).map((p, i) => p === '…'
+                ? <span key={'e' + i} className="px-1.5 text-[var(--ink-4)]">…</span>
+                : <Button key={p} variant={p === pageClamped ? 'default' : 'outline'} size="sm" className="min-w-9 px-0" onClick={() => setPage(p)}>{p}</Button>)}
+              <Button variant="outline" size="sm" className="gap-1" disabled={pageClamped >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>ถัดไป <Icon name="right" /></Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {openId && (() => {
+        const o = (ordersM || []).find(x => x.order_no === openId);
+        if (!o) return null;
+        return <OrderDrawer order={o} sk={skusByOrder[o.order_no] || []} buildDesigns={buildDesigns} onClose={() => setOpenId(null)} onSaved={reloadOverrides} onChanged={reloadAll} />;
+      })()}
+
+      {addOpen && <ManualSaleSheet user={user} onClose={() => setAddOpen(false)} onSaved={reloadAll} />}
+    </div>
+  );
+}
+
+
+const DRAWER_CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
+// รหัสลูกค้า = คีย์ CRM ภายใน (P<เบอร์>/N<ชื่อ>) — โชว์อ่านง่าย: ตัด prefix + ซ่อนถ้าซ้ำชื่อ (ไม่โชว์คีย์ดิบ)
+const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
+const DRAWER_PAYMENTS = ['โอน', 'COD', 'มาร์เก็ตเพลส', 'ไม่ระบุ'];
+function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }) {
+  const designs = buildDesigns(sk);
+  const jt = o.job_type || 'ปลีก';
+  const jtCls = { DFT: 'chip-accent', OEM: 'chip-warn' }[jt] || '';
+  const hasOv = !!o._ov;                                   // ออเดอร์นี้เคยแก้มือไหม
+  const isReceipt = (o.source || '') === 'shipnity';       // มาจากใบเสร็จ — ยกเลิกผ่านระบบใบเสร็จ (ส่งใหม่ได้)
+  const isCancelled = o.status === 'cancelled';            // ยกเลิกแล้ว → ปุ่มเป็น "นำกลับมา"
+  const [edit, setEdit] = useState(null);                  // null | ฟอร์มแก้เต็มทุกช่อง
+  const [busy, setBusy] = useState(false);
+  const [lineEdit, setLineEdit] = useState(null);          // index ของบรรทัดที่กำลังแก้ลาย
+  const [linePick, setLinePick] = useState({ design: '', code: '', color: '', size: '' });
+  const ovId = `${o.source || ''}:${o.order_no}`;
+  const toast = (m, t) => window.__toast && window.__toast(m, t);
+  const startEdit = () => setEdit({
+    order_date: o.order_date || '', channel: o.channel || '', job_type: jt,
+    payment_type: DRAWER_PAYMENTS.includes(o.payment_type) ? o.payment_type : (o.payment_type || 'ไม่ระบุ'),
+    sales: String(o.sales ?? ''), qty: String(o.qty ?? ''),
+    customer_name: o.customer_name || '', customer_type: o.customer_type || 'ลูกค้าใหม่',
+    province: o.province || '', salesperson: o.salesperson || '', note: o.note || '',
+  });
+  // บันทึก: อัปเดตตรงที่ tmk_mp_orders (มีผลทุกรายงานทันที) + override field ที่รองรับ (ประกันข้าม reimport)
+  // + ใบเสร็จ: sync แถว tmk_sale_receipts ให้ feed ส่งยอดตรงกัน
+  const saveOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    setBusy(true);
+    try {
+      const now = new Date().toISOString();
+      const patch = {
+        order_date: edit.order_date || null,
+        order_month: (edit.order_date || o.order_month || '').slice(0, 7),
+        channel: edit.channel, job_type: edit.job_type,
+        payment_type: edit.payment_type,
+        cod_amount: edit.payment_type === 'COD' ? (Number(edit.sales) || 0) : 0,
+        sales: Number(edit.sales) || 0, qty: Number(edit.qty) || 0, qty_band: qtyBand(Number(edit.qty) || 0),
+        customer_name: edit.customer_name.trim(), customer_type: edit.customer_type,
+        province: edit.province.trim(), salesperson: edit.salesperson.trim(), note: edit.note.trim(),
+        updated_at: now,
+      };
+      { const { error } = await supabase.from('tmk_mp_orders').update(patch).eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
+      try {
+        // mirror ทุกช่องที่แก้ลง override (ประกันข้าม reimport มาร์เก็ตเพลส) — graceful ตัดคอลัมน์ใหม่ถ้ายังไม่ migrate
+        const ovRow = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, channel: patch.channel, payment_type: patch.payment_type, sales: patch.sales, qty: patch.qty, province: patch.province, order_date: patch.order_date, cod_amount: patch.cod_amount, updated_at: now };
+        let { error: ovErr } = await supabase.from('tmk_order_overrides').upsert(ovRow, { onConflict: 'order_id' });
+        if (ovErr && /channel|payment_type|sales|qty|province|order_date|cod_amount|column/i.test(ovErr.message || '')) {
+          const base = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, updated_at: now };
+          await supabase.from('tmk_order_overrides').upsert(base, { onConflict: 'order_id' });
+        }
+      } catch { /* ตาราง override ยังไม่มี — ค่าตรงบันทึกแล้ว */ }
+      if (isReceipt) {
+        try { await supabase.from('tmk_sale_receipts').update({ channel: patch.channel, order_date: patch.order_date, order_month: patch.order_month, sales: patch.sales, qty: patch.qty, salesperson: patch.salesperson, updated_at: now }).eq('order_no', o.order_no); } catch { /* เงียบ */ }
+      }
+      // ปรับ SKU (+ confirmed payload ของใบเสร็จ) ให้ยอด/จำนวนรวมตรงกับที่แก้ — กัน breakdown ลาย/สี/geo เพี้ยนจาก order total
+      const oldSales = sk.reduce((a, s) => a + (Number(s.line_sales) || 0), 0);
+      const oldQty = sk.reduce((a, s) => a + (Number(s.qty) || 0), 0);
+      if (sk.length && (Math.abs(oldSales - patch.sales) > 0.01 || oldQty !== patch.qty)) {
+        // แบ่งสัดส่วนตามของเดิม · reconcile บรรทัดสุดท้ายให้รวมตรงเป๊ะ
+        const splitVals = (rows, getV, total, integer) => {
+          const base = rows.map(getV); const sum = base.reduce((a, v) => a + v, 0); let acc = 0;
+          return rows.map((r, i) => {
+            if (i === rows.length - 1) return Math.max(0, integer ? Math.round(total - acc) : Math.round((total - acc) * 100) / 100);
+            const v = sum > 0 ? (base[i] / sum) * total : total / rows.length;
+            const rv = integer ? Math.round(v) : Math.round(v * 100) / 100; acc += rv; return Math.max(0, rv);
+          });
+        };
+        const newLS = splitVals(sk, s => Number(s.line_sales) || 0, patch.sales, false);
+        const newQ = splitVals(sk, s => Number(s.qty) || 0, patch.qty, true);
+        for (let i = 0; i < sk.length; i++) {
+          if (!sk[i].id) continue;
+          try { await supabase.from('tmk_mp_skus').update({ line_sales: newLS[i], qty: newQ[i] }).eq('id', sk[i].id); } catch { /* order-level ถูกแล้ว */ }
+        }
+        if (isReceipt) {
+          try {
+            const { data: rc } = await supabase.from('tmk_sale_receipts').select('confirmed').eq('order_no', o.order_no).maybeSingle();
+            const cf = rc?.confirmed;
+            if (cf && Array.isArray(cf.lines) && cf.lines.length) {
+              const cLS = splitVals(cf.lines, l => Number(l.amount) || 0, patch.sales, false);
+              const cQ = splitVals(cf.lines, l => Number(l.qty) || 0, patch.qty, true);
+              cf.lines = cf.lines.map((l, i) => ({ ...l, amount: cLS[i], qty: cQ[i] }));
+              cf.total = patch.sales; cf.subtotal = patch.sales;
+              await supabase.from('tmk_sale_receipts').update({ confirmed: cf }).eq('order_no', o.order_no);
+            }
+          } catch { /* เงียบ — restore จะใช้ payload เดิม */ }
+        }
+      }
+      logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `แก้ออเดอร์ ${o.order_no} (${patch.channel} · ฿${patch.sales})` });
+      toast('บันทึกการแก้ไขแล้ว — ยอดในรายงานอัปเดตทันที', 'success');
+      setEdit(null); onChanged ? onChanged() : onSaved?.();
+    } catch (e) { toast('บันทึกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  const revertOrder = async () => {
+    setBusy(true);
+    const { error } = await supabase.from('tmk_order_overrides').delete().eq('order_id', ovId);
+    setBusy(false);
+    if (error) { toast('คืนค่าไม่สำเร็จ', 'error'); return; }
+    toast('คืนค่าออเดอร์เป็นค่าจากไฟล์แล้ว', 'success');
+    setEdit(null); onSaved && onSaved();
+  };
+  // ยกเลิกออเดอร์ — ใบเสร็จ: void ผ่านระบบใบเสร็จ (ยอดหาย+ส่งใหม่ได้) · มาร์เก็ตเพลส: mark cancelled
+  const cancelOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await window.__confirm?.({ title: 'ยกเลิกออเดอร์', body: `ยกเลิก ${o.order_no}?\nยอดจะถูกตัดออกจากรายงานทันที${isReceipt ? ' (ส่งใบเสร็จซ้ำได้)' : ''}`, danger: true, confirmText: 'ยกเลิกออเดอร์' })) return;
+    setBusy(true);
+    try {
+      if (isReceipt) await voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์' });
+      else {
+        const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
+        if (error) throw error;
+        logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
+      }
+      toast('ยกเลิกออเดอร์แล้ว — ยอดถูกตัดออกจากรายงาน', 'success');
+      onClose(); onChanged?.();
+    } catch (e) { toast('ยกเลิกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  // นำกลับมา — ใบเสร็จ: un-void + สร้าง sku คืนจาก payload · มาร์เก็ตเพลส: mark active
+  const restoreOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await window.__confirm?.({ title: 'นำออเดอร์กลับมา', body: `นำ ${o.order_no} กลับมาใช้งาน?\nยอดจะกลับเข้ารายงานทันที`, confirmText: 'นำกลับมา' })) return;
+    setBusy(true);
+    try {
+      if (isReceipt) await restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
+      else {
+        const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
+        if (error) throw error;
+        invalidateSaleCache('tmk_mp_orders');
+        logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });
+      }
+      toast('นำออเดอร์กลับมาแล้ว — ยอดกลับเข้ารายงาน', 'success');
+      onClose(); onChanged?.();
+    } catch (e) { toast('นำกลับไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  // ลบถาวร — เอาออกทุกตาราง (ออเดอร์ + รายการสินค้า + override + ใบเสร็จ) ย้อนกลับไม่ได้
+  const deleteOrder = async () => {
+    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await window.__confirm?.({ title: 'ลบออเดอร์ถาวร', body: `ลบ ${o.order_no} ออกจากระบบถาวร?\nรายการสินค้า${isReceipt ? ' + ใบเสร็จ' : ''} จะถูกลบด้วย — ย้อนกลับไม่ได้`, danger: true, confirmText: 'ลบถาวร' })) return;
+    setBusy(true);
+    try {
+      await supabase.from('tmk_mp_skus').delete().eq('source', o.source || '').eq('order_no', o.order_no);
+      { const { error } = await supabase.from('tmk_mp_orders').delete().eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
+      try { await supabase.from('tmk_order_overrides').delete().eq('order_id', ovId); } catch { /* optional */ }
+      try { await supabase.from('tmk_sku_overrides').delete().eq('order_no', o.order_no); } catch { /* optional — กัน override ลายบรรทัดค้างเป็น orphan */ }
+      if (isReceipt) { try { await supabase.from('tmk_sale_receipts').delete().eq('order_no', o.order_no); } catch { /* optional */ } }
+      logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})` });
+      toast('ลบออเดอร์ถาวรแล้ว', 'success');
+      onClose(); onChanged?.();
+    } catch (e) { toast('ลบไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setBusy(false); }
+  };
+  const saveLine = async (s) => {
+    setBusy(true);
+    // รหัสสินค้าเต็ม = รหัสฐาน + สี + ไซซ์ (JSK01-WH-XL) → derive สี/ไซซ์ตอนอ่าน · ไม่ต้องคอลัมน์ใหม่
+    const baseCode = (linePick.code || '').trim();
+    const fullCode = buildLineSku(baseCode, linePick.color, linePick.size) || baseCode;
+    const row = { key: skuOverrideKey(o.order_no, s.raw_sku_or_name), order_no: o.order_no, design: linePick.design.trim(), product_code: fullCode, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from('tmk_sku_overrides').upsert(row, { onConflict: 'key' });
+    setBusy(false);
+    if (error) { window.__toast && window.__toast(/relation|does not exist|schema cache/i.test(error.message) ? 'ต้องรัน migration tmk_sku_overrides ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
+    logAudit({ action: 'update', entityType: 'data', entityName: o.order_no, summary: `แก้ลายบรรทัด "${s.raw_sku_or_name}" → ${linePick.design}` });
+    window.__toast && window.__toast('แก้ลายบรรทัดนี้แล้ว — มีผลทันที ไม่ต้อง reimport', 'success');
+    setLineEdit(null); onSaved && onSaved();
+  };
+  const stMap = { completed: 'สำเร็จ', delivered: 'ส่งแล้ว', cancelled: 'ยกเลิก', pending: 'รอดำเนินการ', processing: 'กำลังทำ', shipped: 'จัดส่งแล้ว' };
+  // COD เต็มจำนวน (ยอด COD = ยอดขาย) → โชว์ป้าย "เก็บปลายทาง" แทนเลขซ้ำ · COD บางส่วน → โชว์เลขจริง
+  const isFullCod = o.cod_amount > 0 && Number(o.cod_amount) === Number(o.sales);
+  const money = [{ label: 'ยอดขาย', val: B(o.sales), badge: isFullCod ? 'เก็บปลายทาง (COD)' : '' }];
+  if (o.mkt_commission > 0) money.push({ label: 'ค่าธรรมเนียม', val: '−' + B(o.mkt_commission) });
+  if (o.cod_amount > 0 && !isFullCod) money.push({ label: 'ยอด COD', val: B(o.cod_amount) });
+  // ปุ่มจัดการอยู่ที่ footer (กันทับ badge บนหัว) — ตอนแก้ไขเหลือแค่ "ปิด" (ฟอร์มมี Save/Cancel เอง)
+  const footerActions = edit ? <Button variant="outline" onClick={onClose}>ปิด</Button> : (
+    <div className="flex w-full items-center gap-2 flex-wrap">
+      {!isCancelled && window.__canEdit !== false && <Button variant="outline" size="sm" className="gap-1" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>}
+      {isCancelled
+        ? <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--good)' }} onClick={restoreOrder} disabled={busy}><Icon name="refresh" /> นำกลับมา</Button>
+        : <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}><Icon name="x" /> ยกเลิกออเดอร์</Button>}
+      <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} onClick={deleteOrder} disabled={busy}><Icon name="trash" /> ลบ</Button>
+      <Button variant="outline" className="ml-auto" onClick={onClose}>ปิด</Button>
+    </div>
+  );
+  return <SideSheet size="lg" icon="listChecks" title={`ออเดอร์ ${o.order_no}`}
+    sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span><span style={{ color: 'var(--ink-4)' }}>{o.order_date || o.order_month}</span><b style={{ color: 'var(--ink)' }}>{B(o.sales)}</b></span>}
+    onClose={onClose} footer={footerActions}>
+    {(isCancelled || sk.length === 0 || designs.some(d => d.design === '(จับคู่ไม่ได้)')) && (
+      <div className="quality-row items-center" style={{ marginBottom: 14 }}>
+        {isCancelled && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-red-500/15 text-red-600 dark:text-red-400">ยกเลิกแล้ว</Badge>}
+        {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
+        {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
+      </div>
+    )}
+
+    {edit && (
+      <div className="mb-4 rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+        <div className="cap cap-head mb-2.5" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — มีผลกับรายงานทันที</div>
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
+          <div className="field"><label>วันที่</label><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></div>
+          <div className="field"><label>ช่องทาง</label>
+            <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
+              <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
+              <SelectContent>{[...new Set([...DRAWER_CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="field"><label>ประเภทงาน</label>
+            {(() => {
+              // ยึด "หมายเหตุ" เป็นตัวตัดสิน ปลีก/DFT (isDftNote = predicate เดียวทั้งระบบ) · OEM = เลือกตรง · UI ซื่อสัตย์
+              const isOEM = edit.job_type === 'OEM';
+              const isDFT = !isOEM && isDftNote(edit.note);
+              const eff = isOEM ? 'OEM' : (isDFT ? 'DFT' : 'ปลีก');
+              const toggleOEM = () => setEdit({ ...edit, job_type: isOEM ? (isDftNote(edit.note) ? 'DFT' : 'ปลีก') : 'OEM' });
+              const toggleDFT = () => {
+                let n = edit.note || '';
+                if (isDftNote(n)) n = n.replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
+                else n = (n.trim() ? n.trim() + ' ' : '') + 'DFT';
+                setEdit({ ...edit, note: n, job_type: isDftNote(n) ? 'DFT' : 'ปลีก' });
+              };
+              return (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div role="button" tabIndex={0} onClick={toggleOEM} className="flex items-center gap-1.5 cursor-pointer text-[13px]"><ShadcnCheckbox checked={isOEM} className="pointer-events-none" /> OEM</div>
+                    <div role="button" tabIndex={0} onClick={() => { if (!isOEM) toggleDFT(); }} className={'flex items-center gap-1.5 text-[13px] ' + (isOEM ? 'opacity-40 pointer-events-none' : 'cursor-pointer')}><ShadcnCheckbox checked={isDFT} className="pointer-events-none" /> งาน DFT</div>
+                    <Badge variant="secondary" className="rounded-full text-[10px]">{eff}</Badge>
+                  </div>
+                  <span className="cap" style={{ color: 'var(--ink-4)' }}>ปลีก/DFT ตัดสินจากคำว่า “DFT” ในหมายเหตุ</span>
+                </div>
+              );
+            })()}
+          </div>
+          <div className="field"><label>การชำระ</label>
+            <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
+              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+              <SelectContent>{[...new Set([...DRAWER_PAYMENTS, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="field"><label>ยอดขาย (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></div>
+          <div className="field"><label>จำนวน (ตัว)</label><Input type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></div>
+          <div className="field"><label>ชื่อลูกค้า</label><Input value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></div>
+          <div className="field"><label>สถานะลูกค้า</label>
+            <Select value={edit.customer_type || 'ลูกค้าใหม่'} onValueChange={v => setEdit({ ...edit, customer_type: v })}>
+              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+              <SelectContent>{[...new Set(['ลูกค้าใหม่', 'ลูกค้าเก่า', edit.customer_type].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="field"><label>จังหวัด</label><ProvinceCombobox value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></div>
+          <div className="field"><label>เซลล์</label><Input value={edit.salesperson} onChange={e => setEdit({ ...edit, salesperson: e.target.value })} placeholder="ชื่อเซลล์" /></div>
+        </div>
+        <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Textarea rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></div>
+        <div className="row" style={{ gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button onClick={saveOrder} disabled={busy || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+          <Button variant="ghost" onClick={() => setEdit(null)} disabled={busy}>ยกเลิก</Button>
+          {hasOv && <Button variant="ghost" className="ml-auto" style={{ color: 'var(--bad)' }} onClick={revertOrder} disabled={busy}><Icon name="refresh" /> คืนค่าจากไฟล์</Button>}
+        </div>
+      </div>
+    )}
+
+    <div className="mb-4 flex items-stretch overflow-hidden rounded-xl border" style={{ borderColor: 'var(--line)' }}>
+      {money.map((c, i) => (
+        <div key={c.label} className="flex-1 px-3 py-2.5 text-center" style={i > 0 ? { borderLeft: '1px solid var(--line)' } : undefined}>
+          <div className="text-[15px] font-bold leading-tight tabular-nums" style={{ color: c.color || 'var(--ink)' }}>{c.val}</div>
+          <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px]" style={{ color: 'var(--ink-4)' }}>{c.label}{c.badge && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">{c.badge}</Badge>}</div>
+        </div>
+      ))}
+    </div>
+
+    {o.note && (
+      <div className="mb-4 flex gap-2.5 rounded-xl border p-3" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)' }}>
+        <span className="mt-0.5 shrink-0 [&_svg]:size-[15px]" style={{ color: 'var(--warn)' }}><Icon name="lightbulb" /></span>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold" style={{ color: 'var(--warn)' }}>หมายเหตุ</div>
+          <div className="text-sm" style={{ color: 'var(--ink)' }}>{o.note}</div>
+        </div>
+      </div>
+    )}
+
+    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+      <DrawerGroup icon="listChecks" title="ข้อมูลออเดอร์">
+        <DrawerField label="เลขออเดอร์">{o.order_no}</DrawerField>
+        {o.marketplace_id && o.marketplace_id !== '-' && <DrawerField label="ID มาร์เก็ตเพลส">{o.marketplace_id}</DrawerField>}
+        <DrawerField label="วันที่">{o.order_date || o.order_month}</DrawerField>
+        <div><span className="cap">ช่องทาง</span><b><span className="row" style={{ gap: 6, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: 3, background: channelColor(o.channel), flex: 'none' }} />{o.channel}</span></b></div>
+        <div><span className="cap">ประเภทงาน</span><b>{jt === 'ปลีก' ? 'ปลีก' : <span className={'chip ' + jtCls}>{jt}</span>}</b></div>
+        {o.status && o.status !== 'completed' && o.status !== 'active' && <div><span className="cap">สถานะ</span><b><Badge variant="secondary">{stMap[o.status] || o.status}</Badge></b></div>}
+        <DrawerField label="การชำระ">{o.payment_type || '—'}</DrawerField>
+      </DrawerGroup>
+      <DrawerGroup icon="user" title="ลูกค้า">
+        <DrawerField label="ลูกค้า">{o.customer_name || '—'}</DrawerField>
+        {custCodeShow(o.customer_code, o.customer_name) && <DrawerField label="รหัสลูกค้า">{custCodeShow(o.customer_code, o.customer_name)}</DrawerField>}
+        {o.customer_social && o.customer_social !== o.customer_name && <DrawerField label="โซเชียล">{o.customer_social}</DrawerField>}
+        <DrawerField label="สถานะลูกค้า">{o.customer_type || '—'}</DrawerField>
+        {o.cust_total_orders > 0 && <DrawerField label="ออเดอร์สะสม">{N(o.cust_total_orders)} ครั้ง</DrawerField>}
+        {o.province && <DrawerField label="จังหวัด">{o.province}</DrawerField>}
+        <DrawerField label="เซลล์">{o.salesperson || '—'}</DrawerField>
+      </DrawerGroup>
+    </div>
+    {designs.length > 0 && <>
+      <div className="cap cap-head" style={{ margin: '16px 0 6px', fontWeight: 600, color: 'var(--accent)' }}><Icon name="bag" /> ลายเสื้อในออเดอร์นี้ ({N(designs.length)} ลาย)</div>
+      <div style={{ display: 'grid', gap: 6, marginBottom: 4 }}>{designs.map((d, i) => (
+        <div key={i} className="row between" style={{ gap: 8, padding: '7px 11px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
+          <span style={{ minWidth: 0 }}><b style={{ color: d.design === '(จับคู่ไม่ได้)' ? 'var(--bad)' : 'var(--ink)' }}>{d.design}</b>{d.codes.size > 0 && <Badge variant="outline" style={{ marginLeft: 8 }}>รหัส {[...d.codes].join(', ')}</Badge>}</span>
+          <span className="num cap"><b style={{ color: 'var(--ink)' }}>{N(d.qty)}</b> ตัว · {B(d.sales)}</span>
+        </div>
+      ))}</div>
+    </>}
+    {sk.length > 0 && <>
+      <div className="cap" style={{ margin: '16px 0 6px', fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ตัว)</div>
+      <CardTable className="table-wrap"><Table>
+        <TableHeader><TableRow><TableHead>ลาย</TableHead><TableHead>รหัส</TableHead><TableHead>สี</TableHead><TableHead>ไซซ์</TableHead><TableHead style={{ textAlign: 'right' }}>จำนวน</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead>จับคู่</TableHead><TableHead /></TableRow></TableHeader>
+        <TableBody>{sk.map((s, i) => [
+          <TableRow key={i}>
+            <TableCell className="cell-title" style={{ fontWeight: 600 }}>{s.design || <span style={{ color: 'var(--bad)' }}>จับคู่ไม่ได้</span>}{s._resolveSrc === 'override' && <Badge variant="outline" className="ml-1.5 text-[10px]" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>แก้มือ</Badge>}{s.raw_sku_or_name && s.raw_sku_or_name !== s.design && <div className="cap" style={{ color: 'var(--ink-4)' }}>{s.raw_sku_or_name}</div>}</TableCell>
+            <TableCell className="cap">{s.product_code || '—'}</TableCell>
+            <TableCell className="cap">{s.color || '—'}</TableCell>
+            <TableCell className="cap">{s.size || '—'}</TableCell>
+            <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</TableCell>
+            <TableCell className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</TableCell>
+            <TableCell><span className="cap" style={{ color: s.match_how ? 'var(--ink-3)' : 'var(--bad)' }}>{s.match_how || '—'}</span></TableCell>
+            <TableCell style={{ textAlign: 'right' }}>{lineEdit !== i && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => { setLineEdit(i); const d = findDesign(s.design); setLinePick({ design: s.design || '', code: d?.code || s.product_code || '', color: s.color || '', size: s.size || '' }); }} title="แก้ลาย/สี/ไซซ์บรรทัดนี้"><Icon name="pencil" /></Button>}</TableCell>
+          </TableRow>,
+          lineEdit === i && <TableRow key={i + '-edit'}>
+            <TableCell colSpan={8} style={{ background: 'var(--surface-2)' }}>
+              <div className="cap cap-head mb-2" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ลาย/สี/ไซซ์ของ "{s.raw_sku_or_name || s.design}" (เลือกจากสินค้า หรือพิมพ์รหัสเอง)</div>
+              <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 220 }}><DesignCombobox value={linePick.design} code={linePick.code} onPick={({ name, code, design: d }) => setLinePick(p => ({ design: name, code: code || p.code, color: (p.color && d?.colors?.length && !d.colors.includes(p.color)) ? '' : p.color, size: (p.size && d?.sizes?.length && !d.sizes.includes(p.size)) ? '' : p.size }))} /></div>
+                <div style={{ minWidth: 120 }}><ColorSelect design={findDesign(linePick.design)} value={linePick.color} onChange={v => setLinePick(p => ({ ...p, color: v }))} /></div>
+                <div style={{ minWidth: 90 }}><SizeSelect design={findDesign(linePick.design)} value={linePick.size} onChange={v => setLinePick(p => ({ ...p, size: v }))} /></div>
+                <Input value={linePick.code} onChange={e => setLinePick({ ...linePick, code: e.target.value })} placeholder="รหัสฐาน เช่น JRP111" style={{ maxWidth: 150 }} />
+                <Button size="sm" onClick={() => saveLine(s)} disabled={busy || !linePick.design.trim()}><Icon name="check" /> บันทึก</Button>
+                <Button size="sm" variant="ghost" onClick={() => setLineEdit(null)} disabled={busy}>ยกเลิก</Button>
+              </div>
+            </TableCell>
+          </TableRow>,
+        ])}</TableBody>
+      </Table></CardTable>
+    </>}
+  </SideSheet>;
+}
+
+export function OrdersHub() {
+  return <MpOrdersView />;
+}
+
+

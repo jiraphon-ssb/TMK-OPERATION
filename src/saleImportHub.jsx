@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient.js';
 import { N, Icon, CardHead } from './components.jsx';
 import { MpImportModal } from './modals.jsx';
-import { cachedFetchAll, clearSaleCache } from './lib/saleData.js';
+import { cachedFetchAll, clearSaleCache, ORDERS_SEL } from './lib/saleData.js';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
 
-const fetchAllOrders = () => cachedFetchAll('tmk_mp_orders', 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent');
+const fetchAllOrders = () => cachedFetchAll('tmk_mp_orders', ORDERS_SEL);
 
 // การ์ดนำเข้าไฟล์มาร์เก็ตเพลส (คืน Card ใบเดียว — ให้ HealthHub วางในกริดของตัวเอง)
 export function ImportExportHub() {

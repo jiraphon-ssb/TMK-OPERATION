@@ -18,8 +18,10 @@ import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal, resolveJobType } from './lib/saleData.js';
-import { useSaleRealtime } from './lib/saleRealtime.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, OVERRIDES_SEL, funnelPlatforms, funnelTotal } from './lib/saleData.js';
+import { mergeOrderOverrides, resolveSkuDesigns } from './lib/saleOverrides.js';
+import { useSaleLiveReload } from './lib/useSaleLive.js';
+import { T } from './lib/tables.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -268,7 +270,7 @@ export function SaleDashboard() {
       cachedFetchAll('tmk_mp_customers', CUST_SEL),
       cachedFetchAll('tmk_sales_funnel', '*'),
       cachedFetchAll('tmk_sales_aliases', 'handle,display_name'),
-      cachedFetchAll('tmk_order_overrides', 'order_id,job_type,customer_name,customer_type,salesperson,note,channel,payment_type,sales,qty,province,order_date,cod_amount'),
+      cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
     ]);
     if (!alive) return;
     setDbBounds(bnd || { min: null, max: null });
@@ -287,7 +289,7 @@ export function SaleDashboard() {
   useEffect(() => { saveF(f); }, [f]);
   // realtime: ออเดอร์/ใบเสร็จ/คนทัก/แคตตาล็อก/override เปลี่ยนที่ไหน รายงานเด้งสด (ไม่ต้องรีเฟรช)
   // realtime: invalidate เฉพาะตาราง sale ที่ dashboard ใช้ (ไม่ clear ทั้ง Map — กันทิ้ง cache เดือน/หน้าอื่น + ลด egress)
-  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_skus', 'tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_order_overrides', 'tmk_mp_customers'], () => { ['tmk_mp_orders', 'tmk_mp_skus', 'tmk_mp_customers'].forEach(t => invalidateSaleCache(t, { mark: false })); setReloadKey(k => k + 1); });
+  useSaleLiveReload([T.mpOrders, T.mpSkus, T.saleReceipts, T.salesFunnel, T.orderOverrides, T.mpCustomers], () => setReloadKey(k => k + 1), { invalidate: [T.mpOrders, T.mpSkus, T.mpCustomers] });
 
   const bounds = dbBounds;
   const range = { from: f.from || bounds.min, to: f.to || bounds.max };
@@ -335,46 +337,20 @@ export function SaleDashboard() {
   const procOrders = useMemo(() => {
     if (!orders) return null;
     const spMap = new Map((aliases || []).filter(a => a.display_name).map(a => [a.handle, a.display_name]));
-    const ovNum = (a, b) => (a != null && a !== '' ? Number(a) : b);
-    const ovStr = (a, b) => (a != null && a !== '' ? a : b);
-    const norm = orders.map(o => {
-      const ov = orderOv[`${o.source || ''}:${o.order_no}`];
-      const ovNote = ov ? ((ov.note != null && ov.note !== '') ? ov.note : o.note) : o.note;
-      const o1 = ov ? {
-        ...o,
-        // re-derive DFT หลัง merge — กัน override เก่า (job_type='ปลีก') ทับ DFT ที่หมายเหตุระบุ
-        job_type: resolveJobType(ov.job_type || o.job_type, ovNote),
-        customer_name: ov.customer_name || o.customer_name,
-        customer_type: ov.customer_type || o.customer_type,
-        salesperson: ov.salesperson || o.salesperson,
-        // ช่องที่แก้ (PART 72 1C) — ให้แดชบอร์ดตรงกับหน้าออเดอร์ · กัน reimport ย้อนค่า (คอลัมน์ใหม่ · graceful undefined→ค่าไฟล์)
-        channel: ovStr(ov.channel, o.channel),
-        payment_type: ovStr(ov.payment_type, o.payment_type),
-        sales: ovNum(ov.sales, o.sales),
-        qty: ovNum(ov.qty, o.qty),
-        province: ovStr(ov.province, o.province),
-        order_date: ovStr(ov.order_date, o.order_date),
-        cod_amount: ovNum(ov.cod_amount, o.cod_amount),
-        note: ovNote,
-      } : o;
+    // merge override (helper กลาง — ตรงกับหน้าออเดอร์/ประสิทธิภาพเซลล์) → normalize จังหวัด + alias เซลล์
+    return mergeOrderOverrides(orders, orderOv).map(o1 => {
       const th = o1.province ? normalizeProvince(o1.province) : null;
       const sp = spMap.get(o1.salesperson);
       return (th && th !== o1.province) || sp ? { ...o1, province: (th && th !== o1.province) ? th : o1.province, salesperson: sp || o1.salesperson } : o1;
     });
-    return norm;
   }, [orders, aliases, orderOv]);
-  // remap SKU ของ Shopee (order_no = marketplace_id) → เลขออเดอร์จริง + รวม SKU ยอดเซลล์
+  // remap SKU ของ Shopee (order_no = marketplace_id) → เลขออเดอร์จริง แล้ว resolve ชื่อลายสด (helper กลาง)
   const procSkus = useMemo(() => {
     if (!orders) return [];
     const ordNos = new Set(orders.map(x => x.order_no));
     const mid2ono = new Map(orders.filter(x => x.marketplace_id && x.marketplace_id !== '-').map(x => [x.marketplace_id, x.order_no]));
-    const remap = (skus || []).map(s => {
-      const s1 = (!ordNos.has(s.order_no) && mid2ono.has(s.order_no)) ? { ...s, order_no: mid2ono.get(s.order_no) } : s;
-      const r = resolver(s1);   // live-resolve: catalog/alias/override ทับค่า frozen ตอนแสดงผล
-      return (r.design !== s1.design || r.product_code !== s1.product_code)
-        ? { ...s1, design: r.design || s1.design, product_code: r.product_code || s1.product_code } : s1;
-    });
-    return remap;
+    const remapped = (skus || []).map(s => (!ordNos.has(s.order_no) && mid2ono.has(s.order_no)) ? { ...s, order_no: mid2ono.get(s.order_no) } : s);
+    return resolveSkuDesigns(remapped, resolver);
   }, [orders, skus, resolver]);
 
   const A = useMemo(() => procOrders ? compute(procOrders, procSkus, eff) : null, [procOrders, procSkus, JSON.stringify(eff)]);

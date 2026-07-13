@@ -15,7 +15,8 @@ import { SideSheet } from './modals.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
-import { useSaleRealtime } from './lib/saleRealtime.js';
+import { useSaleLiveReload } from './lib/useSaleLive.js';
+import { T } from './lib/tables.js';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { logAudit } from './lib/audit.js';
@@ -215,7 +216,7 @@ export function CrmView() {
     setData(buildDirectory(p.data || [], o.error ? [] : (o.data || []), todayISO()));
   })(); }, [rk]);
   // realtime: ออเดอร์/ลูกค้าใหม่จากใบเสร็จหรือคนอื่น → CRM เห็นสด (ไม่ต้องรีเฟรช)
-  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_customers'], () => { invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_customers', { mark: false }); setRk(k => k + 1); });
+  useSaleLiveReload([T.mpOrders, T.mpCustomers], () => setRk(k => k + 1), { invalidate: [T.mpOrders, T.mpCustomers] });
 
   // แก้โปรไฟล์จาก drawer → อัปเดตแถวใน list + แถวที่เปิดอยู่ in-place (ไม่ refetch)
   const applyProfile = (key, row) => {

@@ -10,11 +10,12 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Icon, N, useBeat, PersonAvatar } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
-  cachedFetchRange, ORDERS_SEL, SKUS_SEL, funnelTotal, funnelBreakdown, funnelNewOld, invalidateSaleCache,
+  cachedFetchRange, cachedFetchAll, ORDERS_SEL, SKUS_SEL, OVERRIDES_SEL, funnelTotal, funnelBreakdown, funnelNewOld,
 } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
+import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
-import { useSaleRealtime } from './lib/saleRealtime.js';
+import { useSaleLiveReload } from './lib/useSaleLive.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -428,6 +429,8 @@ export function SalePerfView() {
         supabase.from('tmk_sale_receipts').select('order_no,salesperson,sales,qty,order_date,status,channel').eq('order_month', month),
         cachedFetchRange('tmk_mp_orders', 'salesperson,sales,status,order_date', pFrom, pTo, 'order_date', force),
         fetchTargets(month),
+        // override ระดับออเดอร์ (แก้เซลล์/ยอดในเว็บ) — เดิมหน้านี้ "ลืม" merge → leaderboard ไม่ตรง dashboard/ออเดอร์
+        cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
       ];
       // เทียบเดือนก่อนอัตโนมัติ: ดึงเดือนก่อนแบบเต็ม (orders/skus/funnel/targets) เสมอ เพื่อคำนวณ delta ครบทุกค่า
       const cmp = [
@@ -436,14 +439,16 @@ export function SalePerfView() {
         supabase.from('tmk_sales_funnel').select('*').gte('date', pFrom).lte('date', pTo),
         fetchTargets(pm),
       ];
-      const [ordersR, skusR, funnelR, receiptsR, prevR, tg, pOrdersR, pSkusR, pFunnelR, pTg] =
+      const [ordersR, skusR, funnelR, receiptsR, prevR, tg, ovR, pOrdersR, pSkusR, pFunnelR, pTg] =
         await Promise.race([timeout, Promise.all([...base, ...cmp])]);
       const tmap = {}; (tg || []).forEach(t => { tmap[t.salesperson] = t; }); setTargets(tmap);
       const ptmap = {}; (pTg || []).forEach(t => { ptmap[t.salesperson] = t; }); setPrevTargets(ptmap);
+      // map override (order_id = "source:order_no") แล้ว merge ทับ orders ปัจจุบัน + เดือนก่อน (เต็ม) — ให้ตรง dashboard
+      const ovMap = {}; if (ovR && !ovR.error) (ovR.data || []).forEach(x => { ovMap[x.order_id] = x; });
       setData({
-        orders: ordersR.data || [], skus: skusR.data || [],
+        orders: mergeOrderOverrides(ordersR.data || [], ovMap), skus: skusR.data || [],
         funnel: funnelR.data || [], receipts: receiptsR.data || [], prevOrders: prevR.data || [],
-        prevFull: { orders: pOrdersR?.data || [], skus: pSkusR?.data || [], funnel: pFunnelR?.data || [] },
+        prevFull: { orders: mergeOrderOverrides(pOrdersR?.data || [], ovMap), skus: pSkusR?.data || [], funnel: pFunnelR?.data || [] },
       });
     } catch { /* ปล่อยว่าง — empty state */ }
     finally { setLoading(false); }
@@ -451,7 +456,7 @@ export function SalePerfView() {
   useEffect(() => { load(); }, [load]);
   // resolver maps (catalog/alias/override/version) — โหลดครั้งเดียว ไม่ผูกเดือน · ชื่อลาย resolve สดตามแคตตาล็อก
   useEffect(() => { let live = true; loadResolverMaps(supabase).then(m => { if (live) setMaps(m); }); return () => { live = false; }; }, []);
-  useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => { invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_skus', { mark: false }); load(true); });
+  useSaleLiveReload(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => load(true));
 
   // ช่องทางทั้งหมด (ทำ option ตัวกรอง)
   const channels = useMemo(() => [...new Set((data.orders || []).map(o => o.channel).filter(Boolean))].sort(), [data.orders]);

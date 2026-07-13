@@ -11,6 +11,8 @@ import { markSaleWrite } from './saleRealtime.js';
 export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent';
 export const SKUS_SEL = 'id,order_no,channel,design,color,size,qty,line_sales,product_code,raw_sku_or_name,match_how,order_date';
 export const CUST_SEL = 'customer_code,name,phone,social_name,province,district,postcode,address,owner,cadence,repurchase,lifetime_orders,lifetime_sales,lifetime_cancel,since,tags';
+// override ระดับออเดอร์ (order_id = "source:order_no") — ใช้ร่วม dashboard/perf (กัน select drift)
+export const OVERRIDES_SEL = 'order_id,job_type,customer_name,customer_type,salesperson,note,channel,payment_type,sales,qty,province,order_date,cod_amount';
 
 const cache = new Map();    // key -> { ts, data }
 const inflight = new Map();
@@ -21,6 +23,8 @@ const TTL = 5 * 60 * 1000;  // 5 นาที
 export const normJobType = (jt) => (jt === 'ส่ง' ? 'ปลีก' : (jt || 'ปลีก'));
 // คำ "DFT" ในหมายเหตุ (word-boundary — ตรงกับ jobTypeFromNote/isDftNote ทั้งระบบ)
 const DFT_RE = /\bdft\b/i;
+// predicate เดียวของทั้งระบบ: หมายเหตุมีคำ "DFT" (word-boundary) — reuse โดย mpReport/receiptParse/views-2
+export const isDftNote = (note) => DFT_RE.test(String(note || ''));
 // resolve ประเภทงานตอน "อ่าน" — หมายเหตุเป็นเจ้าของ DFT (single source of truth):
 //  (1) ยุบ "ส่ง"→"ปลีก"
 //  (2) หมายเหตุมี "DFT" → DFT (promote · ครอบใบเก่า/parser จับ note ไม่ติด)

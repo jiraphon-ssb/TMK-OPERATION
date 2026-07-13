@@ -20,9 +20,9 @@ import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 // Heavy views — code-split เป็น chunk แยก ลด main bundle (~330 kB)
 // views-1 (Home + Sales) คงเดิม เพราะ Home เป็นหน้าแรกหลัง login ต้องเร็ว
-const PlannerView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.PlannerView  })));
-const CatalogView  = lazy(() => import('./views-2.jsx').then(m => ({ default: m.CatalogView  })));
-const SettingsView = lazy(() => import('./views-2.jsx').then(m => ({ default: m.SettingsView })));
+const PlannerView  = lazy(() => import('./views-planner.jsx').then(m => ({ default: m.PlannerView  })));
+const CatalogView  = lazy(() => import('./views-catalog.jsx').then(m => ({ default: m.CatalogView  })));
+const SettingsView = lazy(() => import('./views-settings.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
 const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
@@ -30,7 +30,17 @@ const SaleDataHub = lazy(() => import('./views-sale-submit.jsx').then(m => ({ de
 const SalePerfView = lazy(() => import('./salePerf.jsx').then(m => ({ default: m.SalePerfView })));
 const LogView = lazy(() => import('./views-log.jsx').then(m => ({ default: m.LogView })));
 const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
-import { RecordSalesModal, TaskModal, ProductModal, OrderModal, CampaignModal, MonthlyTargetModal, AdCampaignModal, CustomerSegmentModal, HistoricalEntryModal, LoginScreen } from './modals.jsx';
+// dialogs — lazy per split file (PART 79 · ดึงออกจาก index · LoginScreen คง eager = auth gate)
+const RecordSalesModal     = lazy(() => import('./modals-sale.jsx').then(m => ({ default: m.RecordSalesModal })));
+const HistoricalEntryModal = lazy(() => import('./modals-sale.jsx').then(m => ({ default: m.HistoricalEntryModal })));
+const TaskModal            = lazy(() => import('./modals-task.jsx').then(m => ({ default: m.TaskModal })));
+const ProductModal         = lazy(() => import('./modals-catalog.jsx').then(m => ({ default: m.ProductModal })));
+const OrderModal           = lazy(() => import('./modals-order.jsx').then(m => ({ default: m.OrderModal })));
+const CampaignModal        = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.CampaignModal })));
+const MonthlyTargetModal   = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.MonthlyTargetModal })));
+const AdCampaignModal      = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.AdCampaignModal })));
+const CustomerSegmentModal = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.CustomerSegmentModal })));
+import { LoginScreen } from './LoginScreen.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -1097,6 +1107,7 @@ function AppInner() {
       <ConfirmHost />
 
       {authed && modal && (
+        <Suspense fallback={null}>{
         modal.type === 'record' ? <RecordSalesModal data={modal.data} onClose={closeModal} />
         : modal.type === 'task' ? <TaskModal data={modal.data} onClose={closeModal}
             onDelete={async (task) => {
@@ -1217,6 +1228,7 @@ function AppInner() {
         : modal.type === 'customerSegment' ? <CustomerSegmentModal onClose={closeModal} />
         : modal.type === 'historical' ? <HistoricalEntryModal onClose={closeModal} data={modal.data} />
         : null
+      }</Suspense>
       )}
     </>
   );
