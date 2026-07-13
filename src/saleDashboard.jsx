@@ -18,7 +18,7 @@ import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal, resolveJobType } from './lib/saleData.js';
+import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, CUST_SEL, funnelPlatforms, funnelTotal, resolveJobType } from './lib/saleData.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -246,7 +246,8 @@ export function SaleDashboard() {
   const resolver = useMemo(() => makeSkuResolver(resolverMaps || {}), [resolverMaps]);
   useEffect(() => { saveF(f); }, [f]);
   // realtime: ออเดอร์/ใบเสร็จ/คนทัก/แคตตาล็อก/override เปลี่ยนที่ไหน รายงานเด้งสด (ไม่ต้องรีเฟรช)
-  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_skus', 'tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_order_overrides', 'tmk_mp_customers'], () => { clearSaleCache(); setReloadKey(k => k + 1); });
+  // realtime: invalidate เฉพาะตาราง sale ที่ dashboard ใช้ (ไม่ clear ทั้ง Map — กันทิ้ง cache เดือน/หน้าอื่น + ลด egress)
+  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_skus', 'tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_order_overrides', 'tmk_mp_customers'], () => { ['tmk_mp_orders', 'tmk_mp_skus', 'tmk_mp_customers'].forEach(t => invalidateSaleCache(t, { mark: false })); setReloadKey(k => k + 1); });
 
   const bounds = dbBounds;
   const range = { from: f.from || bounds.min, to: f.to || bounds.max };

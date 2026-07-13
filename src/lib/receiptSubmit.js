@@ -13,6 +13,7 @@ import { supabase } from './supabaseClient.js';
 import { qtyBand, buildMatchers, rematchSkuRow, deriveColorSize, payShipnity } from './mpReport.js';
 import { GOLDEN_CATALOG_GRID } from './goldenGrid.js';
 import { invalidateSaleCache } from './saleData.js';
+import { markSaleWrite } from './saleRealtime.js';
 import { logAudit } from './audit.js';
 import { jobTypeFromNote, paymentKind } from './receiptParse.js';
 
@@ -302,8 +303,11 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
   onProgress?.('receipts', passed.length, items.length);
   if (!passed.length) return { ok, skipped };
 
-  /* 2-3) orders + skus — ถ้าพังกลางทาง: ลบใบเสร็จที่เพิ่ง insert รอบนี้ทิ้ง (rollback)
-     กัน "ใบ confirmed ผี" ที่บล็อกการส่งซ้ำแต่ไม่มีออเดอร์/ยอด → ส่งใหม่ได้จริง (idempotent) */
+  // ประกาศนอก try — ใช้ทั้งใน try (skus) และหลัง try (ok.push/logAudit) · กัน ReferenceError หลัง write สำเร็จ
+  const nos = passed.map(p => p.orderRow.order_no);
+
+  /* 2-3) orders + skus — ถ้าพังกลางทาง: ลบใบเสร็จ+ออเดอร์ที่เพิ่ง insert รอบนี้ทิ้ง (rollback)
+     กัน "ใบ confirmed ผี"/ออเดอร์ orphan ที่บล็อกการส่งซ้ำแต่ไม่มีคู่ → ส่งใหม่ได้จริง (idempotent) */
   try {
     /* 2) orders — upsert ชุด */
     for (const ch of chunk(passed.map(p => p.orderRow), 400)) {
@@ -311,7 +315,6 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
       if (error) throw error;
     }
     /* 3) skus — ลบของ order เหล่านี้ก่อน (แพทเทิร์น import) แล้ว insert ใหม่ */
-    const nos = passed.map(p => p.orderRow.order_no);
     for (const ids of chunk(nos, 150)) {
       const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').in('order_no', ids);
       if (error) throw error;
@@ -322,7 +325,14 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
       if (error) throw error;
     }
   } catch (err) {
-    if (freshNos.length) { for (const ids of chunk(freshNos, 150)) { try { await supabase.from('tmk_sale_receipts').delete().in('order_no', ids); } catch { /* best-effort rollback */ } } }
+    // rollback best-effort: ลบทั้งใบเสร็จ + ออเดอร์ที่เพิ่งสร้างรอบนี้ (freshNos = เฉพาะที่ insert ใหม่ ไม่ใช่ skipped)
+    if (freshNos.length) {
+      for (const ids of chunk(freshNos, 150)) {
+        try { await supabase.from('tmk_sale_receipts').delete().in('order_no', ids); } catch { /* best-effort */ }
+        try { await supabase.from('tmk_mp_orders').delete().eq('source', 'shipnity').in('order_no', ids); } catch { /* best-effort */ }
+        try { await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').in('order_no', ids); } catch { /* best-effort */ }
+      }
+    }
     throw err;
   }
   /* 4) overrides — ผูกชื่อเซลล์ให้รอดข้าม reimport (optional table — เงียบถ้าไม่มี) */
@@ -342,7 +352,7 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
   onProgress?.('orders', passed.length, items.length);
 
   ok.push(...nos);
-  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
   const sum = passed.reduce((s, p) => s + (p.orderRow.sales || 0), 0);
   logAudit({
     action: 'create', entityType: 'data', entityName: 'ส่งยอดใบเสร็จ',
@@ -463,7 +473,7 @@ export async function editReceipt(orig, edited, editor, { salespersonOverride = 
   // โปรไฟล์ลูกค้าตามการแก้ (ชื่อ/เบอร์/จังหวัดเปลี่ยน) — non-blocking
   try { await upsertReceiptCustomers([edited], editor); } catch { /* optional */ }
 
-  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
   logAudit({
     action: 'edit', entityType: 'data', entityName: 'ใบเสร็จ ' + newNo,
     summary: `แก้ใบเสร็จ ${moved ? `${oldNo} → ${newNo}` : newNo} โดย ${editor.name || editor.email}`,
@@ -474,14 +484,47 @@ export async function editReceipt(orig, edited, editor, { salespersonOverride = 
 /* ============================================================
    voidReceipt — ยกเลิกใบ (ยอดหายจากรายงานทันที · ส่งใหม่ได้)
    ============================================================ */
+// RPC ยังไม่ได้รัน migration → error แบบ "ฟังก์ชันไม่มี" → fallback client path
+const rpcMissing = (err) => /PGRST202|42883|does not exist|Could not find the function|schema cache/i.test(String((err && (err.message || err.code)) || ''));
+
+/* ลบออเดอร์หลายใบ "ทีเดียว" — RPC ธุรกรรม (skus+orders+overrides+receipts atomic)
+   fallback (ยังไม่รัน migration): batch .in() ต่อตาราง (round-trip น้อย · ไม่ atomic) · แยกตาม source */
+export async function deleteOrders(orderNos, { source = '', overrideIds = [] } = {}) {
+  const nos = [...new Set((orderNos || []).map(n => String(n || '').trim()).filter(Boolean))];
+  if (!nos.length) return;
+  const rpc = await supabase.rpc('tmk_delete_orders', { p_order_nos: nos, p_source: source || '', p_override_ids: overrideIds || [] });
+  if (rpc.error) {
+    if (!rpcMissing(rpc.error)) console.warn('tmk_delete_orders RPC ล้มเหลว → fallback batch:', rpc.error?.message || rpc.error);
+    for (const ids of chunk(nos, 150)) {
+      const skq = supabase.from('tmk_mp_skus').delete().in('order_no', ids); if (source) skq.eq('source', source); await skq;
+      const orq = supabase.from('tmk_mp_orders').delete().in('order_no', ids); if (source) orq.eq('source', source);
+      const { error } = await orq; if (error) throw error;
+    }
+    for (const ids of chunk(overrideIds || [], 150)) { try { await supabase.from('tmk_order_overrides').delete().in('order_id', ids); } catch { /* optional */ } }
+    for (const ids of chunk(nos, 150)) { try { await supabase.from('tmk_sale_receipts').delete().in('order_no', ids); } catch { /* optional */ } }
+  }
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
+}
+
+/* ยกเลิก (void) ใบเสร็จหลายใบ "ทีเดียว" — RPC ธุรกรรม · fallback batch */
+export async function voidReceipts(orderNos, { by = '', reason = '' } = {}) {
+  const nos = [...new Set((orderNos || []).map(n => String(n || '').trim()).filter(Boolean))];
+  if (!nos.length) return;
+  const rpc = await supabase.rpc('tmk_void_receipts', { p_order_nos: nos, p_by: by, p_reason: reason });
+  if (rpc.error) {
+    if (!rpcMissing(rpc.error)) console.warn('tmk_void_receipts RPC ล้มเหลว → fallback batch:', rpc.error?.message || rpc.error);
+    for (const ids of chunk(nos, 150)) { // chunk กัน URL ยาวเกินตอน void หลายร้อยใบ
+      { const { error } = await supabase.from('tmk_sale_receipts').update({ status: 'void', void_by: by, void_reason: reason, void_at: nowISO(), updated_at: nowISO() }).in('order_no', ids); if (error) throw error; }
+      { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: nowISO() }).in('id', ids.map(receiptId)); if (error) throw error; }
+      { const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').in('order_no', ids); if (error) throw error; }
+    }
+  }
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
+}
+
 export async function voidReceipt(receipt, { by, reason = '' } = {}) {
   const no = String(receipt.order_no).trim();
-  { const { error } = await supabase.from('tmk_sale_receipts')
-      .update({ status: 'void', void_by: by || '', void_reason: reason, void_at: nowISO(), updated_at: nowISO() })
-      .eq('order_no', no); if (error) throw error; }
-  { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: nowISO() }).eq('id', receiptId(no)); if (error) throw error; }
-  { const { error } = await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').eq('order_no', no); if (error) throw error; }
-  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+  await voidReceipts([no], { by: by || '', reason });
   logAudit({ action: 'delete', entityType: 'data', entityName: 'ใบเสร็จ ' + no, summary: `ยกเลิกใบเสร็จ ${no}${reason ? ` — ${reason}` : ''} โดย ${by || ''}` });
 }
 
@@ -514,6 +557,6 @@ export async function restoreReceipt(receipt, { by } = {}) {
     await supabase.from('tmk_mp_skus').delete().eq('source', 'shipnity').eq('order_no', no);   // กันซ้ำ
     const { error } = await supabase.from('tmk_mp_skus').insert(built.skuRows); if (error) throw error;
   }
-  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
   logAudit({ action: 'update', entityType: 'data', entityName: 'ใบเสร็จ ' + no, summary: `นำใบเสร็จ ${no} กลับมา โดย ${by || ''}` });
 }

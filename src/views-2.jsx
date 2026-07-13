@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, P, N, Icon, Avatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, useBeatOn, CardHead, ColorPicker } from './components.jsx';
+import { B, P, N, Icon, Avatar, PersonAvatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, useBeatOn, CardHead, ColorPicker } from './components.jsx';
 import { Modal, MpImportModal, SideSheet } from './modals.jsx';
 import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, channelColor } from './charts.jsx';
 import { SaleDashboard } from './saleDashboard.jsx';
@@ -20,9 +20,10 @@ import { useData, computeMonth } from './dataContext.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, DensityToggle, ColumnToggle, SortableTable, CardTable } from './components/DataTableParts.jsx';
+import { MonthPicker } from './components/MonthPicker.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, cachedFetchRange, getDateBounds, clearSaleCache, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, resolveJobType } from './lib/saleData.js';
-import { voidReceipt, restoreReceipt } from './lib/receiptSubmit.js';
+import { voidReceipt, restoreReceipt, deleteOrders, voidReceipts } from './lib/receiptSubmit.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 import { useUser } from './userContext.jsx';
@@ -1577,7 +1578,8 @@ function MpOrdersView() {
   };
   // reload เต็ม (orders + skus + overrides) — ใช้หลังแก้ตรง/ยกเลิก/ลบ จาก drawer
   const reloadAll = () => {
-    invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
+    // reloadAll ใช้ทั้ง realtime-receive + หลังเซฟ — bust cache แต่ไม่ mark (การเขียนจริง mark เองแล้ว · กัน "หูหนวก" ต่อ event คนอื่น)
+    invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_skus', { mark: false });
     setReloadKey(k => k + 1); reloadOverrides();
   };
   // realtime: ออเดอร์/รายการ/override เปลี่ยนที่ไหน (คนอื่นเพิ่ม/แก้/ยกเลิก/ลบ · ส่งยอดใบเสร็จ) → ตารางเด้งสด
@@ -1587,26 +1589,6 @@ function MpOrdersView() {
 
   // ── เลือกหลายออเดอร์ + action รวดเร็ว (ยกเลิก/นำกลับ/ลบถาวร) ─────────────
   const isRcpt = (o) => (o.source || '') === 'shipnity';
-  // action ต่อออเดอร์ (ไม่ confirm/toast รายตัว — bulk ยืนยันครั้งเดียว) · logic เดียวกับ OrderDrawer
-  const cancelOne = async (o) => {
-    if (isRcpt(o)) return voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์ (เลือกหลายรายการ)' });
-    const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
-    if (error) throw error;
-    logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
-  };
-  const restoreOne = async (o) => {
-    if (isRcpt(o)) return restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
-    const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
-    if (error) throw error;
-    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });
-  };
-  const deleteOne = async (o) => {
-    await supabase.from('tmk_mp_skus').delete().eq('source', o.source || '').eq('order_no', o.order_no);
-    { const { error } = await supabase.from('tmk_mp_orders').delete().eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
-    try { await supabase.from('tmk_order_overrides').delete().eq('order_id', orderOvKey(o)); } catch { /* optional */ }
-    if (isRcpt(o)) { try { await supabase.from('tmk_sale_receipts').delete().eq('order_no', o.order_no); } catch { /* optional */ } }
-    logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})` });
-  };
   const toggleSel = (no) => setSelSet(s => { const n = new Set(s); n.has(no) ? n.delete(no) : n.add(no); return n; });
   const runBulk = async (kind) => {
     if (!canEdit) { window.__toast?.('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
@@ -1620,14 +1602,32 @@ function MpOrdersView() {
     }[kind];
     if (!await window.__confirm?.(meta)) return;
     setBulkBusy(true);
-    let ok = 0, fail = 0;
-    for (const o of rows) {
-      try { await (kind === 'cancel' ? cancelOne(o) : kind === 'restore' ? restoreOne(o) : deleteOne(o)); ok++; }
-      catch { fail++; }
-    }
+    const by = window.__userName || window.__userEmail || '';
+    // จัดกลุ่มตาม source (batch/RPC ทีเดียวต่อกลุ่ม แทน loop ทีละแถว)
+    const bySource = (rs) => { const m = new Map(); rs.forEach(o => { const s = o.source || ''; (m.get(s) || m.set(s, []).get(s)).push(o); }); return m; };
+    const nosOf = (rs) => rs.map(o => o.order_no);
+    let fail = 0;
+    try {
+      if (kind === 'remove') {
+        for (const [src, g] of bySource(rows)) await deleteOrders(nosOf(g), { source: src, overrideIds: g.map(orderOvKey) });
+        logAudit({ action: 'delete', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `ลบถาวร ${rows.length} ออเดอร์` });
+      } else if (kind === 'cancel') {
+        const rc = rows.filter(isRcpt), other = rows.filter(o => !isRcpt(o));
+        if (rc.length) await voidReceipts(nosOf(rc), { by, reason: 'ยกเลิกจากหน้าออเดอร์ (เลือกหลายรายการ)' });
+        for (const [src, g] of bySource(other)) { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).in('order_no', nosOf(g)).eq('source', src); if (error) throw error; }
+        logAudit({ action: 'delete', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `ยกเลิก ${rows.length} ออเดอร์` });
+      } else { // restore
+        const rc = rows.filter(isRcpt), other = rows.filter(o => !isRcpt(o));
+        for (const o of rc) { try { await restoreReceipt({ order_no: o.order_no }, { by }); } catch { fail++; } } // ใบเสร็จ: ต้องสร้าง sku คืน (client · กันเคสแถวหาย)
+        for (const [src, g] of bySource(other)) { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).in('order_no', nosOf(g)).eq('source', src); if (error) throw error; }
+        logAudit({ action: 'update', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `นำ ${rows.length} ออเดอร์กลับมา` });
+      }
+    } catch (e) { fail = fail || rows.length; window.__toast?.('ทำรายการไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
     setBulkBusy(false);
     setSelSet(new Set());
-    window.__toast?.(`${meta.confirmText} ${ok} ออเดอร์${fail ? ` · ล้มเหลว ${fail}` : ''}`, fail ? 'warn' : 'success');
+    const okN = rows.length - fail;
+    if (okN > 0) window.__toast?.(`${meta.confirmText} ${okN} ออเดอร์${fail ? ` · ล้มเหลว ${fail}` : ''}`, fail ? 'warn' : 'success');
+    invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
     reloadAll();
   };
 
@@ -1803,7 +1803,7 @@ function MpOrdersView() {
                 <TableCell className="cell-title"><span style={{ fontWeight: 600, textDecoration: o.status === 'cancelled' ? 'line-through' : 'none' }}>{o.order_no}</span></TableCell>
                 {colVisible.has('date') && <TableCell className="cap" style={{ whiteSpace: 'nowrap' }}>{o.order_date || o.order_month}</TableCell>}
                 {colVisible.has('channel') && <TableCell><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span></TableCell>}
-                {colVisible.has('customer') && <TableCell>{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}{!o.customer_name && !o.customer_code && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มีลูกค้า</Badge>}</TableCell>}
+                {colVisible.has('customer') && <TableCell><div className="flex items-center gap-2 min-w-0">{o.customer_name && <PersonAvatar name={o.customer_name} color={channelColor(o.channel)} size={22} className="shrink-0" />}<div className="min-w-0">{o.customer_name || o.customer_code || '—'}{o.province && <div className="cap">{o.province}</div>}{!o.customer_name && !o.customer_code && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มีลูกค้า</Badge>}</div></div></TableCell>}
                 {colVisible.has('designs') && <TableCell className="cell-hide-m">{designs.length === 0 ? <span className="cap" style={{ color: 'var(--ink-4)' }}>—</span> : <span style={{ fontWeight: 600 }}>{designs.slice(0, 2).map(d => d.design).join(', ')}{designs.length > 2 ? ` +${designs.length - 2}` : ''}</span>}</TableCell>}
                 {colVisible.has('job') && <TableCell>{(o.job_type && o.job_type !== 'ปลีก') ? <span className={'chip ' + jobChip(o.job_type)}>{o.job_type}</span> : <span className="cap">ปลีก</span>}</TableCell>}
                 {colVisible.has('payment') && <TableCell><span className="cap" style={o.payment_type ? undefined : { color: 'var(--ink-4)' }}>{o.payment_type || '—'}</span></TableCell>}
@@ -2470,53 +2470,96 @@ function SettingsBody({ sub, dark, setDark }) {
 // graceful: ตาราง tmk_targets ยังไม่ migrate → Save แจ้งให้รัน migration (ไม่พัง)
 function TargetsView() {
   const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+  const money = (n) => (Number(n) || 0).toLocaleString('th-TH');
+  const numOf = (r, f) => Number((r || {})[f]) || 0;
+
   const [month, setMonth] = useState(thisMonth);
-  const [people, setPeople] = useState([]);     // ชื่อเซลล์ (display name หลัง alias)
-  const [rows, setRows] = useState({});          // name -> { sales_target, commission_rate }
+  const [receiptNames, setReceiptNames] = useState([]);   // เซลล์ที่ส่งใบเสร็จ "เดือนนี้" เท่านั้น
+  const [orphanNames, setOrphanNames] = useState([]);     // มีเป้าเดือนนี้แต่ยังไม่ส่งใบเสร็จ (ซ่อนไว้ก่อน · opt-in)
+  const [manualNames, setManualNames] = useState([]);     // เพิ่มเองในเซสชัน (ตั้งเป้าล่วงหน้า)
+  const [showOrphans, setShowOrphans] = useState(false);
+  const [rows, setRows] = useState({});                   // name -> { sales_target, commission_rate }
+  const [baseline, setBaseline] = useState({});           // ค่าที่บันทึกแล้ว (เทียบหาแถวที่แก้ค้าง)
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState(null);
+  const [savingAll, setSavingAll] = useState(false);
   const [addName, setAddName] = useState('');
 
   const load = async () => {
     setLoading(true);
-    let names = [];
+    setManualNames([]); setShowOrphans(false);
+    // รายชื่อ = คนที่ส่งใบเสร็จ "เดือนนี้" เท่านั้น (order_month = เดือนที่เลือก · ตัด void)
+    const recSet = new Set();
+    const add = (v) => { const n = String(v || '').trim(); if (n && n !== 'ไม่ระบุเซลล์') recSet.add(n); };
     try {
-      const { data } = await supabase.from('tmk_sales_aliases').select('display_name');
-      names = [...new Set((data || []).map(r => r.display_name).filter(Boolean))];
-    } catch { /* ตาราง alias ยังไม่มี → รายชื่อว่าง เพิ่มเองได้ */ }
+      const { data } = await supabase.from('tmk_sale_receipts').select('salesperson').eq('order_month', month).neq('status', 'void');
+      (data || []).forEach(r => add(r.salesperson));
+    } catch { /* ตารางใบเสร็จ optional */ }
     const targets = await fetchTargets(month);
     const map = {};
-    targets.forEach(t => {
-      map[t.salesperson] = { sales_target: t.sales_target ?? 0, commission_rate: t.commission_rate ?? 0 };
-      if (!names.includes(t.salesperson)) names.push(t.salesperson); // เซลล์ที่เคยตั้งเป้าแต่ไม่อยู่ใน alias
-    });
-    names.sort((a, b) => a.localeCompare(b, 'th'));
-    setPeople(names);
+    targets.forEach(t => { map[t.salesperson] = { sales_target: t.sales_target ?? 0, commission_rate: t.commission_rate ?? 0 }; });
+    // เป้าที่บันทึกไว้แต่คนนั้นยังไม่ส่งใบเสร็จเดือนนี้ → orphan (โผล่เมื่อกด "แสดง" · กันเป้าหาย)
+    const orphans = [...new Set(targets.map(t => t.salesperson).filter(n => n && !recSet.has(n)))];
+    setReceiptNames([...recSet]);
+    setOrphanNames(orphans);
     setRows(map);
+    setBaseline(JSON.parse(JSON.stringify(map)));
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [month]);
 
+  // รายชื่อที่แสดง = ส่งใบเสร็จเดือนนี้ + เพิ่มเอง (+ orphan เมื่อกดแสดง)
+  const people = useMemo(() => {
+    const s = new Set([...receiptNames, ...manualNames]);
+    if (showOrphans) orphanNames.forEach(n => s.add(n));
+    return [...s].sort((a, b) => a.localeCompare(b, 'th'));
+  }, [receiptNames, manualNames, orphanNames, showOrphans]);
+
+  const isDirty = (name) => numOf(rows[name], 'sales_target') !== numOf(baseline[name], 'sales_target')
+    || numOf(rows[name], 'commission_rate') !== numOf(baseline[name], 'commission_rate');
+  const dirtyNames = people.filter(isDirty);
+
+  // สรุปจากค่าที่บันทึกแล้ว (baseline รวม orphan → "ตั้งเป้าแล้ว" = เป้าจริงทั้งเดือน)
+  const summary = useMemo(() => {
+    let setCount = 0, totalTarget = 0;
+    Object.values(baseline).forEach(b => { const t = numOf(b, 'sales_target'); if (t > 0 || numOf(b, 'commission_rate') > 0) setCount++; totalTarget += t; });
+    return { setCount, totalTarget };
+  }, [baseline]);
+
   const setField = (name, field, val) => setRows(p => ({ ...p, [name]: { ...(p[name] || {}), [field]: val } }));
 
-  const saveRow = async (name) => {
-    setSavingKey(name);
+  const persist = async (name) => {
     const r = rows[name] || {};
     const { error } = await saveTarget({ salesperson: name, month, sales_target: r.sales_target, commission_rate: r.commission_rate });
-    setSavingKey(null);
     if (error) {
       const miss = /relation .* does not exist|tmk_targets|schema cache/i.test(error.message || '');
       window.__toast?.(miss ? 'ต้องรัน migration 20260701-targets.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error');
-      return;
+      return false;
     }
     logAudit({ action: 'update', entityType: 'target', entityName: name, summary: `ตั้งเป้า/คอม ${name} เดือน ${month}` });
-    window.__toast?.(`บันทึกเป้า ${name} แล้ว`, 'success');
+    setBaseline(b => ({ ...b, [name]: { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate') } }));
+    return true;
+  };
+
+  const saveRow = async (name) => {
+    setSavingKey(name);
+    const ok = await persist(name);
+    setSavingKey(null);
+    if (ok) window.__toast?.(`บันทึกเป้า ${name} แล้ว`, 'success');
+  };
+
+  const saveAll = async () => {
+    if (!dirtyNames.length) return;
+    setSavingAll(true);
+    let ok = 0;
+    for (const name of dirtyNames) { if (await persist(name)) ok++; }
+    setSavingAll(false);
+    if (ok) window.__toast?.(`บันทึกเป้า ${ok} คน เดือนนี้แล้ว`, 'success');
   };
 
   const addPerson = () => {
     const n = addName.trim();
-    if (!n) return;
-    if (!people.includes(n)) setPeople(p => [...p, n].sort((a, b) => a.localeCompare(b, 'th')));
+    if (n && !people.includes(n)) setManualNames(p => [...p, n]);
     setAddName('');
   };
 
@@ -2524,28 +2567,46 @@ function TargetsView() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Icon name="target" className="size-5" /> เป้าขาย & คอมมิชชั่นต่อเซลล์</CardTitle>
-        <CardDescription>ตั้งเป้ายอดขาย (บาท) และอัตราคอม (%) รายคน รายเดือน → โชว์ความคืบหน้า + คอมคำนวณในหน้า “ยอดขาย → เซลล์”</CardDescription>
+        <CardDescription>ตั้งเป้ายอดขาย (บาท) และอัตราคอม (%) แยกรายคน รายเดือน → โชว์ความคืบหน้า + คอมคำนวณในหน้า “ยอดขาย → เซลล์”</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* แถวควบคุมเดือน + เพิ่มเซลล์ */}
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">เดือน</Label>
-            <Input type="month" value={month} onChange={e => setMonth(e.target.value)} className="w-[160px]" />
+            <div className="flex items-center gap-2">
+              <MonthPicker value={month} onChange={setMonth} className="h-9" />
+              {month !== thisMonth() && <Button variant="ghost" size="sm" onClick={() => setMonth(thisMonth())}>เดือนนี้</Button>}
+            </div>
           </div>
           <div className="flex items-end gap-2">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">เพิ่มเซลล์เอง (ถ้าไม่อยู่ในรายชื่อ)</Label>
-              <Input value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPerson(); }} placeholder="ชื่อเซลล์" className="w-[200px]" />
+              <Label className="text-xs text-muted-foreground">เพิ่มเซลล์เอง (ตั้งเป้าล่วงหน้า)</Label>
+              <Input value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPerson(); }} placeholder="ชื่อเซลล์" className="w-[190px]" />
             </div>
             <Button variant="outline" size="sm" onClick={addPerson}><Icon name="plus" className="size-4" /> เพิ่ม</Button>
           </div>
         </div>
 
+        {/* แถบสรุปเดือนนี้ */}
+        {!loading && people.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border bg-muted/40 px-4 py-2.5 text-sm">
+            <span><span className="text-muted-foreground">เซลล์เดือนนี้</span> <b>{people.length}</b> คน</span>
+            <span><span className="text-muted-foreground">ตั้งเป้าแล้ว</span> <b>{summary.setCount}</b> คน</span>
+            <span><span className="text-muted-foreground">เป้ารวม</span> <b>฿{money(summary.totalTarget)}</b></span>
+            {dirtyNames.length > 0 && (
+              <Button size="sm" className="ml-auto" disabled={savingAll} onClick={saveAll}>
+                {savingAll ? 'กำลังบันทึก…' : <><Icon name="check" className="size-4" /> บันทึกทั้งหมด ({dirtyNames.length})</>}
+              </Button>
+            )}
+          </div>
+        )}
+
         {loading ? (
           <p className="text-sm text-muted-foreground py-6 text-center">กำลังโหลด…</p>
         ) : people.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground text-sm">
-            ยังไม่มีรายชื่อเซลล์ — ตั้งชื่อย่อ→ชื่อจริงที่ “นำเข้า → จับคู่ชื่อเซลล์” ก่อน หรือเพิ่มเซลล์เองด้านบน
+            ยังไม่มีเซลล์ส่งใบเสร็จในเดือนนี้ — พอมีคนส่งยอดจะขึ้นเอง หรือ “เพิ่มเซลล์เอง” ด้านบนเพื่อตั้งเป้าล่วงหน้า
           </div>
         ) : (
           <Table>
@@ -2554,23 +2615,36 @@ function TargetsView() {
                 <TableHead>เซลล์</TableHead>
                 <TableHead className="text-right">เป้ายอดขาย (บาท)</TableHead>
                 <TableHead className="text-right">คอม (%)</TableHead>
+                <TableHead className="text-right hidden sm:table-cell">คอมเมื่อถึงเป้า</TableHead>
                 <TableHead className="text-right w-[110px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {people.map(name => {
                 const r = rows[name] || {};
+                const dirty = isDirty(name);
+                const commAtTarget = numOf(r, 'sales_target') * numOf(r, 'commission_rate') / 100;
+                const isOrphan = orphanNames.includes(name) && !receiptNames.includes(name);
                 return (
-                  <TableRow key={name}>
-                    <TableCell className="font-medium">{name}</TableCell>
+                  <TableRow key={name} className={dirty ? 'bg-amber-500/5' : undefined}>
+                    <TableCell className="font-medium">
+                      <span className="flex items-center gap-1.5">
+                        {name}
+                        {dirty && <span className="size-1.5 rounded-full bg-amber-500" title="ยังไม่บันทึก" />}
+                        {isOrphan && <span className="text-[10px] text-muted-foreground">(ยังไม่ส่งใบเสร็จ)</span>}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-right">
                       <Input type="number" inputMode="numeric" value={r.sales_target ?? ''} onChange={e => setField(name, 'sales_target', e.target.value)} className="w-[140px] ml-auto text-right" placeholder="0" />
                     </TableCell>
                     <TableCell className="text-right">
                       <Input type="number" inputMode="decimal" step="0.1" value={r.commission_rate ?? ''} onChange={e => setField(name, 'commission_rate', e.target.value)} className="w-[90px] ml-auto text-right" placeholder="0" />
                     </TableCell>
+                    <TableCell className="text-right hidden sm:table-cell text-muted-foreground">
+                      {commAtTarget > 0 ? `฿${money(Math.round(commAtTarget))}` : '—'}
+                    </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="secondary" disabled={savingKey === name} onClick={() => saveRow(name)}>
+                      <Button size="sm" variant={dirty ? 'default' : 'secondary'} disabled={savingKey === name} onClick={() => saveRow(name)}>
                         {savingKey === name ? 'กำลังบันทึก…' : 'บันทึก'}
                       </Button>
                     </TableCell>
@@ -2579,6 +2653,13 @@ function TargetsView() {
               })}
             </TableBody>
           </Table>
+        )}
+
+        {/* เป้าที่บันทึกไว้ให้คนที่ยังไม่ส่งใบเสร็จเดือนนี้ (opt-in · กันเป้าหาย) */}
+        {!loading && orphanNames.length > 0 && (
+          <button type="button" onClick={() => setShowOrphans(v => !v)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
+            {showOrphans ? 'ซ่อนคนที่ยังไม่ส่งใบเสร็จ' : `มีเป้าบันทึกไว้ให้อีก ${orphanNames.length} คนที่ยังไม่ส่งใบเสร็จเดือนนี้ · แสดง/แก้`}
+          </button>
         )}
       </CardContent>
     </Card>

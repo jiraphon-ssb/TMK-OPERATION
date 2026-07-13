@@ -3,6 +3,7 @@
    ============================================================ */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { TMK } from './data.js';
 import {
   ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
   Shirt, Box, CalendarDays, Clock, Users, User, Heart, Zap, Briefcase, Folder,
@@ -441,6 +442,23 @@ export function Avatar({ name, color, size = 28 }) {
   const safe = String(name || '?');
   const initials = safe.length <= 2 ? safe.toUpperCase() : safe.slice(0, 2).toUpperCase();
   return <span className="avatar" style={{ background: color || 'var(--ink-3)', width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
+}
+
+/* ---------- PersonAvatar — avatar คน (อักษรย่อ + สีประจำตัว) · สีดึงจาก staff/roles · ใช้ทั้งแอปให้สม่ำเสมอ ---------- */
+const _AV_PALETTE = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6'];
+const _hashColor = (s) => { let h = 0; const str = String(s || ''); for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0; return _AV_PALETTE[h % _AV_PALETTE.length]; };
+// ชื่อ → สีประจำตัว: staff.color → roles.color → hash คงที่ (คนนอกระบบก็มีสีเดิมเสมอ)
+export function personColor(name) {
+  const n = String(name || '').trim();
+  if (!n) return 'var(--ink-3)';
+  const s = (TMK.staff || []).find(x => x.name === n) || (TMK.roles || []).find(x => x.name === n);
+  return (s && s.color) || _hashColor(n);
+}
+// color = override (เช่น สีตามแพลตฟอร์มของลูกค้า) · ไม่ส่ง = สีประจำตัวจาก staff/roles (คน)
+export function PersonAvatar({ name, size = 28, className, color }) {
+  const safe = String(name || '?');
+  const initials = safe.length <= 2 ? safe.toUpperCase() : safe.slice(0, 2).toUpperCase();
+  return <span className={'avatar' + (className ? ' ' + className : '')} style={{ background: color || personColor(name), width: size, height: size, fontSize: size * 0.42 }}>{initials}</span>;
 }
 
 /* ---------- User icon (แทนรูปโปรไฟล์) ---------- */

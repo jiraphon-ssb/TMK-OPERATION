@@ -7,7 +7,7 @@ import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex, PageSkeleto
 import { ConfirmHost } from './ui-confirm.jsx';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
@@ -877,7 +877,6 @@ function AppInner() {
                   >
                     <span className="relative">
                       <Avatar className="h-8 w-8 rounded-lg">
-                        <AvatarImage src={currentUserCtx?.avatar} alt={currentUserCtx?.name} />
                         <AvatarFallback className="rounded-lg font-semibold" style={{ backgroundColor: currentUserCtx?.color || '#e2e8f0', color: currentUserCtx?.color ? '#fff' : '#334155' }}>
                           {currentUserCtx?.name ? currentUserCtx.name.substring(0, 2).toUpperCase() : 'GR'}
                         </AvatarFallback>
@@ -895,7 +894,6 @@ function AppInner() {
                   <DropdownMenuLabel className="p-0 font-normal">
                     <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                       <Avatar className="h-8 w-8 rounded-lg">
-                        <AvatarImage src={currentUserCtx?.avatar} alt={currentUserCtx?.name} />
                         <AvatarFallback className="rounded-lg font-semibold" style={{ backgroundColor: currentUserCtx?.color || '#e2e8f0', color: currentUserCtx?.color ? '#fff' : '#334155' }}>
                           {currentUserCtx?.name ? currentUserCtx.name.substring(0, 2).toUpperCase() : 'GR'}
                         </AvatarFallback>

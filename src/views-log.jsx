@@ -13,11 +13,9 @@ import { supabase } from './lib/supabaseClient.js';
 import { useData } from './dataContext.jsx';
 import { TMK } from './data.js';
 import { downloadCsv } from './lib/exportCsv.js';
-import { usePersistedState } from './hooks/usePersistedState.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
@@ -128,7 +126,7 @@ export function LogView() {
   const [search, setSearch] = useState('');
   const [searchQ, setSearchQ] = useState('');
   const [page, setPage] = useState(0);
-  const [liveTail, setLiveTail] = usePersistedState('tmk-log-livetail', false);
+  const pageRef = useRef(0); pageRef.current = page;   // realtime prepend เฉพาะหน้าแรก (newest)
 
   // ---- data ----
   const [rows, setRows] = useState([]);
@@ -205,7 +203,7 @@ export function LogView() {
     return () => { cancel = true; };
   }, [applyFilters]);
 
-  // ---- live-tail: subscribe INSERT เฉพาะเมื่อเปิด toggle (ช่องของตัวเอง · teardown สะอาด) ----
+  // ---- realtime: subscribe INSERT เสมอ (log ใหม่ขึ้นบนสุดทันที · ไม่ต้องติ๊ก · teardown สะอาด) ----
   const chRef = useRef(null);
   // client-side filter สำหรับแถวที่ไหลเข้า (ให้ตรงกับ filter ปัจจุบัน)
   const passesFilter = useCallback((m) => {
@@ -220,21 +218,17 @@ export function LogView() {
   const passRef = useRef(passesFilter); passRef.current = passesFilter;
 
   useEffect(() => {
-    if (!liveTail) return;
     const ch = supabase.channel('audit-live-' + Math.random().toString(36).slice(2))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tmk_audit_logs' }, (payload) => {
         const m = mapRow(payload.new || {});
-        if (!passRef.current(m)) return;
-        setRows(prev => prev.some(x => x.id === m.id) ? prev : [{ ...m, _fresh: true }, ...prev].slice(0, 200));
         setTotal(t => t + 1);
+        if (pageRef.current !== 0 || !passRef.current(m)) return;   // แทรกบนสุดเฉพาะหน้าแรก + ผ่านตัวกรอง
+        setRows(prev => prev.some(x => x.id === m.id) ? prev : [{ ...m, _fresh: true }, ...prev].slice(0, PAGE));
       })
       .subscribe();
     chRef.current = ch;
     return () => { const c = chRef.current; chRef.current = null; if (c) supabase.removeChannel(c); };
-  }, [liveTail]);
-
-  // เมื่อเปิด live-tail → กลับหน้าแรก (tail = บนสุด)
-  useEffect(() => { if (liveTail) setPage(0); }, [liveTail]);
+  }, []);
 
   // ---- CSV export (ตาม filter · ดึงวน cap 5000) ----
   const [exporting, setExporting] = useState(false);
@@ -297,10 +291,7 @@ export function LogView() {
           <span className="text-sm text-muted-foreground font-normal">({N(total)})</span>
         </div>
         <div className="sm:ml-auto flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm font-medium select-none cursor-pointer px-2.5 py-1.5 rounded-md border bg-background" title="ไหลสด — log ใหม่ขึ้นบนสุดทันที">
-            <Switch checked={liveTail} onCheckedChange={setLiveTail} />
-            <span className="flex items-center gap-1"><span className={'size-2 rounded-full ' + (liveTail ? 'bg-[var(--good)] animate-pulse' : 'bg-muted-foreground/40')} /> ไหลสด</span>
-          </label>
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground px-2 py-1" title="อัปเดตสด — log ใหม่ขึ้นบนสุดทันที"><span className="size-2 rounded-full bg-[var(--good)] animate-pulse" /> อัปเดตสด</span>
           <Button variant="outline" size="sm" onClick={exportCsvNow} disabled={exporting}>
             <Icon name={exporting ? 'refresh' : 'external'} className={'size-4 mr-1.5' + (exporting ? ' animate-spin' : '')} /> CSV
           </Button>
@@ -387,7 +378,7 @@ export function LogView() {
           </div>
         )}
         {/* pagination (ซ่อนตอน live-tail) */}
-        {!liveTail && total > PAGE && (
+        {total > PAGE && (
           <div className="flex items-center justify-center gap-4 p-3 border-t bg-muted/10">
             <Button variant="outline" size="sm" disabled={page <= 0 || loading} onClick={() => setPage(p => Math.max(0, p - 1))}><Icon name="chevL" className="size-4 mr-1.5" /> ก่อนหน้า</Button>
             <span className="text-sm text-muted-foreground tabular-nums">หน้า {page + 1} <span className="opacity-50">/</span> {totalPages}</span>

@@ -9,7 +9,8 @@
    ============================================================ */
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabaseClient.js';
-import { N, Icon, Skel, SkelTable, useDelayedFlag } from './components.jsx';
+import { N, Icon, Skel, SkelTable, useDelayedFlag, PersonAvatar } from './components.jsx';
+import { channelColor } from './charts.jsx';
 import { SideSheet } from './modals.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
@@ -34,7 +35,6 @@ const num = (v) => Number(v) || 0;
 const toast = (m, t) => window.__toast && window.__toast(m, t);
 const TIER_CHIP = { 'เพชร': 'tier-chip-diamond', 'ทอง': 'tier-chip-gold', 'เงิน': 'tier-chip-silver', 'ทองแดง': 'tier-chip-bronze' };
 const TIERS = ['เพชร', 'ทอง', 'เงิน', 'ทองแดง'];
-const initial = (s = '') => (String(s).trim().replace(/^[0-9]+/, '').slice(0, 2) || '?').toUpperCase();
 const PER_PAGE = 50;
 const CRM_SORT = {
   name: (c) => (c.name || '').toLowerCase(),
@@ -214,7 +214,7 @@ export function CrmView() {
     setData(buildDirectory(p.data || [], o.error ? [] : (o.data || []), todayISO()));
   })(); }, [rk]);
   // realtime: ออเดอร์/ลูกค้าใหม่จากใบเสร็จหรือคนอื่น → CRM เห็นสด (ไม่ต้องรีเฟรช)
-  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_customers'], () => { invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_customers'); setRk(k => k + 1); });
+  useSaleRealtime(['tmk_mp_orders', 'tmk_mp_customers'], () => { invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_customers', { mark: false }); setRk(k => k + 1); });
 
   // แก้โปรไฟล์จาก drawer → อัปเดตแถวใน list + แถวที่เปิดอยู่ in-place (ไม่ refetch)
   const applyProfile = (key, row) => {
@@ -364,7 +364,7 @@ export function CrmView() {
               <TableRow key={c.key} onClick={() => setSel(c)} style={{ cursor: 'pointer' }}>
                 <TableCell className="cell-title">
                   <div className="crm-person">
-                    <span className={`crm-avatar ${!c.contact ? 'muted' : ''}`}>{initial(c.name)}</span>
+                    <PersonAvatar name={c.name} size={34} color={channelColor(c.mainChannel)} className={!c.contact ? 'opacity-60' : ''} />
                     <div style={{ minWidth: 0 }}>
                       <div className="crm-name">{c.name}</div>
                       <div className="cap" style={{ color: 'var(--ink-4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.province || c.owner || c.salesperson || '—'}</div>
@@ -373,7 +373,7 @@ export function CrmView() {
                 </TableCell>
                 <TableCell className="cap" style={{ whiteSpace: 'nowrap' }}>
                   {c.contact ? <span className="num">{c.contact}</span> : (c.social ? <span style={{ color: 'var(--ink-3)' }}>@{c.social}</span> : <span style={{ color: 'var(--ink-4)' }}>—</span>)}
-                  {c.mainChannel && <Badge variant="secondary" className="ml-1.5 rounded-full text-[10px]">{c.mainChannel}</Badge>}
+                  {c.mainChannel && <Badge variant="outline" className="ml-1.5 rounded-full text-[10px] font-medium" style={{ color: channelColor(c.mainChannel), background: `color-mix(in srgb, ${channelColor(c.mainChannel)} 14%, transparent)`, borderColor: `color-mix(in srgb, ${channelColor(c.mainChannel)} 40%, transparent)` }}>{c.mainChannel}</Badge>}
                 </TableCell>
                 <TableCell>{c.tier && <span className={`tier-chip ${TIER_CHIP[c.tier] || ''}`}>{c.tier}</span>}</TableCell>
                 <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(c.sales)}</TableCell>
@@ -552,7 +552,7 @@ function CustomerDetail({ c, onClose, onSaved }) {
         <CrmGroup icon="user" title="ข้อมูลลูกค้า">
           {c.social && <CrmField label="โซเชียล">@{c.social}</CrmField>}
           {(c.owner || c.salesperson) && <CrmField label={c.owner ? 'เซลล์เจ้าของ' : 'เซลล์'}><span style={{ color: c.owner ? 'var(--good)' : 'var(--ink)' }}>{c.owner || c.salesperson}</span></CrmField>}
-          {c.mainChannel && <CrmField label="ช่องทางหลัก">{c.mainChannel}</CrmField>}
+          {c.mainChannel && <CrmField label="ช่องทางหลัก"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.mainChannel) }} />{c.mainChannel}</span></CrmField>}
           {c.province && <CrmField label="จังหวัด">{c.province}</CrmField>}
           {c.since && <CrmField label="เป็นลูกค้าตั้งแต่">{c.since}</CrmField>}
           {c.last && <CrmField label="ซื้อล่าสุด">{c.last}</CrmField>}

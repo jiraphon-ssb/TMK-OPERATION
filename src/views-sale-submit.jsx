@@ -8,7 +8,7 @@
    - หลังส่ง: แก้ (เจ้าของใบ = วันเดียวกัน · แอดมิน = เสมอ) / ยกเลิกใบ + ประวัติ
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Icon, N, useBeat, PageSkeleton, SkelTable } from './components.jsx';
+import { Icon, N, useBeat, PageSkeleton, SkelTable, PersonAvatar } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -216,7 +216,9 @@ export function SubmitSalesView() {
     try {
       // โหลด "ทั้งทีม" เสมอเมื่อ admin หรือเลือกโหมดทีม (ทุกคนดูทีมได้ — โปร่งใส) แล้วกรองฝั่ง client
       const wantTeam = feedScope === 'team' || isAdmin;
-      let q = supabase.from('tmk_sale_receipts').select('*').gte('order_date', range.from).lte('order_date', range.to).order('created_at', { ascending: false }).limit(2000);
+      // narrow: ตัด `parsed` (raw parser jsonb — ไม่เคย render · ตัวหนักสุด) · คง confirmed/history/file_url ที่ feed+drawer ใช้จริง
+      const FEED_SEL = 'id,order_no,uploader_email,salesperson,channel,order_date,order_month,qty,sales,status,confirmed,history,file_url,void_by,void_reason,void_at,created_at';
+      let q = supabase.from('tmk_sale_receipts').select(FEED_SEL).gte('order_date', range.from).lte('order_date', range.to).order('created_at', { ascending: false }).limit(2000);
       if (!wantTeam) q = q.eq('uploader_email', user?.email || '');
       const r = await q;
       if (r.error) throw r.error;
@@ -366,7 +368,10 @@ export function SubmitSalesView() {
       setResult(res);
       setRows(rs => rs.filter(r => !res.ok.includes(String(r.order_no).trim())));
       loadFeed();
-      if (res.ok.length) toast(`บันทึกแล้ว ${res.ok.length} ใบ`, 'success');
+      // รายงานตามจริง: สำเร็จ / ข้าม(ส่งแล้ว·ซ้ำ) — ไม่เงียบเมื่อ ok=0
+      const nOk = res.ok.length, nSkip = res.skipped.length;
+      if (nOk) toast(`บันทึกแล้ว ${nOk} ใบ${nSkip ? ` · ข้าม ${nSkip} (ส่งแล้ว/ซ้ำ)` : ''}`, 'success');
+      else if (nSkip) toast(`ข้าม ${nSkip} ใบ — ส่งแล้ว/เลขซ้ำ (ไม่มีใบใหม่)`, 'warn');
       // หลักฐานขึ้น Storage แบบ background (ไม่บล็อก)
       attachReceiptFiles(readyRows.filter(r => res.ok.includes(String(r.order_no).trim())).map(r => ({ order_no: String(r.order_no).trim(), file: r.file, page: r.page })))
         .then(() => loadFeed()).catch(() => {});
@@ -631,11 +636,11 @@ export function SubmitSalesView() {
                 </thead>
                 <tbody>
                   {pageRows.map(r => (
-                    <tr key={r.id} className="border-t hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(r)}>
+                    <tr key={r.id || r.order_no} className="border-t hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(r)}>
                       <td className="px-3 py-2 font-mono text-xs cell-title">{r.order_no}</td>
                       <td className="px-2 py-2 text-xs">{fmtD(r.order_date)}</td>
                       {feedScope === 'team' && <td className="px-2 py-2 text-xs">{r.salesperson}</td>}
-                      <td className="px-2 py-2 text-xs max-w-[160px] truncate">{r.confirmed?.customer_name || '—'}</td>
+                      <td className="px-2 py-2 text-xs"><span className="inline-flex items-center gap-1.5 max-w-[160px]">{r.confirmed?.customer_name && <PersonAvatar name={r.confirmed.customer_name} color={channelColor(r.channel)} size={18} className="shrink-0" />}<span className="truncate">{r.confirmed?.customer_name || '—'}</span></span></td>
                       <td className="px-2 py-2 text-xs">{r.channel ? <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(r.channel) }} />{r.channel}</span> : '—'}</td>
                       <td className="px-2 py-2 text-right text-xs">{N(r.qty)}</td>
                       <td className="px-2 py-2 text-right font-semibold">{fmtB(r.sales)}</td>

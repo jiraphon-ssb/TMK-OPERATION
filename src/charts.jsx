@@ -253,7 +253,7 @@ export function MiniBars({ data, color, height = 44 }) {
 }
 
 // ---- คอมโบ: แท่ง(ยอด) + เส้น(ออเดอร์) สองแกน + เส้นเทียบช่วงก่อน ----
-export function ComboChart({ labels, bars, line, cmpBars, breakdown, barLabel = 'ยอดขาย', lineLabel = 'ออเดอร์', barFmt, lineFmt, cmpLabel = 'ช่วงก่อน', height = 230, ariaLabel = 'กราฟยอดขายตามเวลา' }) {
+export function ComboChart({ labels, bars, line, cmpBars, breakdown, barLabel = 'ยอดขาย', lineLabel = 'ออเดอร์', barFmt, lineFmt, cmpLabel = 'ช่วงก่อน', height = 230, ariaLabel = 'กราฟยอดขายตามเวลา', onDayClick }) {
   const hasCmp = cmpBars && cmpBars.some(v => v != null);
   const hasLine = line != null;
   const hasBd = Array.isArray(breakdown) && breakdown.some(b => b && b.length);
@@ -267,7 +267,9 @@ export function ComboChart({ labels, bars, line, cmpBars, breakdown, barLabel = 
   const comboFmt = { bars: barFmt || B, cmpBars: barFmt || B, line: lineFmt || (v => v) };
   return (
     <ChartContainer config={mkCfg([['bars', barLabel], ['line', lineLabel], ['cmpBars', cmpLabel]])} className={CC_CLS} style={{ height }}>
-      <ComposedChart data={chartData} margin={{ top: 4, right: 40, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+      <ComposedChart data={chartData} margin={{ top: 4, right: 40, bottom: 0, left: 0 }} aria-label={ariaLabel}
+        style={onDayClick ? { cursor: 'pointer' } : undefined}
+        onClick={onDayClick ? (st) => { const i = st?.activeTooltipIndex; if (i != null && i >= 0) onDayClick(i); } : undefined}>
         <CartesianGrid {...GRID} vertical={false} />
         <XAxis dataKey="label" tick={TICK} {...AXP} interval="preserveStartEnd" />
         <YAxis yAxisId="y" tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />

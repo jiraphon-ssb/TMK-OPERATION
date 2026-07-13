@@ -22,6 +22,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { SearchInput } from '@/components/ui/search-input';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -468,16 +469,26 @@ export function ShirtCatalogView() {
               const setColors = (arr) => setEdit({ ...edit, colors: [...new Set(arr)].join(', ') });
               return (
                 <div className="fld">
-                  <span>สีที่มี ({colorList.length}) — กดเพิ่ม/ลบได้</span>
-                  {colorList.length > 0 && <div className="flex flex-wrap gap-1.5">{colorList.map(c => (
-                    <Badge key={c} variant="secondary" className="gap-1.5 rounded-full py-1 pl-2 pr-1 font-normal">
-                      <span className="sw" style={{ background: COLOR_HEX[c] || '#bbb' }} />{c}
-                      <button type="button" aria-label={`ลบ ${c}`} className="ml-0.5 inline-flex rounded-full p-0.5 text-[var(--ink-4)] hover:bg-[var(--surface-2)] hover:text-[var(--bad)]" onClick={() => setColors(colorList.filter(x => x !== c))}><Icon name="x" /></button>
-                    </Badge>
-                  ))}</div>}
-                  <div className="chip-add">
-                    {STD_COLORS.filter(c => !colorList.includes(c)).map(c => <Button type="button" key={c} variant="outline" size="sm" className="h-7 gap-1.5 rounded-full px-2.5 font-normal" onClick={() => setColors([...colorList, c])}><span className="sw" style={{ background: COLOR_HEX[c] }} />{c}</Button>)}
-                    <Input className="h-7 w-28" placeholder="+ สีอื่น ↵" onKeyDown={e => { const v = e.target.value.trim(); if (e.key === 'Enter' && v) { e.preventDefault(); setColors([...colorList, v]); e.target.value = ''; } }} />
+                  <span>สีที่มี ({colorList.length})</span>
+                  {/* ข้างนอก = เฉพาะสีที่เลือก (ชิปถอดได้) · เพิ่มสีผ่าน dropdown */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {colorList.map(c => (
+                      <Badge key={c} variant="secondary" className="gap-1.5 rounded-full py-1 pl-2 pr-1 font-normal">
+                        <span className="sw" style={{ background: COLOR_HEX[c] || '#bbb' }} />{c}
+                        <button type="button" aria-label={`ลบ ${c}`} className="ml-0.5 inline-flex rounded-full p-0.5 text-[var(--ink-4)] hover:bg-[var(--surface-2)] hover:text-[var(--bad)]" onClick={() => setColors(colorList.filter(x => x !== c))}><Icon name="x" /></button>
+                      </Badge>
+                    ))}
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 rounded-full px-2.5 font-normal border-dashed"><Icon name="plus" /> เพิ่มสี</Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-64 p-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {STD_COLORS.filter(c => !colorList.includes(c)).map(c => <Button type="button" key={c} variant="outline" size="sm" className="h-7 gap-1.5 rounded-full px-2.5 font-normal" onClick={() => setColors([...colorList, c])}><span className="sw" style={{ background: COLOR_HEX[c] }} />{c}</Button>)}
+                        </div>
+                        <Input className="h-7 mt-2" placeholder="+ สีอื่น (พิมพ์แล้วกด Enter)" onKeyDown={e => { const v = e.target.value.trim(); if (e.key === 'Enter' && v) { e.preventDefault(); setColors([...colorList, v]); e.target.value = ''; } }} />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
               );

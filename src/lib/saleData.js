@@ -5,6 +5,7 @@
    - แคชข้ามหน้า: ครั้งแรกโหลดจริง ครั้งต่อไปใช้ของในแคช (สลับหน้าทันที)
    ============================================================ */
 import { supabase } from './supabaseClient.js';
+import { markSaleWrite } from './saleRealtime.js';
 
 // คอลัมน์ที่ระบบใช้จริง (ตัด attrs/jsonb/คอลัมน์ที่ไม่ได้โชว์ออก)
 export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent';
@@ -120,7 +121,10 @@ export async function getDateBounds(table = 'tmk_mp_orders', dateCol = 'order_da
 export function clearSaleCache() { cache.clear(); inflight.clear(); }
 
 // ลบ cache เฉพาะ key ที่ขึ้นต้นด้วย prefix (invalidate ตารางเดียว ไม่กระทบตารางอื่น)
-export function invalidateSaleCache(prefix) {
+// mark=true (ดีฟอลต์) = "เซฟเอง" → ข้าม echo ของตารางนี้ (กัน realtime โหลดซ้ำ 2×)
+// mark=false = เรียกจาก realtime RECEIVE handler (react ต่อ event คนอื่น) → ห้าม mark ไม่งั้นจะ "หูหนวก" ต่อ event ตัวถัดไป 900ms
+export function invalidateSaleCache(prefix, { mark = true } = {}) {
+  if (mark) markSaleWrite(prefix);
   for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
   for (const k of [...inflight.keys()]) if (k.startsWith(prefix)) inflight.delete(k);
 }
