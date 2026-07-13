@@ -417,8 +417,8 @@ export function ShirtCatalogView() {
             {/* ข้อมูลสินค้า */}
             <SecHead>ข้อมูลสินค้า</SecHead>
             <div className="form-grid2">
-              <label className="fld"><span>รหัสสินค้า</span><Input value={edit.code} onChange={e => setEdit({ ...edit, code: e.target.value })} placeholder="เช่น JKN111" /></label>
-              <label className="fld"><span>ชื่อลาย / ชื่อเสื้อ</span><Input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="เช่น กนกประยุกต์" /></label>
+              <label className="fld"><span>รหัสสินค้า</span><Input value={edit.code} disabled={!!edit.id} onChange={e => setEdit({ ...edit, code: e.target.value })} placeholder="เช่น JKN111" />{edit.id && <span className="cap" style={{ color: 'var(--ink-4)' }}>🔒 รหัสล็อกไว้ (เป็นกุญแจเชื่อมออเดอร์ทั้งหมด) — ถ้าต้องเปลี่ยนรหัสจริง ให้สร้างลายใหม่</span>}</label>
+              <label className="fld"><span>ชื่อลาย / ชื่อเสื้อ</span><Input value={edit.name} onChange={e => setEdit({ ...edit, name: e.target.value })} placeholder="เช่น กนกประยุกต์" />{edit.id && <span className="cap" style={{ color: 'var(--ink-4)' }}>แก้ชื่อได้ — รายงาน/แดชบอร์ด/CRM อัปเดตทันที (ผูกด้วยรหัส)</span>}</label>
               <div className="fld"><span>หมวด</span>
                 {addType === null ? (
                   <Select value={edit.type || 'อื่นๆ'} onValueChange={v => { if (v === ADD_TYPE) setAddType(''); else setEdit({ ...edit, type: v }); }}>

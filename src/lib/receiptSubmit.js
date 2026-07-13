@@ -501,6 +501,7 @@ export async function deleteOrders(orderNos, { source = '', overrideIds = [] } =
       const { error } = await orq; if (error) throw error;
     }
     for (const ids of chunk(overrideIds || [], 150)) { try { await supabase.from('tmk_order_overrides').delete().in('order_id', ids); } catch { /* optional */ } }
+    for (const ids of chunk(nos, 150)) { try { await supabase.from('tmk_sku_overrides').delete().in('order_no', ids); } catch { /* optional — กัน override ลายบรรทัดค้างเป็น orphan */ } }
     for (const ids of chunk(nos, 150)) { try { await supabase.from('tmk_sale_receipts').delete().in('order_no', ids); } catch { /* optional */ } }
   }
   invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');

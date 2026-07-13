@@ -17,6 +17,16 @@ import { fetchAllVersions, buildVersionIndex, asOfCatalog } from './catalogVersi
 export const normTerm = (s) => (s || '').toString().trim().toLowerCase().replace(/\s+/g, '').replace(/[()"']/g, '');
 // base code = ตัดส่วน สี/ไซซ์ ออก เช่น "JKN111-S-XS" → "JKN111"
 export const baseCode = (c) => (c || '').toString().trim().toUpperCase().split('-')[0];
+// จับคู่รหัสแบบทน: ลอง full code → ถอด segment ท้ายทีละชิ้น จนกว่า has(candidate) จะจริง
+// เช่น "JRP-111-WH-XS" → ลอง JRP-111-WH-XS → JRP-111-WH → JRP-111(เจอ) — กันตัดสั้นเป็น "JRP" แล้วชนรหัสอื่น
+export function progressiveBase(code, has) {
+  const parts = (code || '').toString().trim().toUpperCase().split('-').filter(Boolean);
+  for (let n = parts.length; n >= 1; n--) {
+    const cand = parts.slice(0, n).join('-');
+    if (has(cand)) return cand;
+  }
+  return '';
+}
 // key override รายบรรทัด — อิงเนื้อหา (order_no + ข้อความ raw) → เสถียรข้าม reimport
 export const skuOverrideKey = (orderNo, raw) => `${orderNo || ''}::${normTerm(raw)}`;
 
@@ -75,14 +85,16 @@ export function makeSkuResolver({ catalogByCode = {}, aliasMap = {}, skuOverride
     if (ov && (ov.design || ov.product_code)) {
       return { design: ov.design || sku.design || '', product_code: ov.product_code || code, source: 'override' };
     }
-    // 2) catalog สด ผ่าน product_code (ลอง full code ก่อน แล้ว base)
-    const cat = catalogByCode[up] || catalogByCode[bc];
-    if (cat && (cat.name || '').trim()) return pinName({ design: cat.name.trim(), product_code: cat.code || code || bc, source: 'catalog' }, sku);
+    // 2) catalog สด ผ่าน product_code — ลอง full → ถอด segment ท้ายทีละชิ้น (กัน JRP-111 ตัดเหลือ JRP ชนกัน)
+    const catKey = progressiveBase(code, k => !!(catalogByCode[k] && (catalogByCode[k].name || '').trim()));
+    const cat = catKey && catalogByCode[catKey];
+    if (cat && (cat.name || '').trim()) return pinName({ design: cat.name.trim(), product_code: cat.code || code || catKey, source: 'catalog' }, sku);
     // 3) alias สด ผ่านข้อความ raw
     const al = aliasMap[normTerm(raw)];
     if (al && al.design) return pinName({ design: al.design, product_code: al.code || code, source: 'alias' }, sku);
-    // 4) golden by code
-    const g = GOLDEN_BY_CODE[bc] || GOLDEN_BY_CODE[up];
+    // 4) golden by code — progressive เช่นกัน (fallback up/bc คงพฤติกรรมเดิม)
+    const gKey = progressiveBase(code, k => !!GOLDEN_BY_CODE[k]);
+    const g = (gKey && GOLDEN_BY_CODE[gKey]) || GOLDEN_BY_CODE[up] || GOLDEN_BY_CODE[bc];
     if (g) return pinName({ design: g.name, product_code: g.code, source: 'golden' }, sku);
     // 5) frozen fallback
     return pinName({ design: sku.design || '', product_code: code, source: 'frozen' }, sku);

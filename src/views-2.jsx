@@ -3,7 +3,7 @@
    ============================================================ */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { TMK } from './data.js';
-import { B, P, N, Icon, Avatar, PersonAvatar, Ring, UserIcon, PageSkeleton, Skel, SkelTable, useDelayedFlag, useBeat, useBeatOn, CardHead, ColorPicker } from './components.jsx';
+import { B, P, N, Icon, Avatar, PersonAvatar, Ring, UserIcon, PageSkeleton, Skel, useDelayedFlag, useBeat, useBeatOn, CardHead, ColorPicker } from './components.jsx';
 import { Modal, MpImportModal, SideSheet } from './modals.jsx';
 import { DonutChart, AreaTrend, HBars, MetricCard, Gauge, channelColor } from './charts.jsx';
 import { SaleDashboard } from './saleDashboard.jsx';
@@ -1402,14 +1402,41 @@ function _pageList(cur, total) {
 }
 
 function OrdersSkeleton() {
+  // คอลัมน์จริง: ออเดอร์/วันที่/ช่องทาง/ลูกค้า(avatar)/ลาย/งาน/ชำระ/สถานะ/หมายเหตุ/ตัว/ยอด — นำด้วย checkbox ปิดท้ายด้วยลูกศร
+  const W = ['62%', '58%', '66%', '80%', '60%', '40%', '46%', '34%', '30%', '28%', '54%'];
+  const CUST = 3; // คอลัมน์ลูกค้า (กว้างกว่า + มี avatar)
   return (
     <div className="content-inner rise">
+      {/* toolbar แถวเดียว: ชื่อ + ช่วงวัน + ตัวกรอง · (ขวา) ค้นหา + คอลัมน์ + เพิ่มออเดอร์ */}
       <Card className="p-[22px] mb-4">
-        <div className="row between" style={{ marginBottom: 12 }}><Skel w={190} h={15} /><Skel w={170} h={11} /></div>
-        <Skel w="100%" h={36} r={9} style={{ marginBottom: 12 }} />
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Array.from({ length: 11 }).map((_, i) => <Skel key={i} w={i % 3 === 0 ? 72 : 52} h={26} r={8} />)}</div>
+        <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Skel w={64} h={16} />
+          <Skel w={150} h={30} r={8} />
+          <Skel w={80} h={30} r={8} />
+          <Skel w={158} h={32} r={8} style={{ marginLeft: 'auto' }} />
+          <Skel w={84} h={32} r={8} />
+          <Skel w={116} h={32} r={8} />
+        </div>
       </Card>
-      <Card className="p-[22px]"><SkelTable cols={8} rows={10} /></Card>
+      {/* ตาราง: checkbox + 11 คอลัมน์ (ลูกค้า=avatar+2บรรทัด) + ลูกศร · แถวจางลงให้รู้สึกมีของ */}
+      <Card className="p-[22px]">
+        <div style={{ display: 'grid', gap: 13 }}>
+          <div className="row" style={{ gap: 14, alignItems: 'center' }}>
+            <Skel w={16} h={16} r={4} />
+            {W.map((w, i) => <div key={i} style={{ flex: i === CUST ? 1.5 : 1 }}><Skel w={w} h={11} /></div>)}
+            <Skel w={14} h={14} r={4} />
+          </div>
+          {Array.from({ length: 10 }).map((_, r) => (
+            <div key={r} className="row" style={{ gap: 14, alignItems: 'center', opacity: Math.max(0.3, 1 - r * 0.072) }}>
+              <Skel w={16} h={16} r={4} />
+              {W.map((w, i) => i === CUST
+                ? <div key={i} className="row" style={{ flex: 1.5, gap: 8, alignItems: 'center' }}><Skel w={22} h={22} r="50%" style={{ flexShrink: 0 }} /><div style={{ flex: 1 }}><Skel w="72%" h={12} /><Skel w="46%" h={8} style={{ marginTop: 5 }} /></div></div>
+                : <div key={i} style={{ flex: 1 }}><Skel w={w} h={13} /></div>)}
+              <Skel w={14} h={14} r={4} />
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -1640,12 +1667,23 @@ function MpOrdersView() {
     return orders.map(o => {
       const ov = orderOv[orderOvKey(o)]; if (!ov) return o;
       const note = ov.note != null && ov.note !== '' ? ov.note : o.note;
+      // ตัวเลข: override ชนะเมื่อมีค่าจริง (คอลัมน์ใหม่ · เก่าไม่มี = undefined → ใช้ค่าไฟล์)
+      const num = (a, b) => (a != null && a !== '' ? Number(a) : b);
+      const str = (a, b) => (a != null && a !== '' ? a : b);
       return { ...o,
         // re-derive DFT หลัง merge — กัน override เก่า (job_type='ปลีก') ทับ DFT ที่หมายเหตุระบุ
         job_type: resolveJobType(ov.job_type || o.job_type, note),
         customer_name: ov.customer_name || o.customer_name,
         customer_type: ov.customer_type || o.customer_type,
         salesperson: ov.salesperson || o.salesperson,
+        // ช่องที่แก้เพิ่ม (1C) — ประกันข้าม reimport มาร์เก็ตเพลส (คอลัมน์ใหม่ · graceful ถ้ายังไม่ migrate)
+        channel: str(ov.channel, o.channel),
+        payment_type: str(ov.payment_type, o.payment_type),
+        sales: num(ov.sales, o.sales),
+        qty: num(ov.qty, o.qty),
+        province: str(ov.province, o.province),
+        order_date: str(ov.order_date, o.order_date),
+        cod_amount: num(ov.cod_amount, o.cod_amount),
         note,
         _ov: ov };
     });
@@ -1853,7 +1891,6 @@ export function DrawerGroup({ icon, title, children }) {
     </div>
   );
 }
-const JOB_TYPES_DRAWER = ['ปลีก', 'OEM', 'DFT'];
 const DRAWER_CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
 // รหัสลูกค้า = คีย์ CRM ภายใน (P<เบอร์>/N<ชื่อ>) — โชว์อ่านง่าย: ตัด prefix + ซ่อนถ้าซ้ำชื่อ (ไม่โชว์คีย์ดิบ)
 const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
@@ -1898,7 +1935,13 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       };
       { const { error } = await supabase.from('tmk_mp_orders').update(patch).eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
       try {
-        await supabase.from('tmk_order_overrides').upsert({ order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, updated_at: now }, { onConflict: 'order_id' });
+        // mirror ทุกช่องที่แก้ลง override (ประกันข้าม reimport มาร์เก็ตเพลส) — graceful ตัดคอลัมน์ใหม่ถ้ายังไม่ migrate
+        const ovRow = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, channel: patch.channel, payment_type: patch.payment_type, sales: patch.sales, qty: patch.qty, province: patch.province, order_date: patch.order_date, cod_amount: patch.cod_amount, updated_at: now };
+        let { error: ovErr } = await supabase.from('tmk_order_overrides').upsert(ovRow, { onConflict: 'order_id' });
+        if (ovErr && /channel|payment_type|sales|qty|province|order_date|cod_amount|column/i.test(ovErr.message || '')) {
+          const base = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, updated_at: now };
+          await supabase.from('tmk_order_overrides').upsert(base, { onConflict: 'order_id' });
+        }
       } catch { /* ตาราง override ยังไม่มี — ค่าตรงบันทึกแล้ว */ }
       if (isReceipt) {
         try { await supabase.from('tmk_sale_receipts').update({ channel: patch.channel, order_date: patch.order_date, order_month: patch.order_month, sales: patch.sales, qty: patch.qty, salesperson: patch.salesperson, updated_at: now }).eq('order_no', o.order_no); } catch { /* เงียบ */ }
@@ -1994,6 +2037,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       await supabase.from('tmk_mp_skus').delete().eq('source', o.source || '').eq('order_no', o.order_no);
       { const { error } = await supabase.from('tmk_mp_orders').delete().eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
       try { await supabase.from('tmk_order_overrides').delete().eq('order_id', ovId); } catch { /* optional */ }
+      try { await supabase.from('tmk_sku_overrides').delete().eq('order_no', o.order_no); } catch { /* optional — กัน override ลายบรรทัดค้างเป็น orphan */ }
       if (isReceipt) { try { await supabase.from('tmk_sale_receipts').delete().eq('order_no', o.order_no); } catch { /* optional */ } }
       logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})` });
       toast('ลบออเดอร์ถาวรแล้ว', 'success');
@@ -2054,10 +2098,29 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
             </Select>
           </div>
           <div className="field"><label>ประเภทงาน</label>
-            <Select value={edit.job_type} onValueChange={v => setEdit({ ...edit, job_type: v })}>
-              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-              <SelectContent>{JOB_TYPES_DRAWER.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
-            </Select>
+            {(() => {
+              // ยึด "หมายเหตุ" เป็นตัวตัดสิน ปลีก/DFT (ตรงกับ resolveJobType) · OEM = เลือกตรง · UI ซื่อสัตย์
+              const isOEM = edit.job_type === 'OEM';
+              const isDFT = !isOEM && /\bdft\b/i.test(edit.note || '');
+              const eff = isOEM ? 'OEM' : (isDFT ? 'DFT' : 'ปลีก');
+              const toggleOEM = () => setEdit({ ...edit, job_type: isOEM ? (/\bdft\b/i.test(edit.note || '') ? 'DFT' : 'ปลีก') : 'OEM' });
+              const toggleDFT = () => {
+                let n = edit.note || '';
+                if (/\bdft\b/i.test(n)) n = n.replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
+                else n = (n.trim() ? n.trim() + ' ' : '') + 'DFT';
+                setEdit({ ...edit, note: n, job_type: /\bdft\b/i.test(n) ? 'DFT' : 'ปลีก' });
+              };
+              return (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div role="button" tabIndex={0} onClick={toggleOEM} className="flex items-center gap-1.5 cursor-pointer text-[13px]"><ShadcnCheckbox checked={isOEM} className="pointer-events-none" /> OEM</div>
+                    <div role="button" tabIndex={0} onClick={() => { if (!isOEM) toggleDFT(); }} className={'flex items-center gap-1.5 text-[13px] ' + (isOEM ? 'opacity-40 pointer-events-none' : 'cursor-pointer')}><ShadcnCheckbox checked={isDFT} className="pointer-events-none" /> งาน DFT</div>
+                    <Badge variant="secondary" className="rounded-full text-[10px]">{eff}</Badge>
+                  </div>
+                  <span className="cap" style={{ color: 'var(--ink-4)' }}>ปลีก/DFT ตัดสินจากคำว่า “DFT” ในหมายเหตุ</span>
+                </div>
+              );
+            })()}
           </div>
           <div className="field"><label>การชำระ</label>
             <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>

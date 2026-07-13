@@ -861,7 +861,8 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel, onEdit }) {
 const FUNNEL_PLATFORMS = ['Facebook', 'LINE', 'Instagram', 'TikTok', 'Phone', 'อื่นๆ'];
 const emptyLeads = () => Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, { new: '', old: '' }]));
 function FunnelCard({ sellers = [], createdBy, isAdmin, ordersToday = {} }) {
-  const date = todayISO();
+  const [date, setDate] = useState(todayISO());   // เลือกวันได้ — กรอก/ดูคนทักย้อนหลัง
+  const isToday = date === todayISO();
   const [leads, setLeads] = useState(emptyLeads);
   const [busy, setBusy] = useState(false);
   const [exists, setExists] = useState(false);
@@ -942,10 +943,10 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, ordersToday = {} }) {
           <div className="flex items-center gap-3 min-w-0">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold">คนทักวันนี้ · ทีม</div>
+              <div className="text-[15px] font-semibold">{isToday ? 'คนทักวันนี้ · ทีม' : `คนทัก ${fmtD(date)} · ทีม`}</div>
               {teamStat.total > 0
                 ? <div className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b> ({teamStat.people} คน)</div>
-                : <div className="text-xs text-muted-foreground">ยังไม่มีใครกรอกวันนี้</div>}
+                : <div className="text-xs text-muted-foreground">ยังไม่มีใครกรอก{isToday ? 'วันนี้' : `วันที่ ${fmtD(date)}`}</div>}
             </div>
           </div>
           {isAdmin
@@ -962,8 +963,12 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, ordersToday = {} }) {
           </div>
         )}
       </Card>
-      {open && <SideSheet size="md" icon="users" title="คนทักวันนี้ (แอดมินกรอกให้ทีม)" sub={`${date} · เลือกเซลล์ แล้วใส่จำนวนคนทัก แยกใหม่/เก่า ต่อช่องทาง`} onClose={() => setOpen(false)}
+      {open && <SideSheet size="md" icon="users" title={`${isToday ? 'คนทักวันนี้' : 'คนทัก'} (แอดมินกรอกให้ทีม)`} sub="เลือกวัน + เซลล์ แล้วใส่จำนวนคนทัก แยกใหม่/เก่า ต่อช่องทาง" onClose={() => setOpen(false)}
         footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
+        <div className="field mb-3">
+          <label>วันที่{!isToday && <span className="ml-1.5 text-[11px] rounded-full px-1.5 py-0.5 bg-amber-500/12 text-amber-600 dark:text-amber-400">ย้อนหลัง</span>}</label>
+          <DatePicker value={date} onChange={v => setDate(v || todayISO())} max={todayISO()} />
+        </div>
         {!sellers.length
           ? <div className="rounded-xl border p-4 text-sm text-muted-foreground" style={{ borderColor: 'var(--line)' }}>ยังไม่มีรายชื่อเซลล์ในระบบ — เพิ่มทีมงานที่ ตั้งค่า → สมาชิก ก่อน แล้วจึงกรอกคนทัก</div>
           : <div className="field mb-4">
@@ -973,7 +978,7 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, ordersToday = {} }) {
               <SelectTrigger className="max-w-[260px]"><SelectValue placeholder="เลือกเซลล์" /></SelectTrigger>
               <SelectContent>{sellers.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
             </Select>
-            <Badge variant={exists ? 'secondary' : 'outline'} className="text-[11px]">{exists ? 'มีข้อมูลวันนี้แล้ว' : 'ยังไม่กรอก'}</Badge>
+            <Badge variant={exists ? 'secondary' : 'outline'} className="text-[11px]">{exists ? 'มีข้อมูลแล้ว' : 'ยังไม่กรอก'}</Badge>
           </div>
         </div>}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">

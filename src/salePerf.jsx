@@ -7,11 +7,12 @@
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
    ============================================================ */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Icon, N, useBeat, PageSkeleton, PersonAvatar } from './components.jsx';
+import { Icon, N, useBeat, PersonAvatar } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
   cachedFetchRange, ORDERS_SEL, SKUS_SEL, funnelTotal, funnelBreakdown, funnelNewOld, invalidateSaleCache,
 } from './lib/saleData.js';
+import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { Card } from '@/components/ui/card';
@@ -45,6 +46,69 @@ const closeTone = (v) => v == null ? 'var(--ink-4)' : v >= 15 ? 'var(--good)' : 
 const dPill = (d) => d == null ? null : (
   <span className={`text-[11px] font-medium ${d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{d >= 0 ? '▲' : '▼'} {Math.abs(Math.round(d))}%</span>
 );
+/* คนทัก = การ์ดย่อย (tiles: ทักรวม/ใหม่/เก่า/%ปิด) — อ่านง่าย · โชว์เสมอแม้ 0 + hint · compact สำหรับการ์ดเซลล์ */
+function LeadPanel({ total = 0, nw = 0, old = 0, close = null, title = 'คนทัก', compact = false }) {
+  const tiles = [
+    ['ทักรวม', N(total), 'var(--ink)'],
+    ['ใหม่', N(nw), 'var(--good)'],
+    ['เก่า', N(old), 'var(--ink-3)'],
+    ['%ปิด', close == null ? '—' : Math.round(close) + '%', closeTone(close)],
+  ];
+  const pad = compact ? 'py-1 px-0.5' : 'py-1.5 px-1';
+  const vsz = compact ? 'text-[13px]' : 'text-base';
+  return (
+    <div>
+      {title && <div className="text-[11px] text-muted-foreground mb-1">{title}</div>}
+      <div className={`grid grid-cols-4 ${compact ? 'gap-1' : 'gap-2'}`}>
+        {tiles.map(([l, v, c]) => (
+          <div key={l} className={`rounded-lg border ${pad} text-center`} style={{ borderColor: 'var(--line)' }}>
+            <div className="text-[10px] text-muted-foreground leading-tight">{l}</div>
+            <div className={`num font-bold leading-tight ${vsz}`} style={{ color: c }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {!total && <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">ยังไม่กรอกคนทัก — กรอกในหน้าส่งยอด</div>}
+    </div>
+  );
+}
+
+/* Skeleton หน้าประสิทธิภาพเซลล์ — ตรงเลย์เอาต์จริง (การ์ดทีม/คนทัก/กราฟ/การ์ดเซลล์) · bodyOnly = ใต้ header จริง */
+const Sk = ({ className }) => <div className={`animate-pulse rounded-md bg-muted/60 ${className}`} />;
+function PerfSkeleton({ bodyOnly = false }) {
+  const body = (
+    <div className="flex flex-col gap-4">
+      {/* การ์ดทีมบน 3 ใบ */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[0, 1, 2].map(i => <div key={i} className="rounded-xl border p-3 flex flex-col gap-2"><Sk className="h-3 w-16" /><Sk className="h-6 w-24" /></div>)}
+      </div>
+      {/* คนทัก panel (4 tiles) */}
+      <div className="rounded-xl border p-3 flex flex-col gap-2">
+        <Sk className="h-3 w-24" />
+        <div className="grid grid-cols-4 gap-2">{[0, 1, 2, 3].map(i => <div key={i} className="rounded-lg border p-2 flex flex-col items-center gap-1.5"><Sk className="h-2.5 w-10" /><Sk className="h-4 w-8" /></div>)}</div>
+      </div>
+      {/* กราฟแนวโน้ม */}
+      <div className="rounded-xl border p-4 flex flex-col gap-3"><Sk className="h-3 w-40" /><Sk className="h-[200px] w-full rounded-xl" /></div>
+      {/* การ์ดเซลล์ */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="rounded-2xl border p-4 flex flex-col gap-3.5">
+            <div className="flex items-center gap-2.5"><Sk className="size-9 rounded-full" /><div className="flex-1 flex flex-col gap-1.5"><Sk className="h-3 w-24" /><Sk className="h-2 w-16" /></div></div>
+            <Sk className="h-7 w-32" /><Sk className="h-1.5 w-full rounded-full" />
+            <div className="grid grid-cols-3 gap-2">{[0, 1, 2].map(j => <div key={j} className="flex flex-col items-center gap-1.5"><Sk className="h-2.5 w-8" /><Sk className="h-3.5 w-10" /></div>)}</div>
+            <div className="grid grid-cols-4 gap-1.5">{[0, 1, 2, 3].map(j => <Sk key={j} className="h-9 rounded-lg" />)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  if (bodyOnly) return body;
+  return (
+    <div className="content-inner rise flex flex-col gap-4">
+      <div className="rounded-xl border p-4 flex items-center gap-2 flex-wrap"><Sk className="h-5 w-32" /><Sk className="h-8 w-28 rounded-full" /><Sk className="h-8 w-40 rounded-full sm:ml-auto" /></div>
+      {body}
+    </div>
+  );
+}
 
 /* MultiSelect เล็ก (ช่องทาง) — DropdownMenu + checkbox (ว่าง = ทั้งหมด) */
 function MultiSelect({ label, options, value, onChange }) {
@@ -156,7 +220,7 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
 }
 
 /* ---- การ์ดเซลล์รายคน (โหมด default แท็บรายเดือน) — คลิกเปิด drawer เดิม ---- */
-function SellerCard({ r, rank, share, onOpen }) {
+function SellerCard({ r, rank, share, onOpen, cmp }) {
   const noSeller = r.name === NO_SELLER;
   const medal = rank < 3 ? MEDAL[rank] : null;
   return (
@@ -176,7 +240,7 @@ function SellerCard({ r, rank, share, onOpen }) {
           <div className="font-semibold text-sm truncate leading-tight">{noSeller ? 'ไม่ระบุเซลล์' : r.name}</div>
           {noSeller && <div className="text-[10px] text-muted-foreground">มาร์เก็ตเพลส</div>}
         </div>
-        {dPill(r.dSales)}
+        {dPill(cmp ? cmp.sales : r.dSales)}
       </div>
       {/* ยอดขาย + ส่วนแบ่งทีม */}
       <div>
@@ -186,10 +250,11 @@ function SellerCard({ r, rank, share, onOpen }) {
       </div>
       {/* สถิติ 3 ช่อง */}
       <div className="grid grid-cols-3 rounded-xl bg-muted/40 divide-x divide-border/60 text-center overflow-hidden">
-        {[['ออเดอร์', N(r.orders)], ['ตัว', N(r.qty)], ['AOV', fmtB(r.aov)]].map(([l, v]) => (
-          <div key={l} className="py-1.5 px-1"><div className="text-[10px] text-muted-foreground">{l}</div><div className="num text-sm font-bold leading-tight">{v}</div></div>
+        {[['ออเดอร์', N(r.orders), cmp?.orders], ['ตัว', N(r.qty), cmp?.qty], ['AOV', fmtB(r.aov), cmp?.aov]].map(([l, v, d]) => (
+          <div key={l} className="py-1.5 px-1"><div className="text-[10px] text-muted-foreground">{l}</div><div className="num text-sm font-bold leading-tight">{v}</div>{d != null && <div className="mt-0.5 leading-none">{dPill(d)}</div>}</div>
         ))}
       </div>
+      <LeadPanel compact title="" total={r.leads} nw={r.newOld?.new || 0} old={r.newOld?.old || 0} close={r.closeRate} />
       {r.target > 0 ? (
         <div>
           <div className="flex items-center justify-between text-xs mb-1">
@@ -197,7 +262,7 @@ function SellerCard({ r, rank, share, onOpen }) {
             <b className="num" style={{ color: r.sales >= r.target ? 'var(--good)' : undefined }}>{Math.round(r.pctTarget)}%{r.sales >= r.target ? ' 🎉' : ''}</b>
           </div>
           <Progress value={Math.min(100, r.pctTarget)} className="h-1.5" indicatorColor={r.sales >= r.target ? 'var(--good)' : 'var(--accent)'} />
-          {r.comm > 0 && <div className="text-xs mt-1.5 text-muted-foreground">คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b></div>}
+          {r.comm > 0 && <div className="text-xs mt-1.5 text-muted-foreground">คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b> {cmp?.comm != null && dPill(cmp.comm)}</div>}
         </div>
       ) : (!noSeller && window.__canEdit !== false && (
         <button type="button" className="text-xs text-muted-foreground hover:text-[var(--accent-2)] text-left w-fit transition-colors"
@@ -298,14 +363,15 @@ function GoalCard({ row }) {
 }
 
 /* ---- HERO C: แนวโน้มรายวัน — ยอด(แท่ง) + คนทัก(เส้น) ทับกัน ---- */
-function TrendCard({ rows, dim, month, onOpenDay }) {
+function TrendCard({ rows, dim, month, onOpenDay, prevSeries, prevLabel }) {
   const bars = Array.from({ length: dim }, (_, i) => rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0));
   const line = Array.from({ length: dim }, (_, i) => rows.reduce((a, r) => a + (r.daily[i]?.leads || 0), 0));
   const hasLeads = line.some(v => v > 0);
+  const hasCmp = prevSeries && prevSeries.some(v => v > 0);
   return (
     <Card className="p-4">
-      <div className="text-sm font-semibold mb-1.5">แนวโน้มรายวัน · {monthLabel(month)} <span className="text-xs font-normal text-muted-foreground">— ยอดขาย (แท่ง){hasLeads ? ' + คนทัก (เส้น)' : ''} · คลิกวันเพื่อดูออเดอร์</span></div>
-      <ComboChart labels={Array.from({ length: dim }, (_, i) => String(i + 1))} bars={bars} line={hasLeads ? line : undefined} barLabel="ยอดขาย" lineLabel="คนทัก" barFmt={fmtB} height={160} onDayClick={onOpenDay ? (i) => onOpenDay(i + 1) : undefined} />
+      <div className="text-sm font-semibold mb-1.5">แนวโน้มรายวัน · {monthLabel(month)} <span className="text-xs font-normal text-muted-foreground">— ยอดขาย (แท่ง){hasCmp ? ' · เดือนก่อน (แท่งจาง)' : ''}{hasLeads ? ' + คนทัก (เส้น)' : ''} · คลิกวันเพื่อดูออเดอร์</span></div>
+      <ComboChart labels={Array.from({ length: dim }, (_, i) => String(i + 1))} bars={bars} line={hasLeads ? line : undefined} cmpBars={hasCmp ? prevSeries : undefined} cmpLabel={prevLabel || 'เดือนก่อน'} barLabel="ยอดขาย" lineLabel="คนทัก" barFmt={fmtB} height={160} onDayClick={onOpenDay ? (i) => onOpenDay(i + 1) : undefined} />
     </Card>
   );
 }
@@ -334,7 +400,8 @@ export function SalePerfView() {
   const [month, setMonth] = useState(curMonth());
   const [tab, setTab] = useState('month');
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevOrders: [] });
+  const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevOrders: [], prevFull: null });
+  const [maps, setMaps] = useState(null);   // resolver maps (catalog/alias/override/version) — ชื่อลาย resolve สด
   const [targets, setTargets] = useState({});
   const [detail, setDetail] = useState(null);   // เซลล์ที่เปิด drawer (รายเดือน)
   const monthOpts = useMemo(() => monthOptions(12), []);
@@ -344,6 +411,8 @@ export function SalePerfView() {
   const [onlyTargets, setOnlyTargets] = useState(false);
   const [hideNoSeller, setHideNoSeller] = usePersistedState('tmk-perf-hidenoseller', false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // เทียบเดือนก่อน = อัตโนมัติเสมอ · เดือนปัจจุบันเทียบช่วงเดียวกัน (MTD 1–วันนี้) · เดือนเก่า = เต็มเดือน
+  const [prevTargets, setPrevTargets] = useState({});
 
   const load = useCallback(async (force = false) => {
     if (!force) setLoading(true);   // realtime refetch (force) = อัปเดตในที่ ไม่ต้องล้างเป็น skeleton (กันจอกระพริบ)
@@ -352,37 +421,86 @@ export function SalePerfView() {
       const pm = prevMonthOf(month), pFrom = `${pm}-01`, pTo = `${pm}-${daysInMonth(pm)}`;
       // กัน skeleton ค้าง: ถ้า fetch ค้าง (เน็ต/auth หลุด) → timeout 15 วิ → เข้า catch → เลิก skeleton โชว์ empty
       const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 15000));
-      const [ordersR, skusR, funnelR, receiptsR, prevR, tg] = await Promise.race([timeout, Promise.all([
+      const base = [
         cachedFetchRange('tmk_mp_orders', ORDERS_SEL, from, to, 'order_date', force),
         cachedFetchRange('tmk_mp_skus', SKUS_SEL, from, to, 'order_date', force),
         supabase.from('tmk_sales_funnel').select('*').gte('date', from).lte('date', to),
         supabase.from('tmk_sale_receipts').select('order_no,salesperson,sales,qty,order_date,status,channel').eq('order_month', month),
         cachedFetchRange('tmk_mp_orders', 'salesperson,sales,status,order_date', pFrom, pTo, 'order_date', force),
         fetchTargets(month),
-      ])]);
+      ];
+      // เทียบเดือนก่อนอัตโนมัติ: ดึงเดือนก่อนแบบเต็ม (orders/skus/funnel/targets) เสมอ เพื่อคำนวณ delta ครบทุกค่า
+      const cmp = [
+        cachedFetchRange('tmk_mp_orders', ORDERS_SEL, pFrom, pTo, 'order_date', force),
+        cachedFetchRange('tmk_mp_skus', SKUS_SEL, pFrom, pTo, 'order_date', force),
+        supabase.from('tmk_sales_funnel').select('*').gte('date', pFrom).lte('date', pTo),
+        fetchTargets(pm),
+      ];
+      const [ordersR, skusR, funnelR, receiptsR, prevR, tg, pOrdersR, pSkusR, pFunnelR, pTg] =
+        await Promise.race([timeout, Promise.all([...base, ...cmp])]);
       const tmap = {}; (tg || []).forEach(t => { tmap[t.salesperson] = t; }); setTargets(tmap);
+      const ptmap = {}; (pTg || []).forEach(t => { ptmap[t.salesperson] = t; }); setPrevTargets(ptmap);
       setData({
         orders: ordersR.data || [], skus: skusR.data || [],
         funnel: funnelR.data || [], receipts: receiptsR.data || [], prevOrders: prevR.data || [],
+        prevFull: { orders: pOrdersR?.data || [], skus: pSkusR?.data || [], funnel: pFunnelR?.data || [] },
       });
     } catch { /* ปล่อยว่าง — empty state */ }
     finally { setLoading(false); }
   }, [month]);
   useEffect(() => { load(); }, [load]);
+  // resolver maps (catalog/alias/override/version) — โหลดครั้งเดียว ไม่ผูกเดือน · ชื่อลาย resolve สดตามแคตตาล็อก
+  useEffect(() => { let live = true; loadResolverMaps(supabase).then(m => { if (live) setMaps(m); }); return () => { live = false; }; }, []);
   useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => { invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_skus', { mark: false }); load(true); });
 
   // ช่องทางทั้งหมด (ทำ option ตัวกรอง)
   const channels = useMemo(() => [...new Set((data.orders || []).map(o => o.channel).filter(Boolean))].sort(), [data.orders]);
+  // ชื่อลาย resolve สด (catalog→alias→golden→frozen + as-of) — ตรงแดชบอร์ด/CRM · คง color/size เดิม
+  const resolvedSkus = useMemo(() => {
+    if (!maps) return data.skus;
+    const R = makeSkuResolver(maps);
+    return (data.skus || []).map(k => { const r = R(k); return { ...k, design: r.design || k.design, product_code: r.product_code || k.product_code }; });
+  }, [data.skus, maps]);
   // กรองช่องทาง → orders/skus ที่กรองแล้ว (ใช้ทั้ง buildPerf + drill-down รายวันรายออเดอร์)
   const { ordersF, skusF } = useMemo(() => {
     const chSet = channelF.length ? new Set(channelF) : null;
     return {
       ordersF: chSet ? data.orders.filter(o => chSet.has(o.channel)) : data.orders,
-      skusF: chSet ? data.skus.filter(k => chSet.has(k.channel)) : data.skus,
+      skusF: chSet ? resolvedSkus.filter(k => chSet.has(k.channel)) : resolvedSkus,
     };
-  }, [data.orders, data.skus, channelF]);
+  }, [data.orders, resolvedSkus, channelF]);
   const perf = useMemo(() => buildPerf(month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevOrders),
     [month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevOrders]);
+  // โหมดเทียบเดือนก่อน: กรองช่องทาง + clamp วัน (MTD) แล้วรัน buildPerf รอบ 2
+  const isCurMonth = month === curMonth();
+  const daysPassed = isCurMonth ? Math.min(new Date().getDate(), daysInMonth(month)) : daysInMonth(month);
+  const mtdClamp = isCurMonth;   // เดือนปัจจุบัน = เทียบช่วงเดียวกัน (1–วันนี้) เสมอ · เดือนเก่า = เต็มเดือน
+  const perfPrev = useMemo(() => {
+    if (!data.prevFull) return null;
+    const pm = prevMonthOf(month);
+    const chSet = channelF.length ? new Set(channelF) : null;
+    const clampDay = mtdClamp ? daysPassed : Infinity;
+    const po = data.prevFull.orders.filter(o => (!chSet || chSet.has(o.channel)) && dayOf(o.order_date) <= clampDay);
+    const ps = data.prevFull.skus.filter(k => (!chSet || chSet.has(k.channel)) && dayOf(k.order_date) <= clampDay);
+    const pf = data.prevFull.funnel.filter(f => dayOf(f.date) <= clampDay);
+    return buildPerf(pm, po, ps, pf, [], prevTargets, []);
+  }, [data.prevFull, channelF, mtdClamp, daysPassed, month, prevTargets]);
+  // delta ต่อเซลล์ (ยอด/ออเดอร์/ตัว/AOV/คอม/คนทัก/%ปิด) — เทียบ perf กับ perfPrev (match ด้วยชื่อ)
+  const deltasByName = useMemo(() => {
+    const m = new Map();
+    if (!perfPrev) return m;
+    const prevByName = new Map(perfPrev.rows.map(r => [r.name, r]));
+    perf.rows.forEach(r => {
+      const p = prevByName.get(r.name);
+      m.set(r.name, {
+        sales: deltaPct(r.sales, p?.sales || 0), orders: deltaPct(r.orders, p?.orders || 0),
+        qty: deltaPct(r.qty, p?.qty || 0), aov: deltaPct(r.aov, p?.aov || 0),
+        comm: deltaPct(r.comm, p?.comm || 0), leads: deltaPct(r.leads, p?.leads || 0),
+        closeRate: deltaPct(r.closeRate || 0, p?.closeRate || 0),
+      });
+    });
+    return m;
+  }, [perf, perfPrev]);
   const [dayDrill, setDayDrill] = useState(null);   // { name, day } — เซลล์+วันที่เปิดดูออเดอร์รายตัว (drill-down รายวัน)
   const [dayAll, setDayAll] = useState(null);       // วันที่ (number) — คลิกจากกราฟ → ป๊อปอัพออเดอร์ทั้งวัน
   // กรอง rows ฝั่งแสดงผล (ค้นหา/เฉพาะมีเป้า/ซ่อนไม่ระบุเซลล์) + คำนวณทีมใหม่ + จัดอันดับตามยอด
@@ -393,8 +511,9 @@ export function SalePerfView() {
     (!hideNoSeller || r.name !== NO_SELLER)
   ), [perf.rows, ql, onlyTargets, hideNoSeller]);
   const teamView = useMemo(() => {
-    const t = rowsView.reduce((a, r) => ({ sales: a.sales + r.sales, orders: a.orders + r.orders, qty: a.qty + r.qty, leads: a.leads + r.leads, newC: a.newC + r.newC }), { sales: 0, orders: 0, qty: 0, leads: 0, newC: 0 });
+    const t = rowsView.reduce((a, r) => ({ sales: a.sales + r.sales, orders: a.orders + r.orders, qty: a.qty + r.qty, leads: a.leads + r.leads, newC: a.newC + r.newC, newLeads: a.newLeads + (r.newOld?.new || 0), oldLeads: a.oldLeads + (r.newOld?.old || 0) }), { sales: 0, orders: 0, qty: 0, leads: 0, newC: 0, newLeads: 0, oldLeads: 0 });
     t.closeRate = t.leads > 0 ? t.orders / t.leads * 100 : null;
+    t.aov = t.orders > 0 ? t.sales / t.orders : 0;
     t.dSales = perf.team.dSales;
     return t;
   }, [rowsView, perf.team.dSales]);
@@ -404,6 +523,16 @@ export function SalePerfView() {
 
   const nFilters = channelF.length + (onlyTargets ? 1 : 0) + (hideNoSeller ? 1 : 0);
   const commTotal = useMemo(() => rowsView.reduce((s, r) => s + (r.comm || 0), 0), [rowsView]);
+  // delta ทีมรวม (เทียบ teamView ที่แสดงจริง กับทีมเดือนก่อน)
+  const teamCmp = useMemo(() => {
+    if (!perfPrev) return null;
+    const pt = perfPrev.team, prevComm = perfPrev.rows.reduce((s, r) => s + (r.comm || 0), 0);
+    return {
+      sales: deltaPct(teamView.sales, pt.sales), orders: deltaPct(teamView.orders, pt.orders),
+      qty: deltaPct(teamView.qty, pt.qty), comm: deltaPct(commTotal, prevComm),
+      leads: deltaPct(teamView.leads, pt.leads || 0), aov: deltaPct(teamView.aov, pt.orders > 0 ? pt.sales / pt.orders : 0),
+    };
+  }, [perfPrev, teamView, commTotal]);
   // adaptive: ทีมเล็ก (≤1 คนจริง) → โซโล่ (ไม่มีอันดับ/แชร์ · เน้นคนเดียว) · หลายคน → เทียบ/อันดับ
   const realSellers = useMemo(() => rowsView.filter(r => r.name !== NO_SELLER), [rowsView]);
   const soloMode = realSellers.length <= 1;
@@ -427,7 +556,7 @@ export function SalePerfView() {
     return { name: 'ทีม', isTeam: true, sales, target, comm: commTotal, projected, tgt: null, pctTarget: target > 0 ? sales / target * 100 : null, pace: target > 0 ? (sales >= target ? 'over' : projected >= target ? 'ontrack' : 'risk') : null };
   }, [soloMode, focus, rowsView, teamView.sales, commTotal]);
 
-  if (beat) return <PageSkeleton />;
+  if (beat) return <PerfSkeleton />;
 
   const clearFilters = () => { setChannelF([]); setOnlyTargets(false); setHideNoSeller(false); };
 
@@ -436,7 +565,7 @@ export function SalePerfView() {
     <>
       <Sheet open={!!dayDrill} onOpenChange={o => { if (!o) setDayDrill(null); }}>
         <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          {dayDrill && <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />}
+          {dayDrill && <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={data.funnel} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />}
         </SheetContent>
       </Sheet>
       <Sheet open={!!dayAll} onOpenChange={o => { if (!o) setDayAll(null); }}>
@@ -455,7 +584,7 @@ export function SalePerfView() {
           <Button variant="ghost" size="sm" className="gap-1.5 -ml-1" onClick={() => setDetail(null)}><Icon name="chevL" /> ประสิทธิภาพเซลล์</Button>
           <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
         </div>
-        <Card className="p-4 sm:p-5"><SpDetail sp={openSp} month={month} inline onDay={(day) => setDayDrill({ name: openSp.name, day })} /></Card>
+        <Card className="p-4 sm:p-5"><SpDetail sp={openSp} month={month} inline cmp={deltasByName.get(openSp.name)} onDay={(day) => setDayDrill({ name: openSp.name, day })} /></Card>
         {drillSheets}
       </div>
     );
@@ -468,6 +597,7 @@ export function SalePerfView() {
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-semibold">ประสิทธิภาพเซลล์</span>
+            {loading && perf.rows.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />กำลังอัปเดต…</span>}
             <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
             <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />
             <CollapsibleTrigger asChild>
@@ -494,13 +624,34 @@ export function SalePerfView() {
         </Collapsible>
       </Card>
 
-      {loading ? <PageSkeleton /> : !perf.rows.length ? (
+      {loading && !perf.rows.length ? <PerfSkeleton bodyOnly /> : !perf.rows.length ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูลยอดเดือนนี้ — ส่งใบเสร็จ/คีย์มือในหน้า "ส่งยอด &amp; ข้อมูล" แล้วจะขึ้นที่นี่</Card>
       ) : !rowsView.length ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">ไม่พบเซลล์ตามตัวกรอง · <button className="text-[var(--accent)] hover:underline" onClick={() => { setQ(''); clearFilters(); }}>ล้างตัวกรอง</button></Card>
       ) : (
             <div className="flex flex-col gap-4">
-              <TrendCard rows={rowsView} dim={perf.dim} month={month} onOpenDay={setDayAll} />
+              {/* การ์ดสรุปทีมด้านบน (ยอดรวม/ออเดอร์/AOV) + คนทัก แยกการ์ดย่อย — เคารพตัวกรอง+ค้นหา */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-xl border p-3">
+                  <div className="text-[11px] text-muted-foreground">ยอดขายรวม</div>
+                  <div className="num text-xl font-bold leading-tight mt-0.5" style={{ color: 'var(--accent-2)' }}>{fmtB(teamView.sales)}</div>
+                  {teamCmp && <div className="mt-1">{dPill(teamCmp.sales)}</div>}
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-[11px] text-muted-foreground">ออเดอร์</div>
+                  <div className="num text-xl font-bold leading-tight mt-0.5">{N(teamView.orders)}</div>
+                  {teamCmp && <div className="mt-1">{dPill(teamCmp.orders)}</div>}
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-[11px] text-muted-foreground">ยอดเฉลี่ย/ออเดอร์ (AOV)</div>
+                  <div className="num text-xl font-bold leading-tight mt-0.5">{fmtB(teamView.aov)}</div>
+                  {teamCmp && <div className="mt-1">{dPill(teamCmp.aov)}</div>}
+                </div>
+              </div>
+              <div className="rounded-xl border p-3"><LeadPanel title="คนทักทั้งทีม" total={teamView.leads} nw={teamView.newLeads} old={teamView.oldLeads} close={teamView.closeRate} /></div>
+              <TrendCard rows={rowsView} dim={perf.dim} month={month} onOpenDay={setDayAll}
+                prevSeries={perfPrev ? Array.from({ length: perf.dim }, (_, i) => perfPrev.rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0)) : null}
+                prevLabel={perfPrev ? monthLabel(prevMonthOf(month)) : null} />
               {soloMode ? (
                 focus && <DeepPanel r={focus} onOpen={() => setDetail(focus.name)} />
               ) : (
@@ -509,17 +660,9 @@ export function SalePerfView() {
               {rowsView.map(r => (
                 <SellerCard key={r.name} r={r} rank={rankMap.get(r.name) ?? 99}
                   share={teamView.sales > 0 ? r.sales / teamView.sales * 100 : 0}
+                  cmp={deltasByName.get(r.name)}
                   onOpen={() => setDetail(r.name)} />
               ))}
-            </div>
-            {/* แถวทีมรวม (ย้ายมาจากมุมมองตารางเดิม — ยังเห็นสรุปทีมในมุมมองการ์ด) */}
-            <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border bg-muted/40 text-sm flex-wrap">
-              <b>ทีมรวม ({rowsView.length} คน)</b>
-              <span>ยอด <b>{fmtB(teamView.sales)}</b></span>
-              <span>ออเดอร์ <b>{N(teamView.orders)}</b></span>
-              <span>ตัว <b>{N(teamView.qty)}</b></span>
-              <span>คอมรวม <b>{commTotal ? fmtB(commTotal) : '—'}</b></span>
-              {teamView.leads > 0 && <span>คนทัก <b>{N(teamView.leads)}</b> · %ปิด <b>{teamView.closeRate == null ? '—' : Math.round(teamView.closeRate) + '%'}</b></span>}
             </div>
             </>
             )}
@@ -610,7 +753,7 @@ function DailyPanel({ perf, month, orders, onOpenDay, onOpenDayAll }) {
 }
 
 /* ---- Drawer: เซลล์รายคน (กราฟรายวัน + ช่องทาง + ลายขายดี + ใบเสร็จ) ---- */
-function SpDetail({ sp, month, onDay, inline }) {
+function SpDetail({ sp, month, onDay, inline, cmp }) {
   const labels = sp.daily.map(d => String(d.day));
   const chEntries = Object.entries(sp.channels).sort((a, b) => b[1] - a[1]);
   const donut = chEntries.map(([k, v]) => ({ label: k, value: v, color: channelColor(k) }));
@@ -623,13 +766,14 @@ function SpDetail({ sp, month, onDay, inline }) {
         ? <div className="text-lg font-bold">{head}</div>
         : <SheetHeader><SheetTitle>{head}</SheetTitle></SheetHeader>}
       <div className="flex flex-col gap-4 mt-3">
-        {/* KPI 2 แถวบน */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {[['ยอดขาย', fmtB(sp.sales)], ['ออเดอร์', N(sp.orders)], ['ตัว', N(sp.qty)], ['AOV', fmtB(sp.aov)], ['คนทัก', N(sp.leads)], ['%ปิด', sp.closeRate == null ? '—' : Math.round(sp.closeRate) + '%']].map(([l, v]) => (
-            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div></div>
+        {/* KPI ยอด/ออเดอร์/ตัว/AOV */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+          {[['ยอดขาย', fmtB(sp.sales), cmp?.sales], ['ออเดอร์', N(sp.orders), cmp?.orders], ['ตัว', N(sp.qty), cmp?.qty], ['AOV', fmtB(sp.aov), cmp?.aov]].map(([l, v, d]) => (
+            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div>{d != null && <div className="mt-0.5 leading-none">{dPill(d)}</div>}</div>
           ))}
         </div>
-        <div className="text-xs text-muted-foreground -mt-1.5">ขายจริง {N(sp.daysActive)} วัน{sp.newOld && (sp.newOld.new || sp.newOld.old) ? ` · คนทัก ใหม่ ${N(sp.newOld.new)} · เก่า ${N(sp.newOld.old)}` : ''}</div>
+        <div className="text-xs text-muted-foreground -mt-1.5">ขายจริง {N(sp.daysActive)} วัน</div>
+        <LeadPanel title="คนทัก" total={sp.leads} nw={sp.newOld?.new || 0} old={sp.newOld?.old || 0} close={sp.closeRate} />
         {/* เป้า — แถบกะทัดรัด (ต่อจาก KPI ทันที) */}
         {sp.target > 0 && (
           <div className="rounded-lg border p-3">
@@ -771,10 +915,14 @@ function DayDetail({ day, month, orders, skus }) {
 }
 
 /* ---- Drill-down รายวัน: ออเดอร์รายตัวของเซลล์ในวันนั้น (ตรวจสอบ/คิดคอม) ---- */
-function DaySellerDetail({ name, day, month, orders, skus, target, onOpenMonth }) {
+function DaySellerDetail({ name, day, month, orders, skus, funnel, target, onOpenMonth }) {
   // ออเดอร์ของเซลล์คนนี้ในวันนี้ (ตัดยกเลิก) เรียงยอดมาก→น้อย
   const ords = (orders || []).filter(o => !isCancelled(o) && spOf(o) === name && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
+  // คนทักของเซลล์คนนี้ในวันนี้ (แยกใหม่/เก่า) — จากแถว funnel วันนั้น
+  const dayFunnel = (funnel || []).filter(f => String(f.salesperson || '').trim() === name && dayOf(f.date) === day);
+  const leadTot = dayFunnel.reduce((s, f) => s + funnelTotal(f), 0);
+  const leadNO = dayFunnel.reduce((a, f) => { const x = funnelNewOld(f); return { new: a.new + x.new, old: a.old + x.old }; }, { new: 0, old: 0 });
   // index sku ต่อ order_no (line items ลาย/สี/ไซซ์/ยอด)
   const skuBy = new Map();
   (skus || []).forEach(k => { const arr = skuBy.get(k.order_no) || []; arr.push(k); skuBy.set(k.order_no, arr); });
@@ -802,6 +950,7 @@ function DaySellerDetail({ name, day, month, orders, skus, target, onOpenMonth }
             <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div></div>
           ))}
         </div>
+        <LeadPanel title="คนทักวันนี้" total={leadTot} nw={leadNO.new} old={leadNO.old} close={ords.length && leadTot ? ords.length / leadTot * 100 : null} />
         {/* คอมของวัน (ประมาณ) — คิดจากยอดวันนี้ × เรต · หมายเหตุ: คอมจริงคิดจากยอดรวมทั้งเดือน */}
         {target && (
           <div className="rounded-lg border p-3 text-sm flex items-center gap-3 flex-wrap" style={{ background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}>

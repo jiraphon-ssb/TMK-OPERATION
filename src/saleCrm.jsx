@@ -14,6 +14,7 @@ import { channelColor } from './charts.jsx';
 import { SideSheet } from './modals.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
+import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { downloadCsv } from './lib/exportCsv.js';
@@ -448,10 +449,16 @@ function CustomerDetail({ c, onClose, onSaved }) {
       if (!nos.length) { if (live) setInsight({ designs: [], colors: [], sizes: [], desByOrder: {} }); return; }
       const rows = [];
       for (let i = 0; i < nos.length; i += 150) {
-        const { data } = await supabase.from('tmk_mp_skus').select('order_no,design,color,size,qty').in('order_no', nos.slice(i, i + 150));
+        // ดึง product_code/raw/วันที่ เพิ่ม → resolve ชื่อลายสด (ตรงแดชบอร์ด · แก้ชื่อในแคตตาล็อกไม่แตก 2 bucket)
+        const { data } = await supabase.from('tmk_mp_skus').select('order_no,design,color,size,qty,product_code,raw_sku_or_name,order_date').in('order_no', nos.slice(i, i + 150));
         rows.push(...(data || []));
       }
       if (!live) return;
+      // resolve ชื่อลายสดด้วย resolver เดียวกับหน้าออเดอร์/แดชบอร์ด (catalog→alias→golden→frozen + as-of)
+      const maps = await loadResolverMaps(supabase);
+      if (!live) return;
+      const resolve = makeSkuResolver(maps);
+      rows.forEach(s => { s.design = resolve(s).design || s.design; });
       const cnt = (keyf) => { const mm = new Map(); rows.forEach(s => { const k = (keyf(s) || '').trim(); if (!k) return; mm.set(k, (mm.get(k) || 0) + (Number(s.qty) || 1)); }); return [...mm.entries()].sort((a, b) => b[1] - a[1]); };
       const desByOrder = {};
       rows.forEach(s => { if (s.design) (desByOrder[s.order_no] = desByOrder[s.order_no] || new Set()).add(s.design); });

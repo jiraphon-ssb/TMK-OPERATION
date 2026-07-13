@@ -153,41 +153,81 @@ const baht = (n) => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFr
 const COLOR_HEX = { 'ขาว': '#dcdce0', 'ดำ': '#2a2a2e', 'กรม': '#1f2d50', 'กรมท่า': '#1f2d50', 'ฟ้า': '#4a8be0', 'น้ำเงิน': '#1f3aa0', 'เขียว': '#2f9e6e', 'เหลือง': '#e8c23b', 'แดง': '#c0392b', 'ชมพู': '#e06aa0', 'ม่วง': '#7c5cff', 'ส้ม': '#e0772f', 'โอรส': '#e0772f', 'ครีม': '#e6dcc2' };
 const tierTone = { 'เพชร': '#7c5cff', 'ทอง': '#e39b2e', 'เงิน': '#3aa0c9', 'ทองแดง': '#8a909c' };
 
-/* Skeleton ตรง layout แดชบอร์ด: แถบควบคุม + hero ใหญ่ + เกจ + กราฟ + การ์ดเมตริก */
+/* Skeleton ตรง layout แดชบอร์ดจริง: แถบกรอง + hero (ยอด+กราฟ | การ์ดช่องทาง) + KPI4 sparkline + insight + เจาะลึก + แท็บ + กราฟเทรนด์ */
 function DashboardSkeleton() {
   const bar = (i) => `${28 + ((i * 41) % 64)}%`;
   return (
     <div className="content-inner rise" style={{ display: 'grid', gap: 14 }}>
-      <Card className="p-3">
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          {Array.from({ length: 7 }).map((_, i) => <Skel key={i} w={58} h={28} r={8} />)}
-          <Skel w={130} h={28} r={8} style={{ marginLeft: 'auto' }} />
+      {/* แถบควบคุม: ช่วงเวลา + ตัวกรอง + hint */}
+      <Card style={{ padding: '11px 14px' }}>
+        <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Skel w={186} h={30} r={8} />
+          <span className="h-5 w-px bg-[var(--line)]" />
+          <Skel w={92} h={30} r={8} />
+          <Skel w={150} h={11} />
         </div>
       </Card>
-      <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'stretch' }}>
-        <Card className="p-[22px]" style={{ flex: '2 1 360px', minHeight: 196 }}>
-          <Skel w={130} h={11} />
-          <Skel w={240} h={38} r={10} style={{ margin: '14px 0 10px' }} />
-          <Skel w="64%" h={9} style={{ marginBottom: 18 }} />
-          <Skel w="100%" h={8} r={6} />
-          <div className="row" style={{ gap: 18, marginTop: 20 }}>
-            {Array.from({ length: 4 }).map((_, i) => <div key={i} style={{ flex: 1 }}><Skel w="58%" h={9} /><Skel w="82%" h={18} style={{ marginTop: 7 }} /></div>)}
+
+      {/* Hero bento: ยอดขายรวม + area chart (ซ้าย) · การ์ดช่องทาง 4 (ขวา) */}
+      <Card className="p-[22px]">
+        <div className="hero-bento">
+          <div className="hero-total">
+            <Skel w={120} h={16} />
+            <Skel w={236} h={44} r={10} style={{ margin: '12px 0 2px' }} />
+            <div className="hero-chartwrap"><Skel w="100%" h="100%" r={10} style={{ minHeight: 92 }} /></div>
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}><Skel w="54%" h={10} /></div>
           </div>
-        </Card>
-        <Card className="p-[22px]" style={{ flex: '1 1 220px', minHeight: 196, display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Skel w={112} h={112} r="50%" />
-          <div style={{ flex: 1 }}><Skel w="70%" h={11} /><Skel w="90%" h={22} style={{ marginTop: 9 }} /><Skel w="60%" h={11} style={{ marginTop: 13 }} /></div>
-        </Card>
+          <div className="hero-chgrid">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className={'ch-card' + (i === 0 ? ' lead' : '')} style={{ cursor: 'default' }}>
+                <Skel w={i === 0 ? 40 : 34} h={i === 0 ? 40 : 34} r={10} />
+                <div className="ch-meta" style={{ flex: 1 }}>
+                  <Skel w="52%" h={10} />
+                  <Skel w="74%" h={17} r={7} style={{ marginTop: 8 }} />
+                  <Skel w="46%" h={9} style={{ marginTop: 8 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* ตัวชี้วัดหลัก: 4 KPI มี sparkline */}
+      <Skel w={110} h={13} style={{ marginTop: 2 }} />
+      <div className="kpi4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="metric-card">
+            <Skel w="42%" h={9} />
+            <Skel w="58%" h={24} r={8} style={{ margin: '10px 0' }} />
+            <Skel w="100%" h={26} r={6} />
+            <Skel w="72%" h={9} style={{ marginTop: 9 }} />
+          </div>
+        ))}
       </div>
+
+      {/* insight strip: 4 pills */}
+      <div className="insight-strip">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="insight-pill"><Skel w={18} h={18} r={6} /><div style={{ flex: 1 }}><Skel w="68%" h={12} /><Skel w="48%" h={9} style={{ marginTop: 6 }} /></div></div>
+        ))}
+      </div>
+
+      {/* เจาะลึก: 4 metric */}
+      <Skel w={80} h={13} style={{ marginTop: 2 }} />
+      <div className="metric-grid">
+        {Array.from({ length: 4 }).map((_, i) => <div key={i} className="metric-card"><Skel w="56%" h={10} /><Skel w="70%" h={22} r={7} style={{ marginTop: 10 }} /><Skel w="48%" h={9} style={{ marginTop: 8 }} /></div>)}
+      </div>
+
+      {/* แท็บ 7 อัน */}
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 4 }}>{Array.from({ length: 7 }).map((_, i) => <Skel key={i} w={i % 2 ? 78 : 58} h={30} r={8} />)}</div>
+
+      {/* กราฟเทรนด์ + toolbar */}
       <Card className="p-[22px]" style={{ minHeight: 270 }}>
-        <Skel w={160} h={13} style={{ marginBottom: 20 }} />
+        <div className="row between" style={{ marginBottom: 20, flexWrap: 'wrap', gap: 10 }}><Skel w={200} h={14} /><Skel w={230} h={28} r={8} /></div>
         <div className="row" style={{ alignItems: 'flex-end', gap: 7, height: 200 }}>
           {Array.from({ length: 24 }).map((_, i) => <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', height: '100%' }}><Skel w="100%" h={bar(i)} r={4} /></div>)}
         </div>
       </Card>
-      <div className="metric-grid">
-        {Array.from({ length: 4 }).map((_, i) => <Card key={i} className="p-[22px]"><Skel w="55%" h={10} /><Skel w="76%" h={22} style={{ marginTop: 11 }} /></Card>)}
-      </div>
     </div>
   );
 }
@@ -228,7 +268,7 @@ export function SaleDashboard() {
       cachedFetchAll('tmk_mp_customers', CUST_SEL),
       cachedFetchAll('tmk_sales_funnel', '*'),
       cachedFetchAll('tmk_sales_aliases', 'handle,display_name'),
-      cachedFetchAll('tmk_order_overrides', 'order_id,job_type,customer_name,customer_type,salesperson,note'),
+      cachedFetchAll('tmk_order_overrides', 'order_id,job_type,customer_name,customer_type,salesperson,note,channel,payment_type,sales,qty,province,order_date,cod_amount'),
     ]);
     if (!alive) return;
     setDbBounds(bnd || { min: null, max: null });
@@ -295,6 +335,8 @@ export function SaleDashboard() {
   const procOrders = useMemo(() => {
     if (!orders) return null;
     const spMap = new Map((aliases || []).filter(a => a.display_name).map(a => [a.handle, a.display_name]));
+    const ovNum = (a, b) => (a != null && a !== '' ? Number(a) : b);
+    const ovStr = (a, b) => (a != null && a !== '' ? a : b);
     const norm = orders.map(o => {
       const ov = orderOv[`${o.source || ''}:${o.order_no}`];
       const ovNote = ov ? ((ov.note != null && ov.note !== '') ? ov.note : o.note) : o.note;
@@ -305,6 +347,14 @@ export function SaleDashboard() {
         customer_name: ov.customer_name || o.customer_name,
         customer_type: ov.customer_type || o.customer_type,
         salesperson: ov.salesperson || o.salesperson,
+        // ช่องที่แก้ (PART 72 1C) — ให้แดชบอร์ดตรงกับหน้าออเดอร์ · กัน reimport ย้อนค่า (คอลัมน์ใหม่ · graceful undefined→ค่าไฟล์)
+        channel: ovStr(ov.channel, o.channel),
+        payment_type: ovStr(ov.payment_type, o.payment_type),
+        sales: ovNum(ov.sales, o.sales),
+        qty: ovNum(ov.qty, o.qty),
+        province: ovStr(ov.province, o.province),
+        order_date: ovStr(ov.order_date, o.order_date),
+        cod_amount: ovNum(ov.cod_amount, o.cod_amount),
         note: ovNote,
       } : o;
       const th = o1.province ? normalizeProvince(o1.province) : null;
