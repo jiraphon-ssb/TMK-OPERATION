@@ -122,6 +122,11 @@ function MpOrdersView() {
   const [openId, setOpenId] = useState(null);
   const [addOpen, setAddOpen] = useState(false); // เปิด sheet เพิ่มออเดอร์เอง
   const { user } = useUser();
+  // มองเห็นออเดอร์ตาม "สิทธิการเข้าถึง" (role): ผู้ดูแลระบบ(admin) = เห็นทุกออเดอร์
+  // แก้ไขได้(editor) + ดูอย่างเดียว(viewer) = เห็นเฉพาะของตัวเอง (salesperson = ชื่อ/อีเมลตัวเอง)
+  // ผูกกับ user.role ตรงๆ (reactive · ไม่พึ่ง window.__isAdmin ที่เซ็ตใน effect อาจ lag รอบแรก)
+  const canSeeAll = user?.role === 'admin';
+  const myNames = useMemo(() => [user?.name, user?.email].filter(Boolean), [user?.name, user?.email]);
   const PER_PAGE = 50;
   const [page, setPage] = useState(1);
   const [selSet, setSelSet] = useState(() => new Set()); // เลือกหลายออเดอร์ (order_no) สำหรับ action รวดเร็ว
@@ -255,13 +260,14 @@ function MpOrdersView() {
   const ql = q.trim().toLowerCase();
   // memoize — ต้องคง identity ของ filtered ให้เสถียร ไม่งั้น useTableSort re-sort ทุก render (กดเช็คบ็อกซ์/เปิด drawer/สลับหน้า → กระตุก)
   const filtered = useMemo(() => (ordersM || []).filter(o =>
+    (canSeeAll || myNames.includes(o.salesperson || '')) &&
     (statusF.length === 0 || statusF.includes(o.status === 'cancelled' ? 'ยกเลิก' : 'ใช้งาน')) &&
     (channelF.length === 0 || channelF.includes(o.channel)) &&
     (payF.length === 0 || payF.includes(o.payment_type || 'ไม่ระบุ')) &&
     (jobF.length === 0 || jobF.includes(o.job_type || 'ปลีก')) &&
     (sellerF.length === 0 || sellerF.includes(o.salesperson || '')) &&
     (!ql || `${o.order_no} ${o.marketplace_id || ''} ${o.customer_name || ''} ${o.customer_code || ''} ${o.customer_social || ''} ${o.province || ''} ${o.salesperson || ''}`.toLowerCase().includes(ql) || (skusByOrder[o.order_no] || []).some(s => `${s.design || ''} ${s.color || ''} ${s.raw_sku_or_name || ''}`.toLowerCase().includes(ql)))
-  ), [ordersM, statusF, channelF, payF, jobF, sellerF, ql, skusByOrder]);
+  ), [ordersM, statusF, channelF, payF, jobF, sellerF, ql, skusByOrder, canSeeAll, myNames]);
 
   // เรียงตามคอลัมน์ (เริ่มต้น = วันที่ล่าสุดก่อน เหมือนเดิม)
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
@@ -305,6 +311,7 @@ function MpOrdersView() {
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="m-0 mr-1 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์</h3>
+            {!canSeeAll && <Badge variant="outline" className="gap-1 text-[11px] text-muted-foreground"><Icon name="user" className="size-3" />เฉพาะของฉัน</Badge>}
             <DateRangePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max}
               onChange={(a, b) => setRange({ from: a, to: b })} presets={PRESETS} activePreset={activePreset} onPickPreset={pickPreset} />
             <CollapsibleTrigger asChild>
@@ -332,7 +339,7 @@ function MpOrdersView() {
               <MultiSelect label="งาน" options={['ปลีก', 'DFT', 'OEM']} value={jobF} onChange={setJobF} />
               <MultiSelect label="ช่องทาง" options={channels} value={channelF} onChange={setChannelF} />
               {payments.length > 0 && <MultiSelect label="การชำระ" options={payments} value={payF} onChange={setPayF} />}
-              {sellers.length > 0 && <MultiSelect label="เซลล์" options={sellers} value={sellerF} onChange={setSellerF} />}
+              {canSeeAll && sellers.length > 0 && <MultiSelect label="เซลล์" options={sellers} value={sellerF} onChange={setSellerF} />}
             </div>
           </CollapsibleContent>
         </Collapsible>
