@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { B, P, N, Icon, PersonAvatar, Skel, useDelayedFlag } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { channelColor } from './charts.jsx';
@@ -10,7 +10,7 @@ import { usePersistedState } from './hooks/usePersistedState.js';
 import { useTableSort, SortHead, ColumnToggle, CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchRange, getDateBounds, invalidateSaleCache, ORDERS_SEL, SKUS_SEL, isDftNote } from './lib/saleData.js';
-import { voidReceipt, restoreReceipt, deleteOrders, voidReceipts } from './lib/receiptSubmit.js';
+import { voidReceipt, restoreReceipt, deleteOrders, voidReceipts, uploadReceiptFile, canEditReceipt } from './lib/receiptSubmit.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 import { useUser } from './userContext.jsx';
@@ -442,8 +442,38 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
     })();
     return () => { cancel = true; };
   }, [o.order_no, o.source]);
+  // ไฟล์ใบเสร็จ (PDF) — ออเดอร์จากใบเสร็จ (source=shipnity) มีแถวใน tmk_sale_receipts · โหลด lazy ตอนเปิด
+  const [rec, setRec] = useState(undefined);              // undefined=กำลังโหลด · null=ไม่มีใบเสร็จ · obj=แถวใบเสร็จ
+  const [attaching, setAttaching] = useState(false);
+  const attachRef = useRef(null);
+  useEffect(() => {
+    if (!isReceipt) { setRec(null); return; }
+    let cancel = false;
+    (async () => {
+      try {
+        const { data } = await supabase.from('tmk_sale_receipts')
+          .select('id,order_no,file_url,uploader_email,status,created_at').eq('order_no', o.order_no).maybeSingle();
+        if (!cancel) setRec(data || null);
+      } catch { if (!cancel) setRec(null); }
+    })();
+    return () => { cancel = true; };
+  }, [o.order_no, isReceipt]);
   const ovId = `${o.source || ''}:${o.order_no}`;
   const toast = (m, t) => window.__toast && window.__toast(m, t);
+  // แนบ/เปลี่ยนไฟล์ใบเสร็จจากหน้าออเดอร์ (เหมือนหน้าส่งยอด) — อัปเดต file_url ที่ tmk_sale_receipts
+  const attachReceiptToOrder = async (file) => {
+    if (!file || !rec) return;
+    setAttaching(true);
+    try {
+      const url = await uploadReceiptFile(file, rec.order_no);
+      if (!url) { toast('อัปโหลดไม่สำเร็จ — รัน migration 20260704 (bucket รับ PDF) แล้วหรือยัง?', 'error'); return; }
+      const { error } = await supabase.from('tmk_sale_receipts').update({ file_url: url }).eq('order_no', rec.order_no);
+      if (error) { toast('บันทึกลิงก์ไม่สำเร็จ: ' + error.message, 'error'); return; }
+      toast('แนบไฟล์ใบเสร็จแล้ว', 'success');
+      setRec(r => r ? { ...r, file_url: url } : r);
+    } catch (e) { toast('แนบไฟล์ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    finally { setAttaching(false); }
+  };
   const startEdit = () => {
     setEdit({
       order_date: o.order_date || '', channel: o.channel || '', job_type: jt,
@@ -740,6 +770,23 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
     </div>
 
     {!edit && fin && <div className="mb-4"><PriceBreakdown subtotal={fin.subtotal} discount={fin.discount} shipping={fin.shipping} vat={fin.vat} total={o.sales} /></div>}
+
+    {/* ไฟล์ใบเสร็จ — เปิด/แนบ/เปลี่ยน (เฉพาะออเดอร์จากใบเสร็จ · เหมือนหน้าส่งยอด) */}
+    {!edit && isReceipt && rec && (
+      <div className="mb-4 flex items-center gap-2 flex-wrap">
+        {rec.file_url
+          ? <Button asChild size="sm" variant="outline" className="h-8 gap-1.5"><a href={rec.file_url} target="_blank" rel="noreferrer"><Icon name="external" className="size-3.5" /> เปิดไฟล์ใบเสร็จ</a></Button>
+          : <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="external" className="size-3.5 opacity-60" /> ยังไม่มีไฟล์แนบ</span>}
+        {rec.status !== 'void' && canEditReceipt(rec, { email: window.__userEmail, isAdmin: window.__isAdmin === true }) && (
+          <>
+            <input ref={attachRef} type="file" accept="application/pdf" hidden onChange={e => { attachReceiptToOrder(e.target.files?.[0]); e.target.value = ''; }} />
+            <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={attaching} onClick={() => attachRef.current?.click()}>
+              <Icon name="pencil" className="size-3.5" /> {attaching ? 'กำลังแนบ…' : rec.file_url ? 'เปลี่ยนไฟล์' : 'แนบไฟล์'}
+            </Button>
+          </>
+        )}
+      </div>
+    )}
 
     {o.note && (
       <div className="mb-4 flex gap-2.5 rounded-xl border p-3" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)' }}>
