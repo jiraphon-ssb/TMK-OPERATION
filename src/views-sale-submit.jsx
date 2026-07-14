@@ -23,10 +23,11 @@ import { downloadCsv } from './lib/exportCsv.js';
 import { useTableSort, SortHead, CardTable } from './components/DataTableParts.jsx';
 import { ProvinceCombobox } from './components/ProductPicker.jsx';
 import { DatePicker } from '@/components/ui/date-picker';
-import { parseReceiptFiles, jobTypeFromNote } from './lib/receiptParse.js';
+import { parseReceiptFiles, jobTypeFromNote, paymentKind } from './lib/receiptParse.js';
+import { CHANNELS, JOB_TYPES, RECEIPT_PAYMENTS } from './lib/saleFields.js';
 import {
   checkDuplicates, confirmReceipts, attachReceiptFiles, customerTypeLookup,
-  canEditReceipt, editReceipt, voidReceipt, uploadReceiptFile,
+  canEditReceipt, uploadReceiptFile,
   isMissingReceiptTable,
 } from './lib/receiptSubmit.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
@@ -42,12 +43,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { HealthHub } from './views-health.jsx';
-import { MultiSelect, DrawerGroup, DrawerField, DateRangePicker } from './saleWidgets.jsx';
+import { MultiSelect, DrawerGroup, DrawerField, DateRangePicker, FormSection, CustomerTypeChips, PriceBreakdown } from './saleWidgets.jsx';
 import { ImportExportHub } from './saleImportHub.jsx';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 
-const CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
-const JOB_TYPES = ['ปลีก', 'OEM', 'DFT'];
 const STATUS_OPTS = ['บันทึกแล้ว', 'แก้ไขแล้ว', 'ยกเลิก'];   // ตัวกรองสถานะใบเสร็จ (แบบหน้าออเดอร์)
 const matchStatus = (label, r) => {
   if (label === 'บันทึกแล้ว') return r.status === 'confirmed' && !(Array.isArray(r.history) && r.history.length);
@@ -57,13 +56,10 @@ const matchStatus = (label, r) => {
 };
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtD = (iso) => { const s = String(iso || ''); return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—'; };
-const curMonth = () => new Date().toISOString().slice(0, 7);
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const toast = (m, k) => window.__toast?.(m, k);
 // เดือน YYYY-MM ก่อนหน้า (ค.ศ.) — ใช้เทียบเดือนก่อน
 const prevMonthOf = (ym) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
-// รายชื่อเดือนย้อนหลัง N เดือนจากปัจจุบัน (ใหม่→เก่า) — ใช้ใน Select เลือกเดือน
-const monthOptions = (n = 12) => { const out = []; const d = new Date(); for (let i = 0; i < n; i++) { out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d.setMonth(d.getMonth() - 1); } return out; };
 const monthLabel = (ym) => { const [y, m] = ym.split('-'); const th = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']; return `${th[Number(m) - 1] || m} ${Number(y) + 543}`; };
 
 /* ป้ายเตือนยัง未 migrate (ตารางใบเสร็จยังไม่มีใน Supabase) */
@@ -84,58 +80,85 @@ function MigrationNotice() {
 function RowEditor({ row, onChange, showChannel = true }) {
   const set = (k, v) => onChange({ ...row, [k]: v });
   const setLine = (i, k, v) => {
-    const lines = row.lines.map((l, ix) => ix === i ? { ...l, [k]: v } : l);
+    const lines = row.lines.map((l, ix) => {
+      if (ix !== i) return l;
+      const next = { ...l, [k]: v };
+      // ยอด = จำนวน×ราคา อัตโนมัติ เมื่อยอดเดิม sync อยู่ (ไม่ทับยอดที่แก้มือ/มีส่วนลดบรรทัดจาก parser)
+      if ((k === 'qty' || k === 'unit_price') && Math.abs((Number(l.amount) || 0) - (Number(l.qty) || 0) * (Number(l.unit_price) || 0)) < 0.01) {
+        next.amount = Math.round((Number(next.qty) || 0) * (Number(next.unit_price) || 0) * 100) / 100;
+      }
+      return next;
+    });
     onChange({ ...row, lines });
   };
   const delLine = (i) => onChange({ ...row, lines: row.lines.filter((_, ix) => ix !== i) });
-  const addLine = () => onChange({ ...row, lines: [...row.lines, { code: '', name: '', qty: 1, unit_price: 0, discount: 0, amount: 0 }] });
+  const addLine = () => onChange({ ...row, lines: [...row.lines, { code: '', name: '', qty: 1, unit_price: 0, amount: 0 }] });
   const sum = row.lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
   const mismatch = Math.abs(sum - (Number(row.total) || 0)) > 0.01 && Math.abs(sum - (Number(row.subtotal ?? NaN) || NaN)) > 0.01;
+  // การชำระ: โชว์เป็นค่ามาตรฐาน (paymentKind จับ cod/pay_later/ปลายทาง) · เลือกใหม่ = เขียนทับ payment_method
+  const payKind = paymentKind(row.payment_method, row.carrier);
+  const payNorm = payKind === 'COD' ? 'COD' : payKind === 'โอน' ? 'โอน' : 'ไม่ระบุ';
+  const payRaw = String(row.payment_method || '').trim();
+  const payRawShow = payRaw && !RECEIPT_PAYMENTS.includes(payRaw) ? payRaw : '';
+  const chipCls = (on) => `h-7 px-2 rounded-md border text-xs transition-colors ${on ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`;
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">เลขที่เอกสาร</span>
-          <Input value={row.order_no || ''} onChange={e => set('order_no', e.target.value.trim())} /></label>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">วันที่ (YYYY-MM-DD)</span>
-          <Input value={row.order_date || ''} onChange={e => set('order_date', e.target.value.trim())} placeholder="2026-07-02" /></label>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">ชื่อลูกค้า</span>
-          <Input value={row.customer_name || ''} onChange={e => set('customer_name', e.target.value)} /></label>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">เบอร์โทร</span>
-          <Input value={row.customer_phone || ''} onChange={e => set('customer_phone', e.target.value)} /></label>
-        <div className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">จังหวัด</span>
-          <ProvinceCombobox value={row.province || ''} onChange={v => set('province', v)} /></div>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">ยอดรวมสุทธิ</span>
-          <Input type="number" inputMode="decimal" value={row.total ?? ''} onChange={e => set('total', Number(e.target.value) || 0)} /></label>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">การชำระ</span>
-          <Input value={row.payment_method || ''} onChange={e => set('payment_method', e.target.value)} placeholder="scb / cod" /></label>
-        <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">หมายเหตุ (DFT = งาน DFT)</span>
-          <Input value={row.note || ''} onChange={e => { const v = e.target.value; onChange({ ...row, note: v, job_type: jobTypeFromNote(v) === 'DFT' ? 'DFT' : row.job_type }); }} /></label>
-      </div>
-      <div className="flex items-center gap-2 flex-wrap">
-        {showChannel && (
+      <FormSection icon="listChecks" title="ออเดอร์">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">เลขที่เอกสาร</span>
+            <Input value={row.order_no || ''} onChange={e => set('order_no', e.target.value.trim())} /></label>
+          <div className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">วันที่</span>
+            <DatePicker value={row.order_date || ''} onChange={v => set('order_date', v || '')} /></div>
+        </div>
+        <div className="mt-2.5 flex items-center gap-x-3 gap-y-2 flex-wrap">
+          {showChannel && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-muted-foreground">ช่องทาง</span>
+              {CHANNELS.map(c => (
+                <button key={c} type="button" onClick={() => set('channel', c)} className={chipCls(row.channel === c)}>{c}</button>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground">ช่องทาง</span>
-            {CHANNELS.map(c => (
-              <button key={c} type="button" onClick={() => set('channel', c)}
-                className={`h-7 px-2 rounded-md border text-xs transition-colors ${row.channel === c ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`}>{c}</button>
+            <span className="text-[11px] text-muted-foreground">ประเภทงาน</span>
+            {JOB_TYPES.map(j => (
+              <button key={j} type="button" onClick={() => set('job_type', j)} className={chipCls(row.job_type === j)}>{j}</button>
             ))}
           </div>
-        )}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">ประเภทงาน</span>
-          {JOB_TYPES.map(j => (
-            <button key={j} type="button" onClick={() => set('job_type', j)}
-              className={`h-7 px-2 rounded-md border text-xs transition-colors ${row.job_type === j ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`}>{j}</button>
-          ))}
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-muted-foreground">ลูกค้า</span>
-          {['ลูกค้าใหม่', 'ลูกค้าเก่า'].map(t => (
-            <button key={t} type="button" onClick={() => set('customer_type', t)}
-              className={`h-7 px-2 rounded-md border text-xs transition-colors ${row.customer_type === t ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`}>{t}</button>
-          ))}
+      </FormSection>
+      <FormSection icon="wallet" title="เงิน">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">ยอดรวมสุทธิ</span>
+            <Input type="number" inputMode="decimal" value={row.total ?? ''} onChange={e => set('total', Number(e.target.value) || 0)} /></label>
+          <div className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">การชำระ</span>
+            <Select value={payNorm} onValueChange={v => set('payment_method', v === 'ไม่ระบุ' ? '' : v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{RECEIPT_PAYMENTS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+            </Select>
+            {payRawShow && <span className="text-[10px] text-muted-foreground">จากใบ: {payRawShow} → {payNorm}</span>}
+          </div>
         </div>
-      </div>
+        {/* แยกราคาเสื้อ/ส่วนลด/ค่าส่งจากใบ (อ่านอย่างเดียว) → ตรวจยอดก่อนบันทึก */}
+        <PriceBreakdown className="mt-2.5" subtotal={row.subtotal} discount={row.discount} shipping={row.shipping} vat={row.vat} total={row.total} />
+      </FormSection>
+      <FormSection icon="user" title="ลูกค้า">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">ชื่อลูกค้า</span>
+            <Input value={row.customer_name || ''} onChange={e => set('customer_name', e.target.value)} /></label>
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">เบอร์โทร</span>
+            <Input value={row.customer_phone || ''} onChange={e => set('customer_phone', e.target.value)} /></label>
+          <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">โซเชียล (FB/LINE)</span>
+            <Input value={row.customer_social || ''} onChange={e => set('customer_social', e.target.value)} placeholder="ชื่อเพจ/ไลน์" /></label>
+          <div className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">จังหวัด</span>
+            <ProvinceCombobox value={row.province || ''} onChange={v => set('province', v)} /></div>
+          <label className="flex flex-col gap-1 sm:col-span-2"><span className="text-[11px] text-muted-foreground">ที่อยู่</span>
+            <Input value={row.customer_address || ''} onChange={e => set('customer_address', e.target.value)} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></label>
+        </div>
+        <div className="mt-2.5"><CustomerTypeChips value={row.customer_type} onChange={v => set('customer_type', v)} /></div>
+      </FormSection>
+      <label className="flex flex-col gap-1"><span className="text-[11px] text-muted-foreground">หมายเหตุ (พิมพ์ “DFT” = งาน DFT)</span>
+        <Input value={row.note || ''} onChange={e => { const v = e.target.value; onChange({ ...row, note: v, job_type: jobTypeFromNote(v) === 'DFT' ? 'DFT' : row.job_type }); }} /></label>
       {/* รายการสินค้า */}
       <div className="rounded-lg border overflow-hidden">
         <table className="w-full text-xs">
@@ -385,11 +408,9 @@ export function SubmitSalesView() {
   /* ---- drawer รายละเอียด/แก้/ยกเลิก ---- */
   const [manualOpen, setManualOpen] = useState(false);   // ฟอร์มคีย์มือ (ยุบจากหน้าบันทึกขาย)
   const [detail, setDetail] = useState(null);   // แถว feed
-  const [editRow, setEditRow] = useState(null); // payload กำลังแก้
-  const [editSeller, setEditSeller] = useState('');
   const [attaching, setAttaching] = useState(false);   // แนบไฟล์ย้อนหลัง
   const attachRef = useRef(null);
-  const openDetail = (r) => { setDetail(r); setEditRow(null); setEditSeller(r.salesperson || ''); };
+  const openDetail = (r) => setDetail(r);
   // แนบ/เปลี่ยนไฟล์ใบเสร็จหลังส่ง (ใบเก่าที่ไฟล์ไม่ขึ้น — bucket เพิ่งรองรับ PDF)
   const attachFile = async (file) => {
     if (!file || !detail) return;
@@ -404,37 +425,7 @@ export function SubmitSalesView() {
     } catch (e) { toast('แนบไฟล์ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
     finally { setAttaching(false); }
   };
-  const startEdit = () => {
-    const c = detail.confirmed || {};
-    setEditRow({
-      ...c,   // พกทุกฟิลด์บนใบไปด้วย (vat/promo_code/order_time/tax_id/masked/…) — แก้ใบแล้วข้อมูลที่ไม่ได้แตะต้องไม่หาย
-      order_no: detail.order_no, order_date: detail.order_date || c.order_date || '',
-      customer_name: c.customer_name || '', customer_phone: c.customer_phone || '',
-      customer_social: c.customer_social || '', customer_address: c.customer_address || '',
-      province: c.province || '', lines: Array.isArray(c.lines) ? c.lines : [],
-      subtotal: c.subtotal, discount: c.discount, shipping: c.shipping,
-      total: Number(detail.sales) || Number(c.total) || 0,
-      payment_method: c.payment_method || '', carrier: c.carrier || '', note: c.note || '',
-      channel: detail.channel || c.channel || '', job_type: c.job_type || 'ปลีก',
-      customer_type: c.customer_type || 'ลูกค้าใหม่',
-    });
-  };
-  const saveEdit = async () => {
-    try {
-      const override = isAdmin && editSeller && editSeller !== detail.salesperson ? editSeller : null;
-      await editReceipt(detail, editRow, { email: user?.email, name: user?.name, isAdmin }, { salespersonOverride: override });
-      toast('แก้ไขแล้ว — ยอดใน dashboard อัปเดตทันที', 'success');
-      setDetail(null); setEditRow(null); loadFeed();
-    } catch (e) { toast('แก้ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
-  };
-  const doVoid = async () => {
-    if (!await window.__confirm?.({ title: 'ยกเลิกใบเสร็จ', body: `ยกเลิกใบ ${detail.order_no}?\nยอดจะถูกตัดออกจากรายงานทันที (ส่งใหม่ได้)`, danger: true, confirmText: 'ยกเลิกใบ' })) return;
-    try {
-      await voidReceipt(detail, { by: user?.name || user?.email, reason: '' });
-      toast('ยกเลิกใบแล้ว', 'success');
-      setDetail(null); loadFeed();
-    } catch (e) { toast('ยกเลิกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
-  };
+  // path แก้/ยกเลิกในนี้ถูกถอด (PART 81) — แก้/ยกเลิกทำที่หน้าออเดอร์ที่เดียว (แบนเนอร์ท้าย drawer นำทาง · editReceipt/voidReceipt คงอยู่ใน lib)
 
   if (beat) return <PageSkeleton />;
 
@@ -665,14 +656,14 @@ export function SubmitSalesView() {
       </Card>
 
       {/* Drawer รายละเอียดใบ */}
-      <Sheet open={!!detail} onOpenChange={o => { if (!o) { setDetail(null); setEditRow(null); } }}>
+      <Sheet open={!!detail} onOpenChange={o => { if (!o) setDetail(null); }}>
         <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
           {detail && (
             <>
               <SheetHeader>
                 <SheetTitle className="flex items-center gap-2">ใบเสร็จ {detail.order_no} {statusBadge(detail)}</SheetTitle>
               </SheetHeader>
-              {!editRow ? (
+              {(
                 <div className="flex flex-col gap-3 mt-3 text-sm">
                   {/* ยอดเด่น + จำนวน */}
                   <div className="rounded-xl border p-3.5 flex items-center justify-between" style={{ borderColor: 'var(--line)', background: 'var(--surface-2, transparent)' }}>
@@ -691,6 +682,7 @@ export function SubmitSalesView() {
                       <DrawerField label="เลขที่">{detail.order_no}</DrawerField>
                       <DrawerField label="วันที่">{fmtD(detail.order_date)}{detail.confirmed?.order_time ? ` · ${detail.confirmed.order_time}` : ''}</DrawerField>
                       <DrawerField label="เซลล์">{detail.salesperson || '—'}</DrawerField>
+                      {detail.uploader_email && detail.uploader_email !== detail.salesperson && <DrawerField label="อัปโหลดโดย">{detail.uploader_email}</DrawerField>}
                       <div><span className="cap">ช่องทาง</span><b><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(detail.channel) }} />{detail.channel || '—'}</span></b></div>
                       <DrawerField label="การชำระ">{detail.confirmed?.payment_method || '—'}</DrawerField>
                       <DrawerField label="ขนส่ง">{detail.confirmed?.carrier || '—'}</DrawerField>
@@ -719,17 +711,11 @@ export function SubmitSalesView() {
                         <tbody>{detail.confirmed.lines.map((l, i) => { const cs = deriveColorSize(l.name || '', l.code || ''); const c = l.color || cs.color, sz = l.size || cs.size; return <tr key={i} className="border-t hover:bg-muted/30 transition-colors"><td className="px-3 py-2 cell-title"><span className="font-mono text-[11px] px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>{l.code}</span></td><td className="px-3 py-2 font-medium">{l.name}</td><td className="px-3 py-2 text-muted-foreground">{[c, sz].filter(Boolean).join(' · ') || '—'}</td><td className="px-3 py-2 text-right tabular-nums">{l.qty}</td><td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtB(l.amount)}</td></tr>; })}</tbody>
                       </table>
                       </CardTable>
-                      {/* สรุปยอดครบจากใบ: ยอด/ส่วนลด/ค่าส่ง/VAT → ยอดรวม (โชว์เฉพาะบรรทัดที่มีค่า) */}
-                      <div className="px-3 py-2 border-t bg-muted/30 text-xs space-y-1">
-                        <div className="flex items-center justify-between"><span className="text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว{detail.confirmed.subtotal != null ? ` · ยอด ${fmtB(detail.confirmed.subtotal)}` : ''}</span><span className="inline-flex items-center gap-3">
-                          {Number(detail.confirmed.discount) ? <span className="text-muted-foreground">ส่วนลด −{fmtB(detail.confirmed.discount)}</span> : null}
-                          {Number(detail.confirmed.shipping) ? <span className="text-muted-foreground">ค่าส่ง +{fmtB(detail.confirmed.shipping)}</span> : null}
-                          {Number(detail.confirmed.vat) ? <span className="text-muted-foreground">VAT +{fmtB(detail.confirmed.vat)}</span> : null}
-                          <b className="tabular-nums">{fmtB(detail.sales)}</b>
-                        </span></div>
-                      </div>
+                      <div className="px-3 py-2 border-t bg-muted/30 text-xs text-muted-foreground">รวม {N(detail.confirmed.lines.reduce((s, l) => s + (Number(l.qty) || 0), 0))} ตัว</div>
                     </div>
                   )}
+                  {/* แยกราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT → ยอดขาย (โชว์เมื่อมี break จริง) */}
+                  <PriceBreakdown subtotal={detail.confirmed?.subtotal} discount={detail.confirmed?.discount} shipping={detail.confirmed?.shipping} vat={detail.confirmed?.vat} total={detail.sales} />
                   <div className="flex items-center gap-2 flex-wrap">
                     {detail.file_url
                       ? <Button asChild size="sm" variant="outline" className="h-8 gap-1.5"><a href={detail.file_url} target="_blank" rel="noreferrer"><Icon name="external" className="size-3.5" /> เปิดไฟล์ใบเสร็จ</a></Button>
@@ -756,18 +742,6 @@ export function SubmitSalesView() {
                       <span>ต้องการ <b className="text-foreground">แก้ไข</b> หรือ <b className="text-foreground">ยกเลิก</b> ออเดอร์นี้? ทำได้ที่หน้า <button type="button" className="text-[var(--accent)] font-medium hover:underline" onClick={() => { setDetail(null); window.__goSection?.('catalog', 'orders'); }}>ออเดอร์</button></span>
                     </div>
                   )}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 mt-3">
-                  {isAdmin && (
-                    <label className="flex flex-col gap-1 text-sm max-w-xs"><span className="text-[11px] text-muted-foreground">เซลล์เจ้าของยอด (แอดมินโอนได้)</span>
-                      <Input value={editSeller} onChange={e => setEditSeller(e.target.value)} /></label>
-                  )}
-                  <RowEditor row={editRow} onChange={setEditRow} />
-                  <div className="flex gap-2 justify-end">
-                    <Button variant="outline" size="sm" onClick={() => setEditRow(null)}>ยกเลิก</Button>
-                    <Button size="sm" onClick={saveEdit} disabled={!editRow.order_no || !(Number(editRow.total) > 0)}>บันทึกการแก้ไข</Button>
-                  </div>
                 </div>
               )}
             </>

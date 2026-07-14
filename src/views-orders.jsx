@@ -14,6 +14,8 @@ import { voidReceipt, restoreReceipt, deleteOrders, voidReceipts } from './lib/r
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 import { useUser } from './userContext.jsx';
+import { useData } from './dataContext.jsx';
+import { CHANNELS, JOB_TYPES, PAYMENT_TYPES } from './lib/saleFields.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { todayISO } from './lib/dateUtils.js';
@@ -27,11 +29,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
 import { SearchInput } from '@/components/ui/search-input';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
-import { th } from 'date-fns/locale';
-import { MultiSelect, DrawerField, DrawerGroup, _pageList, _isoToDate, _dateToIso, _fmtRange } from './saleWidgets.jsx';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { MultiSelect, DrawerField, DrawerGroup, SellerCombobox, DateRangePicker, FormSection, CustomerTypeChips, PriceBreakdown, _pageList } from './saleWidgets.jsx';
 
 
 function OrdersSkeleton() {
@@ -75,39 +75,7 @@ function OrdersSkeleton() {
 }
 
 
-function OrderDatePicker({ from, to, min, max, onChange, presets = [], activePreset, onPickPreset }) {
-  const [open, setOpen] = useState(false);
-  const [sel, setSel] = useState({ from: _isoToDate(from), to: _isoToDate(to) });
-  const disabled = []; if (_isoToDate(min)) disabled.push({ before: _isoToDate(min) }); if (_isoToDate(max)) disabled.push({ after: _isoToDate(max) });
-  const presetLabel = (presets.find(([id]) => id === activePreset) || [])[1];
-  const main = presetLabel || 'กำหนดเอง';
-  const sub = activePreset === 'all' ? '' : _fmtRange(from, to);
-  return (
-    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setSel({ from: _isoToDate(from), to: _isoToDate(to) }); }}>
-      <PopoverTrigger asChild>
-        <Button variant="outline" className="h-8 gap-1.5 rounded-full px-3 text-[13px] font-normal">
-          <Icon name="calendarDays" /><span className="font-semibold text-[var(--ink)]">{main}</span>
-          {sub && <span className="text-[var(--ink-4)]">· {sub}</span>}
-          <Icon name="down" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <div className="flex max-sm:flex-col">
-          <div className="flex shrink-0 flex-col gap-0.5 border-b p-2 sm:min-w-[128px] sm:border-b-0 sm:border-r">
-            <span className="px-2 pb-1 text-[11px] font-semibold text-[var(--ink-4)]">ช่วงเวลา</span>
-            {presets.map(([id, lb]) => (
-              <button key={id} onClick={() => { onPickPreset(id); setOpen(false); }}
-                className={'rounded-md px-2.5 py-1.5 text-left text-[13px] transition-colors ' + (id === activePreset ? 'bg-[var(--accent-soft)] font-semibold text-[var(--accent-2)]' : 'text-[var(--ink-2)] hover:bg-[var(--surface-2)]')}>{lb}</button>
-            ))}
-          </div>
-          <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from) || _isoToDate(max)} selected={sel}
-            disabled={disabled.length ? disabled : undefined}
-            onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(_dateToIso(r.from), _dateToIso(r.to)); setOpen(false); } }} />
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
+// (PART 81) เลิก fork OrderDatePicker — ใช้ DateRangePicker กลางจาก saleWidgets (เพิ่ม min/max รองรับแล้ว)
 
 
 // คอลัมน์ตารางออเดอร์ (สำหรับ ColumnToggle) — ออเดอร์/ยอดขาย ล็อกไว้เสมอ
@@ -136,6 +104,7 @@ const ORDERS_SORT = {
 };
 
 function MpOrdersView() {
+  const { staff } = useData();   // รายชื่อทีม → ตัวเลือกเซลล์ใน SellerCombobox (แพทเทิร์นเดียวกับ funnelSellers หน้า ส่งยอด)
   const [orders, setOrders] = useState(null);
   const [rawSkus, setRawSkus] = useState([]);          // SKU ดิบจาก DB (frozen) — resolve ตอนแสดงผล
   const [resolverMaps, setResolverMaps] = useState(null);  // catalog/alias/override สด (null = ยังไม่โหลด)
@@ -271,6 +240,8 @@ function MpOrdersView() {
   const channels = useMemo(() => [...new Set((ordersM || []).map(o => o.channel).filter(Boolean))], [ordersM]);
   const sellers = useMemo(() => [...new Set((ordersM || []).map(o => o.salesperson).filter(Boolean))].sort(), [ordersM]);
   const payments = useMemo(() => [...new Set((ordersM || []).map(o => o.payment_type || 'ไม่ระบุ'))].sort(), [ordersM]);
+  // ตัวเลือกเซลล์ในฟอร์มแก้ = ทีม (staff) ∪ เซลล์ที่มีในข้อมูล — ชื่อต้อง match เป๊ะกับ funnel/เป้า (Tier-1)
+  const sellerOptions = useMemo(() => [...new Set([...(staff || []).map(s => s?.name).filter(Boolean), ...sellers])], [staff, sellers]);
   // ตัวกรองแบบ multi-select (ว่าง = แสดงทั้งหมด) — แพทเทิร์นเดียวกับหน้ารายงานขาย
   const nFilters = jobF.length + channelF.length + sellerF.length + statusF.length + payF.length;
   const activeChips = [
@@ -334,7 +305,7 @@ function MpOrdersView() {
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="m-0 mr-1 text-base font-bold leading-tight" style={{ color: 'var(--ink)' }}>ออเดอร์</h3>
-            <OrderDatePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max}
+            <DateRangePicker from={range.from} to={range.to} min={bounds.min} max={bounds.max}
               onChange={(a, b) => setRange({ from: a, to: b })} presets={PRESETS} activePreset={activePreset} onPickPreset={pickPreset} />
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className="gap-2 rounded-full">
@@ -427,7 +398,7 @@ function MpOrdersView() {
       {openId && (() => {
         const o = (ordersM || []).find(x => x.order_no === openId);
         if (!o) return null;
-        return <OrderDrawer order={o} sk={skusByOrder[o.order_no] || []} buildDesigns={buildDesigns} onClose={() => setOpenId(null)} onSaved={reloadOverrides} onChanged={reloadAll} />;
+        return <OrderDrawer order={o} sk={skusByOrder[o.order_no] || []} buildDesigns={buildDesigns} sellerOptions={sellerOptions} onClose={() => setOpenId(null)} onSaved={reloadOverrides} onChanged={reloadAll} />;
       })()}
 
       {addOpen && <ManualSaleSheet user={user} onClose={() => setAddOpen(false)} onSaved={reloadAll} />}
@@ -436,11 +407,11 @@ function MpOrdersView() {
 }
 
 
-const DRAWER_CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
-// รหัสลูกค้า = คีย์ CRM ภายใน (P<เบอร์>/N<ชื่อ>) — โชว์อ่านง่าย: ตัด prefix + ซ่อนถ้าซ้ำชื่อ (ไม่โชว์คีย์ดิบ)
-const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
-const DRAWER_PAYMENTS = ['โอน', 'COD', 'มาร์เก็ตเพลส', 'ไม่ระบุ'];
-function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }) {
+// รหัสลูกค้า = คีย์ CRM ภายใน (P<เบอร์>/S<โซเชียล>/N<ชื่อ>) — โชว์อ่านง่าย: ตัด prefix + ซ่อนถ้าซ้ำชื่อ (ไม่โชว์คีย์ดิบ)
+const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PSN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
+// label ฟิลด์ในฟอร์มแก้ = จางเล็ก 11px (หัวข้อกลุ่ม FormSection เด่นกว่า — ลำดับชั้นถูกทาง · PART 81.5)
+const EL = ({ children }) => <span className="text-[11px] font-normal text-muted-foreground">{children}</span>;
+function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, onSaved, onChanged }) {
   const designs = buildDesigns(sk);
   const jt = o.job_type || 'ปลีก';
   const jtCls = { DFT: 'chip-accent', OEM: 'chip-warn' }[jt] || '';
@@ -451,15 +422,38 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
   const [busy, setBusy] = useState(false);
   const [lineEdit, setLineEdit] = useState(null);          // index ของบรรทัดที่กำลังแก้ลาย
   const [linePick, setLinePick] = useState({ design: '', code: '', color: '', size: '' });
+  const [fin, setFin] = useState(null);                    // ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT จาก attrs (โหลด lazy ตอนเปิด — attrs ไม่อยู่ใน ORDERS_SEL กัน egress)
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const { data } = await supabase.from('tmk_mp_orders').select('attrs').eq('order_no', o.order_no).eq('source', o.source || '').maybeSingle();
+        if (cancel) return;
+        const a = data?.attrs || {};
+        setFin({ subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat });
+      } catch { /* attrs optional */ }
+    })();
+    return () => { cancel = true; };
+  }, [o.order_no, o.source]);
   const ovId = `${o.source || ''}:${o.order_no}`;
   const toast = (m, t) => window.__toast && window.__toast(m, t);
-  const startEdit = () => setEdit({
-    order_date: o.order_date || '', channel: o.channel || '', job_type: jt,
-    payment_type: DRAWER_PAYMENTS.includes(o.payment_type) ? o.payment_type : (o.payment_type || 'ไม่ระบุ'),
-    sales: String(o.sales ?? ''), qty: String(o.qty ?? ''),
-    customer_name: o.customer_name || '', customer_type: o.customer_type || 'ลูกค้าใหม่',
-    province: o.province || '', salesperson: o.salesperson || '', note: o.note || '',
-  });
+  const startEdit = () => {
+    setEdit({
+      order_date: o.order_date || '', channel: o.channel || '', job_type: jt,
+      payment_type: PAYMENT_TYPES.includes(o.payment_type) ? o.payment_type : (o.payment_type || 'ไม่ระบุ'),
+      sales: String(o.sales ?? ''), qty: String(o.qty ?? ''),
+      customer_name: o.customer_name || '', customer_type: o.customer_type || 'ลูกค้าใหม่',
+      customer_phone: o.customer_phone || '', customer_social: o.customer_social || '',
+      customer_address: '',
+      province: o.province || '', salesperson: o.salesperson || '', note: o.note || '',
+    });
+    // ที่อยู่อยู่ที่โปรไฟล์ลูกค้า (ไม่มีคอลัมน์บนออเดอร์) — prefill best-effort ถ้ายังไม่พิมพ์ทับ
+    if (o.customer_code) {
+      supabase.from('tmk_mp_customers').select('address').eq('customer_code', o.customer_code).maybeSingle()
+        .then(({ data }) => { if (data?.address) setEdit(prev => prev && prev.customer_address === '' ? { ...prev, customer_address: data.address } : prev); })
+        .catch(() => { /* โปรไฟล์ optional */ });
+    }
+  };
   // บันทึก: อัปเดตตรงที่ tmk_mp_orders (มีผลทุกรายงานทันที) + override field ที่รองรับ (ประกันข้าม reimport)
   // + ใบเสร็จ: sync แถว tmk_sale_receipts ให้ feed ส่งยอดตรงกัน
   const saveOrder = async () => {
@@ -475,19 +469,42 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
         cod_amount: edit.payment_type === 'COD' ? (Number(edit.sales) || 0) : 0,
         sales: Number(edit.sales) || 0, qty: Number(edit.qty) || 0, qty_band: qtyBand(Number(edit.qty) || 0),
         customer_name: edit.customer_name.trim(), customer_type: edit.customer_type,
+        customer_phone: edit.customer_phone.trim(), customer_social: edit.customer_social.trim(),
         province: edit.province.trim(), salesperson: edit.salesperson.trim(), note: edit.note.trim(),
         updated_at: now,
       };
-      { const { error } = await supabase.from('tmk_mp_orders').update(patch).eq('order_no', o.order_no).eq('source', o.source || ''); if (error) throw error; }
+      {
+        // schema-tolerant: คอลัมน์ customer_phone ยังไม่รัน 20260715 → ตัดออกแล้วลองใหม่
+        let { error } = await supabase.from('tmk_mp_orders').update(patch).eq('order_no', o.order_no).eq('source', o.source || '');
+        if (error && /customer_phone/i.test(error.message || '')) {
+          const { customer_phone: _p, ...slim } = patch;
+          ({ error } = await supabase.from('tmk_mp_orders').update(slim).eq('order_no', o.order_no).eq('source', o.source || ''));
+        }
+        if (error) throw error;
+      }
       try {
         // mirror ทุกช่องที่แก้ลง override (ประกันข้าม reimport มาร์เก็ตเพลส) — graceful ตัดคอลัมน์ใหม่ถ้ายังไม่ migrate
-        const ovRow = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, channel: patch.channel, payment_type: patch.payment_type, sales: patch.sales, qty: patch.qty, province: patch.province, order_date: patch.order_date, cod_amount: patch.cod_amount, updated_at: now };
+        const ovRow = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, channel: patch.channel, payment_type: patch.payment_type, sales: patch.sales, qty: patch.qty, province: patch.province, order_date: patch.order_date, cod_amount: patch.cod_amount, customer_phone: patch.customer_phone, customer_social: patch.customer_social, updated_at: now };
         let { error: ovErr } = await supabase.from('tmk_order_overrides').upsert(ovRow, { onConflict: 'order_id' });
-        if (ovErr && /channel|payment_type|sales|qty|province|order_date|cod_amount|column/i.test(ovErr.message || '')) {
+        if (ovErr && /channel|payment_type|sales|qty|province|order_date|cod_amount|customer_phone|customer_social|column/i.test(ovErr.message || '')) {
           const base = { order_id: ovId, job_type: patch.job_type, customer_name: patch.customer_name, customer_type: patch.customer_type, salesperson: patch.salesperson, note: patch.note, updated_at: now };
           await supabase.from('tmk_order_overrides').upsert(base, { onConflict: 'order_id' });
         }
       } catch { /* ตาราง override ยังไม่มี — ค่าตรงบันทึกแล้ว */ }
+      // เบอร์/โซเชียล/ที่อยู่ → อัปเดตโปรไฟล์ลูกค้า (best-effort · เฉพาะช่องที่มีค่า กันทับของเดิมด้วยค่าว่าง)
+      try {
+        const code = o.customer_code || '';
+        const addr = (edit.customer_address || '').trim();
+        if (code && (patch.customer_phone || patch.customer_social || addr)) {
+          const prof = { customer_code: code, updated_at: now };
+          if (patch.customer_name) prof.name = patch.customer_name;
+          if (patch.customer_phone) prof.phone = patch.customer_phone;
+          if (patch.customer_social) prof.social_name = patch.customer_social;
+          if (patch.province) prof.province = patch.province;
+          if (addr) prof.address = addr;
+          await supabase.from('tmk_mp_customers').upsert(prof, { onConflict: 'customer_code' });
+        }
+      } catch { /* โปรไฟล์ optional */ }
       if (isReceipt) {
         try { await supabase.from('tmk_sale_receipts').update({ channel: patch.channel, order_date: patch.order_date, order_month: patch.order_month, sales: patch.sales, qty: patch.qty, salesperson: patch.salesperson, updated_at: now }).eq('order_no', o.order_no); } catch { /* เงียบ */ }
       }
@@ -632,61 +649,73 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
     )}
 
     {edit && (
-      <div className="mb-4 rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
-        <div className="cap cap-head mb-2.5" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — มีผลกับรายงานทันที</div>
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))' }}>
-          <div className="field"><label>วันที่</label><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></div>
-          <div className="field"><label>ช่องทาง</label>
-            <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
-              <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
-              <SelectContent>{[...new Set([...DRAWER_CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-            </Select>
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="cap cap-head" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — มีผลกับรายงานทันที</div>
+
+        <FormSection icon="listChecks" title="ออเดอร์">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex flex-col gap-1"><EL>วันที่</EL><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></div>
+            <div className="flex flex-col gap-1"><EL>ช่องทาง</EL>
+              <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
+                <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
+                <SelectContent>{[...new Set([...CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1"><EL>ประเภทงาน</EL>
+              {(() => {
+                // ยึด "หมายเหตุ" ตัดสิน ปลีก/DFT (isDftNote) · OEM = เลือกตรง — เลือก DFT/ปลีก = เติม/ถอดคำ "DFT" ในหมายเหตุให้เอง
+                const eff = edit.job_type === 'OEM' ? 'OEM' : (isDftNote(edit.note) ? 'DFT' : 'ปลีก');
+                const stripDft = (s) => String(s || '').replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
+                const pick = (v) => {
+                  if (!v || v === eff) return;
+                  if (v === 'OEM') { setEdit({ ...edit, job_type: 'OEM' }); return; }
+                  let n = stripDft(edit.note);
+                  if (v === 'DFT') n = (n ? n + ' ' : '') + 'DFT';
+                  setEdit({ ...edit, job_type: v, note: n });
+                };
+                return (
+                  <ToggleGroup type="single" value={eff} onValueChange={pick} variant="outline" className="justify-start"
+                    title="ปลีก/DFT ตัดสินจากคำ “DFT” ในหมายเหตุ — เลือกแล้วระบบเติม/ถอดให้">
+                    {JOB_TYPES.map(j => <ToggleGroupItem key={j} value={j} className="h-9 px-3 text-[13px] whitespace-nowrap">{j}</ToggleGroupItem>)}
+                  </ToggleGroup>
+                );
+              })()}
+            </div>
           </div>
-          <div className="field"><label>ประเภทงาน</label>
-            {(() => {
-              // ยึด "หมายเหตุ" เป็นตัวตัดสิน ปลีก/DFT (isDftNote = predicate เดียวทั้งระบบ) · OEM = เลือกตรง · UI ซื่อสัตย์
-              const isOEM = edit.job_type === 'OEM';
-              const isDFT = !isOEM && isDftNote(edit.note);
-              const eff = isOEM ? 'OEM' : (isDFT ? 'DFT' : 'ปลีก');
-              const toggleOEM = () => setEdit({ ...edit, job_type: isOEM ? (isDftNote(edit.note) ? 'DFT' : 'ปลีก') : 'OEM' });
-              const toggleDFT = () => {
-                let n = edit.note || '';
-                if (isDftNote(n)) n = n.replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
-                else n = (n.trim() ? n.trim() + ' ' : '') + 'DFT';
-                setEdit({ ...edit, note: n, job_type: isDftNote(n) ? 'DFT' : 'ปลีก' });
-              };
-              return (
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div role="button" tabIndex={0} onClick={toggleOEM} className="flex items-center gap-1.5 cursor-pointer text-[13px]"><ShadcnCheckbox checked={isOEM} className="pointer-events-none" /> OEM</div>
-                    <div role="button" tabIndex={0} onClick={() => { if (!isOEM) toggleDFT(); }} className={'flex items-center gap-1.5 text-[13px] ' + (isOEM ? 'opacity-40 pointer-events-none' : 'cursor-pointer')}><ShadcnCheckbox checked={isDFT} className="pointer-events-none" /> งาน DFT</div>
-                    <Badge variant="secondary" className="rounded-full text-[10px]">{eff}</Badge>
-                  </div>
-                  <span className="cap" style={{ color: 'var(--ink-4)' }}>ปลีก/DFT ตัดสินจากคำว่า “DFT” ในหมายเหตุ</span>
-                </div>
-              );
-            })()}
+        </FormSection>
+
+        <FormSection icon="wallet" title="เงิน">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label className="flex flex-col gap-1"><EL>ยอดขาย (฿)</EL><Input className="bg-background" type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></label>
+            <label className="flex flex-col gap-1"><EL>จำนวน (ตัว)</EL><Input className="bg-background" type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></label>
+            <div className="flex flex-col gap-1"><EL>การชำระ</EL>
+              <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
+                <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                <SelectContent>{[...new Set([...PAYMENT_TYPES, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="field"><label>การชำระ</label>
-            <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
-              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-              <SelectContent>{[...new Set([...DRAWER_PAYMENTS, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-            </Select>
+        </FormSection>
+
+        <FormSection icon="user" title="ลูกค้า">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label className="flex flex-col gap-1"><EL>ชื่อลูกค้า</EL><Input className="bg-background" value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></label>
+            <label className="flex flex-col gap-1"><EL>เบอร์โทร</EL><Input className="bg-background" value={edit.customer_phone} onChange={e => setEdit({ ...edit, customer_phone: e.target.value })} placeholder="ไว้ตามต่อ / เข้า CRM" /></label>
+            <label className="flex flex-col gap-1"><EL>โซเชียล (FB/LINE)</EL><Input className="bg-background" value={edit.customer_social} onChange={e => setEdit({ ...edit, customer_social: e.target.value })} placeholder="ชื่อเพจ/ไลน์" /></label>
+            <div className="flex flex-col gap-1"><EL>จังหวัด</EL><ProvinceCombobox className="bg-background" value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></div>
+            <label className="flex flex-col gap-1 sm:col-span-2"><EL>ที่อยู่</EL><Input className="bg-background" value={edit.customer_address} onChange={e => setEdit({ ...edit, customer_address: e.target.value })} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></label>
           </div>
-          <div className="field"><label>ยอดขาย (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></div>
-          <div className="field"><label>จำนวน (ตัว)</label><Input type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></div>
-          <div className="field"><label>ชื่อลูกค้า</label><Input value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></div>
-          <div className="field"><label>สถานะลูกค้า</label>
-            <Select value={edit.customer_type || 'ลูกค้าใหม่'} onValueChange={v => setEdit({ ...edit, customer_type: v })}>
-              <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-              <SelectContent>{[...new Set(['ลูกค้าใหม่', 'ลูกค้าเก่า', edit.customer_type].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-            </Select>
+          <div className="mt-3"><CustomerTypeChips value={edit.customer_type} onChange={v => setEdit({ ...edit, customer_type: v })} /></div>
+        </FormSection>
+
+        <FormSection icon="pencil" title="อื่นๆ">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex flex-col gap-1"><EL>เซลล์</EL><SellerCombobox className="bg-background" value={edit.salesperson} onChange={v => setEdit({ ...edit, salesperson: v })} options={sellerOptions} /></div>
           </div>
-          <div className="field"><label>จังหวัด</label><ProvinceCombobox value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></div>
-          <div className="field"><label>เซลล์</label><Input value={edit.salesperson} onChange={e => setEdit({ ...edit, salesperson: e.target.value })} placeholder="ชื่อเซลล์" /></div>
-        </div>
-        <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Textarea rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></div>
-        <div className="row" style={{ gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label className="mt-3 flex flex-col gap-1"><EL>หมายเหตุ</EL><Textarea className="bg-background" rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></label>
+        </FormSection>
+
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Button onClick={saveOrder} disabled={busy || edit.sales === '' || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
           <Button variant="ghost" onClick={() => setEdit(null)} disabled={busy}>ยกเลิก</Button>
           {hasOv && <Button variant="ghost" className="ml-auto" style={{ color: 'var(--bad)' }} onClick={revertOrder} disabled={busy}><Icon name="refresh" /> คืนค่าจากไฟล์</Button>}
@@ -702,6 +731,8 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
         </div>
       ))}
     </div>
+
+    {!edit && fin && <div className="mb-4"><PriceBreakdown subtotal={fin.subtotal} discount={fin.discount} shipping={fin.shipping} vat={fin.vat} total={o.sales} /></div>}
 
     {o.note && (
       <div className="mb-4 flex gap-2.5 rounded-xl border p-3" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)' }}>
@@ -726,6 +757,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
       <DrawerGroup icon="user" title="ลูกค้า">
         <DrawerField label="ลูกค้า">{o.customer_name || '—'}</DrawerField>
         {custCodeShow(o.customer_code, o.customer_name) && <DrawerField label="รหัสลูกค้า">{custCodeShow(o.customer_code, o.customer_name)}</DrawerField>}
+        {o.customer_phone && <DrawerField label="เบอร์">{o.customer_phone}</DrawerField>}
         {o.customer_social && o.customer_social !== o.customer_name && <DrawerField label="โซเชียล">{o.customer_social}</DrawerField>}
         <DrawerField label="สถานะลูกค้า">{o.customer_type || '—'}</DrawerField>
         {o.cust_total_orders > 0 && <DrawerField label="ออเดอร์สะสม">{N(o.cust_total_orders)} ครั้ง</DrawerField>}

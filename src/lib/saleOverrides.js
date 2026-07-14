@@ -33,6 +33,8 @@ export function mergeOrderOverrides(orders, ovMap) {
       province: _str(ov.province, o.province),
       order_date: _str(ov.order_date, o.order_date),
       cod_amount: _num(ov.cod_amount, o.cod_amount),
+      customer_phone: _str(ov.customer_phone, o.customer_phone),
+      customer_social: _str(ov.customer_social, o.customer_social),
       note,
       _ov: ov,
     };

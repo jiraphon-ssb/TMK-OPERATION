@@ -83,10 +83,11 @@ export function normChannel(marketplace, contact, userCreated = '', province = '
 // ---- ประเภทการชำระ ----
 export function payShipnity(bank) {
   const b = String(bank).trim().toLowerCase();
-  if (b === 'shopee' || b === 'lazada') return 'มาร์เก็ตเพลส';
-  if (b.includes('จ่ายทีหลัง') || b.includes('cod')) return 'COD';
-  if (b === '' || b === '-') return 'ไม่ระบุ';
-  return 'โอน';
+  if (b === 'shopee' || b === 'lazada' || b === 'มาร์เก็ตเพลส') return 'มาร์เก็ตเพลส';
+  // pay_later/ปลายทาง = COD (ให้ตรง paymentKind ฝั่งใบเสร็จ — เดิมท่อ import จัด pay_later เป็น "โอน")
+  if (b.includes('จ่ายทีหลัง') || b.includes('cod') || b.includes('ปลายทาง') || /pay[_ ]?later/.test(b)) return 'COD';
+  if (b === '' || b === '-' || b === 'ไม่ระบุ') return 'ไม่ระบุ';
+  return 'โอน';   // ชื่อธนาคาร/'โอน' → โอน (idempotent กับค่า canonical ทุกตัว)
 }
 export function payTiktok(method) {
   return String(method).includes('ปลายทาง') ? 'COD' : 'จ่ายล่วงหน้า';

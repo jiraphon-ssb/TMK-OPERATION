@@ -204,6 +204,8 @@ function buildRows(item, user, batch, M) {
     payment_type: payKind === 'COD' ? 'COD' : payShipnity(item.payment_method),
     // customer_code = คีย์เดียวกับโปรไฟล์ (customerKeyOf) → หน้า ลูกค้า (CRM) join ประวัติซื้อได้
     customer_code: customerKeyOf(item), customer_name: item.customer_name || '', customer_social: item.customer_social || '',
+    // เบอร์ลงคอลัมน์ออเดอร์ตรง (20260715) — เดิมอยู่แค่ customers · upsert พลาด = หายจาก query (schema-tolerant ตอนเขียน)
+    customer_phone: item.customer_phone || '',
     note: item.note || '',   // ลงคอลัมน์จริง — หน้าออเดอร์เห็นหมายเหตุ (เดิมเก็บแค่ attrs.lot_note = มองไม่เห็น)
     import_batch: batch,
     // attrs เก็บข้อมูลบนใบให้ครบระดับออเดอร์ (ส่วนลด/ค่าส่ง/vat/รหัสส่วนลด/เวลา — เฉพาะที่มีค่า ไม่ bloat)
@@ -238,9 +240,13 @@ function buildRows(item, user, batch, M) {
     status: 'confirmed', updated_at: nowISO(),
   };
   // override sync เต็ม field — กัน override เก่า (จากการแก้ใน drawer ออเดอร์) shadow ค่าที่แก้ล่าสุดผ่านใบเสร็จ
+  // + mirror ครบช่องแบบ order-edit drawer (คอลัมน์ 20260714/20260715) — กัน reimport ทับ channel/ยอด/จังหวัด/เบอร์
   const overrideRow = {
     order_id: id, salesperson: user.name || user.email || '',
     job_type: jobType, customer_name: item.customer_name || '', customer_type: item.customer_type || '', note: item.note || '',
+    channel: item.channel || '', payment_type: orderRow.payment_type, sales, qty,
+    province: item.province || '', order_date: item.order_date || null, cod_amount: orderRow.cod_amount,
+    customer_phone: item.customer_phone || '', customer_social: item.customer_social || '',
     updated_at: nowISO(),
   };
   return { orderRow, skuRows, receiptRow, overrideRow, item };
@@ -312,9 +318,13 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
   /* 2-3) orders + skus — ถ้าพังกลางทาง: ลบใบเสร็จ+ออเดอร์ที่เพิ่ง insert รอบนี้ทิ้ง (rollback)
      กัน "ใบ confirmed ผี"/ออเดอร์ orphan ที่บล็อกการส่งซ้ำแต่ไม่มีคู่ → ส่งใหม่ได้จริง (idempotent) */
   try {
-    /* 2) orders — upsert ชุด */
+    /* 2) orders — upsert ชุด (schema-tolerant: คอลัมน์ customer_phone ยังไม่รัน 20260715 → ตัดออกแล้วลองใหม่) */
     for (const ch of chunk(passed.map(p => p.orderRow), 400)) {
-      const { error } = await supabase.from('tmk_mp_orders').upsert(ch, { onConflict: 'id' });
+      let { error } = await supabase.from('tmk_mp_orders').upsert(ch, { onConflict: 'id' });
+      if (error && /customer_phone/i.test(error.message || '')) {
+        const slim = ch.map(({ customer_phone: _p, ...r }) => r);
+        ({ error } = await supabase.from('tmk_mp_orders').upsert(slim, { onConflict: 'id' }));
+      }
       if (error) throw error;
     }
     /* 3) skus — ลบของ order เหล่านี้ก่อน (แพทเทิร์น import) แล้ว insert ใหม่ */
@@ -338,10 +348,15 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
     }
     throw err;
   }
-  /* 4) overrides — ผูกชื่อเซลล์ให้รอดข้าม reimport (optional table — เงียบถ้าไม่มี) */
+  /* 4) overrides — mirror ครบช่องให้รอดข้าม reimport (optional table — เงียบถ้าไม่มี)
+     graceful: คอลัมน์ mirror (20260714/20260715) ยังไม่รัน → ถอยไปชุดฐาน 6 ช่อง (อย่างน้อยเซลล์/งาน/ลูกค้ารอด) */
   try {
     for (const ch of chunk(passed.map(p => p.overrideRow), 400)) {
-      const { error } = await supabase.from('tmk_order_overrides').upsert(ch, { onConflict: 'order_id' });
+      let { error } = await supabase.from('tmk_order_overrides').upsert(ch, { onConflict: 'order_id' });
+      if (error && /channel|payment_type|sales|qty|province|order_date|cod_amount|customer_phone|customer_social|column/i.test(error.message || '')) {
+        const base = ch.map(r => ({ order_id: r.order_id, salesperson: r.salesperson, job_type: r.job_type, customer_name: r.customer_name, customer_type: r.customer_type, note: r.note, updated_at: r.updated_at }));
+        ({ error } = await supabase.from('tmk_order_overrides').upsert(base, { onConflict: 'order_id' }));
+      }
       if (error) throw error;
     }
   } catch { /* override layer optional */ }

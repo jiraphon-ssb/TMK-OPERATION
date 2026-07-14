@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { N, Icon, PageSkeleton } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { MetricCard } from './charts.jsx';
-import { SalesAliasManager } from './saleImportHub.jsx';
 import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';
 import { buildMatchers, planRematch } from './lib/mpReport.js';
 import { DesignCombobox } from './components/ProductPicker.jsx';
@@ -286,8 +285,6 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
           </Table></CardTable>;
         })()}
       </Card>
-
-      <SalesAliasManager />
 
       {form && (
         <SideSheet size="md" icon={form.kind === 'color' ? 'sparkle' : 'shield'}

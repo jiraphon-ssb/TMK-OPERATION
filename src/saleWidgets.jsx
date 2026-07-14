@@ -6,10 +6,12 @@
 import React from 'react';
 import { TMK } from './data.js';
 import { Icon } from './components.jsx';
+import { CUSTOMER_TYPES } from './lib/saleFields.js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { th } from 'date-fns/locale';
 
@@ -21,6 +23,115 @@ export const onCardKey = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.
 // guard สิทธิ์ (ฝั่ง client) — กัน viewer แก้ผ่านหน้าตั้งค่า + จัดการผู้ใช้/สิทธิ์เฉพาะ admin
 export const guardEdit = () => { if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
 export const guardAdmin = () => { if (!window.__isAdmin) { window.__toast?.('เฉพาะแอดมินจัดการผู้ใช้และสิทธิ์ได้', 'warn'); return false; } return true; };
+
+/* ---- FormSection — กล่องส่วนฟอร์ม (หัวไอคอน + กรอบอ่อน) — มาตรฐานเดียวทั้ง 3 ฟอร์มขาย (PART 81.5)
+   เดิมอยู่ใน ManualSaleSheet ไฟล์เดียว → ยกมากลางให้ ตรวจก่อนบันทึก + แก้ออเดอร์ ใช้ร่วม ---- */
+export function FormSection({ icon, title, sub, children, className = '' }) {
+  return (
+    <div className={'rounded-xl border p-3.5 shadow-sm ' + className} style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+      <div className="mb-3 flex items-center gap-2">
+        <span className="grid place-items-center rounded-lg size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name={icon} /></span>
+        <span className="text-[13px] font-bold">{title}</span>
+        {sub && <span className="cap" style={{ color: 'var(--ink-4)' }}>· {sub}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* ---- PriceBreakdown — แยก "ราคาเสื้อ / ส่วนลด / ค่าส่ง / VAT → ยอดขาย" (PART 81.6) ----
+   ใช้ร่วมทุก popup: ใบเสร็จ + ออเดอร์ + ตรวจก่อนบันทึก · โชว์เฉพาะเมื่อมี break จริง (ไม่งั้นซ่อน) */
+const _fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+export function PriceBreakdown({ subtotal, discount, shipping, vat, total, className = '' }) {
+  const d = Number(discount) || 0, s = Number(shipping) || 0, v = Number(vat) || 0;
+  const tot = Number(total) || 0;
+  const sub = subtotal != null && subtotal !== '' ? Number(subtotal) : null;
+  const hasBreak = d || s || v || (sub != null && Math.abs(sub - tot) > 0.01);
+  if (!hasBreak) return null;
+  const Row = ({ label, val, sign = '', strong }) => (
+    <div className="flex items-center justify-between text-[13px]">
+      <span className={strong ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
+      <span className={'tabular-nums ' + (strong ? 'font-bold' : 'text-muted-foreground')}>{sign}{_fmtB(val)}</span>
+    </div>
+  );
+  return (
+    <div className={'rounded-lg border p-2.5 flex flex-col gap-1 ' + className} style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
+      {sub != null && <Row label="ราคาเสื้อ" val={sub} />}
+      {d ? <Row label="ส่วนลด" val={d} sign="−" /> : null}
+      {s ? <Row label="ค่าส่ง" val={s} sign="+" /> : null}
+      {v ? <Row label="VAT" val={v} sign="+" /> : null}
+      <div className="mt-0.5 border-t pt-1" style={{ borderColor: 'var(--line)' }}><Row label="ยอดขาย" val={tot} strong /></div>
+    </div>
+  );
+}
+
+/* ---- CustomerTypeChips — ลูกค้าใหม่/เก่า แบบ chips อันเดียวทุกฟอร์ม (เลิก Select บ้าง chips บ้าง) ---- */
+export function CustomerTypeChips({ value, onChange }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-muted-foreground">สถานะ</span>
+      {CUSTOMER_TYPES.map(t => (
+        <button key={t} type="button" onClick={() => onChange(t)}
+          className={`h-7 px-2.5 rounded-md border text-xs transition-colors ${value === t ? 'bg-primary text-primary-foreground border-primary' : 'text-muted-foreground'}`}>{t}</button>
+      ))}
+    </div>
+  );
+}
+
+/* ---- SellerCombobox — เลือกเซลล์จากรายชื่อ (Command+Popover · พิมพ์เองได้เป็น fallback) ----
+   ชื่อเซลล์ = ฟิลด์ Tier-1: ต้อง match เป๊ะ 3 ที่ (ออเดอร์ ↔ คนทัก funnel ↔ เป้า/คอม)
+   พิมพ์เพี้ยน = เซลล์แตกเป็น 2 คนใน leaderboard → picker ลด drift · options เจ้าของหน้า derive (staff ∪ เซลล์จากข้อมูล) */
+export function SellerCombobox({ value, onChange, options = [], placeholder = 'เลือกเซลล์', className }) {
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState('');
+  const opts = React.useMemo(() => [...new Set((options || []).map(s => String(s || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'th')), [options]);
+  const qt = q.trim();
+  const pick = (v) => { onChange(v); setOpen(false); setQ(''); };
+  return (
+    <Popover open={open} onOpenChange={o => { setOpen(o); if (!o) setQ(''); }}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" role="combobox" aria-expanded={open}
+          className={'w-full justify-between font-normal ' + (className || '')} style={{ color: value ? 'var(--ink-1)' : 'var(--ink-4)' }}>
+          <span className="truncate">{value || placeholder}</span>
+          <Icon name="chevD" className="opacity-60 flex-none" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="p-0 w-[var(--radix-popover-trigger-width)]" style={{ minWidth: 220 }}>
+        <Command>
+          <CommandInput placeholder="ค้นหา/พิมพ์ชื่อเซลล์…" value={q} onValueChange={setQ} />
+          <CommandList>
+            <CommandEmpty>พิมพ์ชื่อแล้วกด “ใช้ชื่อนี้”</CommandEmpty>
+            {(value || (qt && !opts.some(s => s.toLowerCase() === qt.toLowerCase()))) && (
+              <CommandGroup>
+                {qt && !opts.some(s => s.toLowerCase() === qt.toLowerCase()) && (
+                  <CommandItem value={qt} onSelect={() => pick(qt)}>
+                    <span style={{ width: 16, flex: 'none' }} /><span>ใช้ชื่อนี้: <b>{qt}</b></span>
+                  </CommandItem>
+                )}
+                {value && (
+                  <CommandItem value="__clear__" onSelect={() => pick('')}>
+                    <span style={{ width: 16, flex: 'none' }} /><span style={{ color: 'var(--ink-4)' }}>ล้างชื่อเซลล์</span>
+                  </CommandItem>
+                )}
+              </CommandGroup>
+            )}
+            <CommandGroup heading="รายชื่อเซลล์">
+              {opts.map(s => {
+                const sel = s === value;
+                return (
+                  <CommandItem key={s} value={s} onSelect={() => pick(s)}>
+                    <span style={{ width: 16, color: 'var(--accent)', flex: 'none' }}>{sel && <Icon name="check" />}</span>
+                    <span className="truncate" style={{ fontWeight: sel ? 600 : 400 }}>{s}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /* ====================  PLANNER  ==================== */
 export const stLabel = { done: 'เสร็จ', review: 'รอตรวจ', inprogress: 'กำลังทำ', todo: 'รอ' };
@@ -35,9 +146,11 @@ export const fmtRange = (from, to) => {
   if (fy === ty) return `${fd} ${_TH_MON[fm - 1]} – ${td} ${_TH_MON[tm - 1]} ${ty}`;
   return `${_fmtTh(from)} – ${_fmtTh(to)}`;
 };
-export function DateRangePicker({ from, to, onChange, presets = [], activePreset, onPickPreset }) {
+export function DateRangePicker({ from, to, min, max, onChange, presets = [], activePreset, onPickPreset }) {
   const [open, setOpen] = React.useState(false);
   const [sel, setSel] = React.useState({ from: _isoToDate(from), to: _isoToDate(to) });
+  // min/max = ขอบวันที่ข้อมูลจริง (ใช้โดยหน้าออเดอร์ — เดิม OrderDatePicker fork แยก · PART 81 รวมเป็นตัวเดียว)
+  const disabled = []; if (_isoToDate(min)) disabled.push({ before: _isoToDate(min) }); if (_isoToDate(max)) disabled.push({ after: _isoToDate(max) });
   const presetLabel = (presets.find(([id]) => id === activePreset) || [])[1];
   const main = presetLabel || (from || to ? 'กำหนดเอง' : 'ทุกช่วงเวลา');
   const sub = activePreset === 'all' ? '' : fmtRange(from, to);
@@ -60,7 +173,8 @@ export function DateRangePicker({ from, to, onChange, presets = [], activePreset
             ))}
           </div>
           <div className="flex min-w-0 flex-col">
-            <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from)} selected={sel}
+            <Calendar mode="range" numberOfMonths={2} locale={th} defaultMonth={_isoToDate(from) || _isoToDate(max)} selected={sel}
+              disabled={disabled.length ? disabled : undefined}
               onSelect={(r) => { setSel(r || { from: undefined, to: undefined }); if (r?.from && r?.to) { onChange(_dateToIso(r.from), _dateToIso(r.to)); setOpen(false); } }} />
             {/* แถบสรุประหว่างเลือก: วันเริ่ม → วันสิ้นสุด + ล้าง */}
             <div className="flex items-center justify-between gap-3 border-t px-3 py-2 text-[12.5px]">

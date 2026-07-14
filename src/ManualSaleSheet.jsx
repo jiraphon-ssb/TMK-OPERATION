@@ -10,15 +10,16 @@ import { Icon } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
 import { confirmReceipts } from './lib/receiptSubmit.js';
+import { jobTypeFromNote } from './lib/receiptParse.js';
+import { CHANNELS, JOB_TYPES, RECEIPT_PAYMENTS } from './lib/saleFields.js';
 import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, lineDisplayName, findDesign, ProvinceCombobox } from './components/ProductPicker.jsx';
+import { FormSection, CustomerTypeChips } from './saleWidgets.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { DatePicker } from '@/components/ui/date-picker';
-
-const CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
-const JOB_TYPES = ['ปลีก', 'OEM', 'DFT'];
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const toast = (m, k) => window.__toast?.(m, k);
@@ -28,19 +29,7 @@ const N = (n) => Number(n) || 0;
 const blankLine = () => ({ mode: 'pick', design: '', code: '', color: '', size: '', qty: '1', price: '' });
 const lineAmount = (l) => N(l.qty) * N(l.price);
 
-/* ---------- ส่วนฟอร์ม (หัวไอคอน + กรอบ) ---------- */
-function FormSection({ icon, title, sub, children }) {
-  return (
-    <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="grid place-items-center rounded-lg size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name={icon} /></span>
-        <span className="text-[13px] font-bold">{title}</span>
-        {sub && <span className="cap" style={{ color: 'var(--ink-4)' }}>· {sub}</span>}
-      </div>
-      {children}
-    </div>
-  );
-}
+/* FormSection ย้ายไป saleWidgets (PART 81.5) — มาตรฐานเดียวทั้ง 3 ฟอร์มขาย */
 
 /* ---------- บรรทัดสินค้า 1 รายการ (เลือกจากสินค้า / พิมพ์เอง) ---------- */
 function LineRow({ line, idx, canRemove, onChange, onRemove }) {
@@ -55,7 +44,7 @@ function LineRow({ line, idx, canRemove, onChange, onRemove }) {
     upd(next);
   };
   return (
-    <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+    <div className="rounded-lg border p-2.5" style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
       <div className="mb-2 flex items-center gap-2">
         <span className="cap font-semibold" style={{ color: 'var(--ink-3)' }}>รายการ {idx + 1}</span>
         <ToggleGroup type="single" value={line.mode} onValueChange={v => v && upd({ mode: v })} variant="outline" size="sm" className="h-7 ml-1">
@@ -96,7 +85,8 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
   const blank = () => ({
     order_date: todayISO(), order_no: '', channel: '', job_type: 'ปลีก', payment: 'โอน', note: '', total: '',
     lines: [blankLine()],
-    customer_type: 'ลูกค้าใหม่', customer_name: '', customer_phone: '', province: '',
+    customer_type: 'ลูกค้าใหม่', customer_name: '', customer_phone: '', customer_social: '', customer_address: '', province: '',
+    discount: '', shipping: '',   // รายละเอียดเพิ่มเติม (เดิม hardcode 0 — ข้อมูลหายถาวร)
   });
   const [f, setF] = useState(blank);
   const [busy, setBusy] = useState(false);
@@ -125,11 +115,11 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
         }));
       const item = {
         order_no: ono, order_date: f.order_date,
-        customer_name: f.customer_name.trim(), customer_phone: f.customer_phone.trim(), customer_social: '', customer_address: '',
+        customer_name: f.customer_name.trim(), customer_phone: f.customer_phone.trim(), customer_social: f.customer_social.trim(), customer_address: f.customer_address.trim(),
         province: f.province.trim(),
         lines,
-        subtotal: sumLines, discount: 0, shipping: 0, total: effectiveTotal,
-        payment_method: f.payment === 'COD' ? 'cod' : 'โอน', carrier: '', note: f.note.trim(),
+        subtotal: sumLines, discount: N(f.discount), shipping: N(f.shipping), total: effectiveTotal,
+        payment_method: f.payment === 'COD' ? 'cod' : f.payment === 'ไม่ระบุ' ? '' : 'โอน', carrier: '', note: f.note.trim(),
         channel: f.channel, job_type: f.job_type, customer_type: f.customer_type,
         source_tool: 'manual', warnings: [],
       };
@@ -164,15 +154,28 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
               </Select>
             </div>
             <div className="field"><label>ประเภทงาน</label>
-              <Select value={f.job_type} onValueChange={v => set('job_type', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{JOB_TYPES.map(j => <SelectItem key={j} value={j}>{j}</SelectItem>)}</SelectContent>
-              </Select>
+              {(() => {
+                // ท่อบันทึก (buildRows) ยึดหมายเหตุตัดสิน ปลีก/DFT — UI ต้อง couple กับ note ไม่งั้นเลือก DFT แต่เซฟเป็นปลีก
+                const eff = f.job_type === 'OEM' ? 'OEM' : (jobTypeFromNote(f.note) === 'DFT' ? 'DFT' : 'ปลีก');
+                const stripDft = (s) => String(s || '').replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
+                const pick = (v) => {
+                  if (!v || v === eff) return;
+                  if (v === 'OEM') { set('job_type', 'OEM'); return; }
+                  let n = stripDft(f.note);
+                  if (v === 'DFT') n = (n ? n + ' ' : '') + 'DFT';
+                  setF(p => ({ ...p, job_type: v, note: n }));
+                };
+                return (
+                  <ToggleGroup type="single" value={eff} onValueChange={pick} variant="outline" className="justify-start">
+                    {JOB_TYPES.map(j => <ToggleGroupItem key={j} value={j} className="h-9 px-2.5 text-[12px]">{j}</ToggleGroupItem>)}
+                  </ToggleGroup>
+                );
+              })()}
             </div>
             <div className="field"><label>การชำระ</label>
               <Select value={f.payment} onValueChange={v => set('payment', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{['โอน', 'COD'].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                <SelectContent>{RECEIPT_PAYMENTS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           </div>
@@ -193,23 +196,35 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
 
           <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
             <div className="field"><label>ยอดรวม (฿) · ว่าง = ใช้ยอดรายการ</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.total} onChange={e => set('total', e.target.value)} placeholder={String(sumLines || 0)} /></div>
-            <div className="field"><label>หมายเหตุ</label><Input value={f.note} onChange={e => set('note', e.target.value)} placeholder="เช่น DFT / แบ่งชำระ" /></div>
+            <div className="field"><label>หมายเหตุ (พิมพ์ “DFT” = งาน DFT)</label><Input value={f.note} onChange={e => { const v = e.target.value; setF(p => ({ ...p, note: v, job_type: p.job_type === 'OEM' ? 'OEM' : (jobTypeFromNote(v) === 'DFT' ? 'DFT' : 'ปลีก') })); }} placeholder="เช่น DFT / แบ่งชำระ" /></div>
           </div>
+
+          {/* รายละเอียดเพิ่มเติม (ไม่บังคับ) — ส่วนลด/ค่าส่ง ลง attrs เหมือนใบเสร็จ (เดิม hardcode 0 = หายถาวร) */}
+          <Collapsible className="mt-3">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 gap-1 px-1 text-[12px]" style={{ color: 'var(--ink-4)' }}><Icon name="down" className="size-3.5" /> รายละเอียดเพิ่มเติม (ส่วนลด/ค่าส่ง)</Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="mt-2 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+                <div className="field"><label>ส่วนลด (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.discount} onChange={e => set('discount', e.target.value)} placeholder="0" /></div>
+                <div className="field"><label>ค่าส่ง (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.shipping} onChange={e => set('shipping', e.target.value)} placeholder="0" /></div>
+              </div>
+              <span className="cap" style={{ color: 'var(--ink-4)' }}>บันทึกเป็นข้อมูลประกอบ — ยอดรวมสุทธิยังเป็นตามที่กรอก (ไม่คำนวณให้)</span>
+            </CollapsibleContent>
+          </Collapsible>
         </FormSection>
 
         {/* ---------- ส่วนลูกค้า ---------- */}
         <FormSection icon="user" title="ข้อมูลลูกค้า" sub="ไว้ตามต่อ / เข้า CRM">
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-            <div className="field"><label>ลูกค้า</label>
-              <Select value={f.customer_type} onValueChange={v => set('customer_type', v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{['ลูกค้าใหม่', 'ลูกค้าเก่า'].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
             <div className="field"><label>ชื่อลูกค้า</label><Input value={f.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="ชื่อ/ชื่อเล่น" /></div>
-            <div className="field"><label>เบอร์/LINE/FB</label><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} placeholder="ไว้ตามต่อ" /></div>
+            {/* แยกเบอร์กับโซเชียล — เดิมช่องเดียวปนกัน: พิมพ์ชื่อไลน์ลง customer_phone → เบอร์เสีย + CRM key ตกไปใช้ชื่อ */}
+            <div className="field"><label>เบอร์โทร</label><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} inputMode="tel" placeholder="เช่น 0812345678" /></div>
+            <div className="field"><label>โซเชียล (FB/LINE)</label><Input value={f.customer_social} onChange={e => set('customer_social', e.target.value)} placeholder="ชื่อเพจ/ไลน์ ไว้ตามต่อ" /></div>
             <div className="field"><label>จังหวัด</label><ProvinceCombobox value={f.province} onChange={v => set('province', v)} /></div>
           </div>
+          <div className="mt-3 field"><label>ที่อยู่</label><Input value={f.customer_address} onChange={e => set('customer_address', e.target.value)} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></div>
+          <div className="mt-3"><CustomerTypeChips value={f.customer_type} onChange={v => set('customer_type', v)} /></div>
         </FormSection>
       </div>
     </SideSheet>

@@ -13,6 +13,19 @@ import { logAudit } from './lib/audit.js';
 import { pushNotify, emailOfName, notify, emailsForAudience } from './lib/notify.js';
 import { Modal, guardClose, uid, MD } from './modals-core.jsx';
 
+// การ์ดส่วนฟอร์ม (หัวไอคอน + กรอบขาว + shadow) — ให้ลุคเหมือน popup ออเดอร์ (FormSection) · PART 81.7
+function Section({ icon, title, children, className = '' }) {
+  return (
+    <div className={'rounded-xl border shadow-sm p-3.5 ' + className} style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="grid place-items-center rounded-lg size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name={icon} className="size-4" /></span>
+        <span className="text-[13px] font-bold">{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function TaskField({ icon, label, children, wide = false }) {
   return (
     <div className={`grid grid-cols-[104px_1fr] items-start gap-3 py-2.5 ${wide ? 'sm:col-span-2' : ''}`}>
@@ -92,7 +105,14 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   // popup (Relay-style field grid · เปิดจากทุกวิว) — ปุ่มอยู่ฝั่งซ้าย (รายละเอียด) ปักล่าง
   return (
     <Modal hideHeader xl={twoCol} wide={!twoCol} onClose={onClose} confirmOnClose={touched}
-      title={edit ? 'แก้ไขงาน' : 'งานใหม่'}>
+      title={edit ? 'แก้ไขงาน' : 'งานใหม่'}
+      footer={<>
+        {edit && onDelete
+          ? <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 mr-auto" onClick={doDelete}><Icon name="trash" className="size-4 mr-1" /> ลบงาน</Button>
+          : <span className="mr-auto" />}
+        <Button variant="outline" size="sm" onClick={close}>ยกเลิก</Button>
+        <Button size="sm" disabled={!valid || submitting} onClick={submit}><Icon name="check" className="size-4 mr-1" /> {submitting ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+      </>}>
       <div className={twoCol ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_372px] gap-5 lg:gap-0 items-start' : 'flex flex-col gap-4'}>
         <div className="flex flex-col min-w-0">
           <div className={'flex flex-col gap-4' + (twoCol ? ' lg:pr-6' : '')}>
@@ -106,8 +126,9 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
             className="border-0 px-0 shadow-none text-xl sm:text-2xl font-bold h-auto py-1 focus-visible:ring-0 placeholder:text-muted-foreground/40" />
         </div>
 
-        {/* ตารางฟิลด์ — 2 คอลัมน์ (compact) · ฟิลด์ชิป (วันที่/ผู้รับผิดชอบ/แท็ก/ช่องทาง) เต็มแถว */}
-        <div className="rounded-xl border bg-card px-4 py-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
+        {/* การ์ดฟิลด์ทรง FormSection เหมือน popup ออเดอร์ — กลุ่ม "รายละเอียดงาน" + "กำหนดการ & ทีม" */}
+        <Section icon="listChecks" title="รายละเอียดงาน">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
           <TaskField icon="circle" label="สถานะ">
             <Select value={f.status} onValueChange={v => set('status', v)}>
               <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
@@ -167,6 +188,10 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
               </div>
             )}
           </TaskField>
+        </div>
+        </Section>
+        <Section icon="calendarDays" title="กำหนดการ & ทีม">
+        <div className="grid grid-cols-1 gap-y-1">
           <TaskField icon="calendarDays" label="วันที่" wide>
             <div className="flex items-center gap-2 flex-wrap">
               <DatePicker value={f.date} onChange={(v) => set('date', v)} clearable={false} className="w-40" />
@@ -212,6 +237,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
             </div>
           </TaskField>
         </div>
+        </Section>
 
         {/* รายละเอียด */}
         <div className="flex flex-col gap-2">
@@ -251,15 +277,6 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
           </div>
         )}
         </div>{/* end scroll area */}
-
-        {/* แถบปุ่ม — อยู่ฝั่งซ้าย (รายละเอียดงาน) ปักล่าง */}
-        <div className={'flex items-center gap-2 pt-3 mt-3 border-t shrink-0' + (twoCol ? ' lg:pr-6' : '')}>
-          {edit && onDelete
-            ? <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 mr-auto" onClick={doDelete}><Icon name="trash" className="size-4 mr-1" /> ลบงาน</Button>
-            : <span className="mr-auto" />}
-          <Button variant="outline" size="sm" onClick={close}>ยกเลิก</Button>
-          <Button size="sm" disabled={!valid || submitting} onClick={submit}><Icon name="check" className="size-4 mr-1" /> {submitting ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
-        </div>
         </div>{/* end LEFT column */}
 
         {/* การพูดคุย — แผงด้านขวา (ฟีล ClickUp) · ฝั่งซ้ายแสดงเต็ม · composer ติดล่างตอนเลื่อน */}

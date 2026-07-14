@@ -8,11 +8,11 @@ import { supabase } from './supabaseClient.js';
 import { markSaleWrite } from './saleRealtime.js';
 
 // คอลัมน์ที่ระบบใช้จริง (ตัด attrs/jsonb/คอลัมน์ที่ไม่ได้โชว์ออก)
-export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,cust_total_spent';
+export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,customer_phone,cust_total_spent';
 export const SKUS_SEL = 'id,order_no,channel,design,color,size,qty,line_sales,product_code,raw_sku_or_name,match_how,order_date';
 export const CUST_SEL = 'customer_code,name,phone,social_name,province,district,postcode,address,owner,cadence,repurchase,lifetime_orders,lifetime_sales,lifetime_cancel,since,tags';
 // override ระดับออเดอร์ (order_id = "source:order_no") — ใช้ร่วม dashboard/perf (กัน select drift)
-export const OVERRIDES_SEL = 'order_id,job_type,customer_name,customer_type,salesperson,note,channel,payment_type,sales,qty,province,order_date,cod_amount';
+export const OVERRIDES_SEL = 'order_id,job_type,customer_name,customer_type,salesperson,note,channel,payment_type,sales,qty,province,order_date,cod_amount,customer_phone,customer_social';
 
 const cache = new Map();    // key -> { ts, data }
 const inflight = new Map();
@@ -45,8 +45,14 @@ function normOrderRows(rows, table) {
 }
 
 // ตัดคอลัมน์ note ออกจาก select (ใช้ fallback ถ้า DB ยังไม่มีคอลัมน์ note)
-const stripNote = (sel) => sel.split(',').filter(c => c.trim() !== 'note').join(',');
-const isMissingNote = (err) => err && (err.code === '42703' || /note/i.test(err.message || '')) && /exist/i.test(err.message || '');
+// schema-tolerant: คอลัมน์ที่เพิ่มทีหลัง (migration อาจยังไม่รัน) → error 42703 = ตัดคอลัมน์ที่ระบบบอกว่าไม่มีออกแล้วลองใหม่
+// ครอบ note (20260626) + customer_phone (20260715) + คอลัมน์อนาคต — จุดเดียวคุมทุก caller (dashboard/perf/orders)
+const stripCol = (sel, col) => sel.split(',').filter(c => c.trim() !== col).join(',');
+const missingColOf = (err, sel) => {
+  if (!err || !(err.code === '42703' || /exist/i.test(err.message || ''))) return '';
+  const cols = sel.split(',').map(c => c.trim());
+  return cols.find(c => c && new RegExp(`\\b${c}\\b`).test(err.message || '')) || '';
+};
 
 const PAGINATE_MAX_PAGES = 100;   // เพดานกัน query หลุด = 100k แถว/ช่วงเวลา
 async function paginate(buildQuery) {
@@ -64,11 +70,17 @@ async function paginate(buildQuery) {
   return { data: out, truncated };
 }
 
-// รัน select แบบ paginate + ถ้าพังเพราะยังไม่มีคอลัมน์ note → ลองใหม่โดยตัด note ออก
+// รัน select แบบ paginate + ถ้าพังเพราะคอลัมน์ยังไม่ migrate → ตัดคอลัมน์นั้นออกแล้วลองใหม่ (วนจนกว่าจะผ่าน/ไม่ใช่ error คอลัมน์)
 async function selectAll(table, sel, addFilters) {
   const build = (s) => () => addFilters(supabase.from(table).select(s));
-  let r = await paginate(build(sel));
-  if (r.error && isMissingNote(r.error) && sel.includes('note')) r = await paginate(build(stripNote(sel)));
+  let s = sel;
+  let r = await paginate(build(s));
+  for (let i = 0; r.error && i < 3; i++) {
+    const col = missingColOf(r.error, s);
+    if (!col) break;
+    s = stripCol(s, col);
+    r = await paginate(build(s));
+  }
   return r;
 }
 
