@@ -198,6 +198,9 @@ export function SubmitSalesView() {
   const { staff } = useData();
   const canEdit = window.__canEdit !== false;
   const isAdmin = window.__isAdmin === true;
+  // เห็นใบเสร็จ "ทั้งทีม" = ผู้ดูแลระบบ (role=admin) เท่านั้น · แก้ไขได้/ดูอย่างเดียว = เฉพาะของตัวเอง
+  // ผูก role จาก useUser ตรงๆ (reactive · ไม่พึ่ง window.__isAdmin ที่ lag รอบแรก)
+  const canSeeTeam = user?.role === 'admin';
 
   const [missingTable, setMissingTable] = useState(false);
   const [rows, setRows] = useState([]);            // ใบที่อ่านได้ รอตรวจ
@@ -238,8 +241,8 @@ export function SubmitSalesView() {
   const loadFeed = useCallback(async () => {
     if (!range.from || !range.to) return;   // รอขอบวันที่
     try {
-      // โหลด "ทั้งทีม" เสมอเมื่อ admin หรือเลือกโหมดทีม (ทุกคนดูทีมได้ — โปร่งใส) แล้วกรองฝั่ง client
-      const wantTeam = feedScope === 'team' || isAdmin;
+      // เห็นทีมได้เฉพาะ admin: admin โหลดทั้งทีมเสมอ (กรองฝั่ง client) · non-admin โหลดเฉพาะใบตัวเอง
+      const wantTeam = canSeeTeam;
       // narrow: ตัด `parsed` (raw parser jsonb — ไม่เคย render · ตัวหนักสุด) · คง confirmed/history/file_url ที่ feed+drawer ใช้จริง
       const FEED_SEL = 'id,order_no,uploader_email,salesperson,channel,order_date,order_month,qty,sales,status,confirmed,history,file_url,void_by,void_reason,void_at,created_at';
       let q = supabase.from('tmk_sale_receipts').select(FEED_SEL).gte('order_date', range.from).lte('order_date', range.to).order('created_at', { ascending: false }).limit(2000);
@@ -252,7 +255,7 @@ export function SubmitSalesView() {
       if (isMissingReceiptTable(e)) setMissingTable(true);
       setFeed([]);
     }
-  }, [range.from, range.to, feedScope, isAdmin, user?.email]);
+  }, [range.from, range.to, feedScope, canSeeTeam, user?.email]);
   useEffect(() => { loadFeed(); }, [loadFeed]);
   useEffect(() => { setPage(1); }, [feedScope, range.from, range.to, fSeller, fChannel, fStatus, fSearch]);
   useEffect(() => { fetchTargets(refMonth).then(rows2 => { const m = {}; rows2.forEach(t => { m[t.salesperson] = t; }); setTargets(m); }).catch(() => {}); }, [refMonth]);
@@ -575,12 +578,16 @@ export function SubmitSalesView() {
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
         <div className="p-3 border-b flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold">ใบเสร็จ</span>
-          <Tabs value={feedScope} onValueChange={setFeedScope}>
-            <TabsList className="h-8">
-              <TabsTrigger value="mine" className="text-xs px-3">ของฉัน</TabsTrigger>
-              <TabsTrigger value="team" className="text-xs px-3">ทั้งทีม</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {canSeeTeam ? (
+            <Tabs value={feedScope} onValueChange={setFeedScope}>
+              <TabsList className="h-8">
+                <TabsTrigger value="mine" className="text-xs px-3">ของฉัน</TabsTrigger>
+                <TabsTrigger value="team" className="text-xs px-3">ทั้งทีม</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          ) : (
+            <Badge variant="outline" className="gap-1 text-[11px] text-muted-foreground"><Icon name="user" className="size-3" />เฉพาะของฉัน</Badge>
+          )}
           <DateRangePicker from={range.from} to={range.to} onChange={pickRange} presets={PRESETS} activePreset={datePreset || ''} onPickPreset={pickPreset} />
           <CollapsibleTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 gap-1.5"><Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 ? ` (${nFilters})` : ''} <span className={'inline-flex size-3.5 shrink-0 items-center justify-center opacity-60 transition-transform ' + (filtersOpen ? 'rotate-180' : '')}><Icon name="chevD" className="size-3.5" /></span></Button>
