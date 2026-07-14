@@ -17,7 +17,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SearchInput } from '@/components/ui/search-input';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Calendar } from '@/components/ui/calendar';
-import { DateRangePicker, DD, onCardKey, stLabel, chipVar2, _isoToDate, _dateToIso } from './saleWidgets.jsx';
+import { DateRangePicker, DD, onCardKey, chipVar2, _isoToDate, _dateToIso } from './saleWidgets.jsx';
 
 
 // ดรอปดาวน์ฟิลเตอร์ — ใช้กับตัวเลือกเยอะ (แคมเปญ/หน้าที่) ให้แถบสะอาด ไม่กองพิลล์ · shadcn DropdownMenu

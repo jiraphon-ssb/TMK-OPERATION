@@ -12,7 +12,7 @@ import { Icon, N, useBeat, PageSkeleton, SkelTable, PersonAvatar } from './compo
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { SideSheet } from './modals.jsx';
+import { SideSheet } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
 import { funnelPlatforms, funnelBreakdown, funnelNewOld, getDateBounds } from './lib/saleData.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';

@@ -25,6 +25,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { CardTable } from './components/DataTableParts.jsx';
 import { MonthPicker } from './components/MonthPicker.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
@@ -74,7 +75,8 @@ function LeadPanel({ total = 0, nw = 0, old = 0, close = null, title = 'คน�
 }
 
 /* Skeleton หน้าประสิทธิภาพเซลล์ — ตรงเลย์เอาต์จริง (การ์ดทีม/คนทัก/กราฟ/การ์ดเซลล์) · bodyOnly = ใต้ header จริง */
-const Sk = ({ className }) => <div className={`animate-pulse rounded-md bg-muted/60 ${className}`} />;
+// shadcn <Skeleton> (shimmer .skel) — ให้ลุคตรงกับ skeleton หน้าอื่นทั้งแอป
+const Sk = ({ className }) => <Skeleton className={className} />;
 function PerfSkeleton({ bodyOnly = false }) {
   const body = (
     <div className="flex flex-col gap-4">
@@ -175,7 +177,7 @@ function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
     const name = (f.salesperson && String(f.salesperson).trim()); if (!name) return;
     const s = ensure(name); const tot = funnelTotal(f);
     s.leads += tot;
-    const bd = funnelBreakdown(f); Object.entries(bd).forEach(([plat, v]) => { s.leadsByPlat[plat] = (s.leadsByPlat[plat] || 0) + ((Number(v.new) || 0) + (Number(v.old) || 0)); });
+    const bd = funnelBreakdown(f); Object.entries(bd).forEach(([plat, v]) => { s.leadsByPlat[plat] = (s.leadsByPlat[plat] || 0) + ((Number(v.new) || 0) + (Number(v.old) || 0) + (Number(v.unknown) || 0)); });
     const no = funnelNewOld(f); s.newOld.new += Number(no.new) || 0; s.newOld.old += Number(no.old) || 0;
     const d = dayOf(f.date); if (d >= 1 && d <= dim) s.daily[d - 1].leads += tot;
   });
@@ -401,7 +403,7 @@ export function SalePerfView() {
   const [month, setMonth] = useState(curMonth());
   const [tab, setTab] = useState('month');
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevOrders: [], prevFull: null });
+  const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevFull: null });
   const [maps, setMaps] = useState(null);   // resolver maps (catalog/alias/override/version) — ชื่อลาย resolve สด
   const [targets, setTargets] = useState({});
   const [detail, setDetail] = useState(null);   // เซลล์ที่เปิด drawer (รายเดือน)
@@ -427,7 +429,6 @@ export function SalePerfView() {
         cachedFetchRange('tmk_mp_skus', SKUS_SEL, from, to, 'order_date', force),
         supabase.from('tmk_sales_funnel').select('*').gte('date', from).lte('date', to),
         supabase.from('tmk_sale_receipts').select('order_no,salesperson,sales,qty,order_date,status,channel').eq('order_month', month),
-        cachedFetchRange('tmk_mp_orders', 'salesperson,sales,status,order_date', pFrom, pTo, 'order_date', force),
         fetchTargets(month),
         // override ระดับออเดอร์ (แก้เซลล์/ยอดในเว็บ) — เดิมหน้านี้ "ลืม" merge → leaderboard ไม่ตรง dashboard/ออเดอร์
         cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
@@ -439,7 +440,7 @@ export function SalePerfView() {
         supabase.from('tmk_sales_funnel').select('*').gte('date', pFrom).lte('date', pTo),
         fetchTargets(pm),
       ];
-      const [ordersR, skusR, funnelR, receiptsR, prevR, tg, ovR, pOrdersR, pSkusR, pFunnelR, pTg] =
+      const [ordersR, skusR, funnelR, receiptsR, tg, ovR, pOrdersR, pSkusR, pFunnelR, pTg] =
         await Promise.race([timeout, Promise.all([...base, ...cmp])]);
       const tmap = {}; (tg || []).forEach(t => { tmap[t.salesperson] = t; }); setTargets(tmap);
       const ptmap = {}; (pTg || []).forEach(t => { ptmap[t.salesperson] = t; }); setPrevTargets(ptmap);
@@ -447,7 +448,7 @@ export function SalePerfView() {
       const ovMap = {}; if (ovR && !ovR.error) (ovR.data || []).forEach(x => { ovMap[x.order_id] = x; });
       setData({
         orders: mergeOrderOverrides(ordersR.data || [], ovMap), skus: skusR.data || [],
-        funnel: funnelR.data || [], receipts: receiptsR.data || [], prevOrders: prevR.data || [],
+        funnel: funnelR.data || [], receipts: receiptsR.data || [],
         prevFull: { orders: mergeOrderOverrides(pOrdersR?.data || [], ovMap), skus: pSkusR?.data || [], funnel: pFunnelR?.data || [] },
       });
     } catch { /* ปล่อยว่าง — empty state */ }
@@ -456,7 +457,7 @@ export function SalePerfView() {
   useEffect(() => { load(); }, [load]);
   // resolver maps (catalog/alias/override/version) — โหลดครั้งเดียว ไม่ผูกเดือน · ชื่อลาย resolve สดตามแคตตาล็อก
   useEffect(() => { let live = true; loadResolverMaps(supabase).then(m => { if (live) setMaps(m); }); return () => { live = false; }; }, []);
-  useSaleLiveReload(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => load(true));
+  useSaleLiveReload(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => load(true), { invalidate: ['tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides', 'tmk_sales_funnel'] });
 
   // ช่องทางทั้งหมด (ทำ option ตัวกรอง)
   const channels = useMemo(() => [...new Set((data.orders || []).map(o => o.channel).filter(Boolean))].sort(), [data.orders]);
@@ -474,8 +475,9 @@ export function SalePerfView() {
       skusF: chSet ? resolvedSkus.filter(k => chSet.has(k.channel)) : resolvedSkus,
     };
   }, [data.orders, resolvedSkus, channelF]);
-  const perf = useMemo(() => buildPerf(month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevOrders),
-    [month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevOrders]);
+  // prev = prevFull.orders (merge override แล้ว) → MoM delta ต่อเซลล์สะท้อน override ตรงกับ dashboard (เดิมใช้ prevOrders select แคบ merge ไม่ได้)
+  const perf = useMemo(() => buildPerf(month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevFull?.orders),
+    [month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevFull]);
   // โหมดเทียบเดือนก่อน: กรองช่องทาง + clamp วัน (MTD) แล้วรัน buildPerf รอบ 2
   const isCurMonth = month === curMonth();
   const daysPassed = isCurMonth ? Math.min(new Date().getDate(), daysInMonth(month)) : daysInMonth(month);

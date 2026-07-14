@@ -676,7 +676,9 @@ export async function parseReceiptPdf(file) {
         const prev = receipts[receipts.length - 1];
         if (prev) {
           if (parsed.lines.length) prev.lines = [...prev.lines, ...parsed.lines];
-          if (parsed.total != null && prev.warnings.includes('ยอดรวม')) {
+          // ยอดรวมจริงมักพิมพ์หน้าสุดท้าย → เติมเมื่อใบหลักยังไม่มี (warning 'ยอดรวม')
+          // หรือเมื่อ total หน้า continuation ใหญ่กว่า (grand total ท้ายใบ > subtotal หน้าแรก) กันยอดหน้าแรกทับ
+          if (parsed.total != null && (prev.warnings.includes('ยอดรวม') || parsed.total > (prev.total || 0))) {
             prev.total = parsed.total;
             prev.warnings = prev.warnings.filter(w => w !== 'ยอดรวม');
           }

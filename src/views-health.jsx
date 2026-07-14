@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { N, Icon, PageSkeleton } from './components.jsx';
-import { SideSheet } from './modals.jsx';
+import { SideSheet } from './modals-core.jsx';
 import { MetricCard } from './charts.jsx';
 import { SalesAliasManager } from './saleImportHub.jsx';
 import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';

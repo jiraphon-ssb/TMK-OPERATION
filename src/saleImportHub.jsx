@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient.js';
 import { N, Icon, CardHead } from './components.jsx';
-import { MpImportModal } from './modals.jsx';
+import { MpImportModal } from './modals-import.jsx';
 import { cachedFetchAll, clearSaleCache, ORDERS_SEL } from './lib/saleData.js';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

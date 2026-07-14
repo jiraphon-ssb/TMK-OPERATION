@@ -14,6 +14,8 @@ const has = (arr) => arr && arr.length > 0;
 const inSet = (arr, v) => !has(arr) || arr.includes(v);
 
 // ---- ผ่านฟิลเตอร์ระดับออเดอร์ (เวลา + มิติออเดอร์) ----
+// NOTE: f.includeCancelled = footgun — ตอนนี้ไม่มี caller ตั้ง true (grep=0) ทุกรายงานตัดออเดอร์ยกเลิกทิ้ง
+// ถ้าจะเปิดในอนาคต ระวัง KPI ยอดขาย/leaderboard จะรวมออเดอร์ยกเลิก ต้องกรองซ้ำที่ชั้น sku ด้วย
 export function orderPass(o, f) {
   if (!f) return o.status !== 'cancelled';
   if (o.status === 'cancelled' && !f.includeCancelled) return false;

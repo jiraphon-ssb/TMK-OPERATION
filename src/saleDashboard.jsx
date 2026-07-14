@@ -5,7 +5,8 @@
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { N, Icon, Skel, useDelayedFlag } from './components.jsx';
-import { MpImportModal, SideSheet } from './modals.jsx';
+import { SideSheet } from './modals-core.jsx';
+import { MpImportModal } from './modals-import.jsx';
 import { MetricCard, CountUp, GradientSparkline, ComboChart, StackedBars, HBars, DonutChart, Heatmap, channelColor, CAT_COLORS, Sparkline, AreaTrend } from './charts.jsx';
 import { ChannelLogo, channelTint } from './lib/channelLogos.jsx';
 import { compute, series, deltaKpi, movers, sizeRank, normColor, normSize, customerAgg, rfmTiers, geoBreakdown, regionBreakdown } from './lib/saleAgg.js';
@@ -289,7 +290,7 @@ export function SaleDashboard() {
   useEffect(() => { saveF(f); }, [f]);
   // realtime: ออเดอร์/ใบเสร็จ/คนทัก/แคตตาล็อก/override เปลี่ยนที่ไหน รายงานเด้งสด (ไม่ต้องรีเฟรช)
   // realtime: invalidate เฉพาะตาราง sale ที่ dashboard ใช้ (ไม่ clear ทั้ง Map — กันทิ้ง cache เดือน/หน้าอื่น + ลด egress)
-  useSaleLiveReload([T.mpOrders, T.mpSkus, T.saleReceipts, T.salesFunnel, T.orderOverrides, T.mpCustomers], () => setReloadKey(k => k + 1), { invalidate: [T.mpOrders, T.mpSkus, T.mpCustomers] });
+  useSaleLiveReload([T.mpOrders, T.mpSkus, T.saleReceipts, T.salesFunnel, T.orderOverrides, T.mpCustomers], () => setReloadKey(k => k + 1), { invalidate: [T.mpOrders, T.mpSkus, T.mpCustomers, T.salesFunnel, T.orderOverrides] });
 
   const bounds = dbBounds;
   const range = { from: f.from || bounds.min, to: f.to || bounds.max };

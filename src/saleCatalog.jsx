@@ -9,7 +9,7 @@ import { useSaleRealtime } from './lib/saleRealtime.js';
 import { N, Icon, Skel, SkelTable, useDelayedFlag, stockMeta } from './components.jsx';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
-import { Modal, SideSheet } from './modals.jsx';
+import { Modal, SideSheet } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
 import { logCatalogVersion, fetchCatalogVersions } from './lib/catalogVersions.js';
 import { GOLDEN_DESIGNS, COLOR_TH2CODE } from './lib/shirtCatalog.js';

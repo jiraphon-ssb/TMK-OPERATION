@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { TMK } from './data.js';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
   Shirt, Box, CalendarDays, Clock, Users, User, Heart, Zap, Briefcase, Folder,
@@ -676,7 +677,8 @@ export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose })
 
 /* ---- Skeleton primitives: บล็อก shimmer + ตารางจำลอง (ใช้ตอนดึงข้อมูลจริง) ---- */
 export function Skel({ w = '100%', h = 14, r = 8, style }) {
-  return <div className="skel" style={{ width: w, height: h, borderRadius: r, ...style }} aria-hidden="true" />;
+  // shadcn <Skeleton> (shimmer .skel) — ขนาด/รัศมีส่งผ่าน inline style (ทับ rounded-md ของ base)
+  return <Skeleton style={{ width: w, height: h, borderRadius: r, ...style }} />;
 }
 // ตารางจำลอง: หัวตาราง + แถว (จางลงเรื่อยๆ ให้รู้สึกว่ามีของอยู่)
 export function SkelTable({ cols = 6, rows = 8 }) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { B, P, N, Icon, PersonAvatar, Skel, useDelayedFlag } from './components.jsx';
-import { SideSheet } from './modals.jsx';
+import { SideSheet } from './modals-core.jsx';
 import { channelColor } from './charts.jsx';
 import { makeSkuResolver, loadResolverMaps, skuOverrideKey } from './lib/designResolve.js';
 import { mergeOrderOverrides, resolveSkuDesigns, ORDER_OV_KEY } from './lib/saleOverrides.js';
@@ -199,7 +199,9 @@ function MpOrdersView() {
   // reload เต็ม (orders + skus + overrides) — ใช้หลังแก้ตรง/ยกเลิก/ลบ จาก drawer
   const reloadAll = () => {
     // reloadAll ใช้ทั้ง realtime-receive + หลังเซฟ — bust cache แต่ไม่ mark (การเขียนจริง mark เองแล้ว · กัน "หูหนวก" ต่อ event คนอื่น)
+    // ล้าง override/funnel cache ด้วย (dashboard/perf โหลดผ่าน cachedFetchAll TTL 5 นาที) → แก้ override แล้วหน้าอื่นเห็นสด
     invalidateSaleCache('tmk_mp_orders', { mark: false }); invalidateSaleCache('tmk_mp_skus', { mark: false });
+    invalidateSaleCache('tmk_order_overrides', { mark: false }); invalidateSaleCache('tmk_sales_funnel', { mark: false });
     setReloadKey(k => k + 1); reloadOverrides();
   };
   // realtime: ออเดอร์/รายการ/override เปลี่ยนที่ไหน (คนอื่นเพิ่ม/แก้/ยกเลิก/ลบ · ส่งยอดใบเสร็จ) → ตารางเด้งสด
@@ -280,18 +282,15 @@ function MpOrdersView() {
   ];
   const clearFilters = () => { setJobF([]); setChannelF([]); setSellerF([]); setStatusF([]); setPayF([]); };
   const ql = q.trim().toLowerCase();
-  const filtered = (ordersM || []).filter(o =>
+  // memoize — ต้องคง identity ของ filtered ให้เสถียร ไม่งั้น useTableSort re-sort ทุก render (กดเช็คบ็อกซ์/เปิด drawer/สลับหน้า → กระตุก)
+  const filtered = useMemo(() => (ordersM || []).filter(o =>
     (statusF.length === 0 || statusF.includes(o.status === 'cancelled' ? 'ยกเลิก' : 'ใช้งาน')) &&
     (channelF.length === 0 || channelF.includes(o.channel)) &&
     (payF.length === 0 || payF.includes(o.payment_type || 'ไม่ระบุ')) &&
     (jobF.length === 0 || jobF.includes(o.job_type || 'ปลีก')) &&
     (sellerF.length === 0 || sellerF.includes(o.salesperson || '')) &&
     (!ql || `${o.order_no} ${o.marketplace_id || ''} ${o.customer_name || ''} ${o.customer_code || ''} ${o.customer_social || ''} ${o.province || ''} ${o.salesperson || ''}`.toLowerCase().includes(ql) || (skusByOrder[o.order_no] || []).some(s => `${s.design || ''} ${s.color || ''} ${s.raw_sku_or_name || ''}`.toLowerCase().includes(ql)))
-  );
-  const tot = filtered.reduce((a, x) => a + (Number(x.sales) || 0), 0);
-  const totQty = filtered.reduce((a, x) => a + (Number(x.qty) || 0), 0);
-  const byCh = {}; filtered.forEach(o => { byCh[o.channel] = (byCh[o.channel] || 0) + (Number(o.sales) || 0); });
-  const _donutData = Object.entries(byCh).map(([k, v]) => ({ label: k, value: v, color: channelColor(k) })).sort((a, b) => b.value - a.value);
+  ), [ordersM, statusF, channelF, payF, jobF, sellerF, ql, skusByOrder]);
 
   // เรียงตามคอลัมน์ (เริ่มต้น = วันที่ล่าสุดก่อน เหมือนเดิม)
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
@@ -688,7 +687,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, onClose, onSaved, onChanged }
         </div>
         <div className="field" style={{ marginTop: 10 }}><label>หมายเหตุ</label><Textarea rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></div>
         <div className="row" style={{ gap: 8, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button onClick={saveOrder} disabled={busy || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+          <Button onClick={saveOrder} disabled={busy || edit.sales === '' || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
           <Button variant="ghost" onClick={() => setEdit(null)} disabled={busy}>ยกเลิก</Button>
           {hasOv && <Button variant="ghost" className="ml-auto" style={{ color: 'var(--bad)' }} onClick={revertOrder} disabled={busy}><Icon name="refresh" /> คืนค่าจากไฟล์</Button>}
         </div>

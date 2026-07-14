@@ -48,7 +48,8 @@ export const receiptId = (orderNo) => 'shipnity:' + String(orderNo || '').trim()
 const monthOf = (iso) => String(iso || '').slice(0, 7);
 const normPhone = (p) => String(p || '').replace(/\D/g, '');
 // คีย์ลูกค้าจากใบเสร็จ — ใช้ทั้งบน orders.customer_code และ tmk_mp_customers.customer_code (ต้องตรงกัน 100%)
-// 'P<เบอร์>' (≥9 หลัก) else 'N<ชื่อ>' — คนละ keyspace กับ CE#### จาก import เก่า
+// ลำดับ: 'P<เบอร์>'(≥9) → 'S<social>'(handle เฉพาะ · ต่างจากชื่อ) → 'N<ชื่อ>' — คนละ keyspace กับ CE#### จาก import เก่า
+// social ก่อนชื่อ: ลดการรวม "คนละคนชื่อเดียวกัน (ไม่มีเบอร์)" · ใช้เฉพาะเมื่อ social ≠ ชื่อ (parser fallback social=ชื่อ) → คงพฤติกรรมเดิมของลูกค้าชื่อล้วน (ไม่ retro-split)
 // ลูกค้าถูกปกปิด (Shopee/Lazada mask ชื่อ/เบอร์) → ไม่มีคีย์จริง (กัน CRM ขยะ · ออเดอร์ยังบันทึกปกติ)
 const isMaskedCustomer = (it) => !!it.customer_masked || /\*{2,}/.test(String(it.customer_name || ''));
 export const customerKeyOf = (it) => {
@@ -56,6 +57,8 @@ export const customerKeyOf = (it) => {
   const p = normPhone(it.customer_phone);
   if (p.length >= 9) return 'P' + p;
   const n = String(it.customer_name || '').trim();
+  const soc = String(it.customer_social || '').trim();
+  if (soc && soc !== n) return 'S' + soc.slice(0, 60);
   return n ? 'N' + n.slice(0, 60) : '';
 };
 const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
@@ -504,7 +507,7 @@ export async function deleteOrders(orderNos, { source = '', overrideIds = [] } =
     for (const ids of chunk(nos, 150)) { try { await supabase.from('tmk_sku_overrides').delete().in('order_no', ids); } catch { /* optional — กัน override ลายบรรทัดค้างเป็น orphan */ } }
     for (const ids of chunk(nos, 150)) { try { await supabase.from('tmk_sale_receipts').delete().in('order_no', ids); } catch { /* optional */ } }
   }
-  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
+  invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); invalidateSaleCache('tmk_order_overrides'); markSaleWrite('tmk_sale_receipts');
 }
 
 /* ยกเลิก (void) ใบเสร็จหลายใบ "ทีเดียว" — RPC ธุรกรรม · fallback batch */

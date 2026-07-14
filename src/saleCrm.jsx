@@ -11,7 +11,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabaseClient.js';
 import { N, Icon, Skel, SkelTable, useDelayedFlag, PersonAvatar } from './components.jsx';
 import { channelColor } from './charts.jsx';
-import { SideSheet } from './modals.jsx';
+import { SideSheet } from './modals-core.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';

@@ -7,7 +7,7 @@
    (แยกเป็นไฟล์อิสระ — กัน circular import ระหว่าง views-2 ↔ views-sale-submit) */
 import { useMemo, useState } from 'react';
 import { Icon } from './components.jsx';
-import { SideSheet } from './modals.jsx';
+import { SideSheet } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
 import { confirmReceipts } from './lib/receiptSubmit.js';
 import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, lineDisplayName, findDesign, ProvinceCombobox } from './components/ProductPicker.jsx';

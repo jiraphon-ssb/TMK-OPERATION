@@ -60,7 +60,7 @@ const NEW_ICONS = ['Rocket', 'Target', 'ShoppingCart', 'Package', 'Palette', 'Me
 const GENERAL_ID = '__general__'; // config row ของ "งานทั่วไป" (scopeId='' กรองงาน flow ว่าง)
 const VIEWS = [['calendar', 'calendarDays', 'ปฏิทิน'], ['kanban', 'listChecks', 'Kanban'], ['timeline', 'route', 'ไทม์ไลน์'], ['list', 'menu', 'รายการ']];
 
-const guardEdit = () => { if (window.__canEdit === false) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้', 'warn'); return false; } return true; };
+const guardEdit = () => { if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้', 'warn'); return false; } return true; };
 const isMissing = (err) => /relation .* does not exist|does not exist|schema cache|PGRST205|42P01/i.test(err?.message || err?.code || '');
 const defaultStatuses = () => (TMK.kanbanMeta || []).map(k => ({ id: k.id, label: k.label, color: '', done: k.id === 'done' }));
 const doneSetOf = (f) => new Set((f.statuses && f.statuses.length) ? f.statuses.filter(s => s.done).map(s => s.id) : ['done']);
