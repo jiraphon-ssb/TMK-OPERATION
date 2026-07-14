@@ -2003,11 +2003,19 @@ function RolesView() {
     editor: { l: 'แก้ไขได้', cls: 'chip-good', icon: 'pencil', d: 'บันทึกยอดขาย จัดการงาน แก้ไขข้อมูล' },
     viewer: { l: 'ดูอย่างเดียว', cls: '', icon: 'eye', d: 'เปิดดูข้อมูลได้ แต่แก้ไขไม่ได้' }
   };
-  // หน้าใหญ่ที่ล็อกได้ต่อคน (deny-list) — หน้าหลัก/การแจ้งเตือนเข้าได้เสมอ · admin ไม่โดนล็อก
+  // หน้าที่ล็อกได้ต่อคน (deny-list) — หน้าหลัก/การแจ้งเตือนเข้าได้เสมอ · admin ไม่โดนล็อก
+  // Sale มีหน้าย่อย → ล็อกทั้งหมด หรือเลือกล็อกเฉพาะหน้าย่อย (composite "catalog:<sub>") ได้
   const LOCK_SECTIONS = [
     { id: 'sales', label: 'ยอดขาย', icon: 'sales' },
     { id: 'flows', label: 'โครงการ', icon: 'grid' },
-    { id: 'catalog', label: 'Sale', icon: 'box' },
+    { id: 'catalog', label: 'Sale', icon: 'box', subs: [
+      { id: 'report', label: 'รายงานขาย' },
+      { id: 'perf', label: 'ประสิทธิภาพเซลล์' },
+      { id: 'orders', label: 'ออเดอร์' },
+      { id: 'crm', label: 'ลูกค้า (CRM)' },
+      { id: 'data', label: 'ส่งยอด & ข้อมูล' },
+      { id: 'shirts', label: 'สินค้า' },
+    ] },
     { id: 'logs', label: 'บันทึกกิจกรรม', icon: 'clock' },
     { id: 'settings', label: 'ตั้งค่า', icon: 'system' },
   ];
@@ -2015,15 +2023,29 @@ function RolesView() {
   const LockPicker = ({ role, locks, setLocks }) => role === 'admin' ? null : (
     <div className="grid gap-2">
       <Label>การเข้าถึงหน้า <span className="text-xs font-normal text-muted-foreground">(ติ๊ก = ล็อกไม่ให้เข้า)</span></Label>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col gap-2">
         {LOCK_SECTIONS.map(s => { const on = locks.includes(s.id); return (
-          <button key={s.id} type="button" onClick={() => setLocks(on ? locks.filter(x => x !== s.id) : [...locks, s.id])}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${on ? 'bg-destructive/10 border-destructive/40 text-destructive font-medium' : 'bg-background hover:bg-muted'}`}>
-            <Icon name={on ? 'lock' : s.icon} className="size-3.5" />{s.label}
-          </button>
+          <div key={s.id} className="flex flex-col gap-1.5">
+            <button type="button" onClick={() => setLocks(on ? locks.filter(x => x !== s.id) : [...locks, s.id])}
+              className={`w-fit flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-colors ${on ? 'bg-destructive/10 border-destructive/40 text-destructive font-medium' : 'bg-background hover:bg-muted'}`}>
+              <Icon name={on ? 'lock' : s.icon} className="size-3.5" />{s.label}
+            </button>
+            {/* หน้าย่อย — เลือกล็อกเฉพาะบางหน้าได้ · ล็อกทั้ง Sale แล้ว = ล็อกหมด (จาง กดไม่ได้) */}
+            {s.subs && (
+              <div className="flex flex-wrap gap-1.5 pl-4">
+                {s.subs.map(sub => { const key = `${s.id}:${sub.id}`; const subOn = on || locks.includes(key); return (
+                  <button key={key} type="button" disabled={on}
+                    onClick={() => setLocks(locks.includes(key) ? locks.filter(x => x !== key) : [...locks, key])}
+                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] rounded-full border transition-colors ${on ? 'opacity-40 cursor-not-allowed border-dashed' : subOn ? 'bg-destructive/10 border-destructive/40 text-destructive font-medium' : 'bg-background hover:bg-muted'}`}>
+                    <Icon name={subOn ? 'lock' : 'chevR'} className="size-3" />{sub.label}
+                  </button>
+                ); })}
+              </div>
+            )}
+          </div>
         ); })}
       </div>
-      <p className="text-xs text-muted-foreground">หน้าที่ล็อกจะโชว์จาง + กุญแจในเมนู กดแล้วแจ้งไม่มีสิทธิ์ · หน้าหลัก/การแจ้งเตือนเข้าได้เสมอ</p>
+      <p className="text-xs text-muted-foreground">หน้าที่ล็อกจะโชว์จาง + กุญแจในเมนู กดแล้วแจ้งไม่มีสิทธิ์ · ล็อก “Sale” ทั้งหมด หรือเลือกเฉพาะหน้าย่อยได้ · หน้าหลัก/การแจ้งเตือนเข้าได้เสมอ</p>
     </div>
   );
   // หน้าที่ — ดึงจาก tmk_duties (Supabase) — เพิ่ม/แก้/ลบได้ใน tab "หน้าที่"

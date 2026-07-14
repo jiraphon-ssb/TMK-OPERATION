@@ -696,18 +696,32 @@ function AppInner() {
     logAudit({ action: 'login', entityType: 'auth', entityName: userEmail, summary: `เข้าสู่ระบบ (${userEmail})` });
   };
 
-  // หน้าใหญ่ที่ถูกล็อกของ user นี้ — จุดคุมเดียวที่ go() ครอบทุกทางเข้า (sidebar/drawer/tabbar/breadcrumb/Spotlight/__goSection)
-  const isLocked = (sec) => (currentUserCtx?.lockedSections || []).includes(sec);
+  // ล็อกหน้าของ user นี้ — จุดคุมเดียวที่ go() ครอบทุกทางเข้า (sidebar/drawer/tabbar/breadcrumb/Spotlight/__goSection)
+  // รองรับทั้ง section ใหญ่ (id) และหน้าย่อย (composite "section:sub" เช่น catalog:orders) เก็บใน locked_sections เดียวกัน
+  const isLocked = (sec, s) => { const L = currentUserCtx?.lockedSections || []; return L.includes(sec) || (!!s && L.includes(sec + ':' + s)); };
+  // หน้าย่อยแรกที่เข้าได้ของ section (null = ล็อกหมดทุกหน้าย่อย)
+  const firstAllowedSub = (sec) => (NAV_DEF.find(n => n.id === sec)?.subs || []).map(x => x.id).find(id => !isLocked(sec, id)) || null;
   const go = (sec, s) => {
-    if (isLocked(sec)) { toast('ไม่มีสิทธิ์เข้าหน้านี้ — ติดต่อแอดมิน', 'warn'); return; }
+    if (isLocked(sec)) { toast('ไม่มีสิทธิ์เข้าหน้านี้ — ติดต่อแอดมิน', 'warn'); return; } // section ใหญ่ล็อก
+    if (s && isLocked(sec, s)) { toast('ไม่มีสิทธิ์เข้าหน้านี้ — ติดต่อแอดมิน', 'warn'); return; } // หน้าย่อยที่ระบุถูกล็อก
+    let target = s;
+    const hasSubs = (NAV_DEF.find(n => n.id === sec)?.subs || []).length > 0;
+    if (!target && hasSubs) { // คลิก header — ใช้ default; ถ้า default ล็อก → หน้าย่อยแรกที่เข้าได้
+      const def = subMap[sec] || DEFAULT_SUB[sec];
+      target = def && !isLocked(sec, def) ? def : firstAllowedSub(sec);
+      if (!target) { toast('ไม่มีสิทธิ์เข้าหน้านี้ — ติดต่อแอดมิน', 'warn'); return; } // ล็อกทุกหน้าย่อย
+    }
     setSection(sec);
-    if (s) setSubMap(m => ({ ...m, [sec]: s }));
+    if (target) setSubMap(m => ({ ...m, [sec]: target }));
     setDrawer(false); setMenu(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
-  // section ปัจจุบันโดนล็อก (restore จาก localStorage / โดนล็อกสดขณะเปิดอยู่ผ่าน realtime) → เด้งกลับหน้าหลัก
+  // section/หน้าย่อยปัจจุบันโดนล็อก (restore จาก localStorage / โดนล็อกสดผ่าน realtime) → เด้งออก
   // ก่อน roles โหลด lockedSections = [] จึงไม่ redirect มั่ว
-  useEffect(() => { if (isLocked(section)) setSection('home'); }, [currentUserCtx?.lockedSections, section]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (isLocked(section)) { setSection('home'); return; }
+    if (sub && isLocked(section, sub)) { const alt = firstAllowedSub(section); alt ? setSubMap(m => ({ ...m, [section]: alt })) : setSection('home'); }
+  }, [currentUserCtx?.lockedSections, section, sub]); // eslint-disable-line react-hooks/exhaustive-deps
   // เลือกโครงการ + ไปบอร์ด (คลิกเดียว · setActiveFlow ทำให้ sidebar/breadcrumb/board re-render พร้อมกัน)
   const pickFlow = (f) => { setActiveFlow(f.id); go('flows', f.defaultView && f.defaultView !== 'settings' ? f.defaultView : 'kanban'); };
 
@@ -834,18 +848,19 @@ function AppInner() {
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <SidebarMenuSub>
-                          {n.subs.map(s => (
+                          {n.subs.map(s => { const subLocked = isLocked(n.id, s.id); return (
                             <SidebarMenuSubItem key={s.id}>
-                              <SidebarMenuSubButton asChild isActive={section === n.id && sub === s.id}>
+                              <SidebarMenuSubButton asChild isActive={section === n.id && sub === s.id} className={subLocked ? 'opacity-50' : undefined}>
                                 <button onClick={() => go(n.id, s.id)}>
                                   <span>{s.label}</span>
-                                  {counts[s.id] != null && counts[s.id] > 0 && (
-                                    <span className="ml-auto bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full">{counts[s.id]}</span>
-                                  )}
+                                  {subLocked ? <Icon name="lock" className="ml-auto size-3 shrink-0" />
+                                    : counts[s.id] != null && counts[s.id] > 0 ? (
+                                      <span className="ml-auto bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full">{counts[s.id]}</span>
+                                    ) : null}
                                 </button>
                               </SidebarMenuSubButton>
                             </SidebarMenuSubItem>
-                          ))}
+                          ); })}
                         </SidebarMenuSub>
                       </CollapsibleContent>
                     </SidebarMenuItem>
