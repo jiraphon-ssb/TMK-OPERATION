@@ -12,6 +12,7 @@ import { supabase } from './lib/supabaseClient.js';
 import { N, Icon, Skel, SkelTable, useDelayedFlag, PersonAvatar } from './components.jsx';
 import { channelColor } from './charts.jsx';
 import { SideSheet } from './modals-core.jsx';
+import { FormSection, DrawerGroup, DrawerField, Field } from './saleWidgets.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
@@ -411,20 +412,7 @@ export function CrmView() {
 /* ============================================================
    Drawer รายละเอียดลูกค้า — ดู/แก้โปรไฟล์ + งานติดตาม + Insight
    ============================================================ */
-function CrmField({ label, children, full }) {
-  return <div style={full ? { gridColumn: '1 / -1' } : undefined}><span className="cap">{label}</span><b>{children}</b></div>;
-}
-function CrmGroup({ icon, title, children }) {
-  return (
-    <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface-2, transparent)' }}>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg [&_svg]:size-[14px]" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name={icon} /></span>
-        <span className="text-[13px] font-bold" style={{ color: 'var(--ink)' }}>{title}</span>
-      </div>
-      <div className="kv-grid">{children}</div>
-    </div>
-  );
-}
+// CrmField/CrmGroup ยุบไปใช้ DrawerField/DrawerGroup กลาง (saleWidgets · PART 83)
 // ชิปนับความถี่ "ดำ ×5" — ใช้กับ Insight ลาย/สี/ไซซ์
 const FreqChips = ({ label, items }) => items.length > 0 && (
   <div style={{ marginTop: 12 }}>
@@ -557,16 +545,16 @@ function CustomerDetail({ c, onClose, onSaved }) {
           ))}
         </div>
 
-        <CrmGroup icon="user" title="ข้อมูลลูกค้า">
-          {c.social && <CrmField label="โซเชียล">@{c.social}</CrmField>}
-          {(c.owner || c.salesperson) && <CrmField label={c.owner ? 'เซลล์เจ้าของ' : 'เซลล์'}><span style={{ color: c.owner ? 'var(--good)' : 'var(--ink)' }}>{c.owner || c.salesperson}</span></CrmField>}
-          {c.mainChannel && <CrmField label="ช่องทางหลัก"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.mainChannel) }} />{c.mainChannel}</span></CrmField>}
-          {c.province && <CrmField label="จังหวัด">{c.province}</CrmField>}
-          {c.since && <CrmField label="เป็นลูกค้าตั้งแต่">{c.since}</CrmField>}
-          {c.last && <CrmField label="ซื้อล่าสุด">{c.last}</CrmField>}
-          {addr && <CrmField label="ที่อยู่จัดส่ง" full>{addr}</CrmField>}
-          {c.note && <CrmField label="โน้ต" full><span style={{ whiteSpace: 'pre-wrap', fontWeight: 500 }}>{c.note}</span></CrmField>}
-        </CrmGroup>
+        <DrawerGroup icon="user" title="ข้อมูลลูกค้า">
+          {c.social && <DrawerField label="โซเชียล">@{c.social}</DrawerField>}
+          {(c.owner || c.salesperson) && <DrawerField label={c.owner ? 'เซลล์เจ้าของ' : 'เซลล์'}><span style={{ color: c.owner ? 'var(--good)' : 'var(--ink)' }}>{c.owner || c.salesperson}</span></DrawerField>}
+          {c.mainChannel && <DrawerField label="ช่องทางหลัก"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.mainChannel) }} />{c.mainChannel}</span></DrawerField>}
+          {c.province && <DrawerField label="จังหวัด">{c.province}</DrawerField>}
+          {c.since && <DrawerField label="เป็นลูกค้าตั้งแต่">{c.since}</DrawerField>}
+          {c.last && <DrawerField label="ซื้อล่าสุด">{c.last}</DrawerField>}
+          {addr && <DrawerField label="ที่อยู่จัดส่ง" full>{addr}</DrawerField>}
+          {c.note && <DrawerField label="โน้ต" full><span style={{ whiteSpace: 'pre-wrap', fontWeight: 500 }}>{c.note}</span></DrawerField>}
+        </DrawerGroup>
 
         {/* Insight ซื้อบ่อย */}
         {insight && (insight.designs.length > 0 || insight.colors.length > 0 || insight.sizes.length > 0) && (
@@ -607,31 +595,30 @@ function CustomerDetail({ c, onClose, onSaved }) {
           </Table></CardTable>}
       </>) : (
         /* ---------- โหมดแก้ไขโปรไฟล์ ---------- */
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div className="form-grid2">
-            <label className="fld"><span>ชื่อลูกค้า *</span><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></label>
-            <label className="fld"><span>เบอร์โทร</span><Input inputMode="tel" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder="เช่น 0812345678" /></label>
-            <label className="fld"><span>โซเชียล (FB/LINE)</span><Input value={f.social} onChange={e => setF({ ...f, social: e.target.value })} /></label>
-            <label className="fld"><span>จังหวัด</span><Input value={f.province} onChange={e => setF({ ...f, province: e.target.value })} /></label>
-            <label className="fld"><span>เซลล์เจ้าของ</span><Input value={f.owner} onChange={e => setF({ ...f, owner: e.target.value })} placeholder="ชื่อเซลล์ที่ดูแล" /></label>
-            <label className="fld"><span>ตามต่อ (เช่น 7D / 30D)</span><Input value={f.cadence} onChange={e => setF({ ...f, cadence: e.target.value })} placeholder="เว้นว่าง = ไม่ตั้ง" /></label>
+        <FormSection icon="user" title="แก้ไขโปรไฟล์ลูกค้า">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="ชื่อลูกค้า *"><Input value={f.name} onChange={e => setF({ ...f, name: e.target.value })} /></Field>
+            <Field label="เบอร์โทร"><Input inputMode="tel" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} placeholder="เช่น 0812345678" /></Field>
+            <Field label="โซเชียล (FB/LINE)"><Input value={f.social} onChange={e => setF({ ...f, social: e.target.value })} /></Field>
+            <Field label="จังหวัด"><Input value={f.province} onChange={e => setF({ ...f, province: e.target.value })} /></Field>
+            <Field label="เซลล์เจ้าของ"><Input value={f.owner} onChange={e => setF({ ...f, owner: e.target.value })} placeholder="ชื่อเซลล์ที่ดูแล" /></Field>
+            <Field label="ตามต่อ (เช่น 7D / 30D)"><Input value={f.cadence} onChange={e => setF({ ...f, cadence: e.target.value })} placeholder="เว้นว่าง = ไม่ตั้ง" /></Field>
           </div>
-          <label className="fld"><span>ที่อยู่จัดส่ง</span><Textarea rows={2} value={f.address} onChange={e => setF({ ...f, address: e.target.value })} /></label>
+          <Field label="ที่อยู่จัดส่ง" className="mt-3"><Textarea rows={2} value={f.address} onChange={e => setF({ ...f, address: e.target.value })} /></Field>
           {/* แท็ก — พิมพ์แล้ว Enter เพื่อเพิ่ม */}
-          <div className="fld">
-            <span>แท็ก ({f.tags.length})</span>
+          <Field label={`แท็ก (${f.tags.length})`} className="mt-3">
             {f.tags.length > 0 && <div className="flex flex-wrap gap-1.5">{f.tags.map((t, i) => (
               <Badge key={t + i} variant="secondary" className="gap-1 rounded-full py-1 pl-2.5 pr-1 font-normal">{t}
                 <button type="button" aria-label={`ลบ ${t}`} className="ml-0.5 inline-flex rounded-full p-0.5 text-[var(--ink-4)] hover:bg-[var(--surface-2)] hover:text-[var(--bad)]" onClick={() => setF({ ...f, tags: f.tags.filter((_, j) => j !== i) })}><Icon name="x" /></button>
               </Badge>
             ))}</div>}
-            <Input className="h-8 mt-1.5" placeholder="พิมพ์แท็กแล้วกด Enter เช่น ขายส่ง / VIP" onKeyDown={e => {
+            <Input className="h-8" placeholder="พิมพ์แท็กแล้วกด Enter เช่น ขายส่ง / VIP" onKeyDown={e => {
               const v = e.target.value.trim();
               if (e.key === 'Enter' && v) { e.preventDefault(); if (!f.tags.includes(v)) setF({ ...f, tags: [...f.tags, v] }); e.target.value = ''; }
             }} />
-          </div>
-          <label className="fld"><span>โน้ต</span><Textarea rows={3} value={f.note} onChange={e => setF({ ...f, note: e.target.value })} placeholder="บันทึกภายใน เช่น ชอบสั่งช่วงสิ้นเดือน / ให้ส่ง Flash เท่านั้น" /></label>
-        </div>
+          </Field>
+          <Field label="โน้ต" className="mt-3"><Textarea rows={3} value={f.note} onChange={e => setF({ ...f, note: e.target.value })} placeholder="บันทึกภายใน เช่น ชอบสั่งช่วงสิ้นเดือน / ให้ส่ง Flash เท่านั้น" /></Field>
+        </FormSection>
       )}
     </SideSheet>
   );

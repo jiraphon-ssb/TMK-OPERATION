@@ -13,7 +13,7 @@ import { confirmReceipts } from './lib/receiptSubmit.js';
 import { jobTypeFromNote } from './lib/receiptParse.js';
 import { CHANNELS, JOB_TYPES, RECEIPT_PAYMENTS } from './lib/saleFields.js';
 import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, lineDisplayName, findDesign, ProvinceCombobox } from './components/ProductPicker.jsx';
-import { FormSection, CustomerTypeChips } from './saleWidgets.jsx';
+import { FormSection, CustomerTypeChips, Field } from './saleWidgets.jsx';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -135,7 +135,7 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
   };
 
   return (
-    <SideSheet size="md" icon="pencil" title="เพิ่มออเดอร์" sub={`เซลล์: ${user?.name || user?.email || '—'} · เข้าระบบเดียวกับใบเสร็จ`} onClose={onClose}
+    <SideSheet size="lg" icon="pencil" title="เพิ่มออเดอร์" sub={`เซลล์: ${user?.name || user?.email || '—'} · เข้าระบบเดียวกับใบเสร็จ`} onClose={onClose}
       footer={<>
         <span className="mr-auto text-sm"><span style={{ color: 'var(--ink-4)' }}>รวม </span><b style={{ color: 'var(--accent)' }}>{fmtB(effectiveTotal)}</b></span>
         <Button variant="outline" onClick={onClose}>ปิด</Button>
@@ -144,16 +144,16 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
       <div className="grid gap-3">
         {/* ---------- ส่วนขาย ---------- */}
         <FormSection icon="sales" title="ข้อมูลการขาย">
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-            <div className="field"><label>วันที่</label><DatePicker value={f.order_date} max={todayISO()} clearable={false} onChange={v => set('order_date', v)} /></div>
-            <div className="field"><label>เลขออเดอร์ (ว่าง = สร้างให้)</label><Input value={f.order_no} onChange={e => set('order_no', e.target.value)} placeholder="เช่น SK1234" /></div>
-            <div className="field"><label>ช่องทาง *</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Field label="วันที่"><DatePicker value={f.order_date} max={todayISO()} clearable={false} onChange={v => set('order_date', v)} /></Field>
+            <Field label="เลขออเดอร์ (ว่าง = สร้างให้)"><Input value={f.order_no} onChange={e => set('order_no', e.target.value)} placeholder="เช่น SK1234" /></Field>
+            <Field label="ช่องทาง *">
               <Select value={f.channel || undefined} onValueChange={v => set('channel', v)}>
                 <SelectTrigger><SelectValue placeholder="เลือก" /></SelectTrigger>
                 <SelectContent>{CHANNELS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
-            </div>
-            <div className="field"><label>ประเภทงาน</label>
+            </Field>
+            <Field label="ประเภทงาน">
               {(() => {
                 // ท่อบันทึก (buildRows) ยึดหมายเหตุตัดสิน ปลีก/DFT — UI ต้อง couple กับ note ไม่งั้นเลือก DFT แต่เซฟเป็นปลีก
                 const eff = f.job_type === 'OEM' ? 'OEM' : (jobTypeFromNote(f.note) === 'DFT' ? 'DFT' : 'ปลีก');
@@ -167,17 +167,17 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
                 };
                 return (
                   <ToggleGroup type="single" value={eff} onValueChange={pick} variant="outline" className="justify-start">
-                    {JOB_TYPES.map(j => <ToggleGroupItem key={j} value={j} className="h-9 px-2.5 text-[12px]">{j}</ToggleGroupItem>)}
+                    {JOB_TYPES.map(j => <ToggleGroupItem key={j} value={j} className="h-9 px-3 text-[13px]">{j}</ToggleGroupItem>)}
                   </ToggleGroup>
                 );
               })()}
-            </div>
-            <div className="field"><label>การชำระ</label>
+            </Field>
+            <Field label="การชำระ">
               <Select value={f.payment} onValueChange={v => set('payment', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{RECEIPT_PAYMENTS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
-            </div>
+            </Field>
           </div>
 
           {/* รายการสินค้า */}
@@ -194,9 +194,9 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
             <Button variant="outline" size="sm" className="mt-2 w-full gap-1.5" onClick={addLine}><Icon name="plus" className="size-3.5" /> เพิ่มรายการ</Button>
           </div>
 
-          <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-            <div className="field"><label>ยอดรวม (฿) · ว่าง = ใช้ยอดรายการ</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.total} onChange={e => set('total', e.target.value)} placeholder={String(sumLines || 0)} /></div>
-            <div className="field"><label>หมายเหตุ (พิมพ์ “DFT” = งาน DFT)</label><Input value={f.note} onChange={e => { const v = e.target.value; setF(p => ({ ...p, note: v, job_type: p.job_type === 'OEM' ? 'OEM' : (jobTypeFromNote(v) === 'DFT' ? 'DFT' : 'ปลีก') })); }} placeholder="เช่น DFT / แบ่งชำระ" /></div>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="ยอดรวม (฿) · ว่าง = ใช้ยอดรายการ"><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.total} onChange={e => set('total', e.target.value)} placeholder={String(sumLines || 0)} /></Field>
+            <Field label="หมายเหตุ (พิมพ์ “DFT” = งาน DFT)"><Input value={f.note} onChange={e => { const v = e.target.value; setF(p => ({ ...p, note: v, job_type: p.job_type === 'OEM' ? 'OEM' : (jobTypeFromNote(v) === 'DFT' ? 'DFT' : 'ปลีก') })); }} placeholder="เช่น DFT / แบ่งชำระ" /></Field>
           </div>
 
           {/* รายละเอียดเพิ่มเติม (ไม่บังคับ) — ส่วนลด/ค่าส่ง ลง attrs เหมือนใบเสร็จ (เดิม hardcode 0 = หายถาวร) */}
@@ -205,9 +205,9 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
               <Button variant="ghost" size="sm" className="h-7 gap-1 px-1 text-[12px]" style={{ color: 'var(--ink-4)' }}><Icon name="down" className="size-3.5" /> รายละเอียดเพิ่มเติม (ส่วนลด/ค่าส่ง)</Button>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <div className="mt-2 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-                <div className="field"><label>ส่วนลด (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.discount} onChange={e => set('discount', e.target.value)} placeholder="0" /></div>
-                <div className="field"><label>ค่าส่ง (฿)</label><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.shipping} onChange={e => set('shipping', e.target.value)} placeholder="0" /></div>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="ส่วนลด (฿)"><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.discount} onChange={e => set('discount', e.target.value)} placeholder="0" /></Field>
+                <Field label="ค่าส่ง (฿)"><Input type="number" inputMode="decimal" min="0" step="0.01" value={f.shipping} onChange={e => set('shipping', e.target.value)} placeholder="0" /></Field>
               </div>
               <span className="cap" style={{ color: 'var(--ink-4)' }}>บันทึกเป็นข้อมูลประกอบ — ยอดรวมสุทธิยังเป็นตามที่กรอก (ไม่คำนวณให้)</span>
             </CollapsibleContent>
@@ -216,14 +216,14 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
 
         {/* ---------- ส่วนลูกค้า ---------- */}
         <FormSection icon="user" title="ข้อมูลลูกค้า" sub="ไว้ตามต่อ / เข้า CRM">
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-            <div className="field"><label>ชื่อลูกค้า</label><Input value={f.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="ชื่อ/ชื่อเล่น" /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="ชื่อลูกค้า"><Input value={f.customer_name} onChange={e => set('customer_name', e.target.value)} placeholder="ชื่อ/ชื่อเล่น" /></Field>
             {/* แยกเบอร์กับโซเชียล — เดิมช่องเดียวปนกัน: พิมพ์ชื่อไลน์ลง customer_phone → เบอร์เสีย + CRM key ตกไปใช้ชื่อ */}
-            <div className="field"><label>เบอร์โทร</label><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} inputMode="tel" placeholder="เช่น 0812345678" /></div>
-            <div className="field"><label>โซเชียล (FB/LINE)</label><Input value={f.customer_social} onChange={e => set('customer_social', e.target.value)} placeholder="ชื่อเพจ/ไลน์ ไว้ตามต่อ" /></div>
-            <div className="field"><label>จังหวัด</label><ProvinceCombobox value={f.province} onChange={v => set('province', v)} /></div>
+            <Field label="เบอร์โทร"><Input value={f.customer_phone} onChange={e => set('customer_phone', e.target.value)} inputMode="tel" placeholder="เช่น 0812345678" /></Field>
+            <Field label="โซเชียล (FB/LINE)"><Input value={f.customer_social} onChange={e => set('customer_social', e.target.value)} placeholder="ชื่อเพจ/ไลน์ ไว้ตามต่อ" /></Field>
+            <Field label="จังหวัด"><ProvinceCombobox value={f.province} onChange={v => set('province', v)} /></Field>
           </div>
-          <div className="mt-3 field"><label>ที่อยู่</label><Input value={f.customer_address} onChange={e => set('customer_address', e.target.value)} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></div>
+          <Field label="ที่อยู่" className="mt-3"><Input value={f.customer_address} onChange={e => set('customer_address', e.target.value)} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></Field>
           <div className="mt-3"><CustomerTypeChips value={f.customer_type} onChange={v => set('customer_type', v)} /></div>
         </FormSection>
       </div>

@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { SideSheet } from './modals-core.jsx';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
@@ -570,16 +570,12 @@ export function SalePerfView() {
   // ป๊อปอัพ drill รายวัน (ใช้ทั้งหน้ารายชื่อ + หน้าเซลล์เต็ม)
   const drillSheets = (
     <>
-      <Sheet open={!!dayDrill} onOpenChange={o => { if (!o) setDayDrill(null); }}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          {dayDrill && <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={data.funnel} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />}
-        </SheetContent>
-      </Sheet>
-      <Sheet open={!!dayAll} onOpenChange={o => { if (!o) setDayAll(null); }}>
-        <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
-          {dayAll && <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} />}
-        </SheetContent>
-      </Sheet>
+      {dayDrill && <SideSheet size="lg" icon="user" title={dayDrill.name === NO_SELLER ? 'ไม่ระบุเซลล์' : dayDrill.name} sub={`วันที่ ${dayDrill.day} ${monthLabel(month)}`} onClose={() => setDayDrill(null)}>
+        <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={data.funnel} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />
+      </SideSheet>}
+      {dayAll && <SideSheet size="lg" icon="calendarDays" title={`วันที่ ${dayAll} ${monthLabel(month)}`} sub="ออเดอร์ทั้งวัน" onClose={() => setDayAll(null)}>
+        <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} />
+      </SideSheet>}
     </>
   );
 
@@ -769,9 +765,7 @@ function SpDetail({ sp, month, onDay, inline, cmp }) {
   const head = <span className="flex items-center gap-2"><PersonAvatar name={sp.name} size={30} />{sp.name}{deltaBadge}</span>;
   return (
     <>
-      {inline
-        ? <div className="text-lg font-bold">{head}</div>
-        : <SheetHeader><SheetTitle>{head}</SheetTitle></SheetHeader>}
+      <div className="text-lg font-bold">{head}</div>
       <div className="flex flex-col gap-4 mt-3">
         {/* KPI ยอด/ออเดอร์/ตัว/AOV */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
@@ -878,13 +872,7 @@ function DayDetail({ day, month, orders, skus }) {
 
   return (
     <>
-      <SheetHeader>
-        <SheetTitle className="flex items-center gap-2 flex-wrap">
-          วันที่ {day} {monthLabel(month)}
-          <Badge variant="secondary">{N(ords.length)} ออเดอร์</Badge>
-        </SheetTitle>
-      </SheetHeader>
-      <div className="flex flex-col gap-4 mt-3">
+      <div className="flex flex-col gap-4">
         {/* สรุปวัน */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           {[['ยอดวันนี้', fmtB(sales)], ['ออเดอร์', N(ords.length)], ['จำนวนตัว', N(qty)], ['ลูกค้าใหม่', N(newC)]].map(([l, v]) => (
@@ -942,15 +930,7 @@ function DaySellerDetail({ name, day, month, orders, skus, funnel, target, onOpe
 
   return (
     <>
-      <SheetHeader>
-        <SheetTitle className="flex items-center gap-2 flex-wrap">
-          <PersonAvatar name={name} size={32} className="shrink-0" />
-          {name === NO_SELLER ? 'ไม่ระบุเซลล์' : name}
-          <Badge variant="secondary">วันที่ {day} {monthLabel(month)}</Badge>
-        </SheetTitle>
-      </SheetHeader>
-
-      <div className="flex flex-col gap-4 mt-3">
+      <div className="flex flex-col gap-4">
         {/* สรุปวัน */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
           {[['ยอดวันนี้', fmtB(sales)], ['ออเดอร์', N(ords.length)], ['จำนวนตัว', N(qty)], ['ลูกค้าใหม่', N(newC)]].map(([l, v]) => (

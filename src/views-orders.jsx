@@ -31,7 +31,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { DatePicker } from '@/components/ui/date-picker';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { MultiSelect, DrawerField, DrawerGroup, SellerCombobox, DateRangePicker, FormSection, CustomerTypeChips, PriceBreakdown, _pageList } from './saleWidgets.jsx';
+import { MultiSelect, DrawerField, DrawerGroup, SellerCombobox, DateRangePicker, FormSection, CustomerTypeChips, MoneyCard, ReceiptPdfModal, Field, _pageList } from './saleWidgets.jsx';
 
 
 function OrdersSkeleton() {
@@ -417,7 +417,6 @@ function MpOrdersView() {
 // รหัสลูกค้า = คีย์ CRM ภายใน (P<เบอร์>/S<โซเชียล>/N<ชื่อ>) — โชว์อ่านง่าย: ตัด prefix + ซ่อนถ้าซ้ำชื่อ (ไม่โชว์คีย์ดิบ)
 const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PSN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
 // label ฟิลด์ในฟอร์มแก้ = จางเล็ก 11px (หัวข้อกลุ่ม FormSection เด่นกว่า — ลำดับชั้นถูกทาง · PART 81.5)
-const EL = ({ children }) => <span className="text-[11px] font-normal text-muted-foreground">{children}</span>;
 function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, onSaved, onChanged }) {
   const designs = buildDesigns(sk);
   const jt = o.job_type || 'ปลีก';
@@ -445,6 +444,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
   // ไฟล์ใบเสร็จ (PDF) — ออเดอร์จากใบเสร็จ (source=shipnity) มีแถวใน tmk_sale_receipts · โหลด lazy ตอนเปิด
   const [rec, setRec] = useState(undefined);              // undefined=กำลังโหลด · null=ไม่มีใบเสร็จ · obj=แถวใบเสร็จ
   const [attaching, setAttaching] = useState(false);
+  const [pdfOpen, setPdfOpen] = useState(false);          // popup ฝัง PDF ใบเสร็จ
   const attachRef = useRef(null);
   useEffect(() => {
     if (!isReceipt) { setRec(null); return; }
@@ -678,7 +678,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
     sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span><span style={{ color: 'var(--ink-4)' }}>{o.order_date || o.order_month}</span><b style={{ color: 'var(--ink)' }}>{B(o.sales)}</b></span>}
     onClose={onClose} footer={footerActions}>
     {(isCancelled || sk.length === 0 || designs.some(d => d.design === '(จับคู่ไม่ได้)')) && (
-      <div className="quality-row items-center" style={{ marginBottom: 14 }}>
+      <div className="quality-row items-center">
         {isCancelled && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-red-500/15 text-red-600 dark:text-red-400">ยกเลิกแล้ว</Badge>}
         {sk.length === 0 && <Badge variant="warning" className="rounded-full text-[10px] font-medium">ไม่มี SKU</Badge>}
         {designs.some(d => d.design === '(จับคู่ไม่ได้)') && <Badge variant="warning" className="rounded-full text-[10px] font-medium">มีลายจับคู่ไม่ได้</Badge>}
@@ -686,19 +686,19 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
     )}
 
     {edit && (
-      <div className="mb-4 flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         <div className="cap cap-head" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — มีผลกับรายงานทันที</div>
 
         <FormSection icon="listChecks" title="ออเดอร์">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1"><EL>วันที่</EL><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></div>
-            <div className="flex flex-col gap-1"><EL>ช่องทาง</EL>
+            <Field label="วันที่"><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></Field>
+            <Field label="ช่องทาง">
               <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
                 <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
                 <SelectContent>{[...new Set([...CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
-            </div>
-            <div className="flex flex-col gap-1"><EL>ประเภทงาน</EL>
+            </Field>
+            <Field label="ประเภทงาน">
               {(() => {
                 // ยึด "หมายเหตุ" ตัดสิน ปลีก/DFT (isDftNote) · OEM = เลือกตรง — เลือก DFT/ปลีก = เติม/ถอดคำ "DFT" ในหมายเหตุให้เอง
                 const eff = edit.job_type === 'OEM' ? 'OEM' : (isDftNote(edit.note) ? 'DFT' : 'ปลีก');
@@ -717,39 +717,39 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
                   </ToggleGroup>
                 );
               })()}
-            </div>
+            </Field>
           </div>
         </FormSection>
 
         <FormSection icon="wallet" title="เงิน">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="flex flex-col gap-1"><EL>ยอดขาย (฿)</EL><Input className="bg-background" type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></label>
-            <label className="flex flex-col gap-1"><EL>จำนวน (ตัว)</EL><Input className="bg-background" type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></label>
-            <div className="flex flex-col gap-1"><EL>การชำระ</EL>
+            <Field label="ยอดขาย (฿)"><Input className="bg-background" type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></Field>
+            <Field label="จำนวน (ตัว)"><Input className="bg-background" type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></Field>
+            <Field label="การชำระ">
               <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
                 <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                 <SelectContent>{[...new Set([...PAYMENT_TYPES, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
               </Select>
-            </div>
+            </Field>
           </div>
         </FormSection>
 
         <FormSection icon="user" title="ลูกค้า">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="flex flex-col gap-1"><EL>ชื่อลูกค้า</EL><Input className="bg-background" value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></label>
-            <label className="flex flex-col gap-1"><EL>เบอร์โทร</EL><Input className="bg-background" value={edit.customer_phone} onChange={e => setEdit({ ...edit, customer_phone: e.target.value })} placeholder="ไว้ตามต่อ / เข้า CRM" /></label>
-            <label className="flex flex-col gap-1"><EL>โซเชียล (FB/LINE)</EL><Input className="bg-background" value={edit.customer_social} onChange={e => setEdit({ ...edit, customer_social: e.target.value })} placeholder="ชื่อเพจ/ไลน์" /></label>
-            <div className="flex flex-col gap-1"><EL>จังหวัด</EL><ProvinceCombobox className="bg-background" value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></div>
-            <label className="flex flex-col gap-1 sm:col-span-2"><EL>ที่อยู่</EL><Input className="bg-background" value={edit.customer_address} onChange={e => setEdit({ ...edit, customer_address: e.target.value })} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></label>
+            <Field label="ชื่อลูกค้า"><Input className="bg-background" value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></Field>
+            <Field label="เบอร์โทร"><Input className="bg-background" value={edit.customer_phone} onChange={e => setEdit({ ...edit, customer_phone: e.target.value })} placeholder="ไว้ตามต่อ / เข้า CRM" /></Field>
+            <Field label="โซเชียล (FB/LINE)"><Input className="bg-background" value={edit.customer_social} onChange={e => setEdit({ ...edit, customer_social: e.target.value })} placeholder="ชื่อเพจ/ไลน์" /></Field>
+            <Field label="จังหวัด"><ProvinceCombobox className="bg-background" value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></Field>
+            <Field label="ที่อยู่" className="sm:col-span-2"><Input className="bg-background" value={edit.customer_address} onChange={e => setEdit({ ...edit, customer_address: e.target.value })} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></Field>
           </div>
           <div className="mt-3"><CustomerTypeChips value={edit.customer_type} onChange={v => setEdit({ ...edit, customer_type: v })} /></div>
         </FormSection>
 
         <FormSection icon="pencil" title="อื่นๆ">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1"><EL>เซลล์</EL><SellerCombobox className="bg-background" value={edit.salesperson} onChange={v => setEdit({ ...edit, salesperson: v })} options={sellerOptions} /></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="เซลล์"><SellerCombobox className="bg-background" value={edit.salesperson} onChange={v => setEdit({ ...edit, salesperson: v })} options={sellerOptions} /></Field>
+            <Field label="หมายเหตุ"><Textarea className="bg-background" rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></Field>
           </div>
-          <label className="mt-3 flex flex-col gap-1"><EL>หมายเหตุ</EL><Textarea className="bg-background" rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></label>
         </FormSection>
 
         <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -760,22 +760,16 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
       </div>
     )}
 
-    <div className="mb-4 flex items-stretch overflow-hidden rounded-xl border" style={{ borderColor: 'var(--line)' }}>
-      {money.map((c, i) => (
-        <div key={c.label} className="flex-1 px-3 py-2.5 text-center" style={i > 0 ? { borderLeft: '1px solid var(--line)' } : undefined}>
-          <div className="text-[15px] font-bold leading-tight tabular-nums" style={{ color: c.color || 'var(--ink)' }}>{c.val}</div>
-          <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[11px]" style={{ color: 'var(--ink-4)' }}>{c.label}{c.badge && <Badge variant="secondary" className="rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">{c.badge}</Badge>}</div>
-        </div>
-      ))}
-    </div>
+    {/* ยอดเงิน — การ์ดเดียว: ยอดเด่น + COD badge + เซลล์เสริม (ค่าธรรมเนียม/COD) + แยกราคา (ไม่โชว์ยอดซ้ำ) */}
+    <MoneyCard total={o.sales} codBadge={isFullCod ? 'เก็บปลายทาง (COD)' : ''} extras={money.slice(1)}
+      subtotal={!edit && fin ? fin.subtotal : undefined} discount={!edit && fin ? fin.discount : undefined}
+      shipping={!edit && fin ? fin.shipping : undefined} vat={!edit && fin ? fin.vat : undefined} />
 
-    {!edit && fin && <div className="mb-4"><PriceBreakdown subtotal={fin.subtotal} discount={fin.discount} shipping={fin.shipping} vat={fin.vat} total={o.sales} /></div>}
-
-    {/* ไฟล์ใบเสร็จ — เปิด/แนบ/เปลี่ยน (เฉพาะออเดอร์จากใบเสร็จ · เหมือนหน้าส่งยอด) */}
+    {/* ไฟล์ใบเสร็จ — เปิด(popup ฝัง PDF)/แนบ/เปลี่ยน (เฉพาะออเดอร์จากใบเสร็จ) */}
     {!edit && isReceipt && rec && (
-      <div className="mb-4 flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         {rec.file_url
-          ? <Button asChild size="sm" variant="outline" className="h-8 gap-1.5"><a href={rec.file_url} target="_blank" rel="noreferrer"><Icon name="external" className="size-3.5" /> เปิดไฟล์ใบเสร็จ</a></Button>
+          ? <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPdfOpen(true)}><Icon name="external" className="size-3.5" /> เปิดไฟล์ใบเสร็จ</Button>
           : <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="external" className="size-3.5 opacity-60" /> ยังไม่มีไฟล์แนบ</span>}
         {rec.status !== 'void' && canEditReceipt(rec, { email: window.__userEmail, isAdmin: window.__isAdmin === true }) && (
           <>
@@ -787,9 +781,10 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
         )}
       </div>
     )}
+    {pdfOpen && rec?.file_url && <ReceiptPdfModal url={rec.file_url} title={`ใบเสร็จ ${o.order_no}`} onClose={() => setPdfOpen(false)} />}
 
     {o.note && (
-      <div className="mb-4 flex gap-2.5 rounded-xl border p-3" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)' }}>
+      <div className="flex gap-2.5 rounded-xl border p-3" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)' }}>
         <span className="mt-0.5 shrink-0 [&_svg]:size-[15px]" style={{ color: 'var(--warn)' }}><Icon name="lightbulb" /></span>
         <div className="min-w-0">
           <div className="text-[11px] font-semibold" style={{ color: 'var(--warn)' }}>หมายเหตุ</div>
@@ -803,9 +798,9 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
         <DrawerField label="เลขออเดอร์">{o.order_no}</DrawerField>
         {o.marketplace_id && o.marketplace_id !== '-' && <DrawerField label="ID มาร์เก็ตเพลส">{o.marketplace_id}</DrawerField>}
         <DrawerField label="วันที่">{o.order_date || o.order_month}</DrawerField>
-        <div><span className="cap">ช่องทาง</span><b><span className="row" style={{ gap: 6, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: 3, background: channelColor(o.channel), flex: 'none' }} />{o.channel}</span></b></div>
-        <div><span className="cap">ประเภทงาน</span><b>{jt === 'ปลีก' ? 'ปลีก' : <span className={'chip ' + jtCls}>{jt}</span>}</b></div>
-        {o.status && o.status !== 'completed' && o.status !== 'active' && <div><span className="cap">สถานะ</span><b><Badge variant="secondary">{stMap[o.status] || o.status}</Badge></b></div>}
+        <DrawerField label="ช่องทาง"><span className="row" style={{ gap: 6, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: 3, background: channelColor(o.channel), flex: 'none' }} />{o.channel}</span></DrawerField>
+        <DrawerField label="ประเภทงาน">{jt === 'ปลีก' ? 'ปลีก' : <span className={'chip ' + jtCls}>{jt}</span>}</DrawerField>
+        {o.status && o.status !== 'completed' && o.status !== 'active' && <DrawerField label="สถานะ"><Badge variant="secondary">{stMap[o.status] || o.status}</Badge></DrawerField>}
         <DrawerField label="การชำระ">{o.payment_type || '—'}</DrawerField>
       </DrawerGroup>
       <DrawerGroup icon="user" title="ลูกค้า">
@@ -820,7 +815,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
       </DrawerGroup>
     </div>
     {designs.length > 0 && <>
-      <div className="cap cap-head" style={{ margin: '16px 0 6px', fontWeight: 600, color: 'var(--accent)' }}><Icon name="bag" /> ลายเสื้อในออเดอร์นี้ ({N(designs.length)} ลาย)</div>
+      <div className="cap cap-head mt-1 mb-1.5" style={{ fontWeight: 600, color: 'var(--accent)' }}><Icon name="bag" /> ลายเสื้อในออเดอร์นี้ ({N(designs.length)} ลาย)</div>
       <div style={{ display: 'grid', gap: 6, marginBottom: 4 }}>{designs.map((d, i) => (
         <div key={i} className="row between" style={{ gap: 8, padding: '7px 11px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
           <span style={{ minWidth: 0 }}><b style={{ color: d.design === '(จับคู่ไม่ได้)' ? 'var(--bad)' : 'var(--ink)' }}>{d.design}</b>{d.codes.size > 0 && <Badge variant="outline" style={{ marginLeft: 8 }}>รหัส {[...d.codes].join(', ')}</Badge>}</span>
@@ -829,7 +824,7 @@ function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], onClose, 
       ))}</div>
     </>}
     {sk.length > 0 && <>
-      <div className="cap" style={{ margin: '16px 0 6px', fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ตัว)</div>
+      <div className="cap mt-1 mb-1.5" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ตัว)</div>
       <CardTable className="table-wrap"><Table>
         <TableHeader><TableRow><TableHead>ลาย</TableHead><TableHead>รหัส</TableHead><TableHead>สี</TableHead><TableHead>ไซซ์</TableHead><TableHead style={{ textAlign: 'right' }}>จำนวน</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead>จับคู่</TableHead><TableHead /></TableRow></TableHeader>
         <TableBody>{sk.map((s, i) => [

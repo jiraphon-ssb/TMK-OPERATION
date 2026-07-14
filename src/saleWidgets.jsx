@@ -6,6 +6,7 @@
 import React from 'react';
 import { TMK } from './data.js';
 import { Icon } from './components.jsx';
+import { Modal } from './modals-core.jsx';
 import { CUSTOMER_TYPES } from './lib/saleFields.js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,6 +40,15 @@ export function FormSection({ icon, title, sub, children, className = '' }) {
   );
 }
 
+/* ---- FieldLabel / Field — label + field มาตรฐานเดียวทุกฟอร์มแก้/เพิ่ม (PART 83) ----
+   แทน 3 ระบบเดิม (EL 11px/400 · .field 13px/600 · kv-grid) ให้ label ทั้งแอปหน้าตาเดียวกัน */
+export function FieldLabel({ children, className = '' }) {
+  return <span className={'text-[12px] font-semibold text-muted-foreground ' + className}>{children}</span>;
+}
+export function Field({ label, children, className = '' }) {
+  return <div className={'flex flex-col gap-1.5 ' + className}><FieldLabel>{label}</FieldLabel>{children}</div>;
+}
+
 /* ---- PriceBreakdown — แยก "ราคาเสื้อ / ส่วนลด / ค่าส่ง / VAT → ยอดขาย" (PART 81.6) ----
    ใช้ร่วมทุก popup: ใบเสร็จ + ออเดอร์ + ตรวจก่อนบันทึก · โชว์เฉพาะเมื่อมี break จริง (ไม่งั้นซ่อน) */
 const _fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
@@ -62,6 +72,62 @@ export function PriceBreakdown({ subtotal, discount, shipping, vat, total, class
       {v ? <Row label="VAT" val={v} sign="+" /> : null}
       <div className="mt-0.5 border-t pt-1" style={{ borderColor: 'var(--line)' }}><Row label="ยอดขาย" val={tot} strong /></div>
     </div>
+  );
+}
+
+/* ---- MoneyCard — ยอดเด่น + COD badge + แยกราคา (รวมการ์ดบน+breakdown เป็นใบเดียว · PART 83) ----
+   เลิกโชว์ยอดซ้ำ 2 ที่ · extras = เซลล์เสริม (ค่าธรรมเนียม/ยอด COD) · breakdown props = ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT */
+export function MoneyCard({ total, codBadge, extras = [], subtotal, discount, shipping, vat, className = '' }) {
+  const d = Number(discount) || 0, s = Number(shipping) || 0, v = Number(vat) || 0, tot = Number(total) || 0;
+  const sub = subtotal != null && subtotal !== '' ? Number(subtotal) : null;
+  const hasBreak = d || s || v || (sub != null && Math.abs(sub - tot) > 0.01);
+  const Row = ({ label, val, sign = '' }) => (
+    <div className="flex items-center justify-between text-[13px]">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="tabular-nums text-muted-foreground">{sign}{_fmtB(val)}</span>
+    </div>
+  );
+  return (
+    <div className={'rounded-xl border p-4 ' + className} style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
+      <div className="flex flex-col items-center gap-0.5">
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <span className="text-[26px] font-extrabold leading-none tabular-nums" style={{ color: 'var(--accent)' }}>{_fmtB(tot)}</span>
+          {codBadge && <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 dark:text-amber-400">{codBadge}</Badge>}
+        </div>
+        <span className="text-[11px] text-muted-foreground">ยอดขาย</span>
+      </div>
+      {extras.length > 0 && (
+        <div className="mt-3 flex items-stretch justify-center gap-5">{extras.map(e => (
+          <div key={e.label} className="text-center"><div className="text-[13px] font-bold tabular-nums">{e.val}</div><div className="text-[11px] text-muted-foreground">{e.label}</div></div>
+        ))}</div>
+      )}
+      {hasBreak && (
+        <div className="mt-3 border-t pt-2.5 flex flex-col gap-1" style={{ borderColor: 'var(--line)' }}>
+          {sub != null && <Row label="ราคาเสื้อ" val={sub} />}
+          {d ? <Row label="ส่วนลด" val={d} sign="−" /> : null}
+          {s ? <Row label="ค่าส่ง" val={s} sign="+" /> : null}
+          {v ? <Row label="VAT" val={v} sign="+" /> : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---- ReceiptPdfModal — เปิดไฟล์ใบเสร็จเป็น popup ฝัง PDF ในหน้า (Modal + pdf.js canvas · PART 83) ----
+   file_url เป็น public URL (Storage) โหลดตอนเปิดเท่านั้น = egress น้อย
+   ใช้ pdf.js render ลง canvas (ไม่พึ่งปลั๊กอิน PDF ของเบราว์เซอร์ที่บางตัวไม่มี → iframe ดำ)
+   PdfViewer lazy-load → pdfjs โหลดเฉพาะตอนเปิด ไม่บวม bundle หลัก */
+const PdfViewer = React.lazy(() => import('./components/PdfViewer.jsx'));
+export function ReceiptPdfModal({ url, title = 'ไฟล์ใบเสร็จ', onClose }) {
+  return (
+    <Modal xl icon="external" title={title} sub="ดูไฟล์ใบเสร็จ (PDF)" onClose={onClose}
+      footer={<><Button asChild variant="outline" size="sm"><a href={url} target="_blank" rel="noreferrer"><Icon name="external" /> เปิดแท็บใหม่</a></Button><Button size="sm" onClick={onClose}>ปิด</Button></>}>
+      <div className="overflow-y-auto rounded-lg border p-2" style={{ maxHeight: '74vh', borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
+        <React.Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">กำลังโหลด…</div>}>
+          <PdfViewer url={url} />
+        </React.Suspense>
+      </div>
+    </Modal>
   );
 }
 
@@ -269,14 +335,14 @@ export function MultiSelect({ label, options, value, onChange }) {
   );
 }
 
-export function DrawerField({ label, children }) {
-  return <div><span className="cap">{label}</span><b>{children}</b></div>;
+export function DrawerField({ label, children, full }) {
+  return <div style={full ? { gridColumn: '1 / -1' } : undefined}><span className="cap">{label}</span><b>{children}</b></div>;
 }
 export function DrawerGroup({ icon, title, children }) {
   return (
     <div className="rounded-xl border p-3.5" style={{ borderColor: 'var(--line)', background: 'var(--surface-2, transparent)' }}>
       <div className="mb-3 flex items-center gap-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg [&_svg]:size-[14px]" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name={icon} /></span>
+        <span className="grid place-items-center rounded-lg size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name={icon} /></span>
         <span className="text-[13px] font-bold" style={{ color: 'var(--ink)' }}>{title}</span>
       </div>
       <div className="kv-grid">{children}</div>
