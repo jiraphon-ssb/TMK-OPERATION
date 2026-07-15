@@ -1,0 +1,41 @@
+# PHASE 6 REPORT — God-file Refactor (REFACTOR-1)
+
+> Branch `audit-remediation` · 2026-07-15 · **ยังไม่ commit** (รอสั่ง) · behavior-preserving (ไม่แตะ business logic)
+
+## ทำอะไร
+แยกฟังก์ชัน aggregation แบบ pure `buildPerf` (leaderboard "ประสิทธิภาพเซลล์") ออกจาก god-file `src/salePerf.jsx` → ไฟล์ lib ใหม่ `src/lib/salePerfAgg.js` ที่เทสต์ได้ — ตามหลัก "extract pure core + characterization test ล็อกพฤติกรรมก่อน" (ต่อจาก Phase 8 ที่วาง test net ไว้)
+
+**ทำไม salePerf ไม่ใช่ saleDashboard:** saleDashboard กำลังจะถูก repurpose เป็นหน้า Ads (Q1 decision) — ไม่ควร refactor ของที่จะเปลี่ยน scope · salePerf เป็น operational truth ที่นิ่งแล้ว + buildPerf เป็น pure function ที่แยกง่าย
+
+## เปลี่ยนอะไร
+| ไฟล์ | เปลี่ยน |
+|---|---|
+| `src/lib/salePerfAgg.js` (ใหม่) | ย้าย `buildPerf` + pure helpers (`NO_SELLER`/`curMonth`/`daysInMonth`/`dayOf`/`isCancelled`/`spOf`/`deltaPct`) — คัดลอกเป๊ะ · import `funnelTotal/funnelBreakdown/funnelNewOld` (saleData) + `commissionFor` (targets) |
+| `src/salePerf.jsx` | ลบ def ทั้ง 8 ตัว (buildPerf + 7 helper) · import กลับจาก salePerfAgg.js · ตัด `funnelBreakdown` ที่ไม่ได้ใช้แล้วออกจาก import saleData (เหลือใช้แค่ใน buildPerf ที่ย้ายไป) |
+| `src/lib/__tests__/salePerfAgg.test.js` (ใหม่) | 11 characterization tests: helper edge + buildPerf (aggregate/ตัด cancelled/target·comm·pace/funnel·closeRate·channelClose/design join·funnel-only seller/receipt void·dSales/empty) |
+
+**ไม่แตะ:** logic การคำนวณทุกบรรทัด (คัดลอกเหมือนเดิม 100%) · component render · helper ที่เป็น UI/format (fmtB/monthLabel/monthOptions/prevMonthOf/TH_MON/MEDAL/closeTone/dPill คงใน salePerf)
+
+## หลักฐาน
+- `npm test` → **10 files · 113 tests passed** (เดิม 102 → +11) · ไม่มี fail
+- `npm run build` → ✓ 1.23s · index bundle 329.70 kB (ไม่โต — logic ย้ายไม่ใช่เพิ่ม)
+- `eslint salePerf.jsx + salePerfAgg.js` → **no-undef = 0** (ไม่มี reference ค้างถึง const ที่ลบ) · เหลือแต่ no-unused-vars เดิม (LINT-1 backlog แยกต่างหาก)
+- **Preview สด** (localhost:5173 seed): หน้าประสิทธิภาพเซลล์เรนเดอร์เหมือนเดิมเป๊ะ
+  - Team: ยอดรวม ฿9,893 · 15 ออเดอร์ · AOV ฿660 (9,743+150=9,893 · 14+1=15 ✓)
+  - การ์ดเซลล์เรียงตามยอด + เหรียญ + share% + sparkline (TUKTA 98% · FAH 2%)
+  - Drill-down TUKTA: donut ช่องทาง Facebook 100% · ลายขายดี (design join) · รายวัน · funnel — ครบ
+  - 0 console error
+
+## Acceptance
+- ✅ pure function แยกออกมาเทสต์ได้ (คู่กับ Phase 8 test net)
+- ✅ พฤติกรรมเดิมถูกล็อกด้วย characterization test ก่อน+หลังย้าย (11 เคส)
+- ✅ tests เดิม 102 ไม่พัง · build เขียว · preview identical
+- ✅ ไม่รวม refactor กับ feature change (constraint: 1 issue = 1 commit)
+
+## Rollback
+1. ลบ `src/lib/salePerfAgg.js` + `src/lib/__tests__/salePerfAgg.test.js`
+2. คืน 8 def + import `funnelBreakdown` ใน `src/salePerf.jsx` (git revert commit เดียว)
+
+## Next
+- computeMonth (operational truth ตัวจริงใน TMK singleton) — extract pure core + test เป็น Phase ถัดไปถ้าต้องการ (ใหญ่กว่า · แตะ singleton)
+- รอพี่รัน Q2 SQL (RLS/MIG) · หรือเลือก ads repurpose (ต้อง requirement)
