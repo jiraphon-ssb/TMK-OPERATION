@@ -15,6 +15,7 @@ import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
+import { isAdmin, orderVisibleTo } from './lib/roleAccess.js';
 import { CHANNELS, JOB_TYPES, PAYMENT_TYPES } from './lib/saleFields.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
@@ -125,8 +126,7 @@ function MpOrdersView() {
   // มองเห็นออเดอร์ตาม "สิทธิการเข้าถึง" (role): ผู้ดูแลระบบ(admin) = เห็นทุกออเดอร์
   // แก้ไขได้(editor) + ดูอย่างเดียว(viewer) = เห็นเฉพาะของตัวเอง (salesperson = ชื่อ/อีเมลตัวเอง)
   // ผูกกับ user.role ตรงๆ (reactive · ไม่พึ่ง window.__isAdmin ที่เซ็ตใน effect อาจ lag รอบแรก)
-  const canSeeAll = user?.role === 'admin';
-  const myNames = useMemo(() => [user?.name, user?.email].filter(Boolean), [user?.name, user?.email]);
+  const canSeeAll = isAdmin(user);
   const PER_PAGE = 50;
   const [page, setPage] = useState(1);
   const [selSet, setSelSet] = useState(() => new Set()); // เลือกหลายออเดอร์ (order_no) สำหรับ action รวดเร็ว
@@ -260,14 +260,14 @@ function MpOrdersView() {
   const ql = q.trim().toLowerCase();
   // memoize — ต้องคง identity ของ filtered ให้เสถียร ไม่งั้น useTableSort re-sort ทุก render (กดเช็คบ็อกซ์/เปิด drawer/สลับหน้า → กระตุก)
   const filtered = useMemo(() => (ordersM || []).filter(o =>
-    (canSeeAll || myNames.includes(o.salesperson || '')) &&
+    orderVisibleTo(o, user) &&
     (statusF.length === 0 || statusF.includes(o.status === 'cancelled' ? 'ยกเลิก' : 'ใช้งาน')) &&
     (channelF.length === 0 || channelF.includes(o.channel)) &&
     (payF.length === 0 || payF.includes(o.payment_type || 'ไม่ระบุ')) &&
     (jobF.length === 0 || jobF.includes(o.job_type || 'ปลีก')) &&
     (sellerF.length === 0 || sellerF.includes(o.salesperson || '')) &&
     (!ql || `${o.order_no} ${o.marketplace_id || ''} ${o.customer_name || ''} ${o.customer_code || ''} ${o.customer_social || ''} ${o.province || ''} ${o.salesperson || ''}`.toLowerCase().includes(ql) || (skusByOrder[o.order_no] || []).some(s => `${s.design || ''} ${s.color || ''} ${s.raw_sku_or_name || ''}`.toLowerCase().includes(ql)))
-  ), [ordersM, statusF, channelF, payF, jobF, sellerF, ql, skusByOrder, canSeeAll, myNames]);
+  ), [ordersM, statusF, channelF, payF, jobF, sellerF, ql, skusByOrder, user]);
 
   // เรียงตามคอลัมน์ (เริ่มต้น = วันที่ล่าสุดก่อน เหมือนเดิม)
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });

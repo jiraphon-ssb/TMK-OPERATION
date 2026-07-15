@@ -11,6 +11,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
+import { isAdmin } from './lib/roleAccess.js';
 import { supabase } from './lib/supabaseClient.js';
 import { SideSheet, Modal } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
@@ -182,7 +183,7 @@ export function SubmitSalesView() {
   const canEdit = window.__canEdit !== false;
   // เห็น "ทั้งทีม" (ใบเสร็จ + คนทัก) = ผู้ดูแลระบบ (role=admin) เท่านั้น · แก้ไขได้/ดูอย่างเดียว = เฉพาะของตัวเอง
   // ผูก role จาก useUser ตรงๆ (reactive · ไม่พึ่ง window.__isAdmin ที่ lag รอบแรก)
-  const canSeeTeam = user?.role === 'admin';
+  const canSeeTeam = isAdmin(user);
 
   const [missingTable, setMissingTable] = useState(false);
   const [rows, setRows] = useState([]);            // ใบที่อ่านได้ รอตรวจ

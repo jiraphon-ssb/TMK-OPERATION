@@ -31,6 +31,29 @@
 ## Rollback
 ลบ 3 devDeps + คืน vitest.config เดิม + ลบ test file (additive ล้วน)
 
+---
+
+## TEST-1.2 — extract role-access → lib/roleAccess.js + test (security-critical)
+
+### ทำอะไร
+แทนที่จะ component-test ฟอร์มหนัก (FunnelCard/OrderDrawer ลาก supabase + **pdf.js** chain · mock ใหญ่/เสี่ยง) → **extract ตรรกะสิทธิ์ตาม role เป็น pure helper** ที่เทสต์ได้ตรง ๆ (แนะนำเอง · ปลอดภัยกว่า) · view เรียก helper = พิสูจน์ว่า role-gate ถูก
+
+### เปลี่ยนอะไร
+| ไฟล์ | เปลี่ยน |
+|---|---|
+| `src/lib/roleAccess.js` (ใหม่) | `isAdmin` · `myNamesOf` · `canSeeTeam` · `orderVisibleTo` — single source ของ role security (เดิม inline ซ้ำ 2 view) |
+| `src/views-orders.jsx` | `canSeeAll = isAdmin(user)` · filter `orderVisibleTo(o, user)` (แทน inline `canSeeAll || myNames.includes(...)`) |
+| `src/views-sale-submit.jsx` | `canSeeTeam = isAdmin(user)` (funnel/ใบเสร็จ ทั้งทีม = admin) |
+| `src/lib/__tests__/roleAccess.test.js` (ใหม่) | 8 tests: admin เห็นทุกใบ · seller/viewer เห็นเฉพาะ salesperson=ชื่อ/อีเมลตัวเอง · user null → ไม่เห็น · canSeeTeam=admin เท่านั้น |
+
+### หลักฐาน
+- `npm test` → **13 files · 145 passed** (137 → +8)
+- `npm run build` → ✓ · eslint (3 ไฟล์) no-undef 0 · unused 0
+- **Preview:** orders page (admin=Graphic) เห็นทุกออเดอร์หลายเซลล์ = orderVisibleTo admin-path ถูก (behavior-preserving)
+
+### ทำไมไม่ทำ component test ฟอร์มเต็ม
+FunnelCard/OrderDrawer อยู่ในโมดูลที่ import `receiptParse→pdf.js` + supabase + realtime → ต้อง vi.mock หลายชั้น (pdf.js อาจ fail ใน jsdom) = setup ใหญ่/เปราะ · การ extract role-logic เป็น pure + test ให้ security guarantee เดียวกันด้วยความเสี่ยงต่ำกว่า
+
 ## Next (ต่อยอดได้)
-- component test หน้า/ฟอร์มจริง (OrderDrawer/ReviewRow/FunnelCard role) — ต้อง mock supabase/userContext
-- smoke E2E critical path (อัปโหลดใบเสร็จ→บันทึก→ออเดอร์ · role visibility) — พิจารณา Playwright ถ้าต้อง browser จริง
+- component test ฟอร์มจริง (ถ้าต้อง) — ตั้ง vi.mock supabaseClient + pdf.js stub ก่อน
+- smoke E2E critical path (อัปโหลดใบเสร็จ→บันทึก→ออเดอร์) — Playwright ถ้าต้อง browser จริง
