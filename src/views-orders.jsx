@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { B, P, N, Icon, PersonAvatar, Skel, useDelayedFlag } from './components.jsx';
+import { B, N, Icon, PersonAvatar, Skel, useDelayedFlag } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { channelColor } from './charts.jsx';
 import { makeSkuResolver, loadResolverMaps, skuOverrideKey } from './lib/designResolve.js';
@@ -132,7 +132,7 @@ function MpOrdersView() {
   const [selSet, setSelSet] = useState(() => new Set()); // เลือกหลายออเดอร์ (order_no) สำหรับ action รวดเร็ว
   const [bulkBusy, setBulkBusy] = useState(false);
   const canEdit = window.__canEdit !== false;
-  const [density, setDensity] = usePersistedState('tmk-orders-density', 'cozy');
+  const [density] = usePersistedState('tmk-orders-density', 'cozy');
   const [hiddenCols, setHiddenCols] = usePersistedState('tmk-orders-hiddenCols', []);
   const colVisible = useMemo(() => new Set(ORDERS_COLS.map(c => c.key).filter(k => !hiddenCols.includes(k))), [hiddenCols]);
   const toggleCol = (k) => setHiddenCols(hc => hc.includes(k) ? hc.filter(x => x !== k) : [...hc, k]);

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { TMK } from './data.js';
 import { Icon } from './components.jsx';
 import tmkLogo from './assets/tmk-logo.png';
 import { supabase } from './lib/supabaseClient.js';
@@ -121,7 +120,7 @@ export function LoginScreen({ onLogin }) {
                     </Label>
                   </div>
                   <div className="flex items-start space-x-2">
-                    <Checkbox id="terms" checked={agree} onCheckedChange={(checked) => { if (!agree) setShowTerms(true); else setAgree(false); }} />
+                    <Checkbox id="terms" checked={agree} onCheckedChange={() => { if (!agree) setShowTerms(true); else setAgree(false); }} />
                     <Label
                       htmlFor="terms"
                       className="text-sm font-normal cursor-pointer text-muted-foreground leading-snug"

@@ -619,7 +619,7 @@ export function CardGridSkeleton({ cards = 6, header = true }) {
 /* ---- ฉลองทะลุเป้ายอดขาย (อลังการสุด · ยอดวิ่งนับ · ไม่พึ่ง dep · CSS confetti + portal) ---- */
 const CONFETTI_COLORS = ['#f5a623', '#ffd86b', '#4f46e5', '#16a34a', '#ec4899', '#06b6d4', '#ef4444', '#8b5cf6'];
 const CELEBRATE_HEADLINES = ['🎉 ทะลุเป้าแล้ว!', '🔥 ทุบเป้ากระจุย!', '🏆 ปังไม่ไหวแล้ว!', '🚀 พุ่งทะลุเป้า!', '🥳 โหดมากกก!'];
-export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose }) {
+export function CelebrationOverlay({ amount = 0, target = 0, onClose }) {
   const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const shown = useCountUp(amount, 1700); // ยอดวิ่งนับช้าๆ ให้เห็นพุ่งเข้าหาเป้า
   const headline = useRef(CELEBRATE_HEADLINES[Math.floor(Math.random() * CELEBRATE_HEADLINES.length)]).current;

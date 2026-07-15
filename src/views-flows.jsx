@@ -6,7 +6,7 @@
    - "งานทั่วไป" แก้ได้ (config row __general__ · scopeId='' กรองงาน flow ว่าง — งาน null ไม่หาย)
    - graceful: ตาราง tmk_flows ยังไม่ migrate → เหลือ "งานทั่วไป" อันเดียว
    ============================================================ */
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { TMK } from './data.js';
 import { Icon, Avatar, ColorPicker, FlowIcon, IconPicker, readImageCompressed, useBeatOn, PageSkeleton, CardGridSkeleton, SkelTable } from './components.jsx';
 import { useData } from './dataContext.jsx';
@@ -24,7 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
@@ -401,7 +401,7 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
       if (refresh) await refresh(['tmk_flows', 'tmk_tasks']); else if (reload) await reload();
       window.__toast?.('ย้ายโครงการไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
-        onClick: async () => { try { await supabase.from('tmk_flows').update({ deleted_at: null }).eq('id', flow.id); if (refresh) await refresh(['tmk_flows']); else if (reload) await reload(); window.__toast?.('กู้คืนโครงการแล้ว', 'success'); } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ', 'error'); } },
+        onClick: async () => { try { await supabase.from('tmk_flows').update({ deleted_at: null }).eq('id', flow.id); if (refresh) await refresh(['tmk_flows']); else if (reload) await reload(); window.__toast?.('กู้คืนโครงการแล้ว', 'success'); } catch { window.__toast?.('กู้คืนไม่สำเร็จ', 'error'); } },
       });
       onGone?.();
     } catch (err) { window.__toast?.('ลบไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }

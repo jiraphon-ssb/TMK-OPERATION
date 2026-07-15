@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabaseClient.js';
 import { cachedFetchAll, invalidateSaleCache } from './lib/saleData.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
-import { N, Icon, Skel, SkelTable, useDelayedFlag, stockMeta } from './components.jsx';
+import { Icon, Skel, SkelTable, useDelayedFlag, stockMeta } from './components.jsx';
 import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
 import { Modal, SideSheet } from './modals-core.jsx';

@@ -3,13 +3,13 @@
    ============================================================ */
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
+import { Icon, B, Bk, N, ORDER_STATUSES, orderStatusIndex, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
 import { ConfirmHost } from './ui-confirm.jsx';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -121,8 +121,6 @@ function SyncIndicator() {
 }
 
 /* ---- Spotlight Search ---- */
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
-const modKey = isMac ? '⌘' : 'Ctrl+';
 
 // ---- Spotlight recents (localStorage) — boost รายการที่ใช้ล่าสุด ----
 const SPOT_RECENT_KEY = 'tmk-spotlight-recent';
@@ -590,7 +588,7 @@ function AppInner() {
     try { localStorage.setItem('tmk-submap', JSON.stringify(subMap)); } catch { /* ignore */ }
   }, [subMap]);
   const [drawer, setDrawer] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const [, setMenu] = useState(false);
   const contentRef = useRef(null);
 
   const nav = NAV.find(n => n.id === section);
@@ -1245,37 +1243,6 @@ function AppInner() {
         : null
       }</Suspense>
       )}
-    </>
-  );
-}
-
-function RailAvatar({ onClick }) {
-  return (
-    <button className="rail-avatar" onClick={onClick}
-      style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
-      <UserIcon size={34} radius={10} />
-    </button>
-  );
-}
-
-function ProfileMenu({ go, close, onLogout }) {
-  const { user } = useUser() || {};
-  return (
-    <>
-      <div className="scrim" style={{ background: 'transparent', zIndex: 94 }} onClick={close}></div>
-      <div className="menu-pop">
-        <div className="row" style={{ gap: 10, padding: '8px 10px 12px' }}>
-          <UserIcon size={38} radius={10} />
-          <div>
-            <div className="sm" style={{ fontWeight: 700 }}>{user?.name || 'มัง'}</div>
-            <div className="cap">{user?.email || 'jiraphon.e@tmk.co'}</div>
-          </div>
-        </div>
-        <div className="divider"></div>
-        <button className="menu-row" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
-        <div className="divider"></div>
-        <button className="menu-row danger" onClick={onLogout}><Icon name="external" />ออกจากระบบ</button>
-      </div>
     </>
   );
 }

@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { TMK } from './data.js';
+import React, { useState, useMemo } from 'react';
 import { Icon, Avatar, Ring, Skel, useBeat } from './components.jsx';
 import { CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
@@ -16,7 +15,6 @@ import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SearchInput } from '@/components/ui/search-input';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu';
-import { Calendar } from '@/components/ui/calendar';
 import { DateRangePicker, DD, onCardKey, chipVar2, _isoToDate, _dateToIso } from './saleWidgets.jsx';
 
 
@@ -856,13 +854,13 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
     try {
       await Promise.all(ids.map(id => { const t = filtered.find(x => x.id === id); const cur = t?.responsible || []; if (cur.includes(name)) return Promise.resolve(); notify({ recipients: [name], kind: 'assign', title: `คุณได้รับมอบหมายงาน "${t?.title || ''}"`, flowId: t?.flow ?? '', taskId: id, entityType: 'task' }); return supabase.from('tmk_tasks').update({ responsible: [...cur, name].join(', ') }).eq('id', id); }));
       window.__refresh?.(['tmk_tasks']); window.__toast?.(`มอบหมาย "${name}" ให้ ${ids.length} งาน`, 'success'); clearSel();
-    } catch (e) { window.__toast?.('ไม่สำเร็จ', 'error'); }
+    } catch { window.__toast?.('ไม่สำเร็จ', 'error'); }
   };
   const bulkDelete = async () => {
     const ids = selArr; if (!ids.length || !window.__canEdit) return;
     if (!await window.__confirm?.({ title: `ลบ ${ids.length} งาน`, body: 'ย้ายงานที่เลือกไปถังขยะ (กู้คืนได้)?', danger: true, confirmText: 'ลบ' })) return;
     try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id))); window.__refresh?.(['tmk_tasks']); window.__toast?.(`ลบ ${ids.length} งานแล้ว`, 'success'); clearSel(); }
-    catch (e) { window.__toast?.('ลบไม่สำเร็จ', 'error'); }
+    catch { window.__toast?.('ลบไม่สำเร็จ', 'error'); }
   };
   return (
     <div className="content-inner rise">

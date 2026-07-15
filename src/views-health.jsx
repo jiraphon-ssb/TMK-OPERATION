@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { N, Icon, PageSkeleton } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
-import { MetricCard } from './charts.jsx';
 import { GOLDEN_DESIGNS, resolveDesign, suggestDesign } from './lib/shirtCatalog.js';
 import { buildMatchers, planRematch } from './lib/mpReport.js';
 import { DesignCombobox } from './components/ProductPicker.jsx';
@@ -17,8 +16,6 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SearchInput } from '@/components/ui/search-input';
-import { Popover } from '@/components/ui/popover';
-import { Command } from '@/components/ui/command';
 
 async function fetchAllRows(table, select, { eq, order, asc = true, pageSize = 1000 } = {}) {
   const out = []; let from = 0;

@@ -8,14 +8,10 @@ import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { Card, CardHeader, CardTitle, CardContent, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Avatar as ShadcnAvatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from '@/components/ui/table';
-import { Input } from '@/components/ui/input';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
-import { usePersistedState } from './hooks/usePersistedState.js';
 import { CardTable } from './components/DataTableParts.jsx';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
@@ -37,29 +33,6 @@ function getSegments() { return TMK.segments || []; }
 /* ============================================================
    HOME — Executive cockpit
    ============================================================ */
-// ความหมาย/สีต่อ action (สำหรับ log หน้าหลัก)
-const LOG_META = {
-  create: { l: 'สร้าง', c: 'var(--good)' }, update: { l: 'แก้ไข', c: 'var(--info)' },
-  delete: { l: 'ลบ', c: 'var(--bad)' }, purge: { l: 'ลบถาวร', c: 'var(--bad)' },
-  restore: { l: 'กู้คืน', c: 'var(--good)' }, move: { l: 'ย้ายสถานะ', c: 'var(--accent)' },
-  sale: { l: 'ขาย/ตัดสต็อก', c: 'var(--accent)' }, adjust: { l: 'ปรับสต็อก', c: 'var(--info)' },
-  receive: { l: 'รับเข้าสต็อก', c: 'var(--good)' }, reserve: { l: 'จองสต็อก', c: 'var(--accent)' },
-  release: { l: 'ปล่อยจอง', c: 'var(--ink-3)' }, order: { l: 'ออเดอร์', c: 'var(--accent-2)' },
-  export: { l: 'ส่งออก', c: 'var(--warn)' }, login: { l: 'เข้าระบบ', c: 'var(--good)' }, logout: { l: 'ออกระบบ', c: 'var(--ink-3)' },
-};
-const logMeta = (action) => LOG_META[action] || { l: action || 'อื่นๆ', c: 'var(--info)' };
-const LOG_FILTERS = [
-  { id: 'all', label: 'ทั้งหมด' },
-  { id: 'sales', label: 'ยอดขาย', match: a => a.entity === 'daily' || a.entity === 'monthly' || a.action === 'sale' },
-  { id: 'order', label: 'ออเดอร์', match: a => a.entity === 'order' || a.action === 'order' },
-  { id: 'stock', label: 'สต็อก/สินค้า', match: a => a.entity === 'product' || a.entity === 'po' || ['adjust', 'receive', 'reserve', 'release'].includes(a.action) },
-  { id: 'task', label: 'งาน', match: a => a.entity === 'task' },
-  { id: 'user', label: 'ผู้ใช้/ระบบ', match: a => a.entity === 'user' || a.action === 'login' || a.action === 'logout' },
-];
-// เอาสไตล์แถวจากหน้า "บันทึกกิจกรรม" (LogView) มาใช้ในฟีดหน้าหลัก — ขอบซ้ายสีตามระดับ + ชิป entity/โครงการ + badge การกระทำ
-const SEV_COLOR = { info: 'var(--info)', warn: 'var(--warn)', urgent: 'var(--bad)' };
-const ENTITY_TH_HOME = { task: 'งาน', flow: 'โครงการ', order: 'ออเดอร์', comment: 'คอมเมนต์', product: 'สินค้า', campaign: 'แคมเปญ', channel: 'ช่องทาง', duty: 'หน้าที่', brand: 'แบรนด์', user: 'ผู้ใช้', daily: 'ยอดขาย', monthly: 'รายเดือน', segment: 'กลุ่มลูกค้า', ad: 'แอด', po: 'สต็อก', target: 'เป้า/คอม', settings: 'ตั้งค่า', data: 'ข้อมูล', auth: 'ระบบ', system: 'ระบบ' };
-
 /* ---------- ทีมวันนี้ — ออนไลน์/ออฟไลน์ จาก tmk_presence (heartbeat) ---------- */
 const ONLINE_MS = 150000; // 2.5 นาที — heartbeat ทุก 45 วิ ให้ margin พอ
 const PAGE_LABEL = { home: 'หน้าหลัก', sales: 'ยอดขาย', planner: 'แผนงาน', catalog: 'สินค้า', settings: 'ตั้งค่า' };
@@ -99,7 +72,6 @@ function TeamTodayCard({ go }) {
   members.sort((a, b) => (b.online - a.online) || (b.activeToday - a.activeToday) || (b.last - a.last));
   const onlineCount = members.filter(m => m.online).length;
   const activeCount = members.filter(m => m.activeToday).length;
-  const topLoad = [...members].filter(m => m.load > 0).sort((a, b) => b.load - a.load).slice(0, 2);
 
   const ago = (ts) => {
     if (!ts) return 'ยังไม่เข้าระบบ';
