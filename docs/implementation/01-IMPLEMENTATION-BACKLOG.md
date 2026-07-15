@@ -8,7 +8,7 @@
 ## 🔴 CRITICAL
 
 ### SEC-1 · SECURITY DEFINER functions ขาด `set search_path`
-- **Severity:** Critical (security) · **สถานะ:** STILL-VALID
+- **Severity:** Critical (security) · **สถานะ:** ✅ **DONE** (migration `20260715-fix-secdef-search-path.sql` · Phase 1 · user รันแล้ว)
 - **หลักฐาน:** `supabase/migrations/20260713-sale-rpc.sql` (`tmk_delete_orders`, `tmk_void_receipts`, `tmk_restore_receipts`, `tmk_crm_directory`) และ `20260714-delete-cleanup.sql` (`tmk_delete_orders`) ประกาศ `security definer` **ไม่มี** `set search_path`. ฟังก์ชัน definer อื่น (`20260610/20260611/20260615`) ตั้ง search_path ถูก → 2 ไฟล์นี้เป็นข้อยกเว้น
 - **Impact:** Security = search-path hijack บน RPC สิทธิ์สูง (ลบ/void/restore ออเดอร์/ใบเสร็จ) · Data = ถ้าถูก exploit อาจเรียกฟังก์ชันปลอม · Business = ท่อลบ/คืนออเดอร์
 - **แนวทางแก้:** สร้าง migration ใหม่ `CREATE OR REPLACE FUNCTION … SET search_path = public` ทั้ง 5 ฟังก์ชัน (ไม่แก้ไฟล์เดิม · idempotent)
@@ -18,7 +18,7 @@
 - **Dependency:** ต้องรู้ signature เดิมเป๊ะ (อ่านจาก 2 ไฟล์) · **Complexity:** ต่ำ (mechanical) · **DB run:** ผู้ใช้รันบน prod เอง
 
 ### SALES-1 · Dual Source-of-Truth ยอดขาย (Operational vs Imported)
-- **Severity:** Critical · **สถานะ:** NEEDS-DECISION (strategic)
+- **Severity:** Critical · **สถานะ:** ✅ **CLOSED** (Q1 decided + metric contract `04-SALES-METRIC-CONTRACT.md` + characterization tests ครบ 2 แหล่ง · เหลือ Ads repurpose ที่ต้อง requirement แยก)
 - **หลักฐาน:** operational (`src/lib/saleAgg.js` + `src/data.js`/`views-1.jsx` monthly calc จาก `tmk_daily_sales`/`tmk_sales`/targets) vs imported analytics (`src/saleDashboard.jsx` + `saleAgg.js` จาก `tmk_mp_orders`/`tmk_sale_receipts`/`tmk_sales_funnel`). สอง path คำนวณอิสระ
 - **Impact:** Business = ตัวเลขยอดขายอาจต่างกันโดยไม่มี reconciliation
 - **แนวทางแก้ (บล็อกจนกว่าจะตัดสินใจ):** กำหนด **metric contract** ต่อ KPI (grain, วันที่, กรอง cancel/return, gross/net/paid, กันซ้ำ) + หน้าไหน = financial truth vs operational estimate + reconciliation report — **ห้ามรวม 2 แหล่งจนกว่าจะกำหนด (กฎภารกิจ)**
@@ -29,7 +29,7 @@
 ## 🟠 HIGH
 
 ### RT-1 · `tmk_audit_logs` subscribe แต่ไม่อยู่ใน realtime publication
-- **Severity:** High · **สถานะ:** STILL-VALID
+- **Severity:** High · **สถานะ:** ✅ **DONE** (migration `20260715-fix-audit-log-realtime.sql` · Phase 1 · user รันแล้ว)
 - **หลักฐาน:** `src/views-log.jsx:222` subscribe INSERT บน `tmk_audit_logs` แต่ไม่มี migration ไหน `alter publication supabase_realtime add table tmk_audit_logs` (grep = ว่าง) — ต่างจาก `tmk_task_comments`/`tmk_notifications` ที่ publish แล้ว
 - **Impact:** หน้า "บันทึกกิจกรรม" ไม่ได้รับ event สด (เงียบ · degrade)
 - **แนวทางแก้:** migration ใหม่ idempotent `if not exists (…pg_publication_tables…) then alter publication supabase_realtime add table tmk_audit_logs`
@@ -51,17 +51,17 @@
 - **แนวทางแก้:** เทียบ `schema_migrations` prod + backup ก่อนตัดสินใจ deploy drop · **ห้ามรัน migration ในขั้นนี้** · **Complexity:** กลาง (verification)
 
 ### TEST-1 · ไม่มี component/integration/E2E test
-- **Severity:** High · **สถานะ:** STILL-VALID
+- **Severity:** High · **สถานะ:** PARTIAL (unit/characterization 6→11 ไฟล์ · 55→125 · ครอบ money+วันที่+ยอดขาย 2 แหล่ง · Phase 8+6 · เหลือ component/E2E env)
 - **หลักฐาน:** มี 6 unit test (pure fn) ใน `src/lib/__tests__/` เท่านั้น (55 cases) · ไม่มี Playwright/Cypress/component test
 - **แนวทางแก้:** เพิ่มทีละชั้น — (a) characterization tests สูตรยอดขาย (Phase 2) (b) smoke E2E critical path: อัปโหลดใบเสร็จ→บันทึก→ออเดอร์ · role visibility · **Complexity:** สูง (ทยอย)
 
 ### ARCH-1 · `dataContext` singleton `TMK` mutation
-- **Severity:** High · **สถานะ:** STILL-VALID
+- **Severity:** High · **สถานะ:** PARTIAL (computeMonth แยก pure core `computeMonthPure.js` inject ctx แทนอ่าน TMK ตรง · Phase 6.2 · mutateTMK ยังอยู่)
 - **หลักฐาน:** `src/dataContext.jsx:710` `mutateTMK` แก้ module-level `TMK` (`src/data.js`) in-place + version bump; views `import { TMK }` ตรง (facade บางส่วน · pattern เดิมยังอยู่)
 - **แนวทางแก้:** ค่อยๆ ลด coupling → selectors (Phase 6 · behavior-preserving + tests ก่อน · **ห้ามรวมกับ feature change**) · **Complexity:** สูง
 
 ### REFACTOR-1 · God files
-- **Severity:** High (tech debt) · **สถานะ:** STILL-VALID (partial)
+- **Severity:** High (tech debt) · **สถานะ:** PARTIAL (extract `salePerfAgg.js`(buildPerf)+`computeMonthPure.js` · ลบ dead ~450 บรรทัด(LINT-1) · Phase 6+LINT-1 · god-file ใหญ่ยังเหลือ)
 - **หลักฐาน (wc -l ปัจจุบัน):** `views-settings.jsx` 2666 · `goldenGrid.js` 1626 · `views-1.jsx` 1458 · `saleDashboard.jsx` 1383 · `App.jsx` 1281 · `views-flows.jsx` 1164 · `salePerf.jsx` 964 · `dataContext.jsx` 953 · `views-planner.jsx` 943 · `views-orders.jsx` 864
 - **แนวทางแก้:** extract behavior-preserving + characterization tests · commit เล็ก · **ห้ามรวม feature** (Phase 6) · **Complexity:** สูง
 
@@ -70,7 +70,7 @@
 ## 🟡 MEDIUM / LOW
 
 ### ENV-1 · ไม่มี startup validation ของ env vars
-- **Severity:** Medium · **สถานะ:** STILL-VALID
+- **Severity:** Medium · **สถานะ:** ✅ **DONE** (guard+console.error ใน `supabaseClient.js` · Phase 1)
 - **หลักฐาน:** `src/lib/supabaseClient.js` อ่าน `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` โดยไม่ throw ถ้าขาด
 - **แนวทางแก้:** guard + error ที่อ่านง่ายเมื่อ env ขาด · **Migration:** ไม่ · **Complexity:** ต่ำ
 
@@ -80,7 +80,7 @@
 - **แนวทางแก้:** เพิ่ม tooltip นิยาม + badge แหล่งข้อมูลต่อ tile (ผูกกับ SALES-1 metric contract) · **Complexity:** กลาง
 
 ### LINT-1 · เก็บ dead-code + lint (278 errors)
-- **Severity:** Low-Medium · **สถานะ:** STILL-VALID
+- **Severity:** Low-Medium · **สถานะ:** ✅ **DONE** (no-unused-vars 97→26 · ลบ dead 71 จุด/15 ไฟล์ · `PHASE-LINT-1-REPORT.md` · เหลือ 26 = defer saleDashboard/modals-import; react-hooks advisory = งานแยก)
 - **หลักฐาน:** 97 `no-unused-vars` (dead) + 78 react-refresh + hooks advisories · ไม่มี no-undef จริง
 - **แนวทางแก้:** ทยอยลบ unused + จูน hooks (ไม่กระทบ behavior) · **Complexity:** ต่ำ-กลาง (Phase หลัง)
 
