@@ -7,7 +7,7 @@
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
    ============================================================ */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Icon, N, useBeat, PersonAvatar } from './components.jsx';
+import { Icon, N, useBeat, PersonAvatar, SourceBadge } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
   cachedFetchRange, cachedFetchAll, ORDERS_SEL, SKUS_SEL, OVERRIDES_SEL, funnelTotal, funnelNewOld,
@@ -398,6 +398,7 @@ export function SalePerfView() {
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-semibold">ประสิทธิภาพเซลล์</span>
+            <SourceBadge kind="analytics" />
             {loading && perf.rows.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />กำลังอัปเดต…</span>}
             <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
             <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />

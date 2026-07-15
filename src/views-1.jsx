@@ -3,7 +3,7 @@
    ============================================================ */
 import { useState, useMemo, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, Skel, useBeat, CelebrationOverlay } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Avatar, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, Skel, useBeat, CelebrationOverlay, SourceBadge } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
@@ -667,7 +667,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       <div className="grid" style={{ gridTemplateColumns: '1.6fr 1fr', marginBottom: 16 }}>
         <Card className={'p-[22px]' + (targetHit ? ' target-card-hit' : '')} style={targetHit ? { borderColor: 'rgba(245,180,35,0.55)' } : undefined}>
           <div className="row between" style={{ marginBottom: 8, gap: 8 }}>
-            <span className="eyebrow">{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS}</span>
+            <span className="eyebrow inline-flex items-center gap-2">{'ยอดขาย'} MTD {'·'} {'วันที่'} {consts.DAY}/{consts.DAYS} <SourceBadge kind="truth" /></span>
             {targetHit && <Badge variant="outline" onClick={() => setCelebrate(true)} title="กดเพื่อฉลองอีกครั้ง" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer' }}>🎉 ทะลุเป้าแล้ว</Badge>}
           </div>
           <div className="num display">{B(C.MTD)}</div>
