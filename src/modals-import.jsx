@@ -107,11 +107,16 @@ function downloadTextFile(filename, text) {
 /* ---------- รายงานรวมข้ามช่อง: นำเข้าไฟล์ขาย (Shipnity base + Shopee/TikTok เสริม + catalog) ---------- */
 // เลิกใช้ไฟล์ Shipnity แล้ว (ยอด Shipnity เข้าทางหน้า "ส่งยอดใบเสร็จ") — import เหลือมาร์เก็ตเพลสล้วน
 const MP_KIND_LABEL = { shopee: 'Shopee', tiktok: 'TikTok', catalog: 'แคตตาล็อกลาย', unknown: 'ไม่รู้จัก' };
+const MAX_IMPORT_BYTES = 25 * 1024 * 1024; // 25MB — กันไฟล์ใหญ่จนหน่วยความจำบวม (malformed-file guard · SEC)
 async function mpFileToGrid(file) {
+  if (file?.size > MAX_IMPORT_BYTES) throw new Error(`ไฟล์ใหญ่เกิน ${Math.round(MAX_IMPORT_BYTES / 1024 / 1024)}MB (${file.name}) — แบ่งไฟล์ให้เล็กลง`);
   if (/\.(xlsx|xls|xlsm|xlsb)$/i.test(file.name)) {
     const buf = await file.arrayBuffer();
     const XLSX = await import('xlsx');
-    const wb = XLSX.read(buf, { type: 'array' });
+    let wb;
+    try { wb = XLSX.read(buf, { type: 'array' }); }
+    catch { throw new Error(`อ่านไฟล์ไม่ได้ (${file.name}) — ไฟล์อาจเสียหรือไม่ใช่ Excel จริง`); } // กันไฟล์ปลอม/เสีย crash ทั้งการนำเข้า
+    if (!wb?.SheetNames?.length) throw new Error(`ไฟล์ไม่มีชีตข้อมูล (${file.name})`);
     const pick = wb.SheetNames.find(s => /ordersku|^orders$|sheet1/i.test(s)) || wb.SheetNames[0];
     return XLSX.utils.sheet_to_json(wb.Sheets[pick], { header: 1, raw: false, defval: '' });
   }

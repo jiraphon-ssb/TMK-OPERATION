@@ -36,9 +36,16 @@
 - **Verify SQL:** `select * from pg_publication_tables where pubname='supabase_realtime' and tablename='tmk_audit_logs';` → 1 แถว
 - **Migration:** ใช่ · **Rollback:** `alter publication … drop table tmk_audit_logs` · **Complexity:** ต่ำ
 
-### SEC-2 · XLSX export escape formula-injection → ❌ NOT-APPLICABLE
-- **Severity:** — · **สถานะ:** NOT-APPLICABLE (ปิด · Phase 1 ตรวจแล้ว)
-- **ผลตรวจ:** แอป **ไม่มี XLSX export/write เลย** (`grep XLSX.writeFile|json_to_sheet|aoa_to_sheet|book_append_sheet` = ว่าง) — `XLSX` ใช้เฉพาะ **อ่าน/import** (`modals-import.jsx:114` `XLSX.read`). export ทั้งหมดเป็น CSV ซึ่ง escape แล้ว (`saleWidgets.jsx:263` `_csvEsc`). ไม่มีช่องโหว่ → ไม่ต้องแก้
+### SEC-2 · Import/export file safety (escape + malformed-file)
+- **Severity:** Low · **สถานะ:** ✅ **DONE** (export N/A + import validation เพิ่มแล้ว)
+- **ครึ่ง export (NOT-APPLICABLE):** แอป **ไม่มี XLSX export/write เลย** — `XLSX` ใช้เฉพาะอ่าน/import (`modals-import.jsx` `XLSX.read`). export เป็น CSV ที่ escape formula-injection แล้ว (`lib/csv.js:12` `csvEsc` · มี test `csv.test.js`)
+- **ครึ่ง import (DONE · SEC-2b · จาก audit gap `39-SECURITY-REVIEW.md:16/26`):** `mpFileToGrid` เพิ่ม guard — size cap 25MB + try/catch `XLSX.read` (กันไฟล์เสีย/ปลอม crash ทั้งการนำเข้า) + เช็คไม่มีชีต
+
+### SEC-3 · หมุน credential (anon key) — `.env` แจกใน ZIP docs
+- **Severity:** High (security) · **สถานะ:** ⚠️ **ACTION-REQUIRED (ops · ผู้ใช้ทำเอง)** — จาก audit gap `docs/technical/39-SECURITY-REVIEW.md:24`
+- **หลักฐาน:** เอกสารเตือนว่า `.env` เคยรวมอยู่ใน ZIP documentation snapshot → ถ้ามีความเสี่ยงรั่ว ควร **rotate anon key + ตรวจว่าไม่มี service-role key หลุด** (หมายเหตุ: ZIP ที่ส่งมารอบนี้ไม่มีไฟล์ `.env` จริง — scope การรั่วยังไม่ยืนยัน แต่คำแนะนำยังคงอยู่)
+- **แนวทาง:** ผู้ใช้หมุน anon key ใน Supabase dashboard + อัปเดต `.env`/deploy env (Claude แตะ credential ไม่ได้) · anon key ออกแบบให้เปิดเผยฝั่ง client ได้อยู่แล้ว (RLS เป็นด่านจริง) → ถ้า RLS แน่น ความเสี่ยงต่ำ แต่หมุนเพื่อความปลอดภัยได้
+- **Migration:** ไม่ · **Complexity:** ต่ำ (ops)
 
 ### RLS-1 · ตรวจ RLS ต่อ role จริง (ไม่ใช่แค่ซ่อน UI)
 - **Severity:** High (security) · **สถานะ:** NEEDS-DECISION (ต้อง prod access)
@@ -62,7 +69,8 @@
 
 ### REFACTOR-1 · God files
 - **Severity:** High (tech debt) · **สถานะ:** PARTIAL (extract `salePerfAgg.js`(buildPerf)+`computeMonthPure.js` · ลบ dead ~450 บรรทัด(LINT-1) · Phase 6+LINT-1 · god-file ใหญ่ยังเหลือ)
-- **หลักฐาน (wc -l ปัจจุบัน):** `views-settings.jsx` 2666 · `goldenGrid.js` 1626 · `views-1.jsx` 1458 · `saleDashboard.jsx` 1383 · `App.jsx` 1281 · `views-flows.jsx` 1164 · `salePerf.jsx` 964 · `dataContext.jsx` 953 · `views-planner.jsx` 943 · `views-orders.jsx` 864
+- **หลักฐาน (wc -l อัปเดต 2026-07-15):** ~~views-settings 2666~~→**~88** (+`views-settings-tabs.jsx`) · ~~views-1 1458~~→**432** (+`views-sales.jsx`) · ~~views-flows 1164~~→**938** (+`views-mytasks.jsx`) · `goldenGrid.js` 1626 (=data · N/A) · `App.jsx` 1281 · `saleDashboard.jsx` 1383 (→ads) · `salePerf.jsx` (buildPerf→`salePerfAgg.js`) · `dataContext.jsx` (computeMonth→`computeMonthPure.js`) · `views-planner.jsx` 941 · `views-orders.jsx` 864
+- **⚠️ caveat (จาก audit):** `views-settings-tabs.jsx` = **ย้ายเนื้อ ไม่ได้ decompose ตามความรับผิดชอบ** (ยังใหญ่) — orchestrator แยกแล้ว แต่ decompose tab ต่อเป็นงานถัดไป
 - **แนวทางแก้:** extract behavior-preserving + characterization tests · commit เล็ก · **ห้ามรวม feature** (Phase 6) · **Complexity:** สูง
 
 ---
