@@ -67,6 +67,8 @@ where table_schema = 'public'
 order by table_name, ordinal_position;
 
 -- ── H. นับแถวคร่าวๆ ต่อตารางหลัก (ดูว่าตารางไหนมีข้อมูลจริง — ใช้จัดลำดับความสำคัญ RLS) ──
+-- ⚠️ H (exact count) อาจช้าบนตารางใหญ่ (mp_orders/audit_logs) → ถ้ากด stop = log "canceling statement due to user request" (ไม่เสียหาย)
+--    แนะนำใช้ H2 (row-estimate) แทน = instant · ไม่ scan · ไม่ต้อง cancel
 select 'tmk_mp_orders'  as t, count(*) from public.tmk_mp_orders   union all
 select 'tmk_sale_receipts', count(*)  from public.tmk_sale_receipts union all
 select 'tmk_daily_sales', count(*)    from public.tmk_daily_sales   union all
@@ -75,3 +77,11 @@ select 'tmk_mp_customers', count(*)   from public.tmk_mp_customers  union all
 select 'tmk_user_roles', count(*)     from public.tmk_user_roles    union all
 select 'tmk_audit_logs', count(*)     from public.tmk_audit_logs;
 -- (ถ้าตารางใดไม่มี ให้ลบบรรทัดนั้นแล้วรันใหม่)
+
+-- ── H2. (ทางเลือกเร็ว) ประมาณจำนวนแถวจาก planner statistics — instant · ไม่ full-scan · ไม่ต้องกด cancel ──
+--    ตัวเลข "คร่าวๆ" (อัปเดตตอน ANALYZE/autovacuum) — พอสำหรับจัดลำดับความสำคัญ RLS
+select relname as t, reltuples::bigint as est_rows
+from pg_class
+where relnamespace = 'public'::regnamespace
+  and relname in ('tmk_mp_orders','tmk_sale_receipts','tmk_daily_sales','tmk_sales','tmk_mp_customers','tmk_user_roles','tmk_audit_logs')
+order by est_rows desc;
