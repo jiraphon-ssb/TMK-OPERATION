@@ -22,7 +22,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from '@/components/ui/label';
 import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
-import { DD, guardEdit, guardAdmin, _csvEsc } from './saleWidgets.jsx';
+import { DD, guardEdit, guardAdmin } from './saleWidgets.jsx';
+import { buildAllCsv, buildMonthlyReportCsv } from './lib/csv.js';
 
 function CampaignsView() {
   const { reload, refresh } = useData() || {};
@@ -528,41 +529,8 @@ function NotifToggle({ storeKey, label }) {
 
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
 function exportAllCSV() {
-  const esc = _csvEsc; // ใช้ helper เดียว (numeric-aware: ไม่ทำเลขลบเป็น text)
-  const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
-  // ขยายข้อมูลรายวันต่อช่องทาง (dataset ที่มีค่าที่สุด — เก็บไว้ใน TMK.dailyAll ครบทุกเดือน)
-  const dailyRows = [];
-  (TMK.dailyAll || []).forEach(d => {
-    const dateStr = `${d.year - 543}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`;
-    Object.entries(d.ch || {}).forEach(([chId, c]) => {
-      // คนทัก = ลูกค้าใหม่ + เก่า (derive ให้ตรงกับ dashboard — ไม่ใช้ค่า inq ดิบที่เก็บไว้ก่อนเปลี่ยนนิยาม)
-      dailyRows.push({ date: dateStr, channel: chId, rev: r2(c.rev || 0), ord: c.ord || 0, ad: r2(c.ad || 0), inq: (c.newC || 0) + (c.oldC || 0), newC: c.newC || 0, oldC: c.oldC || 0 });
-    });
-  });
-  // สรุปรายเดือนทั้งปี (เป้า vs จริง vs แอด vs ลูกค้าใหม่)
-  const monthlyRows = (TMK.monthly || []).map(m => ({
-    year: m.year - 543, month: m.month, target: m.target, actual: r2(m.actual), adSpend: r2(m.adSpend), orders: m.orders, newCust: m.newCust,
-  })); // m.year เก็บเป็น พ.ศ. — แปลงเป็น ค.ศ. ให้ตรงกับ section Daily×Channel (กันไฟล์เดียวปนปีต่างกัน 543)
-  // Audit log (200 แถวล่าสุดที่โหลดอยู่ — หน้า audit แยกมี pagination เต็มในอนาคต)
-  const auditRows = (TMK.audit || []).map(a => ({
-    ts: a.ts || '', user: a.user || '', action: a.action || '', entity: a.entityType || '', name: a.entityName || '', summary: a.summary || '',
-  }));
-  const sections = [
-    ['ช่องทาง — เดือนปัจจุบัน (Channels — current month)', ['name', 'target', 'actual', 'orders', 'ad'], TMK.channels || []],
-    ['สินค้า (Products)', ['name', 'price', 'units', 'onHand', 'stockValue', 'reorder'], TMK.products || []],
-    ['งาน (Tasks)', ['title', 'date', 'status', 'camp', 'channel'], TMK.tasks || []],
-    ['แคมเปญ (Campaigns)', ['name', 'status', 'start', 'end'], TMK.campaigns || []],
-    ['แคมเปญแอด (Ad)', ['name', 'platform', 'budget', 'spent', 'status'], TMK.adCampaigns || []],
-    ['ยอดรายวันต่อช่องทาง (Daily × Channel)', ['date', 'channel', 'rev', 'ord', 'ad', 'inq', 'newC', 'oldC'], dailyRows],
-    ['สรุปรายเดือน (Monthly Summary)', ['year', 'month', 'target', 'actual', 'adSpend', 'orders', 'newCust'], monthlyRows],
-    ['ประวัติการใช้งาน (Audit Log)', ['ts', 'user', 'action', 'entity', 'name', 'summary'], auditRows],
-  ];
-  let csv = '';
-  sections.forEach(([title, cols, rows]) => {
-    csv += title + '\n' + cols.join(',') + '\n';
-    rows.forEach(r => { csv += cols.map(c => esc(Array.isArray(r[c]) ? r[c].join(' ') : r[c])).join(',') + '\n'; });
-    csv += '\n';
-  });
+  // CSV building (pure) → lib/csv.js · ที่นี่คง side-effect (download/audit/toast)
+  const csv = buildAllCsv(TMK);
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -577,35 +545,14 @@ function exportAllCSV() {
 // รายงานรายเดือน (CSV) — สรุปต่อช่องทาง (เป้า/ยอด/ค่าแอด/ROAS) + ยอดรายวันต่อช่องทาง (สำหรับส่งผู้บริหาร)
 // pickMonth: 1-12 (ค่า default = เดือนปัจจุบัน), pickYearBE: ปี พ.ศ.
 function exportMonthlyReportCSV(pickMonth, pickYearBE) {
-  const esc = _csvEsc; // ใช้ helper เดียว (numeric-aware: ไม่ทำเลขลบเป็น text)
   const t = getToday();
   const month = pickMonth || t.month;
   const yearBE = pickYearBE || t.yearBE;
   const md = computeMonth(month - 1, yearBE);
   const monthTH = MONTHS_TH_SHORT[month - 1];
   const channelNameById = Object.fromEntries((TMK.channels || []).map(c => [c.id, c.name]));
-  let csv = `รายงานยอดขายเดือน ${monthTH} ${yearBE}\n\n`;
-  // สรุปรวม
-  csv += 'สรุปรวม\n';
-  csv += `เป้าเดือน,${md.consts.TARGET}\nยอด,${md.computed.MTD}\nออเดอร์,${md.computed.ORD}\nค่าแอดรวม,${md.computed.AD}\nลูกค้าใหม่,${md.computed.NEW_C}\n\n`;
-  // ต่อช่องทาง
-  csv += 'ช่องทาง,เป้า,ยอด,%เป้า,ออเดอร์,ค่าแอด,ROAS\n';
-  (md.channels || []).forEach(c => {
-    const pct = c.target > 0 ? ((c.actual / c.target) * 100).toFixed(1) : '';
-    const roas = c.ad > 0 ? (c.actual / c.ad).toFixed(2) : '';
-    csv += [esc(c.name), c.target, c.actual, pct, c.orders, c.ad, roas].join(',') + '\n';
-  });
-  csv += '\n';
-  // ยอดรายวัน × ช่องทาง (breakdown เต็ม — เพิ่มจาก v1 ที่มีแค่รายได้รวม+ค่าแอด)
-  csv += 'ยอดรายวันต่อช่องทาง\nวันที่,ช่องทาง,รายได้,ออเดอร์,ค่าแอด,คนทัก,ลูกค้าใหม่,ลูกค้าเก่า\n';
-  const rows = (TMK.dailyAll || []).filter(r => r.year === yearBE && r.month === month).sort((a, b) => a.day - b.day);
-  const r2 = n => Math.round((Number(n) || 0) * 100) / 100; // ปัด 2 ตำแหน่งสตางค์
-  rows.forEach(r => {
-    const dateStr = `${r.year - 543}-${String(r.month).padStart(2, '0')}-${String(r.day).padStart(2, '0')}`;
-    Object.entries(r.ch || {}).forEach(([chId, c]) => {
-      csv += [dateStr, esc(channelNameById[chId] || chId), r2(c.rev || 0), c.ord || 0, r2(c.ad || 0), (c.newC || 0) + (c.oldC || 0), c.newC || 0, c.oldC || 0].join(',') + '\n';
-    });
-  });
+  // CSV building (pure) → lib/csv.js · ที่นี่คง side-effect
+  const csv = buildMonthlyReportCsv({ md, dailyAll: TMK.dailyAll || [], channelNameById, monthTH, yearBE, month });
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
