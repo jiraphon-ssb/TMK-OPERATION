@@ -8,7 +8,7 @@ import { TMK } from './data.js';
 import { Icon } from './components.jsx';
 import { useData } from './dataContext.jsx';
 import { SearchInput } from '@/components/ui/search-input';
-import { TaskCard } from './views-planner.jsx';
+import { TaskCard } from './taskCard.jsx';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
