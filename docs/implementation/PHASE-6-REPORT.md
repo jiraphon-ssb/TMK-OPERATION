@@ -36,6 +36,31 @@
 1. ลบ `src/lib/salePerfAgg.js` + `src/lib/__tests__/salePerfAgg.test.js`
 2. คืน 8 def + import `funnelBreakdown` ใน `src/salePerf.jsx` (git revert commit เดียว)
 
+---
+
+## Phase 6.2 — extract computeMonth (operational truth ตัวจริง)
+
+### ทำอะไร
+แยก `computeMonth` (ยอดขายจริงรายเดือน = financial truth ที่ Q1 กำหนด) ออกจาก `src/dataContext.jsx` → `src/lib/computeMonthPure.js` — เดิมอ่าน TMK singleton + `getToday()` ตรง ๆ → เปลี่ยนเป็น pure `computeMonthPure(monthIdx0, yearBE, ctx)` ที่ inject `ctx = { dailyAll, monthly, channels, clv, today }` เข้ามา · `dataContext.computeMonth` เหลือเป็น thin wrapper ส่ง `TMK.* + getToday()`
+
+### เปลี่ยนอะไร
+| ไฟล์ | เปลี่ยน |
+|---|---|
+| `src/lib/computeMonthPure.js` (ใหม่) | ย้าย body ทั้งหมด (คัดลอกเป๊ะ) · แทน `TMK.dailyAll/monthly/channels/computed.CLV`→ctx · `getToday()`→`today` param · import `THAI_MONTHS` (dateUtils) · copy `round2` |
+| `src/dataContext.jsx` | `computeMonth` → wrapper 6 บรรทัด · import `computeMonthPure` · ลบ `const _ABBR` (ย้ายไป lib แล้ว unused) |
+| `src/lib/__tests__/computeMonthPure.test.js` (ใหม่) | 12 tests: อดีต(รวม daily)/monthly-fallback + entryMode/ปัจจุบัน(pace·run)/อนาคต(DAY=0)/ว่าง/CLV pass-through |
+
+**หมายเหตุ characterization:** test แรกจับ assertion ผมเขียนผิด (OLD_C คิดเป็น 1 แต่จริง = 2 จาก shopee+fb) → พิสูจน์ว่า test ล็อกพฤติกรรม*จริง*ของโค้ด ไม่ใช่สมมติฐานผม
+
+### หลักฐาน
+- `npm test` → **11 files · 125 tests passed** (113 → +12) · ไม่มี fail
+- `npm run build` → ✓ 1.16s
+- `eslint dataContext.jsx + computeMonthPure.js` → **no-undef = 0** · เหลือ 6 advisory เดิม (react-refresh + React Compiler memo/refs — ทั้งโค้ดเบสมี ไม่เกี่ยว refactor)
+- **Preview สด** หน้ายอดขาย (SalesView = consumer หลักของ computeMonth): เรนเดอร์เหมือนเดิม — MTD ฿411,989.25 (15/31) · Run rate ฿851,444.45 · 865 ออเดอร์ · AOV ฿476.29 · gauge 74% pace · แผนภูมิรายวัน stacked+projection · ตารางเป้า/ผลงาน/ROAS ต่อแพลตฟอร์ม · **0 console error**
+
+### Rollback
+คืน body computeMonth เดิม + `const _ABBR` · ลบ `computeMonthPure.js` + test (git revert commit เดียว)
+
 ## Next
-- computeMonth (operational truth ตัวจริงใน TMK singleton) — extract pure core + test เป็น Phase ถัดไปถ้าต้องการ (ใหญ่กว่า · แตะ singleton)
-- รอพี่รัน Q2 SQL (RLS/MIG) · หรือเลือก ads repurpose (ต้อง requirement)
+- computeMonth มี pure core + test แล้ว → ถ้าจะแก้สูตรยอดขายในอนาคต มี guard (ตาม constraint "ห้ามเปลี่ยนสูตรยอดขายโดยไม่มี unit test")
+- LINT-1 dead-code cleanup (commit แยก) · รอพี่รัน Q2 SQL (RLS/MIG) · ads repurpose (ต้อง requirement)
