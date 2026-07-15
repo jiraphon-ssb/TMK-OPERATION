@@ -35,6 +35,28 @@
 ## Rollback
 คืน `_csvEsc` + 2 export functions เดิมใน saleWidgets/views-settings · ลบ lib/csv.js + test (git revert commit เดียว)
 
-## Next (REFACTOR-1 ต่อ — งานใหญ่แยก session)
-- views-settings ยัง 2379 — sub-view ใหญ่ (RolesView 517 · ChannelsView 414 · DutiesView 286 · BrandsView 284) split เป็นไฟล์ต่อโดเมน (PART 79-style file-split · ต้อง verify แต่ละ tab render)
-- goldenGrid.js 1626 · views-1.jsx 1458 (SalesView · computeMonth แยกแล้ว) · App.jsx (ลด LINT-1 แล้ว)
+---
+
+## REFACTOR-1.2 — split sub-view views-settings → views-settings-tabs.jsx (PART 79-style)
+
+### ทำอะไร
+แยก **sub-view แท็บทั้งหมด** ออกจาก god-file `views-settings.jsx` → ไฟล์ใหม่ `views-settings-tabs.jsx` · เหลือ `views-settings.jsx` เป็น orchestrator (SettingsView/SettingsBody) ที่ import sub-view กลับ · behavior-preserving file-split
+
+### เปลี่ยนอะไร
+| ไฟล์ | เปลี่ยน |
+|---|---|
+| `src/views-settings-tabs.jsx` (ใหม่ · ~2300) | ย้าย CampaignsView/TargetsView/GeneralSettings/BrandsView/ChannelsView/DutiesView/RolesView/TrashView + helper (NotifToggle/exportAllCSV/exportMonthlyReportCSV/TRASH_TABLES) · export 8 sub-view |
+| `src/views-settings.jsx` | **2379→111 บรรทัด** · เหลือ SettingsView/SettingsBody + import sub-view จากไฟล์ใหม่ · prune unused imports |
+
+### เทคนิค (safety net)
+- **eslint no-undef=0** หลัง split = การันตี *ทุก reference resolve* (import ครบ) แบบ static — จับ import ขาดก่อน runtime
+- prune unused imports 62→0 ทั้ง 2 ไฟล์ (import block ซ้ำ · แต่ละไฟล์ใช้ subset) ด้วยสคริปต์ตาม eslint
+- **GOTCHA:** HMR console โชว์ `csvEsc is not defined` (module timestamped เก่า `?t=...`) = stale buffer ([[part74-75-perf-refine]]) — build ผ่าน + ทุก tab render จริง = ไม่ใช่บั๊ก
+
+### หลักฐาน
+- `npm run build` → ✓ · `npm test` → 137 passed (ไม่กระทบ)
+- eslint (2 ไฟล์) → no-undef 0 · unused 0
+- **Preview สด (admin):** ทั้ง 4 tab ใหญ่ที่ย้าย render สมบูรณ์ — ทั่วไป(GeneralSettings+Export CSV) · ช่องทาง(6 ช่อง) · สิทธิ์ผู้ใช้(13 ผู้ใช้+roles) · ถังขยะ(52 · restore/delete) · no-undef การันตี tab ที่เหลือ (Brands/Campaigns/Duties/Targets/WhatsNew)
+
+## Next (REFACTOR-1 ต่อ)
+- goldenGrid.js 1626 (data · แยกง่าย) · views-1.jsx 1458 (SalesView) · App.jsx
