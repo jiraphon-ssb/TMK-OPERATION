@@ -58,5 +58,26 @@
 - eslint (2 ไฟล์) → no-undef 0 · unused 0
 - **Preview สด (admin):** ทั้ง 4 tab ใหญ่ที่ย้าย render สมบูรณ์ — ทั่วไป(GeneralSettings+Export CSV) · ช่องทาง(6 ช่อง) · สิทธิ์ผู้ใช้(13 ผู้ใช้+roles) · ถังขยะ(52 · restore/delete) · no-undef การันตี tab ที่เหลือ (Brands/Campaigns/Duties/Targets/WhatsNew)
 
+---
+
+## REFACTOR-1.3 — split Sales views: views-1.jsx → views-sales.jsx (financial-truth · careful)
+
+### ทำอะไร
+แยก **Sales views ทั้งหมด** (SalesView + sub-view) ออกจาก god-file `views-1.jsx` → `views-sales.jsx` · เหลือ views-1 = Home cockpit (HomeView + Team/Campaigns card) · behavior-preserving
+
+### เปลี่ยนอะไร
+| ไฟล์ | เปลี่ยน |
+|---|---|
+| `src/views-sales.jsx` (ใหม่ · 1014) | ย้าย SalesView(export) + SalesSkeleton/SalesDateBar/DailyStackedChart/MomDelta/SalesOverview/YoYChart/SalesChannels/SocialChannelCard/ChannelCard/SalesAds/CustomerWeeklyCombo/SalesCustomers + shared helper (chipVar/D/getAdCampaigns/getSegments) |
+| `src/views-1.jsx` | **1430→432 บรรทัด** · เหลือ Home (TeamTodayCard/CampaignsCard/HomeSkeleton/HomeView) · `export { SalesView } from './views-sales.jsx'` (re-export กัน App.jsx พัง) · prune unused imports + ลบ helper ที่ย้าย |
+
+### เทคนิค
+- **eslint no-undef=0** = safety net (ไม่มี cross-domain reference พัง หลังแยก) · prune unused imports 31→0 · SalesSkeleton แทรกกลาง Home → 2-range slice (282-298 + 457-end)
+- re-export SalesView → **App.jsx ไม่ต้องแก้** (blast radius ต่ำ)
+
+### หลักฐาน
+- `npm run build` ✓ · `npm test` → **145 passed** (ไม่กระทบ) · eslint no-undef 0 · unused 0
+- **Preview สด (financial-truth · verify ทุกหน้า):** Home ✓ · **SalesOverview (MTD ฿411,989 + SourceBadge "ยอดจริง") ✓** · SalesChannels (การ์ดช่อง+ROAS) ✓ · SalesAds (งบ/ROAS/แคมเปญ) ✓ · SalesCustomers (ใหม่/เก่า+รายสัปดาห์) ✓ · **0 real console error** (csvEsc = frozen stale HMR buffer · ทุกหน้า render ปกติ)
+
 ## Next (REFACTOR-1 ต่อ)
-- goldenGrid.js 1626 (data · แยกง่าย) · views-1.jsx 1458 (SalesView) · App.jsx
+- App.jsx (1281) · views-flows.jsx (1164) · views-planner.jsx (943) — god-file ที่เหลือ · goldenGrid=N/A (data)
