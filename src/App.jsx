@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
 import { Icon, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
 import { ConfirmHost } from './ui-confirm.jsx';
+import { ConflictMergeHost } from './ui-conflict-merge.jsx';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -887,6 +888,9 @@ function AppInner() {
 
       {/* กล่องยืนยันแบบ shadcn (window.__confirm) — แทน window.confirm ทั้งแอป */}
       <ConfirmHost />
+
+      {/* กล่องเลือกค่ารายช่องเมื่อ merge ชน (window.__resolveConflict) — Phase 3.5 */}
+      <ConflictMergeHost />
 
       {authed && modal && (
         <Suspense fallback={null}>{
