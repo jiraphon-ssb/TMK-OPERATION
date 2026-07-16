@@ -704,25 +704,39 @@ export function PublicFlowShare({ token }) {
     let cancel = false;
     (async () => {
       try {
-        const { data: f, error } = await supabase.from('tmk_flows').select('*')
-          .eq('share_token', token).eq('share_enabled', true).is('deleted_at', null).maybeSingle();
+        // ลอง RPC bundle ก่อน (post-RLS: SECURITY DEFINER คืนทุกอย่างที่หน้าแชร์ใช้ ด้วย share token เดียว — anon ไม่ต้องอ่านตารางตรง)
+        // → RPC ยังไม่มี (ก่อนรัน migration 20260716-enable-rls-tier1) fallback อ่านตารางตรงตามเดิม (RLS ปิดยังอ่านได้)
+        let f = null, tData = [], cData = [], sData = [], dData = [], chData = [], bData = [];
+        const { data: bundle, error: rpcErr } = await supabase.rpc('tmk_public_flow_bundle', { p_token: token });
         if (cancel) return;
-        if (error || !f) { setState('notfound'); return; }
-        const [tRes, cRes, sRes, dRes, chRes, bRes] = await Promise.all([
-          supabase.from('tmk_tasks').select('*').eq('flow_id', f.id).is('deleted_at', null),
-          supabase.from('tmk_campaigns').select('id,name,color').is('deleted_at', null),
-          supabase.from('tmk_staff').select('name,color,email').is('deleted_at', null),
-          supabase.from('tmk_duties').select('name,color').is('deleted_at', null),
-          supabase.from('tmk_channels').select('id,name,color,logo_url').is('deleted_at', null),
-          supabase.from('tmk_brands').select('id,name,color,logo_url').is('deleted_at', null),
-        ]);
-        if (cancel) return;
+        if (!rpcErr && bundle) {
+          if (!bundle.found) { setState('notfound'); return; }
+          f = bundle.flow; tData = bundle.tasks || []; cData = bundle.campaigns || []; sData = bundle.staff || [];
+          dData = bundle.duties || []; chData = bundle.channels || []; bData = bundle.brands || [];
+        } else {
+          const { data: f0, error } = await supabase.from('tmk_flows').select('*')
+            .eq('share_token', token).eq('share_enabled', true).is('deleted_at', null).maybeSingle();
+          if (cancel) return;
+          if (error || !f0) { setState('notfound'); return; }
+          f = f0;
+          const [tRes, cRes, sRes, dRes, chRes, bRes] = await Promise.all([
+            supabase.from('tmk_tasks').select('*').eq('flow_id', f.id).is('deleted_at', null),
+            supabase.from('tmk_campaigns').select('id,name,color').is('deleted_at', null),
+            supabase.from('tmk_staff').select('name,color,email').is('deleted_at', null),
+            supabase.from('tmk_duties').select('name,color').is('deleted_at', null),
+            supabase.from('tmk_channels').select('id,name,color,logo_url').is('deleted_at', null),
+            supabase.from('tmk_brands').select('id,name,color,logo_url').is('deleted_at', null),
+          ]);
+          if (cancel) return;
+          tData = tRes.data || []; cData = cRes.data || []; sData = sRes.data || [];
+          dData = dRes.data || []; chData = chRes.data || []; bData = bRes.data || [];
+        }
         // ใส่ข้อมูลประกอบลง TMK (ไม่มี DataProvider — public อ่านอย่างเดียว)
-        TMK.campaigns = (cRes.data || []).map(c => ({ id: c.id, name: c.name, color: c.color }));
-        TMK.brands = (bRes.data || []).map(b => ({ id: b.id, name: b.name, color: b.color || '#6b5ce0', logoUrl: b.logo_url || '' }));
-        TMK.staff = (sRes.data || []).map(s => ({ name: s.name, color: s.color || 'var(--ink-3)', email: s.email || '' }));
-        TMK.duties = (dRes.data || []).map(d => ({ name: d.name, color: d.color || 'var(--ink-3)' }));
-        TMK.channels = (chRes.data || []).map(ch => ({ id: ch.id, name: ch.name, hex: ch.color, logoUrl: ch.logo_url || '', color: `var(--ch-${(ch.id || '').toLowerCase()})` }));
+        TMK.campaigns = cData.map(c => ({ id: c.id, name: c.name, color: c.color }));
+        TMK.brands = bData.map(b => ({ id: b.id, name: b.name, color: b.color || '#6b5ce0', logoUrl: b.logo_url || '' }));
+        TMK.staff = sData.map(s => ({ name: s.name, color: s.color || 'var(--ink-3)', email: s.email || '' }));
+        TMK.duties = dData.map(d => ({ name: d.name, color: d.color || 'var(--ink-3)' }));
+        TMK.channels = chData.map(ch => ({ id: ch.id, name: ch.name, hex: ch.color, logoUrl: ch.logo_url || '', color: `var(--ch-${(ch.id || '').toLowerCase()})` }));
         if (!TMK.kanbanMeta || !TMK.kanbanMeta.length) TMK.kanbanMeta = [{ id: 'todo', label: 'รอดำเนินการ' }, { id: 'inprogress', label: 'กำลังทำ' }, { id: 'review', label: 'รอตรวจ' }, { id: 'done', label: 'เสร็จแล้ว' }];
         const fl = {
           id: f.id, scopeId: f.id, name: f.name, color: f.color || '#6b5ce0', icon: f.icon || '',
@@ -732,7 +746,7 @@ export function PublicFlowShare({ token }) {
           barColorSource: f.bar_color_source || 'campaign',
         };
         TMK.flows = [fl];
-        const mapped = (tRes.data || []).map(t => ({
+        const mapped = tData.map(t => ({
           id: t.id, title: t.title, detail: t.detail || '',
           date: thaiDate(t.date), dateISO: t.date || '',
           responsible: String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean),

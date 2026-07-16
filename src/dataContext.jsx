@@ -267,7 +267,26 @@ export function DataProvider({ children }) {
 
   useEffect(() => {
     mountedRef.current = true;
-    load();
+    // RLS-ready: โหลด "หลังมี session" เท่านั้น — ถ้าโหลดตอน anon RLS จะคืน 0 แถวแบบเงียบ (ไม่ error) → แอปว่าง
+    // - restore session (localStorage) → getSession เจอ → โหลดทันที (เหมือนเดิม)
+    // - login ใหม่ → รอ SIGNED_IN แล้วค่อยโหลดด้วย JWT (AppInner โชว์ LoginScreen ก่อน data gate อยู่แล้ว — ไม่ติดจอโหลด)
+    // - logout → เคลียร์ baseline ให้ SIGNED_IN คนถัดไปโหลดใหม่ (กันข้อมูลค้างข้าม user)
+    let authSub = null;
+    if (!isSupabaseConfigured) {
+      load(); // ไม่ได้ตั้งค่า .env → ให้ load() รายงาน error ตามเดิม
+    } else {
+      (async () => {
+        const { data } = await supabase.auth.getSession();
+        if (!mountedRef.current) return;
+        if (data?.session) load();
+        const res = supabase.auth.onAuthStateChange((event) => {
+          if (!mountedRef.current) return;
+          if (event === 'SIGNED_OUT') rawRef.current = null;
+          if (event === 'SIGNED_IN' && !rawRef.current) load();
+        });
+        authSub = res?.data?.subscription || null;
+      })();
+    }
 
     // Realtime subscription — ถ้าต่อ WS ไม่ได้ (เน็ตหลุด/ปิด realtime) → degrade เป็น polling (ไม่ retry รัวจน console รก)
     let timer = null, pollTimer = null, connectTimeout = null, usingPoll = false;
@@ -352,6 +371,7 @@ export function DataProvider({ children }) {
 
     return () => {
       mountedRef.current = false;
+      authSub?.unsubscribe();
       clearTimeout(timer); clearTimeout(connectTimeout); clearTimeout(reconnectTimer); clearInterval(pollTimer);
       document.removeEventListener('visibilitychange', onVis);
       teardownChannel();

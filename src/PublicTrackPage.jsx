@@ -7,6 +7,17 @@ import { Input } from '@/components/ui/input';
 import tmkLogo from './assets/tmk-logo.png';
 import { supabase } from './lib/supabaseClient.js';
 
+// ดึงออเดอร์สาธารณะ (anon) — ลอง RPC ก่อน (post-RLS: SECURITY DEFINER คืนเฉพาะออเดอร์ที่ code ตรง)
+// → ถ้า RPC ยังไม่มี (ก่อนรัน migration 20260716) fallback อ่านตาราง (RLS ปิดยังอ่านได้เหมือนเดิม)
+async function fetchTrackOrder(c) {
+  const { data, error } = await supabase.rpc('tmk_public_track', { p_code: c });
+  if (!error) return (Array.isArray(data) ? data[0] : data) || null;
+  const { data: d2 } = await supabase.from('tmk_orders')
+    .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
+    .eq('code', c).maybeSingle();
+  return d2 || null;
+}
+
 /* ---- หน้าติดตามสถานะออเดอร์ (สาธารณะ — ลูกค้าเปิดเองไม่ต้องล็อกอิน) ---- */
 export function PublicTrackPage({ code }) {
   const [input, setInput] = useState(code || '');
@@ -19,10 +30,7 @@ export function PublicTrackPage({ code }) {
     setSearched(Boolean(c));
     if (!c) { setOrder(null); return; }
     setOrder(undefined);
-    const { data } = await supabase.from('tmk_orders')
-      .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
-      .eq('code', c).maybeSingle();
-    setOrder(data || null);
+    setOrder(await fetchTrackOrder(c));
   }, []);
 
   // โหลดครั้งแรกถ้าเปิดด้วยลิงก์ ?track=<code> — state เริ่มต้นเป็น loading อยู่แล้ว จึง fetch แบบ async ล้วน (ไม่ setState ก่อน await)
@@ -30,10 +38,8 @@ export function PublicTrackPage({ code }) {
     if (!code) return;
     let cancel = false;
     (async () => {
-      const { data } = await supabase.from('tmk_orders')
-        .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
-        .eq('code', String(code).trim().toUpperCase()).maybeSingle();
-      if (!cancel) setOrder(data || null);
+      const o = await fetchTrackOrder(String(code).trim().toUpperCase());
+      if (!cancel) setOrder(o);
     })();
     return () => { cancel = true; };
   }, [code]);
