@@ -128,7 +128,24 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
       };
       const res = await confirmReceipts([item], { email: user?.email || '', name: user?.name || '' });
       if (res.skipped.length) { toast(`บันทึกไม่ได้: ${res.skipped[0].reason}`, 'error'); return; }
-      logAudit({ action: 'create', entityType: 'order', entityName: `ออเดอร์ ${ono}`, summary: `เพิ่มออเดอร์ ${ono} · ${lines.length} รายการ · ${fmtB(item.total)} (${user?.name || user?.email})`, data: { order_no: ono, lines: lines.length, total: item.total } });
+      logAudit({
+        action: 'create', entityType: 'order', entityName: `ออเดอร์ ${ono}`, entityId: ono,
+        summary: `เพิ่มออเดอร์ ${ono} · ${lines.length} รายการ · ${fmtB(item.total)} (${user?.name || user?.email})`,
+        fields: [
+          { label: 'เลขที่', value: ono },
+          { label: 'ยอดขาย', value: fmtB(item.total) },
+          { label: 'จำนวน', value: `${lines.reduce((a, l) => a + N(l.qty), 0)} ตัว` },
+          { label: 'รายการ', value: `${lines.length} รายการ` },
+          { label: 'ช่องทาง', value: f.channel || '—' },
+          { label: 'ประเภทงาน', value: f.job_type || '—' },
+          { label: 'การชำระ', value: f.payment || '—' },
+          { label: 'ลูกค้า', value: f.customer_name.trim() || '—' },
+          { label: 'จังหวัด', value: f.province.trim() || '—' },
+          { label: 'วันที่', value: f.order_date || '—' },
+          { label: 'เซลล์', value: user?.name || user?.email || '—' },
+        ],
+        data: { order_no: ono, lines, total: item.total, channel: f.channel },
+      });
       toast(`บันทึกแล้ว ${ono} ✓ — คีย์ต่อได้เลย`, 'success');
       genOnoRef.current = null; // สำเร็จแล้ว → ใบถัดไปได้เลขใหม่
       onSaved?.();

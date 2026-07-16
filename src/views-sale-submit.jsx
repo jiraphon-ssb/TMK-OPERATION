@@ -645,7 +645,20 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
     setBusy(false);
     if (error) { toast(/funnel|does not exist/.test(error.message) ? 'ต้องรัน migration tmk_sales_funnel ก่อน' : 'บันทึกไม่สำเร็จ', 'error'); return; }
     toast(`บันทึกคนทัก ${selSeller} แล้ว ✓`, 'success'); setExists(true); setOpen(false); loadTeam();
-    logAudit({ action: exists ? 'update' : 'create', entityType: 'daily', entityName: `คนทัก ${selSeller}`, summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld} · ปิด ${ordersCount}`, data: { seller: selSeller, date, new: totalNew, old: totalOld, closed: ordersCount } });
+    logAudit({
+      action: exists ? 'update' : 'create', entityType: 'daily', entityName: `คนทัก ${selSeller}`,
+      summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld} · ปิด ${ordersCount}`,
+      fields: [
+        { label: 'เซลล์', value: selSeller },
+        { label: 'วันที่', value: date },
+        { label: 'ทักใหม่', value: `${totalNew} คน` },
+        { label: 'ทักเก่า', value: `${totalOld} คน` },
+        { label: 'ทักรวม', value: `${totalNew + totalOld} คน` },
+        { label: 'ปิดการขาย', value: `${ordersCount} ออเดอร์` },
+        { label: '%ปิด', value: `${(totalNew + totalOld) > 0 ? Math.round(ordersCount / (totalNew + totalOld) * 100) : 0}%` },
+      ],
+      data: { seller: selSeller, date, new: totalNew, old: totalOld, closed: ordersCount, leads: row.leads },
+    });
   };
   return (
     <>

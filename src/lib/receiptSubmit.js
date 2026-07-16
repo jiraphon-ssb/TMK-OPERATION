@@ -391,11 +391,36 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
   ok.push(...nos);
   invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
   const sum = passed.reduce((s, p) => s + (p.orderRow.sales || 0), 0);
+  const totQty = passed.reduce((s, p) => s + (p.orderRow.qty || 0), 0);
+  const chans = [...new Set(passed.map(p => p.orderRow.channel).filter(Boolean))];
+  const months = [...new Set(passed.map(p => p.receiptRow.order_month).filter(Boolean))].sort();
+  const fields = [
+    { label: 'จำนวนใบ', value: String(nos.length) },
+    { label: 'ยอดรวม', value: `฿${sum.toLocaleString()}` },
+    { label: 'จำนวนชิ้น', value: `${totQty} ตัว` },
+    { label: 'เซลล์', value: user.name || user.email || '—' },
+    { label: 'ช่องทาง', value: chans.join(', ') || '—' },
+    { label: 'เดือน', value: months.join(', ') || '—' },
+  ];
+  // ใบเดียว → เพิ่มรายละเอียดใบนั้นครบ (ให้ log อ่านรู้เรื่องเหมือน task)
+  if (passed.length === 1) {
+    const p0 = passed[0]; const it = p0.item || {};
+    fields.push(
+      { label: 'เลขที่', value: p0.receiptRow.order_no },
+      { label: 'ลูกค้า', value: it.customer_name || '—' },
+      { label: 'วันที่', value: it.order_date || '—' },
+      { label: 'จังหวัด', value: it.province || '—' },
+      { label: 'ประเภทงาน', value: p0.orderRow.job_type || '—' },
+      { label: 'การชำระ', value: p0.orderRow.payment_type || '—' },
+      { label: 'รายการ', value: `${(it.lines || []).length} รายการ` },
+    );
+  }
   logAudit({
-    action: 'create', entityType: 'receipt', entityName: 'ส่งยอดใบเสร็จ',
+    action: 'create', entityType: 'receipt', entityName: passed.length === 1 ? `ใบเสร็จ ${passed[0].receiptRow.order_no}` : `ส่งยอด ${nos.length} ใบ`,
+    entityId: passed.length === 1 ? passed[0].receiptRow.order_no : null,
     summary: `ส่งยอด ${nos.length} ใบ · ฿${sum.toLocaleString()} (${user.name || user.email})`,
-    fields: [{ label: 'จำนวนใบ', value: String(nos.length) }, { label: 'ยอดรวม', value: `฿${sum.toLocaleString()}` }],
-    data: { count: nos.length, sales: sum, order_nos: nos.slice(0, 100) },
+    fields,
+    data: { count: nos.length, sales: sum, qty: totQty, channels: chans, months, order_nos: nos.slice(0, 100) },
   });
   return { ok, skipped };
 }

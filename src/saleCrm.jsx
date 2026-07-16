@@ -494,7 +494,19 @@ function CustomerDetail({ c, onClose, onSaved }) {
       }
       if (error) { toast('บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
       toast('บันทึกโปรไฟล์แล้ว', 'success');
-      logAudit({ action: 'update', entityType: 'customer', entityName: row.name || c.key, summary: `แก้โปรไฟล์ลูกค้า ${row.name || c.key}` });
+      logAudit({
+        action: 'update', entityType: 'customer', entityName: row.name || c.key, entityId: row.customer_code || c.key,
+        summary: `แก้โปรไฟล์ลูกค้า ${row.name || c.key}`,
+        fields: [
+          { label: 'ชื่อ', value: row.name || '—' },
+          { label: 'เบอร์', value: row.phone || '—' },
+          { label: 'โซเชียล', value: row.social_name || '—' },
+          { label: 'จังหวัด', value: row.province || '—' },
+          ...(row.owner ? [{ label: 'เจ้าของ', value: row.owner }] : []),
+          ...(row.cadence ? [{ label: 'รอบติดตาม', value: row.cadence }] : []),
+          ...(Array.isArray(row.tags) && row.tags.length ? [{ label: 'แท็ก', value: row.tags.join(', ') }] : []),
+        ],
+      });
       invalidateSaleCache('tmk_mp_customers');
       onSaved?.(c.key, row);
       setEditing(false);

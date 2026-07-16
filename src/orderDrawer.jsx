@@ -16,7 +16,7 @@ import { invalidateSaleCache, isDftNote } from './lib/saleData.js';
 import { versionedUpdate, promptConflictResolution, mergeVersionedUpdate } from './lib/optimisticUpdate.js';
 import { voidReceipt, restoreReceipt, uploadReceiptFile, canEditReceipt } from './lib/receiptSubmit.js';
 import { CHANNELS, JOB_TYPES, PAYMENT_TYPES } from './lib/saleFields.js';
-import { logAudit } from './lib/audit.js';
+import { logAudit, diffFields } from './lib/audit.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -200,7 +200,27 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
           } catch { /* เงียบ — restore จะใช้ payload เดิม */ }
         }
       }
-      logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `แก้ออเดอร์ ${o.order_no} (${patch.channel} · ฿${patch.sales})` });
+      logAudit({
+        action: 'update', entityType: 'order', entityName: o.order_no, entityId: o.order_no,
+        summary: `แก้ออเดอร์ ${o.order_no} (${patch.channel} · ฿${patch.sales})`,
+        changes: diffFields(o, patch, [
+          ['channel', 'ช่องทาง'], ['sales', 'ยอดขาย'], ['qty', 'จำนวน'], ['job_type', 'ประเภทงาน'],
+          ['payment_type', 'การชำระ'], ['customer_name', 'ลูกค้า'], ['customer_type', 'ประเภทลูกค้า'],
+          ['province', 'จังหวัด'], ['salesperson', 'เซลล์'], ['customer_phone', 'เบอร์'], ['note', 'หมายเหตุ'],
+        ]),
+        fields: [
+          { label: 'เลขที่', value: o.order_no },
+          { label: 'ช่องทาง', value: patch.channel || '—' },
+          { label: 'ยอดขาย', value: `฿${Number(patch.sales || 0).toLocaleString()}` },
+          { label: 'จำนวน', value: `${patch.qty || 0} ตัว` },
+          { label: 'ประเภทงาน', value: patch.job_type || '—' },
+          { label: 'การชำระ', value: patch.payment_type || '—' },
+          { label: 'ลูกค้า', value: patch.customer_name || '—' },
+          { label: 'จังหวัด', value: patch.province || '—' },
+          { label: 'เซลล์', value: patch.salesperson || '—' },
+          { label: 'วันที่', value: patch.order_date || o.order_date || '—' },
+        ],
+      });
       toast('บันทึกการแก้ไขแล้ว — ยอดในรายงานอัปเดตทันที', 'success');
       setEdit(null); onChanged ? onChanged() : onSaved?.();
     } catch (e) { toast('บันทึกไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
@@ -232,7 +252,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
           r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch);
         }
         if (!r.ok) throw r.error || new Error('ยกเลิกไม่สำเร็จ');
-        logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
+        logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, entityId: o.order_no, severity: 'warn', summary: `ยกเลิกออเดอร์ ${o.order_no}`, fields: [{ label: 'เลขที่', value: o.order_no }, { label: 'ยอดขาย', value: `฿${Number(o.sales || 0).toLocaleString()}` }, { label: 'ช่องทาง', value: o.channel || '—' }, { label: 'ลูกค้า', value: o.customer_name || '—' }, { label: 'เซลล์', value: o.salesperson || '—' }] });
       }
       toast('ยกเลิกออเดอร์แล้ว — ยอดถูกตัดออกจากรายงาน', 'success');
       onClose(); onChanged?.();
@@ -258,7 +278,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
         }
         if (!r.ok) throw r.error || new Error('นำกลับไม่สำเร็จ');
         invalidateSaleCache('tmk_mp_orders');
-        logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });
+        logAudit({ action: 'restore', entityType: 'order', entityName: o.order_no, entityId: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา`, fields: [{ label: 'เลขที่', value: o.order_no }, { label: 'ยอดขาย', value: `฿${Number(o.sales || 0).toLocaleString()}` }, { label: 'ช่องทาง', value: o.channel || '—' }, { label: 'ลูกค้า', value: o.customer_name || '—' }] });
       }
       toast('นำออเดอร์กลับมาแล้ว — ยอดกลับเข้ารายงาน', 'success');
       onClose(); onChanged?.();
@@ -276,7 +296,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
       try { await supabase.from('tmk_order_overrides').delete().eq('order_id', ovId); } catch { /* optional */ }
       try { await supabase.from('tmk_sku_overrides').delete().eq('order_no', o.order_no); } catch { /* optional — กัน override ลายบรรทัดค้างเป็น orphan */ }
       if (isReceipt) { try { await supabase.from('tmk_sale_receipts').delete().eq('order_no', o.order_no); } catch { /* optional */ } }
-      logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})` });
+      logAudit({ action: 'purge', entityType: 'order', entityName: o.order_no, entityId: o.order_no, severity: 'warn', summary: `ลบออเดอร์ ${o.order_no} ถาวร (฿${o.sales})`, fields: [{ label: 'เลขที่', value: o.order_no }, { label: 'ยอดขาย', value: `฿${Number(o.sales || 0).toLocaleString()}` }, { label: 'ช่องทาง', value: o.channel || '—' }, { label: 'ลูกค้า', value: o.customer_name || '—' }, { label: 'เซลล์', value: o.salesperson || '—' }] });
       toast('ลบออเดอร์ถาวรแล้ว', 'success');
       onClose(); onChanged?.();
     } catch (e) { toast('ลบไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
@@ -291,7 +311,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     const { error } = await supabase.from('tmk_sku_overrides').upsert(row, { onConflict: 'key' });
     setBusy(false);
     if (error) { window.__toast && window.__toast(/relation|does not exist|schema cache/i.test(error.message) ? 'ต้องรัน migration tmk_sku_overrides ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, entityId: o.order_no, summary: `แก้ลายบรรทัด "${s.raw_sku_or_name}" → ${linePick.design}` });
+    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, entityId: o.order_no, summary: `แก้ลายบรรทัด "${s.raw_sku_or_name}" → ${linePick.design}`, changes: [{ label: 'ลาย', from: s.design || s.raw_sku_or_name || '—', to: linePick.design || '—' }, { label: 'รหัส', from: s.product_code || '—', to: fullCode || '—' }], fields: [{ label: 'ออเดอร์', value: o.order_no }, { label: 'บรรทัด', value: s.raw_sku_or_name || '—' }, { label: 'ลายใหม่', value: linePick.design || '—' }, { label: 'รหัสใหม่', value: fullCode || '—' }, { label: 'สี', value: linePick.color || '—' }, { label: 'ไซซ์', value: linePick.size || '—' }] });
     window.__toast && window.__toast('แก้ลายบรรทัดนี้แล้ว — มีผลทันที ไม่ต้อง reimport', 'success');
     setLineEdit(null); onSaved && onSaved();
   };
