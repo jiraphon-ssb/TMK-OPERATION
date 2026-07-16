@@ -12,6 +12,7 @@ import { supabase, isSupabaseConfigured } from './lib/supabaseClient.js';
 import { getToday } from './lib/dateUtils.js';
 import { computeMonthPure } from './lib/computeMonthPure.js';
 import { mapToTMK } from './lib/mapToTMK.js';
+import { applyMapped } from './lib/applyTMK.js';
 
 const DataContext = createContext();
 
@@ -124,19 +125,9 @@ export function computeMonth(monthIdx0, yearBE) {
 }
 
 // Mutate TMK in-place — views ที่ import TMK จะเห็นค่าใหม่
+// ARCH-1: logic การ mutate แยกไป lib/applyTMK.js (pure · testable) — mutateTMK คงไว้เป็น wrapper บาง (call-site เดิมไม่ต้องแก้)
 function mutateTMK(mapped) {
-  // Replace nested objects
-  Object.assign(TMK.consts, mapped.consts);
-  Object.assign(TMK.computed, mapped.computed);
-  Object.assign(TMK.fb, mapped.fb);
-  // Replace arrays (length = 0 + push)
-  ['channels','campaigns','tasks','brands','flows','products','dailyMonth','dailyLog','month3','yoy','monthly','dailyAll',
-   'colorMix','sizeMix','staff','audit','roles','duties','orders','customers',
-   'adCampaigns','segments'].forEach(key => {
-    if (!TMK[key]) TMK[key] = [];
-    TMK[key].length = 0;
-    TMK[key].push(...(mapped[key] || []));
-  });
+  applyMapped(TMK, mapped);
 }
 
 // บันทึก snapshot มูลค่า/จำนวนคลังรวมของวันนี้ (1 แถว/วัน) → กราฟแนวโน้มในรายงาน
