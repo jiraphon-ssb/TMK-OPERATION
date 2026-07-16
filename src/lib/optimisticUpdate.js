@@ -13,13 +13,16 @@ const COL_MISSING = /(row_version|42703|column .* does not exist)/i;
 
 /**
  * update แบบ optimistic-concurrency (row_version guard)
+ * @param {string|number|object} match - คีย์ระบุแถว: scalar → { id: scalar } · object → คอลัมน์คีย์เอง (เช่น { order_no, source })
  * @returns {{ok:boolean, data?, conflict?:boolean, unguarded?:boolean, error?}}
  *   ok:true = สำเร็จ · conflict:true = version ไม่ตรง (คนอื่นแก้ก่อน) · unguarded:true = fallback ก่อน migration
  */
-export async function versionedUpdate(supabase, table, id, patch, expectedVersion) {
-  if (!supabase || !table || id == null) return { ok: false, error: 'bad-args' };
+export async function versionedUpdate(supabase, table, match, patch, expectedVersion) {
+  const filter = (match && typeof match === 'object') ? match : (match != null ? { id: match } : null);
+  if (!supabase || !table || !filter || !Object.keys(filter).length) return { ok: false, error: 'bad-args' };
   const run = (guard) => {
-    let q = supabase.from(table).update(patch).eq('id', id);
+    let q = supabase.from(table).update(patch);
+    for (const [col, val] of Object.entries(filter)) q = q.eq(col, val);
     if (guard && expectedVersion != null) q = q.eq('row_version', expectedVersion);
     return q.select().maybeSingle();
   };
