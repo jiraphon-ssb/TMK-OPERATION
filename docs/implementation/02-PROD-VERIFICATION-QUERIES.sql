@@ -53,11 +53,19 @@ from information_schema.tables
 where table_schema = 'public' and table_name like 'tmk_%'
 order by table_name;
 
--- ── F. Migration ledger (ถ้ามี — โปรเจกต์รัน SQL มือ อาจไม่มีตารางนี้ · error = ไม่มี ledger) ──
-select version, name, executed_at
-from supabase_migrations.schema_migrations
-order by version;
--- ถ้า error "relation does not exist" = ไม่มี ledger → ยืนยัน deploy ด้วยผล A-E แทน
+-- ── F. Migration ledger (guarded — รันได้เสมอ ไม่ error) ──
+--     ledger นี้สร้างโดย Supabase CLI (`db push`) เท่านั้น · ถ้า apply SQL ด้วยมือ (SQL Editor) = ไม่มีตารางนี้ = ปกติ
+--     กรณีไม่มี ledger → ยืนยัน deploy-state จาก section E แทน (ตาราง stock-crm ยังอยู่ไหม = migration drop รันหรือยัง)
+do $$
+begin
+  if to_regclass('supabase_migrations.schema_migrations') is null then
+    raise notice 'ℹ️ ไม่มี migration ledger (โปรเจกต์นี้ apply SQL ด้วยมือ — ปกติ) → ใช้ section E ยืนยัน deploy-state';
+  else
+    raise notice '✅ มี ledger — รัน query ด้านล่าง (uncomment) เพื่อดูรายการ migration';
+  end if;
+end $$;
+-- ถ้า notice บอกว่า "มี ledger" ค่อย uncomment บรรทัดนี้แล้วรันแยก:
+-- select version, name from supabase_migrations.schema_migrations order by version;
 
 -- ── G. คอลัมน์สำคัญของตารางยอดขาย (ยืนยัน schema-tolerant migrations ติดจริง: customer_phone ฯลฯ) ──
 select table_name, column_name, data_type
