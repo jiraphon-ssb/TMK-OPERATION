@@ -13,7 +13,7 @@ import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, findDesign, Prov
 import { CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { invalidateSaleCache, isDftNote } from './lib/saleData.js';
-import { versionedUpdate } from './lib/optimisticUpdate.js';
+import { versionedUpdate, promptConflictResolution, mergeVersionedUpdate } from './lib/optimisticUpdate.js';
 import { voidReceipt, restoreReceipt, uploadReceiptFile, canEditReceipt } from './lib/receiptSubmit.js';
 import { CHANNELS, JOB_TYPES, PAYMENT_TYPES } from './lib/saleFields.js';
 import { logAudit } from './lib/audit.js';
@@ -123,16 +123,23 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
         updated_at: now,
       };
       {
-        // Phase 3.3 (OCC §9): guard ด้วย row_version + schema-tolerant (customer_phone ยังไม่รัน 20260715)
-        // conflict → abort ก่อนเขียน override/profile/sku (กัน partial write) + refresh
+        // Phase 3.5 (§9.1): guard ด้วย row_version → conflict = three-way merge (auto-merge ช่องไม่ชน · critical ถาม user รายช่อง)
+        // abort ก่อนเขียน override/profile/sku ถ้า user เลือกโหลดล่าสุด (กัน partial write)
         const match = { order_no: o.order_no, source: o.source || '' };
-        let r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch, o.row_version);
-        if (!r.ok && !r.conflict && /customer_phone/i.test(r.error?.message || '')) {
-          const { customer_phone: _p, ...slim } = patch;
-          r = await versionedUpdate(supabase, 'tmk_mp_orders', match, slim, o.row_version);
-        }
-        if (r.conflict) { toast('ออเดอร์นี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
+        // apply แบบ schema-tolerant (customer_phone อาจยังไม่รัน migration 20260715)
+        const apply = async (p, ev) => {
+          let rr = await versionedUpdate(supabase, 'tmk_mp_orders', match, p, ev);
+          if (!rr.ok && !rr.conflict && /customer_phone/i.test(rr.error?.message || '')) {
+            const { customer_phone: _p, ...slim } = p;
+            rr = await versionedUpdate(supabase, 'tmk_mp_orders', match, slim, ev);
+          }
+          return rr;
+        };
+        const r = await mergeVersionedUpdate({ supabase, table: 'tmk_mp_orders', match, base: o, patch, expectedVersion: o.row_version, entity: 'ออเดอร์', apply });
+        if (r.reloaded) { onClose(); onChanged?.(); return; }                               // user เลือกโหลดล่าสุด
+        if (r.raced) { toast('มีคนแก้ซ้อนอีกครั้ง — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
         if (!r.ok) throw r.error || new Error('บันทึกไม่สำเร็จ');
+        if (r.merged) toast(r.auto ? 'มีคนแก้พร้อมกัน — รวมให้อัตโนมัติแล้ว' : 'บันทึกตามที่เลือกแล้ว', 'success');
       }
       try {
         // mirror ทุกช่องที่แก้ลง override (ประกันข้าม reimport มาร์เก็ตเพลส) — graceful ตัดคอลัมน์ใหม่ถ้ายังไม่ migrate
@@ -216,8 +223,14 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
       if (isReceipt) await voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์' });
       else {
         // Phase 3.2 (OCC §9): guard ด้วย row_version — คนอื่นแก้ออเดอร์นี้ก่อน = conflict (ไม่ทับสถานะเงียบ)
-        const r = await versionedUpdate(supabase, 'tmk_mp_orders', { order_no: o.order_no, source: o.source || '' }, { status: 'cancelled', updated_at: new Date().toISOString() }, o.row_version);
-        if (r.conflict) { toast('ออเดอร์นี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
+        const match = { order_no: o.order_no, source: o.source || '' };
+        const patch = { status: 'cancelled', updated_at: new Date().toISOString() };
+        let r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch, o.row_version);
+        if (r.conflict) {
+          const choice = await promptConflictResolution({ entity: 'ออเดอร์', changedFields: ['status'] });
+          if (choice !== 'overwrite') { onClose(); onChanged?.(); return; }
+          r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch);
+        }
         if (!r.ok) throw r.error || new Error('ยกเลิกไม่สำเร็จ');
         logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
       }
@@ -235,8 +248,14 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
       if (isReceipt) await restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
       else {
         // Phase 3.2 (OCC §9): guard ด้วย row_version
-        const r = await versionedUpdate(supabase, 'tmk_mp_orders', { order_no: o.order_no, source: o.source || '' }, { status: 'active', updated_at: new Date().toISOString() }, o.row_version);
-        if (r.conflict) { toast('ออเดอร์นี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
+        const match = { order_no: o.order_no, source: o.source || '' };
+        const patch = { status: 'active', updated_at: new Date().toISOString() };
+        let r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch, o.row_version);
+        if (r.conflict) {
+          const choice = await promptConflictResolution({ entity: 'ออเดอร์', changedFields: ['status'] });
+          if (choice !== 'overwrite') { onClose(); onChanged?.(); return; }
+          r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch);
+        }
         if (!r.ok) throw r.error || new Error('นำกลับไม่สำเร็จ');
         invalidateSaleCache('tmk_mp_orders');
         logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });

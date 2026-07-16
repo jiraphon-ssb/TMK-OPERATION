@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Icon, Avatar, Ring, Skel, useBeat } from './components.jsx';
 import { CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { versionedUpdate } from './lib/optimisticUpdate.js';
+import { versionedUpdate, promptConflictResolution } from './lib/optimisticUpdate.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
@@ -334,8 +334,13 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
         patch.date_end = _dateToIso(ne);
       }
       // Phase 3.1 (OCC §9): guard ด้วย rowVersion — ถ้าคนอื่นแก้ก่อน = conflict (ไม่ทับเงียบ)
-      const r = await versionedUpdate(supabase, 'tmk_tasks', id, patch, task?.rowVersion);
-      if (r.conflict) { window.__toast?.('งานนี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชให้ใหม่', 'warn'); window.__refresh?.(['tmk_tasks']); return; }
+      let r = await versionedUpdate(supabase, 'tmk_tasks', id, patch, task?.rowVersion);
+      if (r.conflict) {
+        // Phase 3.4 (§9.1): ให้ user เลือก — โหลดล่าสุด (default) หรือเขียนทับ
+        const choice = await promptConflictResolution({ entity: 'งาน', changedFields: Object.keys(patch) });
+        if (choice !== 'overwrite') { window.__refresh?.(['tmk_tasks']); return; }
+        r = await versionedUpdate(supabase, 'tmk_tasks', id, patch);
+      }
       if (!r.ok) throw r.error || new Error('เลื่อนวันไม่สำเร็จ');
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `เลื่อนวันงาน "${task?.title || ''}" → ${day} ${MONTHS_TH_SHORT[ym.m]}`, flowId: task?.flow ?? '' });
       window.__refresh?.(['tmk_tasks']);
@@ -498,9 +503,14 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps, flow, readOnly }) {
     const task = tasks.find(t => t.id === id);
     setTasks(ts => ts.map(t => t.id === id ? { ...t, status } : t));
     try {
-      // Phase 3.1 (OCC §9): guard ด้วย rowVersion — คนอื่นย้ายก่อน = conflict → rollback optimistic + refresh
-      const r = await versionedUpdate(supabase, 'tmk_tasks', id, { status }, task?.rowVersion);
-      if (r.conflict) { setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t)); window.__toast?.('งานนี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชให้ใหม่', 'warn'); window.__refresh?.(['tmk_tasks']); return; }
+      // Phase 3.1 (OCC §9): guard ด้วย rowVersion — คนอื่นย้ายก่อน = conflict → ให้ user เลือก
+      let r = await versionedUpdate(supabase, 'tmk_tasks', id, { status }, task?.rowVersion);
+      if (r.conflict) {
+        // Phase 3.4 (§9.1): 'reload' → rollback optimistic + refresh · 'overwrite' → ทับ (UI แสดง status ใหม่อยู่แล้ว)
+        const choice = await promptConflictResolution({ entity: 'งาน', changedFields: ['status'] });
+        if (choice !== 'overwrite') { setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t)); window.__refresh?.(['tmk_tasks']); return; }
+        r = await versionedUpdate(supabase, 'tmk_tasks', id, { status });
+      }
       if (!r.ok) throw r.error || new Error('ย้ายไม่สำเร็จ');
       const stCol = columns.find(k => k.id === status) || {};
       const stLabel = stCol.label || status;
