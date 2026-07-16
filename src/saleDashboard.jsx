@@ -4,7 +4,7 @@
    ข้อมูล: fetch ครั้งเดียว → aggregate ฝั่ง client (saleAgg/saleTime)
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
-import { N, Icon, Skel, useDelayedFlag } from './components.jsx';
+import { N, Icon, Skel, useDelayedFlag, SourceBadge, InfoTip } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { MpImportModal } from './modals-import.jsx';
 import { MetricCard, CountUp, GradientSparkline, ComboChart, StackedBars, HBars, DonutChart, Heatmap, channelColor, CAT_COLORS, Sparkline, AreaTrend } from './charts.jsx';
@@ -143,11 +143,12 @@ function DateRangePicker({ from, to, min, max, onChange, presets = [], activePre
 }
 
 // หัวข้อ section — สไตล์เดียวกับหัวข้อการ์ดกราฟ (ชื่อหนา + คำอธิบายจาง)
-function SectionHead({ title, sub }) {
+function SectionHead({ title, sub, right }) {
   return (
     <div className="row" style={{ alignItems: 'baseline', gap: 8, flexWrap: 'wrap', margin: '4px 0 -2px' }}>
       <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--ink)', letterSpacing: '-.1px' }}>{title}</h3>
       {sub && <span className="cap" style={{ color: 'var(--ink-4)' }}>{sub}</span>}
+      {right && <span className="ml-auto self-center">{right}</span>}
     </div>
   );
 }
@@ -576,16 +577,16 @@ export function SaleDashboard() {
           })()}
 
           {/* 4 KPI การ์ดหลัก (มี sparkline) — hierarchy: orders + sales เป็นหลัก */}
-          <SectionHead title="ตัวชี้วัดหลัก" sub={`ช่วงที่เลือก · ${N(heroStats.days)} วัน`} />
+          <SectionHead title="ตัวชี้วัดหลัก" sub={`ช่วงที่เลือก · ${N(heroStats.days)} วัน`} right={<SourceBadge kind="analytics" align="right" />} />
           <div className="kpi4" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
             <div className="metric-card kpi-card-primary">
-              <div className="eyebrow">ออเดอร์</div>
+              <div className="eyebrow">ออเดอร์ <InfoTip text="จำนวนออเดอร์ในช่วงที่เลือก (ตัดที่ยกเลิกออกแล้ว) · นับตามวันที่ออเดอร์" /></div>
               <div className="num" style={{ fontSize: 26, fontWeight: 700, margin: '4px 0 2px' }}><CountUp value={k.orders} fmt={N} /></div>
               <GradientSparkline data={heroStats.sparkOrders} height={26} color="var(--accent)" />
               <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 4 }}>เฉลี่ย {baht(k.aov)}/ออเดอร์{k.cancelled ? ` · ยกเลิก ${N(k.cancelled)}` : ''}</div>
             </div>
             <div className="metric-card kpi-card-info">
-              <div className="eyebrow">ลูกค้า</div>
+              <div className="eyebrow">ลูกค้า <InfoTip text="จำนวนลูกค้าไม่ซ้ำในช่วง (นับจากรหัสลูกค้า/เบอร์) · 'ซื้อซ้ำ' = สัดส่วนที่ซื้อมากกว่า 1 ครั้ง" /></div>
               <div className="num" style={{ fontSize: 26, fontWeight: 700, margin: '4px 0 4px' }}><CountUp value={k.nCustomers} fmt={N} /></div>
               {heroStats.custN > 0
                 ? <Badge variant="secondary" style={{ fontSize: 11 }}>ซื้อซ้ำ {Math.round(heroStats.ltRepeatRate * 100)}% สะสม</Badge>
@@ -593,13 +594,13 @@ export function SaleDashboard() {
               <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 5 }}>{heroStats.withPhone ? `ตามต่อได้ ${N(heroStats.withPhone)} (มีเบอร์)` : 'ยังไม่มีโปรไฟล์ลูกค้า'}</div>
             </div>
             <div className="metric-card kpi-card-good">
-              <div className="eyebrow">ตัวที่ขาย{k.skuFilterActive ? ' (เฉพาะลาย)' : ''}</div>
+              <div className="eyebrow">ตัวที่ขาย{k.skuFilterActive ? ' (เฉพาะลาย)' : ''} <InfoTip text="จำนวนชิ้นสินค้ารวมทุกออเดอร์ในช่วง · เมื่อกรองลาย = นับเฉพาะชิ้นของลายที่เลือก" /></div>
               <div className="num" style={{ fontSize: 26, fontWeight: 700, margin: '4px 0 2px' }}><CountUp value={k.skuFilterActive ? k.attrQty : k.qty} fmt={N} /></div>
               <GradientSparkline data={heroStats.sparkQty} height={26} color="var(--good)" />
               <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 4 }}>{k.skuFilterActive ? `${N(k.qty)} ตัวรวมทั้งออเดอร์` : `${baht(k.ppu)}/ตัว · ${(k.orders ? k.qty / k.orders : 0).toFixed(2)} ตัว/ออเดอร์`}</div>
             </div>
             <div className="metric-card kpi-card-warn">
-              <div className="eyebrow">ลูกค้าใหม่</div>
+              <div className="eyebrow">ลูกค้าใหม่ <InfoTip text="% ออเดอร์จากลูกค้าที่ซื้อครั้งแรก (ในช่วงที่เลือก) · แถบสี = ใหม่ / เก่า / ไม่ทราบ" /></div>
               <div className="num" style={{ fontSize: 26, fontWeight: 700, margin: '4px 0 6px' }}><CountUp value={Math.round(k.newPct * 100)} fmt={(v) => `${Math.round(v)}%`} /></div>
               <div style={{ display: 'flex', height: 7, borderRadius: 'var(--r-pill)', overflow: 'hidden' }}>
                 <span style={{ width: seg(k.newC) + '%', background: 'var(--accent)' }} />

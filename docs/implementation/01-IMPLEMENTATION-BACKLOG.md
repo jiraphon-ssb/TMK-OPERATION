@@ -48,7 +48,7 @@
 - **Migration:** ไม่ · **Complexity:** ต่ำ (ops)
 
 ### RLS-1 · ตรวจ RLS ต่อ role จริง (ไม่ใช่แค่ซ่อน UI)
-- **Severity:** 🔴 **Critical (ยืนยันแล้ว)** · **สถานะ:** ✅ **Tier 1 DEPLOYED บน prod** (2026-07-16) · **Tier 2 FIX READY**
+- **Severity:** 🔴 **Critical (ยืนยันแล้ว)** · **สถานะ:** ✅ **CLOSED — Tier 1 + Tier 2 DEPLOYED บน prod** (2026-07-16 · verify Tier 1 3/3 + Tier 2 4/4 · เทสจริง: anon อ่าน/เขียนถูกบล็อก 401 · RPC track/share ทำงาน · login เห็นข้อมูลครบ)
 - **ผลตรวจ prod (Q2 section A):** `rls_enabled = false` **ทุกตาราง tmk_*** → สิทธิ์ทั้งหมดเป็น client-side ล้วน · anon key (สาธารณะใน bundle) อ่าน/เขียนทุกตารางผ่าน REST ได้ตรง = ข้อมูลลูกค้า/ยอดขายเปิดโล่งระดับ DB
 - **Tier 1 (✅ รันแล้ว · verify ผ่าน 3/3):** `20260716-enable-rls-tier1.sql` — เปิด RLS ทุกตาราง (RLS ปิด=0 · policy authenticated 50 ตาราง · RPC สาธารณะ 2 ตัว) + views `security_invoker` + `tmk_public_track`/`tmk_public_flow_bundle` แทน anon อ่านตรง · FE (dataContext session-gated + track/share RPC-fallback) deploy บน main แล้ว
 - **Tier 2 (ร่างแล้ว · ปิด privilege-escalation):** `20260716-rls-tier2-permission-tables.sql` — user ที่ล็อกอิน (role ไหนก็ได้) เคย UPDATE `tmk_user_roles` ตรงเพื่อยกตัวเป็น admin ได้ → เพิ่ม `tmk_is_admin()` (SECURITY DEFINER กัน recursion) + policy บน `tmk_user_roles`/`tmk_staff`: **อ่าน=authenticated · เขียน=admin เท่านั้น** · **FE ไม่ต้องแก้** (write ทุกจุดอยู่ใน views-settings-tabs ที่ guardAdmin() คุมอยู่แล้ว = defense in depth) · รันได้เลย (ไม่ต้อง deploy FE ก่อน)
