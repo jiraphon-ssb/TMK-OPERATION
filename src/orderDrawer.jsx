@@ -13,6 +13,7 @@ import { DesignCombobox, ColorSelect, SizeSelect, buildLineSku, findDesign, Prov
 import { CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { invalidateSaleCache, isDftNote } from './lib/saleData.js';
+import { versionedUpdate } from './lib/optimisticUpdate.js';
 import { voidReceipt, restoreReceipt, uploadReceiptFile, canEditReceipt } from './lib/receiptSubmit.js';
 import { CHANNELS, JOB_TYPES, PAYMENT_TYPES } from './lib/saleFields.js';
 import { logAudit } from './lib/audit.js';
@@ -211,8 +212,10 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     try {
       if (isReceipt) await voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์' });
       else {
-        const { error } = await supabase.from('tmk_mp_orders').update({ status: 'cancelled', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
-        if (error) throw error;
+        // Phase 3.2 (OCC §9): guard ด้วย row_version — คนอื่นแก้ออเดอร์นี้ก่อน = conflict (ไม่ทับสถานะเงียบ)
+        const r = await versionedUpdate(supabase, 'tmk_mp_orders', { order_no: o.order_no, source: o.source || '' }, { status: 'cancelled', updated_at: new Date().toISOString() }, o.row_version);
+        if (r.conflict) { toast('ออเดอร์นี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
+        if (!r.ok) throw r.error || new Error('ยกเลิกไม่สำเร็จ');
         logAudit({ action: 'delete', entityType: 'order', entityName: o.order_no, summary: `ยกเลิกออเดอร์ ${o.order_no}` });
       }
       toast('ยกเลิกออเดอร์แล้ว — ยอดถูกตัดออกจากรายงาน', 'success');
@@ -228,8 +231,10 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     try {
       if (isReceipt) await restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
       else {
-        const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).eq('order_no', o.order_no).eq('source', o.source || '');
-        if (error) throw error;
+        // Phase 3.2 (OCC §9): guard ด้วย row_version
+        const r = await versionedUpdate(supabase, 'tmk_mp_orders', { order_no: o.order_no, source: o.source || '' }, { status: 'active', updated_at: new Date().toISOString() }, o.row_version);
+        if (r.conflict) { toast('ออเดอร์นี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
+        if (!r.ok) throw r.error || new Error('นำกลับไม่สำเร็จ');
         invalidateSaleCache('tmk_mp_orders');
         logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, summary: `นำออเดอร์ ${o.order_no} กลับมา` });
       }

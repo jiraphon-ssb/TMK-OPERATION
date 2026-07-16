@@ -58,6 +58,13 @@ describe('versionedUpdate — optimistic concurrency (§9)', () => {
   it('bad args → ไม่ยิง', async () => {
     expect((await versionedUpdate(null, 't', 1, {})).ok).toBe(false);
     expect((await versionedUpdate({}, 't', null, {})).ok).toBe(false);
+    expect((await versionedUpdate({}, 't', {}, {})).ok).toBe(false); // match object ว่าง
+  });
+
+  it('match เป็น object (order_no+source) → guard หลายคอลัมน์', async () => {
+    const sb = mockSupabase({ data: { order_no: 'A1' }, error: null });
+    const r = await versionedUpdate(sb, 'tmk_mp_orders', { order_no: 'A1', source: 'mp' }, { status: 'cancelled' }, 3);
+    expect(r).toEqual({ ok: true, data: { order_no: 'A1' } });
   });
 });
 
