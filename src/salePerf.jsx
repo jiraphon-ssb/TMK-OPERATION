@@ -15,6 +15,7 @@ import {
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
+import { fmtBaht } from './lib/money.js';
 import { buildPerf, NO_SELLER, curMonth, daysInMonth, dayOf, isCancelled, spOf, deltaPct } from './lib/salePerfAgg.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
 import { Card } from '@/components/ui/card';
@@ -30,7 +31,8 @@ import { MonthPicker } from './components/MonthPicker.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { ComboChart, DonutChart, HBars, Sparkline, channelColor } from './charts.jsx';
 
-const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
+// เงินบาท — ใช้ตัวกลาง fmtBaht (decimal-aware · ไม่ตัดทศนิยมยอดขาย/AOV/คอม) · 0 → ฿0 (ไม่ใช่ '—')
+const fmtB = (n) => fmtBaht(Number(n) || 0);
 const TH_MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const monthLabel = (ym) => { const [y, m] = ym.split('-'); return `${TH_MON[Number(m) - 1] || m} ${Number(y) + 543}`; };
 const prevMonthOf = (ym) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
@@ -170,6 +172,13 @@ function SellerCard({ r, rank, share, onOpen, cmp }) {
           </div>
           <Progress value={Math.min(100, r.pctTarget)} className="h-1.5" indicatorColor={r.sales >= r.target ? 'var(--good)' : 'var(--accent)'} />
           {r.comm > 0 && <div className="text-xs mt-1.5 text-muted-foreground">คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b> {cmp?.comm != null && dPill(cmp.comm)}</div>}
+        </div>
+      ) : r.comm > 0 ? (
+        /* ไม่มีเป้ายอด แต่ตั้ง % คอมไว้ → คิดคอมจากยอดขายทั้งหมด × เรต (ไม่มีแถบเป้า) */
+        <div className="text-xs text-muted-foreground">
+          คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b>
+          <span className="ml-1">· {r.tgt && Array.isArray(r.tgt.tiers) && r.tgt.tiers.length ? 'ขั้นบันได' : `เรต ${Number(r.tgt?.commission_rate) || 0}%`}</span>
+          {cmp?.comm != null && <> {dPill(cmp.comm)}</>}
         </div>
       ) : (!noSeller && window.__canEdit !== false && (
         <button type="button" className="text-xs text-muted-foreground hover:text-[var(--accent-2)] text-left w-fit transition-colors"
@@ -499,7 +508,7 @@ function SpDetail({ sp, onDay, cmp }) {
         <div className="text-xs text-muted-foreground -mt-1.5">ขายจริง {N(sp.daysActive)} วัน</div>
         <LeadPanel title="คนทัก" total={sp.leads} nw={sp.newOld?.new || 0} old={sp.newOld?.old || 0} close={sp.closeRate} />
         {/* เป้า — แถบกะทัดรัด (ต่อจาก KPI ทันที) */}
-        {sp.target > 0 && (
+        {sp.target > 0 ? (
           <div className="rounded-lg border p-3">
             <div className="flex items-center justify-between gap-x-3 gap-y-0.5 flex-wrap text-sm mb-2">
               <span>เป้าเดือนนี้ <b>{fmtB(sp.target)}</b> · ทำได้ <b>{fmtB(sp.sales)}</b> <span className="font-semibold" style={{ color: sp.sales >= sp.target ? 'var(--good)' : 'var(--accent-2)' }}>({Math.round(sp.pctTarget)}%)</span></span>
@@ -507,7 +516,13 @@ function SpDetail({ sp, onDay, cmp }) {
             </div>
             <Progress value={Math.min(100, sp.pctTarget)} className="h-2" indicatorColor={sp.sales >= sp.target ? 'var(--good)' : 'var(--accent)'} />
           </div>
-        )}
+        ) : sp.comm > 0 ? (
+          /* ไม่มีเป้ายอด แต่มี % คอม → คอม = ยอดขายทั้งเดือน × เรต */
+          <div className="rounded-lg border p-3 text-sm flex items-center gap-x-3 gap-y-0.5 flex-wrap">
+            <span>คอมเดือนนี้ <b className="text-[var(--accent-2)]">{fmtB(sp.comm)}</b></span>
+            <span className="text-muted-foreground">· {sp.tgt && Array.isArray(sp.tgt.tiers) && sp.tgt.tiers.length ? 'ขั้นบันได' : `เรต ${Number(sp.tgt?.commission_rate) || 0}%`} จากยอด {fmtB(sp.sales)}</span>
+          </div>
+        ) : null}
         <div>
           <div className="text-sm font-semibold mb-1">ยอด &amp; คนทัก รายวัน <span className="text-xs font-normal text-muted-foreground">— คลิกวันเพื่อดูออเดอร์</span></div>
           <ComboChart labels={labels} bars={sp.daily.map(d => d.sales)} line={sp.daily.map(d => d.leads)} barLabel="ยอดขาย" lineLabel="คนทัก" barFmt={fmtB} height={200} onDayClick={onDay ? (i) => { const d = sp.daily[i]; if (d) onDay(d.day); } : undefined} />

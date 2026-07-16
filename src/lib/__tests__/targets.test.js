@@ -16,6 +16,10 @@ describe('commissionFor', () => {
   it('tiers ว่าง → ตกไปใช้ flat rate', () => {
     expect(commissionFor(1000, { commission_rate: 5, tiers: [] })).toBe(50);
   });
+  it('มี rate แต่ไม่มีเป้ายอด (sales_target=0) → คิดคอมจากยอดทั้งหมด × rate', () => {
+    // สถานการณ์จริง: เซลล์ตั้ง 3% ไว้ ไม่ตั้งเป้ายอด → คอม = ยอดขายเดือน × 3%
+    expect(commissionFor(9743, { sales_target: 0, commission_rate: 3 })).toBeCloseTo(292.29, 2);
+  });
   it('tiers = เลือก tier สูงสุดที่ sales ถึง (min) แล้วคูณ rate ของ tier นั้น', () => {
     const t = { tiers: [{ min: 0, rate: 3 }, { min: 3000, rate: 5 }, { min: 10000, rate: 7 }] };
     expect(commissionFor(5000, t)).toBe(250);   // เข้า tier 3000 → 5%

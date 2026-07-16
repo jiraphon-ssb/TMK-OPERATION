@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { TMK } from './data.js';
+import { fmtBaht } from './lib/money.js';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   ClipboardList, Rocket, Target, ShoppingCart, Package, Palette, Megaphone, Lightbulb, Flame, Star,
@@ -56,7 +57,8 @@ export function readImageCompressed(file, maxSize = 256, quality = 0.82) {
 // formatters — คืน "—" เมื่อค่าไม่ใช่ตัวเลขจริง (กัน NaN/Infinity จากการหารด้วย 0)
 const _fin = n => typeof n === 'number' && isFinite(n);
 // เงิน — โชว์ค่าจริงเต็ม + สตางค์ 2 ตำแหน่งเสมอ (ไม่ย่อ k/M, ไม่ปัดเต็มบาท) เช่น ฿115,690.79 · ฿44,260.00
-export const B  = n => _fin(n) ? '฿' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+// เงินบาท — decimal-aware (โชว์ทศนิยมเฉพาะเมื่อมีเศษสตางค์) · ตัวกลางเดียวใน lib/money.js
+export const B  = fmtBaht;
 export const Bk = B; // เลิกย่อ k/M — ใช้รูปแบบเต็มเหมือน B (ค่าจริงทุกที่)
 export const P  = (n, d=1) => _fin(n) ? n.toFixed(d) + '%' : '—';
 export const N  = n => _fin(n) ? Math.round(n).toLocaleString('en-US') : '—'; // จำนวนนับ (ออเดอร์/ตัว) = จำนวนเต็ม
