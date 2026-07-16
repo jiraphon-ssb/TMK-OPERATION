@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Icon, Avatar, Ring, Skel, useBeat } from './components.jsx';
 import { CardTable } from './components/DataTableParts.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { versionedUpdate } from './lib/optimisticUpdate.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
 import { notify } from './lib/notify.js';
@@ -332,8 +333,10 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
         const ne = _isoToDate(task.dateEnd); ne.setDate(ne.getDate() + delta);
         patch.date_end = _dateToIso(ne);
       }
-      const { error } = await supabase.from('tmk_tasks').update(patch).eq('id', id);
-      if (error) throw error;
+      // Phase 3.1 (OCC §9): guard ด้วย rowVersion — ถ้าคนอื่นแก้ก่อน = conflict (ไม่ทับเงียบ)
+      const r = await versionedUpdate(supabase, 'tmk_tasks', id, patch, task?.rowVersion);
+      if (r.conflict) { window.__toast?.('งานนี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชให้ใหม่', 'warn'); window.__refresh?.(['tmk_tasks']); return; }
+      if (!r.ok) throw r.error || new Error('เลื่อนวันไม่สำเร็จ');
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `เลื่อนวันงาน "${task?.title || ''}" → ${day} ${MONTHS_TH_SHORT[ym.m]}`, flowId: task?.flow ?? '' });
       window.__refresh?.(['tmk_tasks']);
     } catch (err) { window.__toast?.('เลื่อนวันไม่สำเร็จ: ' + (err?.message || ''), 'error'); }
@@ -495,8 +498,10 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps, flow, readOnly }) {
     const task = tasks.find(t => t.id === id);
     setTasks(ts => ts.map(t => t.id === id ? { ...t, status } : t));
     try {
-      const { error } = await supabase.from('tmk_tasks').update({ status }).eq('id', id);
-      if (error) throw error;
+      // Phase 3.1 (OCC §9): guard ด้วย rowVersion — คนอื่นย้ายก่อน = conflict → rollback optimistic + refresh
+      const r = await versionedUpdate(supabase, 'tmk_tasks', id, { status }, task?.rowVersion);
+      if (r.conflict) { setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t)); window.__toast?.('งานนี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชให้ใหม่', 'warn'); window.__refresh?.(['tmk_tasks']); return; }
+      if (!r.ok) throw r.error || new Error('ย้ายไม่สำเร็จ');
       const stCol = columns.find(k => k.id === status) || {};
       const stLabel = stCol.label || status;
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}`, flowId: task?.flow ?? '' });
