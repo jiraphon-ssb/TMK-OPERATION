@@ -268,7 +268,18 @@ export function ShirtCatalogView() {
       }
       if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
       toast(edit.id ? 'แก้ไขแล้ว' : 'เพิ่มสินค้าแล้ว', 'success');
-      logAudit({ action: edit.id ? 'update' : 'create', entityType: 'product', entityName: 'catalog', summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}` });
+      logAudit({
+        action: edit.id ? 'update' : 'create', entityType: 'product', entityName: row.code || row.name || 'catalog', entityId: row.id || row.code,
+        summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}`,
+        fields: [
+          { label: 'รหัส', value: row.code || '—' },
+          { label: 'ชื่อลาย', value: row.name || '—' },
+          ...(row.category ? [{ label: 'หมวด', value: row.category }] : []),
+          ...(row.shirt_class ? [{ label: 'กลุ่มเสื้อ', value: row.shirt_class }] : []),
+          ...(row.color ? [{ label: 'สี', value: row.color }] : []),
+          ...(row.price != null && row.price !== '' ? [{ label: 'ราคา', value: `฿${Number(row.price).toLocaleString()}` }] : []),
+        ],
+      });
       logCatalogVersion(row);   // 10D — snapshot เวอร์ชัน (fire-and-forget, เงียบถ้าตารางยังไม่มี)
       // อัปเดต state in-place + invalidate cache — ไม่ refetch ทั้งชุดทุกครั้งที่แก้เสื้อ 1 ตัว (ลด egress)
       invalidateSaleCache('tmk_shirt_catalog');
