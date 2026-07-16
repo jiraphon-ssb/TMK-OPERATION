@@ -6,6 +6,7 @@
    ============================================================ */
 import { useEffect, useRef } from 'react';
 import { supabase } from './supabaseClient.js';
+import { rtDiag } from '../realtime/diagnostics.js';
 
 /* echo-skip: หลังเซฟเอง ผู้เขียนเรียก markSaleWrite(tables) → event echo ของตารางนั้นภายใน 900ms
    ถูกข้าม (เพราะผู้เขียน reload เองแล้ว) กันโหลดซ้ำ 2× · event ของคนอื่น (ไม่ถูก mark) ยังยิงปกติ.
@@ -25,14 +26,16 @@ export function useSaleRealtime(tables, onChange) {
     let channel = null, timer = null, alive = true;
     const fire = () => { clearTimeout(timer); timer = setTimeout(() => { if (alive) cbRef.current?.(); }, 400); };
     const fireFor = (table) => { if (isOwnEcho(table)) return; fire(); }; // ข้าม echo ของ own-write
+    const topic = 'sale-live:' + tables.join(',');
     const ch = supabase.channel('sale-live-' + Math.random().toString(36).slice(2, 8));
     channel = ch;
-    tables.forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => fireFor(t)));
-    ch.subscribe();
+    tables.forEach(t => ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => { rtDiag.event(t); fireFor(t); }));
+    ch.subscribe(); rtDiag.channelOpen(topic); // Phase 0 baseline (dev-only)
     return () => {
       alive = false; clearTimeout(timer);
       if (!channel) return;
       const c = channel; channel = null;
+      rtDiag.channelClose(topic);
       try { supabase.removeChannel(c); } catch { /* ignore */ }
     };
   }, [tables.join(',')]); // eslint-disable-line

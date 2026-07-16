@@ -3,6 +3,7 @@
 // ทุก component ใช้ useNotifications() ที่ subscribe store เดียวกัน → channel เดียว, cache เดียว
 import { useSyncExternalStore } from 'react';
 import { supabase } from './supabaseClient.js';
+import { rtDiag } from '../realtime/diagnostics.js';
 
 const EXT_COLS = 'id,kind,title,body,flow_id,task_id,actor,read,created_at,read_at,archived_at,snooze_until,severity,entity_type,action,url';
 const BASE_SEL = 'id,kind,title,body,flow_id,task_id,actor,read,created_at';
@@ -76,12 +77,13 @@ export async function initNotifStore(email) {
   if (!supabase) return;
   try {
     channel = supabase.channel('notif:' + email)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_notifications', filter: `user_email=eq.${email}` }, () => loadList(email))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_notifications', filter: `user_email=eq.${email}` }, () => { rtDiag.event('tmk_notifications'); loadList(email); })
       .subscribe();
+    rtDiag.channelOpen('notif:' + email); // Phase 0 baseline (dev-only)
   } catch { /* ignore */ }
 }
 export function teardownNotifStore() {
-  if (channel) { try { supabase?.removeChannel(channel); } catch { /* ignore */ } channel = null; }
+  if (channel) { rtDiag.channelClose('notif:' + inited); try { supabase?.removeChannel(channel); } catch { /* ignore */ } channel = null; }
   inited = '';
   setState({ list: [], prefs: {}, loaded: false, email: '' });
 }

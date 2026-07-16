@@ -6,6 +6,7 @@
    ============================================================ */
 import { supabase } from './supabaseClient.js';
 import { markSaleWrite } from './saleRealtime.js';
+import { rtDiag } from '../realtime/diagnostics.js';
 
 // คอลัมน์ที่ระบบใช้จริง (ตัด attrs/jsonb/คอลัมน์ที่ไม่ได้โชว์ออก)
 export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,customer_phone,cust_total_spent';
@@ -88,13 +89,14 @@ async function selectAll(table, sel, addFilters) {
 export async function cachedFetchAll(table, sel = '*', force = false) {
   const key = `${table}|${sel}`;
   const hit = cache.get(key);
-  if (!force && hit && (Date.now() - hit.ts) < TTL) return { data: hit.data, cached: true, truncated: hit.truncated };
+  if (!force && hit && (Date.now() - hit.ts) < TTL) { rtDiag.query(table, 0, true); return { data: hit.data, cached: true, truncated: hit.truncated }; }
   if (!force && inflight.has(key)) return inflight.get(key);
   const run = (async () => {
     const r = await selectAll(table, sel, (q) => q);
     inflight.delete(key);
     if (r.error) return r;
     normOrderRows(r.data, table);
+    rtDiag.query(table, r.data?.length || 0, false); // Phase 0 baseline: นับ DB query + rows (dev-only)
     cache.set(key, { ts: Date.now(), data: r.data, truncated: r.truncated });
     return r;
   })();

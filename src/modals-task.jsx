@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Icon, FlowIcon } from './components.jsx';
 import { DatePicker } from '@/components/ui/date-picker';
 import { supabase } from './lib/supabaseClient.js';
+import { rtDiag } from './realtime/diagnostics.js';
 import { parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -336,10 +337,11 @@ function TaskComments({ taskId, flow, onUnavailable }) {
     let ch = null;
     try {
       ch = supabase.channel('cmts-' + taskId)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_task_comments', filter: `task_id=eq.${taskId}` }, () => loadComments())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_task_comments', filter: `task_id=eq.${taskId}` }, () => { rtDiag.event('tmk_task_comments'); loadComments(); })
         .subscribe();
+      rtDiag.channelOpen('cmts:' + taskId); // Phase 0 baseline (dev-only)
     } catch { /* ignore */ }
-    return () => { if (ch) { try { supabase.removeChannel(ch); } catch { /* ignore */ } } };
+    return () => { if (ch) { rtDiag.channelClose('cmts:' + taskId); try { supabase.removeChannel(ch); } catch { /* ignore */ } } };
     // eslint-disable-next-line
   }, [taskId]);
   // ติดตามว่าผู้ใช้อยู่ใกล้ล่างสุดไหม (chat-style sticky scroll)

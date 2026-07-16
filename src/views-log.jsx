@@ -10,6 +10,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Icon, N, Avatar, useBeatOn, PageSkeleton, SkelTable } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { rtDiag } from './realtime/diagnostics.js';
 import { useData } from './dataContext.jsx';
 import { TMK } from './data.js';
 import { downloadCsv } from './lib/exportCsv.js';
@@ -220,14 +221,15 @@ export function LogView() {
   useEffect(() => {
     const ch = supabase.channel('audit-live-' + Math.random().toString(36).slice(2))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tmk_audit_logs' }, (payload) => {
+        rtDiag.event('tmk_audit_logs'); // Phase 0 baseline (dev-only) — ตัวอย่าง patch จาก payload (ไม่ refetch)
         const m = mapRow(payload.new || {});
         setTotal(t => t + 1);
         if (pageRef.current !== 0 || !passRef.current(m)) return;   // แทรกบนสุดเฉพาะหน้าแรก + ผ่านตัวกรอง
         setRows(prev => prev.some(x => x.id === m.id) ? prev : [{ ...m, _fresh: true }, ...prev].slice(0, PAGE));
       })
       .subscribe();
-    chRef.current = ch;
-    return () => { const c = chRef.current; chRef.current = null; if (c) supabase.removeChannel(c); };
+    chRef.current = ch; rtDiag.channelOpen('audit-live');
+    return () => { const c = chRef.current; chRef.current = null; rtDiag.channelClose('audit-live'); if (c) supabase.removeChannel(c); };
   }, []);
 
   // ---- CSV export (ตาม filter · ดึงวน cap 5000) ----

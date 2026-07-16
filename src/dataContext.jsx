@@ -13,6 +13,7 @@ import { getToday } from './lib/dateUtils.js';
 import { computeMonthPure } from './lib/computeMonthPure.js';
 import { mapToTMK } from './lib/mapToTMK.js';
 import { applyMapped } from './lib/applyTMK.js';
+import { rtDiag } from './realtime/diagnostics.js';
 
 const DataContext = createContext();
 
@@ -212,7 +213,7 @@ export function DataProvider({ children }) {
       const results = await Promise.all(keys.map(k => QUERIES[k]()));
       if (!mountedRef.current) return;
       results.forEach((r, i) => {
-        if (!r.error) rawRef.current[keys[i]] = r.data;
+        if (!r.error) { rawRef.current[keys[i]] = r.data; rtDiag.refetch(keys[i], r.data?.length || 0); } // Phase 0 baseline: นับ per-table refetch + rows (dev-only)
       });
       // ถ้าตารางที่เปลี่ยนกระทบ derived view (เช่น orders → tmk_customer_totals) → refresh view ด้วย
       if (keys.some(k => TOTALS_TRIGGERS.has(k))) {
@@ -314,6 +315,7 @@ export function DataProvider({ children }) {
     const teardownChannel = () => {
       if (!channel) return;
       const ch = channel; channel = null;
+      rtDiag.channelClose('tmk-realtime'); // Phase 0 baseline
       try { supabase.removeChannel(ch); } catch { /* ignore */ }
     };
     const connectRealtime = () => {
@@ -323,6 +325,7 @@ export function DataProvider({ children }) {
       channel = ch;
       channelTables.forEach(t => {
         ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
+          rtDiag.event(t); // Phase 0 baseline: นับ realtime event ที่รับต่อ table (dev-only · รวม echo)
           // ข้าม echo ของการเซฟจากเครื่องนี้เอง "1 ครั้ง" — เราเพิ่ง refresh ตารางนี้ไปแล้ว (<800ms) ไม่ต้องดึงซ้ำ
           // ปลอดภัยเพราะ event มาตามลำดับ commit: event แรกหลังเซฟเรา = ของเราเอง (ข้อมูลอยู่ใน fetch แล้ว)
           // ลบ stamp หลังข้าม → event ถัดไป (ของคนอื่น) ประมวลผลปกติ ไม่มีช่องพลาดข้อมูล
@@ -337,12 +340,13 @@ export function DataProvider({ children }) {
       });
       ch.subscribe((status) => {
         if (channel !== ch) return; // event จาก channel เก่าที่ถูก teardown ไปแล้ว (CLOSED ตอน unsubscribe) — เมิน กันลูป
-        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); reconnectAttempts = 0; }
+        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); reconnectAttempts = 0; rtDiag.channelOpen('tmk-realtime'); }
         else if (status === 'CHANNEL_ERROR') { clearTimeout(connectTimeout); teardownChannel(); startPolling(); }
         else if (status === 'CLOSED' || status === 'TIMED_OUT') {
           clearTimeout(connectTimeout); teardownChannel();
           if (mountedRef.current && !usingPoll && reconnectAttempts < MAX_RECONNECT) {
-            reconnectAttempts += 1;
+            reconnectAttempts += 1; rtDiag.reconnect(); // Phase 0 baseline
+
             reconnectTimer = setTimeout(connectRealtime, 1000 * reconnectAttempts); // backoff 1/2/3 วิ
           } else { startPolling(); }
         }

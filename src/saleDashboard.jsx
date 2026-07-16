@@ -11,6 +11,7 @@ import { MetricCard, CountUp, GradientSparkline, ComboChart, StackedBars, HBars,
 import { ChannelLogo, channelTint } from './lib/channelLogos.jsx';
 import { compute, series, deltaKpi, movers, sizeRank, normColor, normSize, customerAgg, rfmTiers, geoBreakdown, regionBreakdown } from './lib/saleAgg.js';
 import { fmtBaht } from './lib/money.js';
+import { useRenderCount } from './realtime/useRenderCount.js';
 import { bucketKey, bucketLabel, enumerateBuckets, autoGran, presetRange, PRESETS, prevPeriod, prevCalendarMonth, isFullCalendarMonth, diffDays } from './lib/saleTime.js';
 import { todayISO } from './lib/dateUtils.js';
 import { CATALOG_TYPES } from './lib/catalogMeta.js';
@@ -238,6 +239,7 @@ function DashboardSkeleton() {
 }
 
 export function SaleDashboard() {
+  useRenderCount('saleDashboard'); // Phase 0 baseline (dev-only)
   const [orders, setOrders] = useState(null);
   const [skus, setSkus] = useState([]);
   const [err, setErr] = useState('');
