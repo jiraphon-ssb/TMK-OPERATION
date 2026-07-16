@@ -83,9 +83,8 @@
 - **แนวทางแก้:** guard + error ที่อ่านง่ายเมื่อ env ขาด · **Migration:** ไม่ · **Complexity:** ต่ำ
 
 ### KPI-1 · Dashboard ขาด label แหล่งข้อมูล + tooltip นิยาม KPI
-- **Severity:** Medium · **สถานะ:** STILL-VALID (partial)
-- **หลักฐาน:** `saleDashboard.jsx`/`salePerf.jsx`/`views-1.jsx` KPI tile ไม่มี data-source label/นิยาม (มี estimate label แล้ว)
-- **แนวทางแก้:** เพิ่ม tooltip นิยาม + badge แหล่งข้อมูลต่อ tile (ผูกกับ SALES-1 metric contract) · **Complexity:** กลาง
+- **Severity:** Medium · **สถานะ:** ✅ **DONE** — `saleDashboard.jsx` (SourceBadge analytics + 4 InfoTip KPI) + `salePerf.jsx` (SourceBadge + InfoTip การ์ดสรุปทีม 3 ใบ + KPI รายเซลล์ 4 ใบ) · `views-1.jsx` = campaign-status rings (ตัวนับ · มี title tooltip อยู่แล้ว · ไม่ใช่ sales metric กำกวมแหล่งข้อมูล → N/A)
+- **แนวทางแก้ (ทำแล้ว):** InfoTip นิยาม + SourceBadge แหล่งข้อมูลต่อ tile (reuse `components.jsx` SourceBadge/InfoTip)
 
 ### LINT-1 · เก็บ dead-code + lint (278 errors)
 - **Severity:** Low-Medium · **สถานะ:** ✅ **DONE** (no-unused-vars 97→26 · ลบ dead 71 จุด/15 ไฟล์ · `PHASE-LINT-1-REPORT.md` · เหลือ 26 = defer saleDashboard/modals-import; react-hooks advisory = งานแยก)

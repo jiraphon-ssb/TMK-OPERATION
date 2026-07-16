@@ -7,7 +7,7 @@
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
    ============================================================ */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Icon, N, useBeat, PersonAvatar, SourceBadge } from './components.jsx';
+import { Icon, N, useBeat, PersonAvatar, SourceBadge, InfoTip } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
   cachedFetchRange, cachedFetchAll, ORDERS_SEL, SKUS_SEL, OVERRIDES_SEL, funnelTotal, funnelNewOld,
@@ -447,17 +447,17 @@ export function SalePerfView() {
               {/* การ์ดสรุปทีมด้านบน (ยอดรวม/ออเดอร์/AOV) + คนทัก แยกการ์ดย่อย — เคารพตัวกรอง+ค้นหา */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-xl border p-3">
-                  <div className="text-[11px] text-muted-foreground">ยอดขายรวม</div>
+                  <div className="text-[11px] text-muted-foreground">ยอดขายรวม <InfoTip text="ยอดขายรวมของทีม (เคารพตัวกรอง+ค้นหา) · จากยอดที่เซลล์กรอก/ใบเสร็จ · ตัดออเดอร์ที่ยกเลิกออกแล้ว" /></div>
                   <div className="num text-xl font-bold leading-tight mt-0.5" style={{ color: 'var(--accent-2)' }}>{fmtB(teamView.sales)}</div>
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.sales)}</div>}
                 </div>
                 <div className="rounded-xl border p-3">
-                  <div className="text-[11px] text-muted-foreground">ออเดอร์</div>
+                  <div className="text-[11px] text-muted-foreground">ออเดอร์ <InfoTip text="จำนวนออเดอร์รวมของทีมในช่วง (ตัดที่ยกเลิกออกแล้ว)" /></div>
                   <div className="num text-xl font-bold leading-tight mt-0.5">{N(teamView.orders)}</div>
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.orders)}</div>}
                 </div>
                 <div className="rounded-xl border p-3">
-                  <div className="text-[11px] text-muted-foreground">ยอดเฉลี่ย/ออเดอร์ (AOV)</div>
+                  <div className="text-[11px] text-muted-foreground">ยอดเฉลี่ย/ออเดอร์ (AOV) <InfoTip text="ยอดขายรวม ÷ จำนวนออเดอร์ (Average Order Value) · เทียบกับเดือนก่อนที่แถบด้านล่าง" /></div>
                   <div className="num text-xl font-bold leading-tight mt-0.5">{fmtB(teamView.aov)}</div>
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.aov)}</div>}
                 </div>
@@ -504,8 +504,13 @@ function SpDetail({ sp, onDay, cmp }) {
       <div className="flex flex-col gap-4 mt-3">
         {/* KPI ยอด/ออเดอร์/ตัว/AOV */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-          {[['ยอดขาย', fmtB(sp.sales), cmp?.sales], ['ออเดอร์', N(sp.orders), cmp?.orders], ['ตัว', N(sp.qty), cmp?.qty], ['AOV', fmtB(sp.aov), cmp?.aov]].map(([l, v, d]) => (
-            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div>{d != null && <div className="mt-0.5 leading-none">{dPill(d)}</div>}</div>
+          {[
+            ['ยอดขาย', fmtB(sp.sales), cmp?.sales, 'ยอดขายของเซลล์คนนี้ในช่วง (ตัดยกเลิกออกแล้ว) · แถบล่าง = เทียบเดือนก่อน'],
+            ['ออเดอร์', N(sp.orders), cmp?.orders, 'จำนวนออเดอร์ที่เซลล์คนนี้ปิดได้ในช่วง'],
+            ['ตัว', N(sp.qty), cmp?.qty, 'จำนวนชิ้นสินค้ารวมที่ขายได้'],
+            ['AOV', fmtB(sp.aov), cmp?.aov, 'ยอดขาย ÷ จำนวนออเดอร์ (ค่าเฉลี่ยต่อออเดอร์)'],
+          ].map(([l, v, d, tip]) => (
+            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l} <InfoTip text={tip} /></div><div className="font-bold">{v}</div>{d != null && <div className="mt-0.5 leading-none">{dPill(d)}</div>}</div>
           ))}
         </div>
         <div className="text-xs text-muted-foreground -mt-1.5">ขายจริง {N(sp.daysActive)} วัน</div>
