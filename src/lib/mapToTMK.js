@@ -153,6 +153,7 @@ export function mapToTMK(raw) {
     subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],  // เช็คลิสต์/งานย่อย [{id,text,done}] (migration 20260730)
     sortOrder: Number(t.sort_order || 0),         // ลำดับการ์ดในคอลัมน์ (migration 20260730)
     commentCount: _ccByTask[t.id] || 0,           // จำนวนคอมเมนต์ (view · migration 20260801)
+    rowVersion: t.row_version,                    // optimistic concurrency (migration 20260716 · undefined ก่อน migrate → guard ข้าม)
   }));
 
   // Brands (ป้าย/จัดกลุ่มโครงการ) — เลียนแบบ channels (camelCase + sort)
