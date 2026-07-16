@@ -5,7 +5,7 @@
    - UpdateBanner (แถบ poll เวอร์ชันใหม่) ยังคงไว้
    - จุดแดง "ยังไม่อ่าน" sync ข้าม component ด้วย CustomEvent (useUnseenVersion)
    ============================================================ */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CHANGELOG, APP_VERSION } from './changelog.js';
 import { Icon } from './components.jsx';
 import { Card } from '@/components/ui/card';

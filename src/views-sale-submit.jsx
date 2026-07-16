@@ -11,11 +11,12 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
+import { isAdmin } from './lib/roleAccess.js';
 import { supabase } from './lib/supabaseClient.js';
 import { SideSheet, Modal } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
 import { funnelPlatforms, funnelBreakdown, funnelNewOld, getDateBounds } from './lib/saleData.js';
-import { PRESETS, presetRange } from './lib/saleTime.js';
+import { presetRange } from './lib/saleTime.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { channelColor } from './charts.jsx';
 import { ProvinceCombobox } from './components/ProductPicker.jsx';
@@ -182,7 +183,7 @@ export function SubmitSalesView() {
   const canEdit = window.__canEdit !== false;
   // เห็น "ทั้งทีม" (ใบเสร็จ + คนทัก) = ผู้ดูแลระบบ (role=admin) เท่านั้น · แก้ไขได้/ดูอย่างเดียว = เฉพาะของตัวเอง
   // ผูก role จาก useUser ตรงๆ (reactive · ไม่พึ่ง window.__isAdmin ที่ lag รอบแรก)
-  const canSeeTeam = user?.role === 'admin';
+  const canSeeTeam = isAdmin(user);
 
   const [missingTable, setMissingTable] = useState(false);
   const [rows, setRows] = useState([]);            // ใบที่อ่านได้ รอตรวจ
@@ -199,7 +200,7 @@ export function SubmitSalesView() {
   const [feed, setFeed] = useState(null);
   const [targets, setTargets] = useState({});
   const [range, setRange] = useState({ from: '', to: '' });
-  const [bounds, setBounds] = useState({ min: null, max: null });
+  const [, setBounds] = useState({ min: null, max: null });
   const [prevSales, setPrevSales] = useState(null);           // ยอดฉันช่วงก่อนหน้า (เทียบ)
   // เดือนอ้างอิง (เป้า/คอม/ป้าย) = เดือนของปลายช่วง · โหมดเดือนเดียว → ป้ายเป็นชื่อเดือน
   const refMonth = (range.to || todayISO()).slice(0, 7);
@@ -508,7 +509,7 @@ function problemChip(p) {
 }
 
 /* ---- แถวในตารางตรวจ ---- */
-function ReviewRow({ r, expanded, onToggle, onSelect, onChannel, onEdit }) {
+function ReviewRow({ r, expanded, onToggle, onSelect, onChannel }) {
   const problem = r.problems.length > 0;
   return (
     <>

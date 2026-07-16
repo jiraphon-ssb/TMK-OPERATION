@@ -7,7 +7,7 @@
    - ColumnToggle: DropdownMenu + Checkbox ซ่อน/โชว์คอลัมน์ (shadcn)
    ทุกชิ้น shadcn/Radix ล้วน
    ============================================================ */
-import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import { Table, TableHeader, TableRow, TableHead, TableBody } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';

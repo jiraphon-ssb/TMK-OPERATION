@@ -1,23 +1,24 @@
 /* ============================================================
    TMK Operation — App shell, navigation, routing
    ============================================================ */
-import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
-import { Icon, B, Bk, N, UserIcon, ORDER_STATUSES, orderStatusIndex, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
+import { Icon, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
 import { ConfirmHost } from './ui-confirm.jsx';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator, BreadcrumbEllipsis } from '@/components/ui/breadcrumb';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Loader2 } from 'lucide-react';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
+import { Spotlight } from './Spotlight.jsx';
+import { PublicTrackPage } from './PublicTrackPage.jsx';
 // Heavy views — code-split เป็น chunk แยก ลด main bundle (~330 kB)
 // views-1 (Home + Sales) คงเดิม เพราะ Home เป็นหน้าแรกหลัง login ต้องเร็ว
 const PlannerView  = lazy(() => import('./views-planner.jsx').then(m => ({ default: m.PlannerView  })));
@@ -120,146 +121,6 @@ function SyncIndicator() {
   );
 }
 
-/* ---- Spotlight Search ---- */
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
-const modKey = isMac ? '⌘' : 'Ctrl+';
-
-// ---- Spotlight recents (localStorage) — boost รายการที่ใช้ล่าสุด ----
-const SPOT_RECENT_KEY = 'tmk-spotlight-recent';
-const readSpotRecents = () => { try { return JSON.parse(localStorage.getItem(SPOT_RECENT_KEY)) || []; } catch { return []; } };
-const pushSpotRecent = (item) => {
-  try {
-    const list = readSpotRecents().filter(r => !(r.label === item.label && r.cat === item.cat));
-    list.unshift({ cat: item.cat, icon: item.icon, label: item.label, sub: item.sub, color: item.color, go: item.go });
-    localStorage.setItem(SPOT_RECENT_KEY, JSON.stringify(list.slice(0, 6)));
-  } catch { /* ignore quota/parse */ }
-};
-
-function Spotlight({ onClose, onGo }) {
-  const [q, setQ] = useState('');
-  const [idx, setIdx] = useState(0);
-  const inputRef = useRef(null);
-  const recents = useMemo(() => readSpotRecents(), []);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-  // เปลี่ยนคำค้น → reset ตัวเลือกเป็นรายการแรก (ทำตอนพิมพ์ ไม่ใช่ใน effect → กัน re-render ซ้ำ)
-  const onQuery = (v) => { setQ(v); setIdx(0); };
-
-  const ql = q.toLowerCase().trim();
-  const results = [];
-
-  // Helper — safe lowercase (handles null/undefined/non-string)
-  const lc = (v) => String(v || '').toLowerCase();
-
-  // เปิดรายการ + จำไว้เป็น "ล่าสุด" (go = [section, sub] แบบ serialize ได้)
-  const fire = (r) => { pushSpotRecent(r); onGo(r.go[0], r.go[1]); onClose(); };
-
-  if (ql) {
-    // Tasks
-    (TMK.tasks || []).filter(t => lc(t.title).includes(ql) || lc(t.detail).includes(ql)).slice(0, 5).forEach(t => {
-      const c = (TMK.campaigns || []).find(x => x.id === t.camp);
-      results.push({ cat: 'งาน', icon: 'listChecks', label: t.title, sub: `${t.date} · ${c?.name || ''}`, color: c?.color, go: ['flows', 'kanban'] });
-    });
-    // Products
-    (TMK.products || []).filter(p => lc(p.name).includes(ql)).slice(0, 3).forEach(p => {
-      results.push({ cat: 'สินค้า', icon: 'bag', label: p.name, sub: `${B(p.price)} · ขาย ${N(p.units)} ตัว`, color: 'var(--accent)', go: ['catalog', 'products'] });
-    });
-    // Campaigns
-    (TMK.campaigns || []).filter(c => lc(c.name).includes(ql)).slice(0, 3).forEach(c => {
-      results.push({ cat: 'แคมเปญ', icon: 'megaphone', label: c.name, sub: `${c.start}–${c.end}`, color: c.color, go: ['settings', 'campaigns'] });
-    });
-    // Staff
-    (TMK.staff || []).filter(s => lc(s.name).includes(ql) || lc(s.role).includes(ql)).forEach(s => {
-      results.push({ cat: 'ทีม', icon: 'users', label: s.name, sub: s.role, color: s.color, go: ['settings', 'roles'] });
-    });
-    // Channels
-    (TMK.channels || []).filter(c => lc(c.name).includes(ql)).forEach(c => {
-      results.push({ cat: 'ช่องทาง', icon: 'layers', label: c.name, sub: `เป้า ${Bk(c.target)}`, color: c.hex, go: ['sales', 'channels'] });
-    });
-    // Orders (ค้นด้วยรหัสออเดอร์ / ชื่อลูกค้า)
-    (TMK.orders || []).filter(o => lc(o.code).includes(ql) || lc(o.customerName).includes(ql)).slice(0, 4).forEach(o => {
-      results.push({ cat: 'ออเดอร์', icon: 'listChecks', label: o.code || o.customerName || 'ออเดอร์', sub: `${o.customerName || ''} · ${B(o.total)}`, color: 'var(--accent-2)', go: ['catalog', 'orders'] });
-    });
-    // Customers (ค้นด้วยชื่อ / เบอร์ / รหัส)
-    (TMK.customers || []).filter(c => lc(c.name).includes(ql) || lc(c.phone).includes(ql) || lc(c.code).includes(ql)).slice(0, 4).forEach(c => {
-      results.push({ cat: 'ลูกค้า', icon: 'users', label: c.name || c.code || 'ลูกค้า', sub: `${c.phone || ''}${c.orderCount ? ' · ' + c.orderCount + ' ออเดอร์' : ''}`, color: 'var(--info)', go: ['catalog', 'customers'] });
-    });
-    // Navigation
-    [{ l: 'หน้าหลัก', s: 'home' }, { l: 'ยอดขาย', s: 'sales', sub: 'overview' }, { l: 'ปฏิทิน', s: 'flows', sub: 'calendar' }, { l: 'Kanban', s: 'flows', sub: 'kanban' }, { l: 'ไทม์ไลน์', s: 'flows', sub: 'timeline' }, { l: 'สินค้า', s: 'catalog', sub: 'products' }, { l: 'แคมเปญ', s: 'settings', sub: 'campaigns' }]
-      .filter(n => lc(n.l).includes(ql)).forEach(n => {
-        results.push({ cat: 'นำทาง', icon: 'arrowR', label: `ไปที่ ${n.l}`, sub: '', color: 'var(--ink-3)', go: [n.s, n.sub] });
-      });
-  } else {
-    // ไม่มีคำค้น → โชว์ "ล่าสุด" ที่เคยเปิด (recent boost)
-    recents.forEach(r => results.push({ ...r, cat: 'ล่าสุด' }));
-  }
-
-  const onKey = (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setIdx(i => Math.min(i + 1, results.length - 1)); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)); }
-    else if (e.key === 'Enter' && results[idx]) { fire(results[idx]); }
-    else if (e.key === 'Escape') { onClose(); }
-  };
-
-  // Group by cat
-  const grouped = {};
-  results.forEach((r, i) => { r._i = i; grouped[r.cat] = grouped[r.cat] || []; grouped[r.cat].push(r); });
-
-  return (
-    <div className="spotlight-scrim" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ position: 'relative', width: '100%', maxWidth: 580, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-xl)', boxShadow: 'var(--sh-pop)', overflow: 'hidden', maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
-        {/* Input */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ width: 20, height: 20, flexShrink: 0, color: 'var(--ink-3)' }}><Icon name="search" /></span>
-          <input ref={inputRef} value={q} onChange={e => onQuery(e.target.value)} onKeyDown={onKey}
-            placeholder="ค้นหา"
-            style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 'var(--fs-h3)', fontWeight: 500, color: 'var(--ink)', fontFamily: 'var(--font)' }} />
-          <kbd style={{ fontFamily: 'var(--mono)', fontSize: 'var(--fs-micro)', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 5, padding: '2px 6px', background: 'var(--surface-2)' }}>ESC</kbd>
-        </div>
-
-        {/* Results */}
-        <div style={{ overflowY: 'auto', flex: 1 }}>
-          {!ql && results.length === 0 && (
-            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--ink-3)' }}>
-              <div style={{ fontSize: 'var(--fs-sm)', marginBottom: 4 }}>พิมพ์เพื่อค้นหา</div>
-              <div className="cap">งาน · สินค้า · แคมเปญ · ทีม · ช่องทาง · นำทาง</div>
-            </div>
-          )}
-          {ql && results.length === 0 && (
-            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--ink-3)' }}>
-              <div style={{ fontSize: 'var(--fs-sm)' }}>ไม่พบผลลัพธ์สำหรับ "{q}"</div>
-            </div>
-          )}
-          {Object.entries(grouped).map(([cat, items]) => (
-            <div key={cat}>
-              <div className="eyebrow" style={{ padding: '10px 20px 4px' }}>{cat}</div>
-              {items.map(r => (
-                <button key={r._i} onClick={() => fire(r)} onMouseEnter={() => setIdx(r._i)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', padding: '10px 20px', border: 'none', background: idx === r._i ? 'var(--accent-soft)' : 'transparent', color: 'var(--ink)', textAlign: 'left', cursor: 'pointer', fontFamily: 'var(--font)', transition: 'background 0.08s' }}>
-                  <span style={{ width: 34, height: 34, borderRadius: 'var(--r-sm)', background: (r.color || 'var(--ink-3)') + '18', color: r.color || 'var(--ink-3)', display: 'grid', placeItems: 'center', flexShrink: 0 }}><Icon name={r.icon} /></span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="sm" style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</div>
-                    {r.sub && <div className="cap" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.sub}</div>}
-                  </div>
-                  {idx === r._i && <span className="cap" style={{ flexShrink: 0 }}>↵ เปิด</span>}
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
-
-        {/* Footer */}
-        {results.length > 0 && (
-          <div style={{ padding: '8px 20px', borderTop: '1px solid var(--line)', display: 'flex', gap: 16, justifyContent: 'center' }}>
-            <span className="cap row" style={{ gap: 4 }}><kbd style={{ fontFamily: 'var(--mono)', fontSize: 9, border: '1px solid var(--line)', borderRadius: 3, padding: '1px 4px' }}>↑↓</kbd> เลือก</span>
-            <span className="cap row" style={{ gap: 4 }}><kbd style={{ fontFamily: 'var(--mono)', fontSize: 9, border: '1px solid var(--line)', borderRadius: 3, padding: '1px 4px' }}>↵</kbd> เปิด</span>
-            <span className="cap row" style={{ gap: 4 }}><kbd style={{ fontFamily: 'var(--mono)', fontSize: 9, border: '1px solid var(--line)', borderRadius: 3, padding: '1px 4px' }}>esc</kbd> ปิด</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const NAV_DEF = [
   { id: 'home', labelKey: 'navHome', icon: 'home' },
@@ -388,100 +249,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-/* ---- หน้าติดตามสถานะออเดอร์ (สาธารณะ — ลูกค้าเปิดเองไม่ต้องล็อกอิน) ---- */
-function PublicTrackPage({ code }) {
-  const [input, setInput] = useState(code || '');
-  const [order, setOrder] = useState(code ? undefined : null); // undefined=loading, null=ว่าง/ไม่พบ
-  const [searched, setSearched] = useState(Boolean(code));     // เคยกดค้นหรือยัง (คุมข้อความ)
-
-  // ดึงออเดอร์ตามรหัส — เรียกจาก event (ปุ่ม/Enter) หรือโหลดครั้งแรกจากลิงก์ ?track=
-  const fetchOrder = useCallback(async (codeStr) => {
-    const c = String(codeStr || '').trim().toUpperCase();
-    setSearched(Boolean(c));
-    if (!c) { setOrder(null); return; }
-    setOrder(undefined);
-    const { data } = await supabase.from('tmk_orders')
-      .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
-      .eq('code', c).maybeSingle();
-    setOrder(data || null);
-  }, []);
-
-  // โหลดครั้งแรกถ้าเปิดด้วยลิงก์ ?track=<code> — state เริ่มต้นเป็น loading อยู่แล้ว จึง fetch แบบ async ล้วน (ไม่ setState ก่อน await)
-  useEffect(() => {
-    if (!code) return;
-    let cancel = false;
-    (async () => {
-      const { data } = await supabase.from('tmk_orders')
-        .select('code,customer_name,items,total,status,tracking_no,carrier,status_log,created_at')
-        .eq('code', String(code).trim().toUpperCase()).maybeSingle();
-      if (!cancel) setOrder(data || null);
-    })();
-    return () => { cancel = true; };
-  }, [code]);
-
-  const isCancelled = order && order.status === 'cancelled';
-  const curIdx = order ? orderStatusIndex(order.status) : 0;
-  const doSearch = () => fetchOrder(input);
-
-  return (
-    <div style={{ minHeight: '100vh', background: 'var(--paper,#f4f6fb)', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 16px', fontFamily: 'var(--font)' }}>
-      <div style={{ width: '100%', maxWidth: 460 }}>
-        <div style={{ textAlign: 'center', marginBottom: 18 }}>
-          <img src={tmkLogo} alt="TMK" style={{ height: 44, marginBottom: 8 }} />
-          <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--ink)' }}>ติดตามสถานะออเดอร์</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <Input style={{ flex: 1 }} value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && doSearch()} placeholder="กรอกรหัสออเดอร์ (เช่น ORD-260609-AB12)" />
-          <Button onClick={doSearch}><Icon name="search" /> ค้นหา</Button>
-        </div>
-
-        {order === undefined && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กำลังค้นหา…</div>}
-        {order === null && searched && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>ไม่พบออเดอร์รหัสนี้ — ตรวจสอบรหัสอีกครั้ง</div>}
-        {order === null && !searched && <div className="card" style={{ textAlign: 'center', padding: 30, color: 'var(--ink-4)' }}>กรอกรหัสออเดอร์เพื่อดูสถานะ</div>}
-
-        {order && (
-          <div className="card">
-            <div className="row between" style={{ marginBottom: 4 }}>
-              <span style={{ fontWeight: 800, fontSize: 16 }}>{order.code}</span>
-              {isCancelled && <Badge variant="destructive">ยกเลิกแล้ว</Badge>}
-            </div>
-            <div className="cap" style={{ marginBottom: 16 }}>{order.customer_name || ''} · {new Date(order.created_at || Date.now()).toLocaleDateString('th-TH')}</div>
-
-            {!isCancelled && (
-              <div style={{ marginBottom: 18 }}>
-                {ORDER_STATUSES.map((s, i) => {
-                  const done = i < curIdx, active = i === curIdx;
-                  return (
-                    <div key={s.id} className="row" style={{ gap: 12, alignItems: 'flex-start', minHeight: 38 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', alignSelf: 'stretch' }}>
-                        <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'grid', placeItems: 'center', background: done || active ? s.color : 'var(--surface-2)', color: '#fff', border: done || active ? 'none' : '2px solid var(--line)', fontSize: 12, fontWeight: 800 }}>{done ? '✓' : active ? '•' : ''}</span>
-                        {i < ORDER_STATUSES.length - 1 && <span style={{ width: 2, flex: 1, minHeight: 16, background: done ? s.color : 'var(--line)' }} />}
-                      </div>
-                      <div style={{ paddingBottom: 10 }}>
-                        <div style={{ fontWeight: active ? 800 : done ? 600 : 400, color: active ? s.color : done ? 'var(--ink)' : 'var(--ink-4)' }}>{s.label}{active && ' ← ตอนนี้'}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {order.tracking_no && <div style={{ background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', padding: '10px 12px', marginBottom: 12 }}><div className="cap">เลขพัสดุ {order.carrier ? `· ${order.carrier}` : ''}</div><div style={{ fontWeight: 700, fontFamily: 'var(--mono)' }}>{order.tracking_no}</div></div>}
-
-            <div className="eyebrow" style={{ marginBottom: 8 }}>รายการ</div>
-            {(order.items || []).map((it, i) => (
-              <div key={i} className="row between" style={{ padding: '4px 0', fontSize: 'var(--fs-sm)' }}>
-                <span>{it.name} · {it.color} {it.size} ×{it.qty}</span><span className="num">{B((it.qty || 0) * (it.price || 0))}</span>
-              </div>
-            ))}
-            <div className="row between" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)', fontWeight: 800 }}><span>ยอดรวม</span><span className="num">{B(order.total)}</span></div>
-          </div>
-        )}
-        <div className="cap" style={{ textAlign: 'center', marginTop: 16, color: 'var(--ink-4)' }}>TMK Operation</div>
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   // ลูกค้าเปิดลิงก์ ?track=<code> → หน้าติดตามสาธารณะ (ไม่ต้องล็อกอิน, ไม่โหลดข้อมูลร้าน)
@@ -590,7 +357,7 @@ function AppInner() {
     try { localStorage.setItem('tmk-submap', JSON.stringify(subMap)); } catch { /* ignore */ }
   }, [subMap]);
   const [drawer, setDrawer] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const [, setMenu] = useState(false);
   const contentRef = useRef(null);
 
   const nav = NAV.find(n => n.id === section);
@@ -1245,37 +1012,6 @@ function AppInner() {
         : null
       }</Suspense>
       )}
-    </>
-  );
-}
-
-function RailAvatar({ onClick }) {
-  return (
-    <button className="rail-avatar" onClick={onClick}
-      style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}>
-      <UserIcon size={34} radius={10} />
-    </button>
-  );
-}
-
-function ProfileMenu({ go, close, onLogout }) {
-  const { user } = useUser() || {};
-  return (
-    <>
-      <div className="scrim" style={{ background: 'transparent', zIndex: 94 }} onClick={close}></div>
-      <div className="menu-pop">
-        <div className="row" style={{ gap: 10, padding: '8px 10px 12px' }}>
-          <UserIcon size={38} radius={10} />
-          <div>
-            <div className="sm" style={{ fontWeight: 700 }}>{user?.name || 'มัง'}</div>
-            <div className="cap">{user?.email || 'jiraphon.e@tmk.co'}</div>
-          </div>
-        </div>
-        <div className="divider"></div>
-        <button className="menu-row" onClick={() => go('settings', 'general')}><Icon name="system" />ตั้งค่า</button>
-        <div className="divider"></div>
-        <button className="menu-row danger" onClick={onLogout}><Icon name="external" />ออกจากระบบ</button>
-      </div>
     </>
   );
 }

@@ -7,42 +7,33 @@
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
    ============================================================ */
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { Icon, N, useBeat, PersonAvatar } from './components.jsx';
+import { Icon, N, useBeat, PersonAvatar, SourceBadge } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
-  cachedFetchRange, cachedFetchAll, ORDERS_SEL, SKUS_SEL, OVERRIDES_SEL, funnelTotal, funnelBreakdown, funnelNewOld,
+  cachedFetchRange, cachedFetchAll, ORDERS_SEL, SKUS_SEL, OVERRIDES_SEL, funnelTotal, funnelNewOld,
 } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
+import { buildPerf, NO_SELLER, curMonth, daysInMonth, dayOf, isCancelled, spOf, deltaPct } from './lib/salePerfAgg.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SideSheet } from './modals-core.jsx';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CardTable } from './components/DataTableParts.jsx';
 import { MonthPicker } from './components/MonthPicker.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
-import { ComboChart, DonutChart, HBars, Sparkline, Gauge, channelColor } from './charts.jsx';
+import { ComboChart, DonutChart, HBars, Sparkline, channelColor } from './charts.jsx';
 
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 0 });
-const NO_SELLER = 'ไม่ระบุเซลล์';
 const TH_MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-const curMonth = () => new Date().toISOString().slice(0, 7);
-const monthOptions = (n = 12) => { const out = []; const d = new Date(); for (let i = 0; i < n; i++) { out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`); d.setMonth(d.getMonth() - 1); } return out; };
 const monthLabel = (ym) => { const [y, m] = ym.split('-'); return `${TH_MON[Number(m) - 1] || m} ${Number(y) + 543}`; };
 const prevMonthOf = (ym) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
-const daysInMonth = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };
-const dayOf = (iso) => Number(String(iso || '').slice(8, 10)) || 0;
-const isCancelled = (o) => String(o.status || '').toLowerCase() === 'cancelled';
-const spOf = (o) => (o.salesperson && String(o.salesperson).trim()) || NO_SELLER;
-const deltaPct = (cur, prev) => (prev > 0 ? (cur - prev) / prev * 100 : null);
 const MEDAL = ['#e3b341', '#b8c0cc', '#cd8b5e'];   // ทอง/เงิน/ทองแดง
 const closeTone = (v) => v == null ? 'var(--ink-4)' : v >= 15 ? 'var(--good)' : v >= 8 ? 'var(--warn)' : 'var(--bad)';
 const dPill = (d) => d == null ? null : (
@@ -135,93 +126,6 @@ function MultiSelect({ label, options, value, onChange }) {
 }
 
 /* ---- aggregate ต่อเดือน ---- */
-function buildPerf(month, orders, skus, funnel, receipts, targets, prevOrders) {
-  const dim = daysInMonth(month);
-  const isCur = month === curMonth();
-  const daysPassed = isCur ? Math.min(new Date().getDate(), dim) : dim;
-  // order_no → salesperson (สำหรับ join skus)
-  const onToSp = new Map();
-  const bySp = new Map();
-  const ensure = (name) => {
-    if (!bySp.has(name)) bySp.set(name, {
-      name, sales: 0, orders: 0, qty: 0, newC: 0, leads: 0,
-      channels: {}, chStats: {}, leadsByPlat: {}, newOld: { new: 0, old: 0 },
-      designs: {}, daily: Array.from({ length: dim }, (_, i) => ({ day: i + 1, sales: 0, leads: 0, orders: 0 })),
-      receipts: [],
-    });
-    return bySp.get(name);
-  };
-  orders.forEach(o => {
-    if (isCancelled(o)) return;
-    const name = spOf(o); const s = ensure(name);
-    onToSp.set(o.order_no, name);
-    const amt = Number(o.sales) || 0, q = Number(o.qty) || 0;
-    s.sales += amt; s.orders += 1; s.qty += q;
-    if (o.customer_type === 'ลูกค้าใหม่') s.newC += 1;
-    if (o.channel) {
-      s.channels[o.channel] = (s.channels[o.channel] || 0) + amt;
-      const cs = s.chStats[o.channel] || (s.chStats[o.channel] = { orders: 0, sales: 0 });
-      cs.orders += 1; cs.sales += amt;
-    }
-    const d = dayOf(o.order_date); if (d >= 1 && d <= dim) { s.daily[d - 1].sales += amt; s.daily[d - 1].orders += 1; }
-  });
-  // skus → design tally ต่อเซลล์ (join ผ่าน order_no)
-  (skus || []).forEach(k => {
-    const name = onToSp.get(k.order_no); if (!name) return;
-    const s = bySp.get(name); if (!s) return;
-    const dz = (k.design && String(k.design).trim()) || 'ไม่ระบุลาย';
-    s.designs[dz] = (s.designs[dz] || 0) + (Number(k.qty) || 0);
-  });
-  // funnel → leads ต่อเซลล์ + รายวัน + ต่อแพลตฟอร์ม (คนทัก) + ใหม่/เก่า
-  (funnel || []).forEach(f => {
-    const name = (f.salesperson && String(f.salesperson).trim()); if (!name) return;
-    const s = ensure(name); const tot = funnelTotal(f);
-    s.leads += tot;
-    const bd = funnelBreakdown(f); Object.entries(bd).forEach(([plat, v]) => { s.leadsByPlat[plat] = (s.leadsByPlat[plat] || 0) + ((Number(v.new) || 0) + (Number(v.old) || 0) + (Number(v.unknown) || 0)); });
-    const no = funnelNewOld(f); s.newOld.new += Number(no.new) || 0; s.newOld.old += Number(no.old) || 0;
-    const d = dayOf(f.date); if (d >= 1 && d <= dim) s.daily[d - 1].leads += tot;
-  });
-  // receipts → รายการต่อเซลล์ (โชว์ใน drawer/รายวัน)
-  (receipts || []).forEach(r => {
-    const name = (r.salesperson && String(r.salesperson).trim()) || NO_SELLER;
-    const s = ensure(name); if (r.status !== 'void') s.receipts.push(r);
-  });
-  // prev month sales ต่อเซลล์ (เทียบ)
-  const prevSp = new Map();
-  (prevOrders || []).forEach(o => { if (isCancelled(o)) return; const name = spOf(o); prevSp.set(name, (prevSp.get(name) || 0) + (Number(o.sales) || 0)); });
-
-  const rows = [...bySp.values()].map(s => {
-    const t = targets[s.name] || null;
-    const target = Number(t?.sales_target) || 0;
-    const closeRate = s.leads > 0 ? s.orders / s.leads * 100 : null;
-    const projected = isCur && daysPassed > 0 ? s.sales / daysPassed * dim : s.sales;
-    // %ปิดต่อช่องทาง — จับคู่ leads(แพลตฟอร์ม) กับ orders(channel) ชื่อเดียวกัน (มาร์เก็ตเพลส/POS ไม่มีคนทัก → closeRate null)
-    const channelClose = Object.keys({ ...s.chStats, ...s.leadsByPlat }).map(ch => {
-      const orders = s.chStats[ch]?.orders || 0, csales = s.chStats[ch]?.sales || 0, leads = s.leadsByPlat[ch] || 0;
-      return { ch, orders, sales: csales, leads, closeRate: leads > 0 ? orders / leads * 100 : null };
-    }).sort((a, b) => (b.leads + b.orders) - (a.leads + a.orders));
-    const pace = target > 0 ? (s.sales >= target ? 'over' : projected >= target ? 'ontrack' : 'risk') : null;
-    const daysActive = s.daily.filter(d => d.sales > 0).length;
-    return {
-      ...s,
-      aov: s.orders ? s.sales / s.orders : 0,
-      closeRate, target, pctTarget: target ? s.sales / target * 100 : null,
-      comm: t ? commissionFor(s.sales, t) : 0, tgt: t,
-      projected, pace, channelClose, daysActive,
-      dSales: deltaPct(s.sales, prevSp.get(s.name) || 0),
-    };
-  }).sort((a, b) => b.sales - a.sales);
-
-  const team = rows.reduce((a, r) => ({
-    sales: a.sales + r.sales, orders: a.orders + r.orders, qty: a.qty + r.qty,
-    leads: a.leads + r.leads, newC: a.newC + r.newC,
-  }), { sales: 0, orders: 0, qty: 0, leads: 0, newC: 0 });
-  team.closeRate = team.leads > 0 ? team.orders / team.leads * 100 : null;
-  const prevTeam = [...prevSp.values()].reduce((a, v) => a + v, 0);
-  team.dSales = deltaPct(team.sales, prevTeam);
-  return { rows, team, dim };
-}
-
 /* ---- การ์ดเซลล์รายคน (โหมด default แท็บรายเดือน) — คลิกเปิด drawer เดิม ---- */
 function SellerCard({ r, rank, share, onOpen, cmp }) {
   const noSeller = r.name === NO_SELLER;
@@ -279,91 +183,6 @@ function SellerCard({ r, rank, share, onOpen, cmp }) {
   );
 }
 
-/* ---- คอมขั้นบันได: หา tier ถัดไปที่ยังไม่ถึง → gap + rate ---- */
-const nextTierOf = (tgt, sales) => {
-  if (!tgt || !Array.isArray(tgt.tiers) || !tgt.tiers.length) return null;
-  const tiers = tgt.tiers.map(t => ({ min: Number(t.min) || 0, rate: Number(t.rate) || 0 })).sort((a, b) => a.min - b.min);
-  const next = tiers.find(t => t.min > sales);
-  return next ? { gap: next.min - sales, rate: next.rate } : null;
-};
-const PACE_META = {
-  over: { label: 'เกินเป้าแล้ว 🎉', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
-  ontrack: { label: 'ทันเป้า ✅', cls: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
-  risk: { label: 'เสี่ยงไม่ถึงเป้า ⚠️', cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
-};
-
-/* ---- HERO B1: ฟันเนล คนทัก→ปิด + %ปิดต่อช่องทาง (leading→lagging · หัวใจธุรกิจ) ---- */
-function FunnelCard({ leads, orders, closeRate, newOld, channels, solo, delta }) {
-  const hasLeads = leads > 0;
-  const dropPct = hasLeads ? Math.max(6, Math.min(100, orders / leads * 100)) : 100;
-  const withLeads = channels.filter(c => c.leads > 0);
-  const noLeadCh = channels.some(c => c.leads === 0 && c.orders > 0);
-  return (
-    <Card className="p-4 flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg [&_svg]:size-4" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="filter" /></span>
-        <div className="text-sm font-bold">ฟันเนล คนทัก → ปิดการขาย{!solo ? ' · ทีม' : ''}</div>
-        <div className="ml-auto text-right">
-          <div className="text-[11px] text-muted-foreground flex items-center justify-end gap-1">%ปิด {delta != null && dPill(delta)}</div>
-          <div className="text-2xl font-bold leading-none tabular-nums" style={{ color: closeTone(closeRate) }}>{closeRate == null ? '—' : Math.round(closeRate) + '%'}</div>
-        </div>
-      </div>
-      <div className="flex flex-col gap-2">
-        <div>
-          <div className="flex justify-between text-xs mb-0.5"><span className="text-muted-foreground">คนทัก{newOld && (newOld.new || newOld.old) ? ` · ใหม่ ${N(newOld.new)} · เก่า ${N(newOld.old)}` : ''}</span><b className="tabular-nums">{N(leads)}</b></div>
-          <div className="h-3 rounded-md" style={{ background: 'var(--accent-soft)' }} />
-        </div>
-        <div>
-          <div className="flex justify-between text-xs mb-0.5"><span className="text-muted-foreground">ปิดการขาย (ออเดอร์)</span><b className="tabular-nums">{N(orders)}</b></div>
-          <div className="h-3 rounded-md" style={{ width: dropPct + '%', minWidth: 24, background: 'var(--accent)' }} />
-        </div>
-      </div>
-      {withLeads.length > 0 && (
-        <div className="rounded-lg border overflow-hidden text-xs">
-          <table className="w-full">
-            <thead className="bg-muted/40 text-muted-foreground"><tr><th className="text-left px-2 py-1 font-medium">ช่องทาง</th><th className="text-right px-2 py-1 font-medium">คนทัก</th><th className="text-right px-2 py-1 font-medium">ปิด</th><th className="text-right px-2 py-1 font-medium">%ปิด</th></tr></thead>
-            <tbody>{withLeads.map(c => (
-              <tr key={c.ch} className="border-t"><td className="px-2 py-1"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.ch) }} />{c.ch}</span></td><td className="px-2 py-1 text-right tabular-nums">{N(c.leads)}</td><td className="px-2 py-1 text-right tabular-nums">{N(c.orders)}</td><td className="px-2 py-1 text-right font-semibold tabular-nums" style={{ color: closeTone(c.closeRate) }}>{c.closeRate == null ? '—' : Math.round(c.closeRate) + '%'}</td></tr>
-            ))}</tbody>
-          </table>
-        </div>
-      )}
-      {!hasLeads && <div className="text-xs text-muted-foreground">ยังไม่มีข้อมูลคนทักเดือนนี้ — กรอกที่การ์ด "คนทักวันนี้" หน้าส่งยอด</div>}
-      {noLeadCh && <div className="text-[11px] text-muted-foreground">* ช่องทางมาร์เก็ตเพลส/หน้าร้าน ไม่มีคนทัก → ไม่คิด %ปิด</div>}
-    </Card>
-  );
-}
-
-/* ---- HERO B2: เป้า/คอม + pacing (gauge + ป้ายสถานะ + คอมขั้นถัดไป + CTA ตั้งเป้า) ---- */
-function GoalCard({ row }) {
-  const hasTarget = row.target > 0;
-  const nt = nextTierOf(row.tgt, row.sales);
-  return (
-    <Card className="p-4 flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg [&_svg]:size-4" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="target" /></span>
-        <div className="text-sm font-bold">เป้า & คอมมิชชัน{row.isTeam ? ' · ทีม' : ''}</div>
-        {hasTarget && row.pace && <Badge className={'ml-auto ' + PACE_META[row.pace].cls}>{PACE_META[row.pace].label}</Badge>}
-      </div>
-      {hasTarget ? (
-        <div className="flex items-center gap-4">
-          <div className="shrink-0" style={{ width: 120 }}><Gauge value={Math.min(100, row.pctTarget)} max={100} label="ของเป้า" sub={Math.round(row.pctTarget) + '%'} height={110} /></div>
-          <div className="text-sm min-w-0 flex flex-col gap-1">
-            <div>ยอด <b style={{ color: 'var(--accent-2)' }}>{fmtB(row.sales)}</b> <span className="text-muted-foreground">/ เป้า {fmtB(row.target)}</span></div>
-            <div className="text-muted-foreground">คาดสิ้นเดือน <b style={{ color: 'var(--ink)' }}>{fmtB(row.projected)}</b></div>
-            {row.comm > 0 && <div>คอม <b style={{ color: 'var(--accent-2)' }}>{fmtB(row.comm)}</b></div>}
-            {nt && <div className="text-[11px] text-muted-foreground">อีก {fmtB(nt.gap)} ถึงคอมขั้น +{nt.rate}%</div>}
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col items-start gap-2 py-2">
-          <div className="text-sm text-muted-foreground">ยัง{row.isTeam ? 'ไม่มีใครตั้งเป้า' : 'ไม่ได้ตั้งเป้า'}เดือนนี้ — ตั้งเป้าเพื่อดูความคืบหน้า + คอมมิชชัน</div>
-          {window.__canEdit !== false && <Button size="sm" onClick={() => window.__goSection?.('settings', 'targets')}><Icon name="target" /> ตั้งเป้า/คอม</Button>}
-        </div>
-      )}
-    </Card>
-  );
-}
 
 /* ---- HERO C: แนวโน้มรายวัน — ยอด(แท่ง) + คนทัก(เส้น) ทับกัน ---- */
 function TrendCard({ rows, dim, month, onOpenDay, prevSeries, prevLabel }) {
@@ -401,13 +220,11 @@ function DeepPanel({ r, onOpen }) {
 export function SalePerfView() {
   const beat = useBeat(350);
   const [month, setMonth] = useState(curMonth());
-  const [tab, setTab] = useState('month');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevFull: null });
   const [maps, setMaps] = useState(null);   // resolver maps (catalog/alias/override/version) — ชื่อลาย resolve สด
   const [targets, setTargets] = useState({});
   const [detail, setDetail] = useState(null);   // เซลล์ที่เปิด drawer (รายเดือน)
-  const monthOpts = useMemo(() => monthOptions(12), []);
   // เครื่องมือ: ค้นหา/ตัวกรอง/คอลัมน์/ความหนาแน่น (จำค่า localStorage)
   const [q, setQ] = useState('');
   const [channelF, setChannelF] = useState([]);
@@ -525,7 +342,6 @@ export function SalePerfView() {
     return t;
   }, [rowsView, perf.team.dSales]);
   const rankMap = useMemo(() => { const m = new Map(); [...rowsView].sort((a, b) => b.sales - a.sales).forEach((r, i) => m.set(r.name, i)); return m; }, [rowsView]);
-  const perfView = useMemo(() => ({ rows: rowsView, team: teamView, dim: perf.dim }), [rowsView, teamView, perf.dim]);
   const openSp = perf.rows.find(r => r.name === detail) || null;
 
   const nFilters = channelF.length + (onlyTargets ? 1 : 0) + (hideNoSeller ? 1 : 0);
@@ -544,24 +360,6 @@ export function SalePerfView() {
   const realSellers = useMemo(() => rowsView.filter(r => r.name !== NO_SELLER), [rowsView]);
   const soloMode = realSellers.length <= 1;
   const focus = realSellers[0] || rowsView[0] || null;
-  // ฟันเนลรวม (aggregate channelClose + ใหม่/เก่า จาก rowsView)
-  const teamFunnel = useMemo(() => {
-    const ch = {}; const newOld = { new: 0, old: 0 };
-    rowsView.forEach(r => {
-      (r.channelClose || []).forEach(c => { const e = ch[c.ch] || (ch[c.ch] = { ch: c.ch, orders: 0, sales: 0, leads: 0 }); e.orders += c.orders; e.sales += c.sales; e.leads += c.leads; });
-      newOld.new += r.newOld?.new || 0; newOld.old += r.newOld?.old || 0;
-    });
-    const channels = Object.values(ch).map(e => ({ ...e, closeRate: e.leads > 0 ? e.orders / e.leads * 100 : null })).sort((a, b) => (b.leads + b.orders) - (a.leads + a.orders));
-    return { channels, newOld };
-  }, [rowsView]);
-  // การ์ดเป้า: โซโล่ = คนนั้น · หลายคน = รวมทีม (sum เป้า/คอม/คาด)
-  const goalRow = useMemo(() => {
-    if (soloMode && focus) return focus;
-    const target = rowsView.reduce((a, r) => a + (r.target || 0), 0);
-    const projected = rowsView.reduce((a, r) => a + (r.projected || 0), 0);
-    const sales = teamView.sales;
-    return { name: 'ทีม', isTeam: true, sales, target, comm: commTotal, projected, tgt: null, pctTarget: target > 0 ? sales / target * 100 : null, pace: target > 0 ? (sales >= target ? 'over' : projected >= target ? 'ontrack' : 'risk') : null };
-  }, [soloMode, focus, rowsView, teamView.sales, commTotal]);
 
   if (beat) return <PerfSkeleton />;
 
@@ -600,6 +398,7 @@ export function SalePerfView() {
         <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-semibold">ประสิทธิภาพเซลล์</span>
+            <SourceBadge kind="analytics" />
             {loading && perf.rows.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />กำลังอัปเดต…</span>}
             <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
             <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />
@@ -679,84 +478,8 @@ export function SalePerfView() {
 }
 
 /* ---- แท็บรายวัน: กราฟภาพรวมเดือน + สมุดบันทึกรายวัน (เฉพาะวันที่มียอด · คลิกเซลล์เปิดออเดอร์รายตัว) ---- */
-const TH_DAY = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
-function DailyPanel({ perf, month, orders, onOpenDay, onOpenDayAll }) {
-  const dim = perf.dim;
-  const names = new Set(perf.rows.map(r => r.name));
-  // รวมยอดต่อวัน→ต่อเซลล์ จากออเดอร์จริง (เคารพตัวกรองของหน้า — เซลล์ที่ถูกค้นหา/กรองออกไม่นับ)
-  const byDay = new Map();
-  (orders || []).forEach(o => {
-    if (isCancelled(o)) return;
-    const name = spOf(o); if (!names.has(name)) return;
-    const d = dayOf(o.order_date); if (d < 1 || d > dim) return;
-    let day = byDay.get(d); if (!day) { day = { sales: 0, orders: 0, qty: 0, sellers: new Map() }; byDay.set(d, day); }
-    const amt = Number(o.sales) || 0, q = Number(o.qty) || 0;
-    day.sales += amt; day.orders += 1; day.qty += q;
-    let s = day.sellers.get(name); if (!s) { s = { sales: 0, orders: 0, qty: 0 }; day.sellers.set(name, s); }
-    s.sales += amt; s.orders += 1; s.qty += q;
-  });
-  const leadsOfDay = (d) => perf.rows.reduce((a, r) => a + (r.daily[d - 1]?.leads || 0), 0);
-  const teamBars = Array.from({ length: dim }, (_, i) => perf.rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0));
-  const [yy, mm] = month.split('-').map(Number);
-  const wd = (d) => TH_DAY[new Date(yy, mm - 1, d).getDay()];
-  const todayD = month === curMonth() ? new Date().getDate() : 0;
-  const days = [...byDay.entries()].sort((a, b) => b[0] - a[0]);   // วันล่าสุดขึ้นก่อน (กราฟด้านบนเป็นลำดับเวลาอยู่แล้ว)
-  const best = Math.max(1, ...days.map(([, v]) => v.sales));
-
-  return (
-    <div className="flex flex-col gap-4">
-      {/* ภาพรวมทั้งเดือน */}
-      <Card className="p-4">
-        <div className="text-sm font-semibold mb-1.5">ยอดทีมรายวัน · {monthLabel(month)} <span className="text-xs font-normal text-muted-foreground">— คลิกวันเพื่อดูออเดอร์</span></div>
-        <ComboChart labels={Array.from({ length: dim }, (_, i) => String(i + 1))} bars={teamBars} barLabel="ยอดขาย" barFmt={fmtB} height={150} onDayClick={onOpenDayAll ? (i) => onOpenDayAll(i + 1) : undefined} />
-      </Card>
-
-      {/* สมุดบันทึกรายวัน — โชว์เฉพาะวันที่มียอด */}
-      <Card className="p-0 overflow-hidden">
-        <div className="px-4 py-2.5 border-b bg-muted/20 text-sm">
-          <b>บันทึกรายวัน</b> <span className="text-xs text-muted-foreground">· {days.length} วันที่มียอด — คลิกเซลล์เพื่อดูออเดอร์รายตัว</span>
-        </div>
-        {!days.length ? (
-          <div className="p-8 text-center text-sm text-muted-foreground">ยังไม่มียอดเดือนนี้</div>
-        ) : days.map(([d, v]) => {
-          const leads = leadsOfDay(d);
-          return (
-            <div key={d} className="border-b last:border-b-0">
-              {/* หัววัน */}
-              <div className="flex items-center gap-x-4 gap-y-1 px-4 py-2 bg-muted/30 flex-wrap">
-                <div className="flex items-center gap-2 w-[130px] shrink-0">
-                  <b className="text-sm">{d} {TH_MON[mm - 1]}</b>
-                  <span className="text-[11px] text-muted-foreground">{wd(d)}</span>
-                  {d === todayD && <Badge variant="secondary" className="px-1.5 py-0 text-[10px] bg-[var(--accent-soft)] text-[var(--accent-2)]">วันนี้</Badge>}
-                </div>
-                <div className="w-24 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
-                  <div className="h-full rounded-full" style={{ width: (v.sales / best * 100) + '%', background: 'var(--accent)' }} />
-                </div>
-                <span className="num text-sm font-bold">{fmtB(v.sales)}</span>
-                <span className="text-xs text-muted-foreground">{N(v.orders)} ออเดอร์ · {N(v.qty)} ตัว{leads > 0 ? ` · คนทัก ${N(leads)}` : ''}</span>
-              </div>
-              {/* เซลล์ในวันนั้น — คลิกเปิดออเดอร์รายตัว */}
-              {[...v.sellers.entries()].sort((a, b) => b[1].sales - a[1].sales).map(([name, s]) => (
-                <div key={name} onClick={() => onOpenDay(name, d)} className="flex items-center gap-3 pl-6 pr-4 py-2 hover:bg-muted/40 cursor-pointer transition-colors">
-                  {name === NO_SELLER
-                    ? <span className="grid place-items-center rounded-full size-6 text-[10px] font-bold shrink-0" style={{ background: 'var(--surface-3)', color: 'var(--ink-3)' }}>?</span>
-                    : <PersonAvatar name={name} size={24} className="shrink-0" />}
-                  <span className="text-sm font-medium flex-1 truncate">{name === NO_SELLER ? 'ไม่ระบุเซลล์' : name}</span>
-                  <span className="num text-sm font-semibold">{fmtB(s.sales)}</span>
-                  <span className="text-xs text-muted-foreground w-[120px] text-right hidden sm:inline">{N(s.orders)} ออเดอร์ · {N(s.qty)} ตัว</span>
-                  <span className="inline-flex items-center gap-0.5 text-[11px] text-[var(--accent-2)] font-medium shrink-0">ดูออเดอร์ <Icon name="chevR" className="size-3.5" /></span>
-                </div>
-              ))}
-            </div>
-          );
-        })}
-      </Card>
-    </div>
-  );
-}
-
 /* ---- Drawer: เซลล์รายคน (กราฟรายวัน + ช่องทาง + ลายขายดี + ใบเสร็จ) ---- */
-function SpDetail({ sp, month, onDay, inline, cmp }) {
+function SpDetail({ sp, onDay, cmp }) {
   const labels = sp.daily.map(d => String(d.day));
   const chEntries = Object.entries(sp.channels).sort((a, b) => b[1] - a[1]);
   const donut = chEntries.map(([k, v]) => ({ label: k, value: v, color: channelColor(k) }));
@@ -855,7 +578,7 @@ function OrderCard({ o, lines, showSeller }) {
 
 /* ---- ป๊อปอัพ "ทั้งวัน" (คลิกจากกราฟรายวัน) — ออเดอร์ทุกใบของวันนั้นในขอบเขตที่กรอง ----
    สรุปวัน + แยกช่องทาง + การ์ดออเดอร์รายตัวครบ (โชว์ชื่อเซลล์เมื่อมีหลายคน) */
-function DayDetail({ day, month, orders, skus }) {
+function DayDetail({ day, orders, skus }) {
   const ords = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
   const skuBy = new Map();
@@ -910,7 +633,7 @@ function DayDetail({ day, month, orders, skus }) {
 }
 
 /* ---- Drill-down รายวัน: ออเดอร์รายตัวของเซลล์ในวันนั้น (ตรวจสอบ/คิดคอม) ---- */
-function DaySellerDetail({ name, day, month, orders, skus, funnel, target, onOpenMonth }) {
+function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth }) {
   // ออเดอร์ของเซลล์คนนี้ในวันนี้ (ตัดยกเลิก) เรียงยอดมาก→น้อย
   const ords = (orders || []).filter(o => !isCancelled(o) && spOf(o) === name && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));

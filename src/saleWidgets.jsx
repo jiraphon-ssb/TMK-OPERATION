@@ -8,6 +8,7 @@ import { TMK } from './data.js';
 import { Icon } from './components.jsx';
 import { Modal } from './modals-core.jsx';
 import { CUSTOMER_TYPES } from './lib/saleFields.js';
+import { csvEsc } from './lib/csv.js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -260,8 +261,8 @@ export function DateRangePicker({ from, to, min, max, onChange, presets = [], ac
   );
 }
 
-// กัน CSV formula-injection (Excel) แต่ "ยกเว้นเลขล้วน" — เลขติดลบ (-1234.56) ต้องคงเป็นตัวเลข ไม่งั้น SUM ใน Excel ข้าม
-export const _csvEsc = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?(\d+\.?\d*|\.\d+)$/.test(s)) s = "'" + s; return `"${s.replace(/"/g, '""')}"`; };
+// _csvEsc ย้ายไป lib/csv.js (pure · เทสต์ได้) — re-export ที่นี่กัน consumer เดิมพัง (back-compat)
+export const _csvEsc = csvEsc;
 export function downloadCSV(filename, blocks) {
   let csv = '';
   blocks.forEach(({ title, cols, rows }) => {

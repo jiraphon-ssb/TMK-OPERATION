@@ -83,6 +83,22 @@ export function InfoTip({ text, label, align = 'left' }) {
   );
 }
 
+/* ป้าย "แหล่งข้อมูล" ต่อหน้า (KPI-1) — บอกว่า KPI ในหน้านั้นมาจากแหล่งไหนตาม metric contract (docs/implementation/04)
+   kind='truth' = operational/การเงินจริง (computeMonth · net · เดือนปฏิทิน) · kind='analytics' = ออเดอร์นำเข้า (saleAgg · ตัดยกเลิก · order_date)
+   align ส่งต่อให้ InfoTip (กันหลุดขอบขวา) */
+export function SourceBadge({ kind = 'truth', align = 'left', className = '' }) {
+  const m = kind === 'truth'
+    ? { label: 'ยอดจริง (การเงิน)', cls: 'text-emerald-600 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
+        tip: 'แหล่งข้อมูล: ยอดขายที่ทีมกรอกรายวัน/รายเดือน (operational) = ตัวเลขการเงินจริง · เป็นยอด net (หลังหักคืน/ยกเลิก) · นับตามเดือนปฏิทิน' }
+    : { label: 'วิเคราะห์จากออเดอร์', cls: 'text-sky-600 dark:text-sky-400 border-sky-500/30 bg-sky-500/10',
+        tip: 'แหล่งข้อมูล: ออเดอร์ที่นำเข้า (tmk_mp_orders · ตัดที่ยกเลิก) นับตามวันที่ออเดอร์ในช่วงที่เลือก — ใช้วิเคราะห์เชิงปฏิบัติการ ไม่ใช่ยอดการเงินทางการ' };
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${m.cls} ${className}`}>
+      แหล่ง: {m.label}<InfoTip text={m.tip} label={m.label} align={align} />
+    </span>
+  );
+}
+
 /* ---------- Lot / variant helpers (เสื้อพิมพ์ลาย: ล็อต = ตาราง ไซส์ × สี) ---------- */
 // ไซส์มาตรฐาน เรียงลำดับ (XS → 10XL) — ใช้เป็นคอลัมน์ของตารางล็อต/สต็อก
 export const SIZES = ['XS','S','M','L','XL','2XL','3XL','4XL','5XL','6XL','7XL','8XL','9XL','10XL'];
@@ -619,7 +635,7 @@ export function CardGridSkeleton({ cards = 6, header = true }) {
 /* ---- ฉลองทะลุเป้ายอดขาย (อลังการสุด · ยอดวิ่งนับ · ไม่พึ่ง dep · CSS confetti + portal) ---- */
 const CONFETTI_COLORS = ['#f5a623', '#ffd86b', '#4f46e5', '#16a34a', '#ec4899', '#06b6d4', '#ef4444', '#8b5cf6'];
 const CELEBRATE_HEADLINES = ['🎉 ทะลุเป้าแล้ว!', '🔥 ทุบเป้ากระจุย!', '🏆 ปังไม่ไหวแล้ว!', '🚀 พุ่งทะลุเป้า!', '🥳 โหดมากกก!'];
-export function CelebrationOverlay({ amount = 0, target = 0, pct = 0, onClose }) {
+export function CelebrationOverlay({ amount = 0, target = 0, onClose }) {
   const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const shown = useCountUp(amount, 1700); // ยอดวิ่งนับช้าๆ ให้เห็นพุ่งเข้าหาเป้า
   const headline = useRef(CELEBRATE_HEADLINES[Math.floor(Math.random() * CELEBRATE_HEADLINES.length)]).current;

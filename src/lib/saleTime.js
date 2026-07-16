@@ -93,7 +93,7 @@ export function isFullCalendarMonth(from, to) {
   return b.getUTCDate() === lastDay;
 }
 // ---- เดือนปฏิทินก่อนหน้า (เต็มเดือน) — สำหรับเทียบ "ยอดเดือนนี้ vs เดือนก่อน" ----
-export function prevCalendarMonth(from, to) {
+export function prevCalendarMonth(from, _to) {
   const a = parseISO(from);
   const py = a.getUTCMonth() === 0 ? a.getUTCFullYear() - 1 : a.getUTCFullYear();
   const pm = a.getUTCMonth() === 0 ? 11 : a.getUTCMonth() - 1;
