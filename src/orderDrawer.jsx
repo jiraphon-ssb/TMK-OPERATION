@@ -123,13 +123,16 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
         updated_at: now,
       };
       {
-        // schema-tolerant: คอลัมน์ customer_phone ยังไม่รัน 20260715 → ตัดออกแล้วลองใหม่
-        let { error } = await supabase.from('tmk_mp_orders').update(patch).eq('order_no', o.order_no).eq('source', o.source || '');
-        if (error && /customer_phone/i.test(error.message || '')) {
+        // Phase 3.3 (OCC §9): guard ด้วย row_version + schema-tolerant (customer_phone ยังไม่รัน 20260715)
+        // conflict → abort ก่อนเขียน override/profile/sku (กัน partial write) + refresh
+        const match = { order_no: o.order_no, source: o.source || '' };
+        let r = await versionedUpdate(supabase, 'tmk_mp_orders', match, patch, o.row_version);
+        if (!r.ok && !r.conflict && /customer_phone/i.test(r.error?.message || '')) {
           const { customer_phone: _p, ...slim } = patch;
-          ({ error } = await supabase.from('tmk_mp_orders').update(slim).eq('order_no', o.order_no).eq('source', o.source || ''));
+          r = await versionedUpdate(supabase, 'tmk_mp_orders', match, slim, o.row_version);
         }
-        if (error) throw error;
+        if (r.conflict) { toast('ออเดอร์นี้ถูกแก้โดยคนอื่นแล้ว — รีเฟรชแล้วลองใหม่', 'warn'); onClose(); onChanged?.(); return; }
+        if (!r.ok) throw r.error || new Error('บันทึกไม่สำเร็จ');
       }
       try {
         // mirror ทุกช่องที่แก้ลง override (ประกันข้าม reimport มาร์เก็ตเพลส) — graceful ตัดคอลัมน์ใหม่ถ้ายังไม่ migrate
