@@ -25,8 +25,9 @@ import { parseReceiptFiles, jobTypeFromNote, paymentKind } from './lib/receiptPa
 import { CHANNELS, JOB_TYPES, RECEIPT_PAYMENTS } from './lib/saleFields.js';
 import {
   checkDuplicates, confirmReceipts, attachReceiptFiles, customerTypeLookup,
-  isMissingReceiptTable,
+  isMissingReceiptTable, loadReceiptMatcher, enrichReceiptLine,
 } from './lib/receiptSubmit.js';
+import { deriveReceiptRowStatus } from './lib/receiptValidate.js';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -195,6 +196,10 @@ export function SubmitSalesView() {
   const [result, setResult] = useState(null);      // {ok:[], skipped:[]}
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
+  // re-validate สถานะแถวสด (บั๊ก: เดิม freeze problems ตอน parse) — เก็บ matcher + dup maps ให้ patchRow ใช้ซ้ำ
+  const matcherRef = useRef(null);       // ผล loadReceiptMatcher() (live re-match ลาย/รหัส)
+  const dupRef = useRef(new Map());      // dupReceipts (order_no → row ที่ส่งแล้ว)
+  const dupOrdersRef = useRef(new Set()); // dupOrders (order_no ที่มีจาก import)
 
   /* ---- feed + KPI ---- */
   const [feed, setFeed] = useState(null);
@@ -276,30 +281,25 @@ export function SubmitSalesView() {
       if (!receipts.length) { setParsing(null); return; }
       setChecking(true);
       const nos = receipts.map(r => r.order_no).filter(Boolean);
-      const [{ dupReceipts, dupOrders, missingTable: miss }, typeOf] = await Promise.all([
-        checkDuplicates(nos), customerTypeLookup(receipts),
+      const [{ dupReceipts, dupOrders, missingTable: miss }, typeOf, M] = await Promise.all([
+        checkDuplicates(nos), customerTypeLookup(receipts), loadReceiptMatcher().catch(() => null),
       ]);
       if (miss) setMissingTable(true);
-      const seen = new Set();
-      const next = receipts.map((r, i) => {
-        const problems = [...(r.warnings || [])];
-        let hard = false;
-        if (!r.order_no) { hard = true; }
-        else if (seen.has(r.order_no)) { problems.push('เลขซ้ำในชุดนี้'); hard = true; }
-        else seen.add(r.order_no);
-        const dup = dupReceipts.get(r.order_no);
-        if (dup && dup.status === 'confirmed') { problems.push(`ส่งแล้วโดย ${dup.salesperson || dup.uploader_email}`); hard = true; }
-        const fromImport = !dup && dupOrders.has(r.order_no);
-        if (fromImport) problems.push('มีอยู่แล้วจากไฟล์ import — ติ๊กเพื่อบันทึกทับ');
-        return {
-          _id: `r${i}`, ...r,
-          parsedRaw: { ...r, file: undefined },
-          channel: r.channel_hint || '',
-          job_type: jobTypeFromNote(r.note),
-          customer_type: typeOf(r),
-          problems, hard, fromImport,
-          selected: !hard && !fromImport,
-        };
+      matcherRef.current = M; dupRef.current = dupReceipts; dupOrdersRef.current = dupOrders; // เก็บให้ patchRow re-validate ซ้ำ
+      // 1) สร้างแถว + live re-match บรรทัด (ดึงรหัส/จับคู่ลายให้ตรงกับตอนเขียน — "ไม่มีรหัส" ที่จับคู่ได้จะไม่เตือน)
+      const built = receipts.map((r, i) => ({
+        _id: `r${i}`, ...r,
+        lines: M ? (r.lines || []).map(l => enrichReceiptLine(l, M)) : (r.lines || []),
+        parsedRaw: { ...r, file: undefined },       // ค่าตอน parse — ใช้เทียบว่าผู้ใช้แก้ field ไหนแล้ว
+        channel: r.channel_hint || '',
+        job_type: jobTypeFromNote(r.note),
+        customer_type: typeOf(r),
+      }));
+      // 2) คำนวณสถานะสดจากค่าปัจจุบัน (recompute ได้เมื่อผู้ใช้แก้ทีหลังผ่าน patchRow)
+      const next = built.map(b => {
+        const st = deriveReceiptRowStatus(b, { allRows: built, dupReceipts, dupOrders });
+        const fromImport = !st.hard && !dupReceipts.get(b.order_no) && dupOrders.has(b.order_no);
+        return { ...b, ...st, fromImport, selected: !st.hard && !fromImport };
       });
       setRows(next);
       setExpandId(null);
@@ -308,7 +308,16 @@ export function SubmitSalesView() {
     } finally { setParsing(null); setChecking(false); }
   };
 
-  const patchRow = (id, patch) => setRows(rs => rs.map(r => r._id === id ? { ...r, ...patch } : r));
+  // แก้ค่าแถว → merge + live re-match (ถ้าแก้บรรทัด) + recompute สถานะทุกแถว (แก้ order_no กระทบ dup แถวอื่น)
+  const patchRow = (id, patch) => setRows(rs => {
+    const merged = rs.map(r => {
+      if (r._id !== id) return r;
+      const nr = { ...r, ...patch };
+      if (patch.lines && matcherRef.current) nr.lines = nr.lines.map(l => enrichReceiptLine(l, matcherRef.current));
+      return nr;
+    });
+    return merged.map(r => ({ ...r, ...deriveReceiptRowStatus(r, { allRows: merged, dupReceipts: dupRef.current, dupOrders: dupOrdersRef.current }) }));
+  });
   const selectedRows = rows.filter(r => r.selected && !r.hard);
   const readyRows = selectedRows.filter(r => r.channel && r.order_no && (Number(r.total) || 0) > 0);
   const sumSelected = selectedRows.reduce((s, r) => s + (Number(r.total) || 0), 0);
@@ -636,7 +645,7 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
     setBusy(false);
     if (error) { toast(/funnel|does not exist/.test(error.message) ? 'ต้องรัน migration tmk_sales_funnel ก่อน' : 'บันทึกไม่สำเร็จ', 'error'); return; }
     toast(`บันทึกคนทัก ${selSeller} แล้ว ✓`, 'success'); setExists(true); setOpen(false); loadTeam();
-    logAudit({ action: exists ? 'update' : 'create', entityType: 'data', entityName: 'คนทัก', summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld} · ปิด ${ordersCount}` });
+    logAudit({ action: exists ? 'update' : 'create', entityType: 'daily', entityName: `คนทัก ${selSeller}`, summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld} · ปิด ${ordersCount}`, data: { seller: selSeller, date, new: totalNew, old: totalOld, closed: ordersCount } });
   };
   return (
     <>

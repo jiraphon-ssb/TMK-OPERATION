@@ -45,8 +45,8 @@ const ACTION_META = {
 };
 const actionMeta = (a) => ACTION_META[a] || { l: a || 'อื่นๆ', c: 'var(--info)', g: 'update' };
 const ACTION_GROUP = Object.entries(ACTION_META).reduce((acc, [k, v]) => { (acc[v.g] = acc[v.g] || []).push(k); return acc; }, {});
-const ENTITY_TH = { task:'งาน', flow:'โครงการ', comment:'คอมเมนต์', order:'ออเดอร์', product:'สินค้า', campaign:'แคมเปญ', channel:'ช่องทาง', duty:'หน้าที่', brand:'แบรนด์', user:'ผู้ใช้', daily:'ยอดขายรายวัน', monthly:'รายเดือน', segment:'กลุ่มลูกค้า', adCampaign:'แคมเปญแอด', ad:'แคมเปญแอด', po:'PO / สต็อก', target:'เป้า/คอม', auth:'ระบบ', data:'ข้อมูล', settings:'ตั้งค่า', system:'ระบบ' };
-const ENTITY_KEYS = ['task','flow','comment','order','product','campaign','channel','duty','brand','user','daily','monthly','segment','ad','po','target','settings','data','auth'];
+const ENTITY_TH = { task:'งาน', flow:'โครงการ', comment:'คอมเมนต์', order:'ออเดอร์', receipt:'ใบเสร็จ', customer:'ลูกค้า', product:'สินค้า', campaign:'แคมเปญ', channel:'ช่องทาง', duty:'หน้าที่', brand:'แบรนด์', user:'ผู้ใช้', daily:'ยอดขายรายวัน', monthly:'รายเดือน', segment:'กลุ่มลูกค้า', adCampaign:'แคมเปญแอด', ad:'แคมเปญแอด', po:'PO / สต็อก', target:'เป้า/คอม', auth:'ระบบ', data:'ข้อมูล', settings:'ตั้งค่า', system:'ระบบ' };
+const ENTITY_KEYS = ['task','flow','comment','order','receipt','customer','product','campaign','channel','duty','brand','user','daily','monthly','segment','ad','po','target','settings','data','auth'];
 const SEV_META = {
   info:   { l: 'ปกติ',   c: 'var(--info)' },
   warn:   { l: 'เตือน',   c: 'var(--warn)' },

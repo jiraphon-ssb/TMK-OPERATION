@@ -98,7 +98,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     const { error } = await supabase.from('tmk_mp_aliases').upsert(row, { onConflict: 'id' });
     setBusy(false);
     if (error) { window.__toast && window.__toast(noTable ? 'ต้องรัน migration tmk_mp_aliases ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    logAudit({ action: 'create', entityType: 'data', entityName: 'alias', summary: `ตั้ง alias ${form.kind} "${term}"${row.code ? ' → ' + row.code : ''}` });
+    logAudit({ action: 'create', entityType: 'product', entityName: 'alias', summary: `ตั้ง alias ${form.kind} "${term}"${row.code ? ' → ' + row.code : ''}` });
     setForm(null); const fresh = await load();
     // auto-scan ให้เห็นผลกับออเดอร์เก่าทันที (ไม่ต้องกด "ตรวจการจับคู่ใหม่" เอง · ไม่ต้องรอรอบนำเข้าถัดไป)
     const M = buildMatchers(GOLDEN_CATALOG_GRID, [row, ...aliases.filter(a => a.id !== row.id)]);
@@ -151,7 +151,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     }
     setRmBusy(false);
     const total = rematch.filled + rematch.fixed;
-    logAudit({ action: 'update', entityType: 'data', entityName: 're-match', summary: `จับคู่ลายใหม่ ${total} แถว (เติม ${rematch.filled} · แก้ ${rematch.fixed})` });
+    logAudit({ action: 'update', entityType: 'product', entityName: 're-match', summary: `จับคู่ลายใหม่ ${total} แถว (เติม ${rematch.filled} · แก้ ${rematch.fixed})` });
     clearSaleCache();
     window.__toast && window.__toast(fail ? `อัปเดต ${ok} กลุ่มสำเร็จ · ${fail} กลุ่มล้มเหลว` : `อัปเดตการจับคู่สำเร็จ ${ok} กลุ่ม (${total} แถว)`, fail ? 'warn' : 'success');
     // converge: โหลดสด แล้วสแกนซ้ำจากข้อมูลใหม่ — เหลือเฉพาะที่ยังไม่ตรงจริง (ไม่ "ขึ้นซ้ำ" ทั้งชุดเดิม)

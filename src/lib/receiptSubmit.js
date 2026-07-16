@@ -19,7 +19,7 @@ import { jobTypeFromNote, paymentKind } from './receiptParse.js';
 
 /* จับคู่ลาย/สี/ไซซ์ ให้ SKU ของใบเสร็จตอนเขียน — ใช้ catalog+alias ปัจจุบัน
    (แถวเก่าที่ยังว่างซ่อมได้ทีหลังด้วยปุ่ม "ตรวจการจับคู่ใหม่" ในแท็บคุณภาพข้อมูล) */
-async function loadReceiptMatcher() {
+export async function loadReceiptMatcher() {
   let aliases = [];
   try { const a = await supabase.from('tmk_mp_aliases').select('kind,term,code,design'); if (!a.error) aliases = a.data || []; } catch { /* ตารางยังไม่มี → ใช้ golden ล้วน */ }
   return buildMatchers(GOLDEN_CATALOG_GRID, aliases);
@@ -42,6 +42,25 @@ function enrichSku(row, M) {
     out.color = out.color || cs.color; out.size = out.size || cs.size;
   }
   return out;
+}
+
+// live re-match บรรทัดใบเสร็จ (review table) — จับคู่ลาย/ดึงรหัสสด ให้ตรงกับตอนเขียน (buildRows)
+// รับ line { code, name, color, size, qty, amount } → คืน line เดิม + code/design/color/size ที่ match ได้
+// M = loadReceiptMatcher() (โหลดครั้งเดียวแล้วส่งเข้ามา) · ถ้าไม่มี M คืน line เดิม (graceful)
+export function enrichReceiptLine(line, M) {
+  if (!line || !M) return line;
+  const sku = enrichSku({
+    product_code: String(line.code || ''), design: '', color: '', size: '',
+    raw_sku_or_name: String(line.name || ''), match_how: '',
+  }, M);
+  return {
+    ...line,
+    code: sku.product_code || line.code || '',
+    design: sku.design || line.design || '',
+    match_how: sku.match_how || line.match_how || '',
+    color: line.color || sku.color || '',
+    size: line.size || sku.size || '',
+  };
 }
 
 export const receiptId = (orderNo) => 'shipnity:' + String(orderNo || '').trim();
@@ -373,9 +392,10 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
   invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
   const sum = passed.reduce((s, p) => s + (p.orderRow.sales || 0), 0);
   logAudit({
-    action: 'create', entityType: 'data', entityName: 'ส่งยอดใบเสร็จ',
+    action: 'create', entityType: 'receipt', entityName: 'ส่งยอดใบเสร็จ',
     summary: `ส่งยอด ${nos.length} ใบ · ฿${sum.toLocaleString()} (${user.name || user.email})`,
     fields: [{ label: 'จำนวนใบ', value: String(nos.length) }, { label: 'ยอดรวม', value: `฿${sum.toLocaleString()}` }],
+    data: { count: nos.length, sales: sum, order_nos: nos.slice(0, 100) },
   });
   return { ok, skipped };
 }
@@ -493,7 +513,7 @@ export async function editReceipt(orig, edited, editor, { salespersonOverride = 
 
   invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
   logAudit({
-    action: 'edit', entityType: 'data', entityName: 'ใบเสร็จ ' + newNo,
+    action: 'update', entityType: 'receipt', entityName: 'ใบเสร็จ ' + newNo, entityId: receiptId(newNo),
     summary: `แก้ใบเสร็จ ${moved ? `${oldNo} → ${newNo}` : newNo} โดย ${editor.name || editor.email}`,
   });
   return { moved };
@@ -544,7 +564,7 @@ export async function voidReceipts(orderNos, { by = '', reason = '' } = {}) {
 export async function voidReceipt(receipt, { by, reason = '' } = {}) {
   const no = String(receipt.order_no).trim();
   await voidReceipts([no], { by: by || '', reason });
-  logAudit({ action: 'delete', entityType: 'data', entityName: 'ใบเสร็จ ' + no, summary: `ยกเลิกใบเสร็จ ${no}${reason ? ` — ${reason}` : ''} โดย ${by || ''}` });
+  logAudit({ action: 'delete', entityType: 'receipt', entityName: 'ใบเสร็จ ' + no, entityId: receiptId(no), severity: 'warn', summary: `ยกเลิกใบเสร็จ ${no}${reason ? ` — ${reason}` : ''} โดย ${by || ''}` });
 }
 
 /* ============================================================
@@ -577,5 +597,5 @@ export async function restoreReceipt(receipt, { by } = {}) {
     const { error } = await supabase.from('tmk_mp_skus').insert(built.skuRows); if (error) throw error;
   }
   invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus'); markSaleWrite('tmk_sale_receipts');
-  logAudit({ action: 'update', entityType: 'data', entityName: 'ใบเสร็จ ' + no, summary: `นำใบเสร็จ ${no} กลับมา โดย ${by || ''}` });
+  logAudit({ action: 'restore', entityType: 'receipt', entityName: 'ใบเสร็จ ' + no, entityId: receiptId(no), summary: `นำใบเสร็จ ${no} กลับมา โดย ${by || ''}` });
 }

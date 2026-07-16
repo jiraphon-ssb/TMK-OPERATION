@@ -494,7 +494,7 @@ function CustomerDetail({ c, onClose, onSaved }) {
       }
       if (error) { toast('บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
       toast('บันทึกโปรไฟล์แล้ว', 'success');
-      logAudit({ action: 'update', entityType: 'data', entityName: 'crm', summary: `แก้โปรไฟล์ลูกค้า ${row.name || c.key}` });
+      logAudit({ action: 'update', entityType: 'customer', entityName: row.name || c.key, summary: `แก้โปรไฟล์ลูกค้า ${row.name || c.key}` });
       invalidateSaleCache('tmk_mp_customers');
       onSaved?.(c.key, row);
       setEditing(false);

@@ -268,7 +268,7 @@ export function ShirtCatalogView() {
       }
       if (error) { toast(noTable ? 'ต้องรัน migration tmk_shirt_catalog ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
       toast(edit.id ? 'แก้ไขแล้ว' : 'เพิ่มสินค้าแล้ว', 'success');
-      logAudit({ action: edit.id ? 'update' : 'create', entityType: 'data', entityName: 'catalog', summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}` });
+      logAudit({ action: edit.id ? 'update' : 'create', entityType: 'product', entityName: 'catalog', summary: `${edit.id ? 'แก้ไข' : 'เพิ่ม'}แคตตาล็อก ${row.code || row.name}` });
       logCatalogVersion(row);   // 10D — snapshot เวอร์ชัน (fire-and-forget, เงียบถ้าตารางยังไม่มี)
       // อัปเดต state in-place + invalidate cache — ไม่ refetch ทั้งชุดทุกครั้งที่แก้เสื้อ 1 ตัว (ลด egress)
       invalidateSaleCache('tmk_shirt_catalog');
@@ -284,7 +284,7 @@ export function ShirtCatalogView() {
     const { error } = await supabase.from('tmk_shirt_catalog').delete().eq('id', delTarget.id);
     if (error) { toast('ลบไม่สำเร็จ', 'error'); return; }
     toast('ลบแล้ว', 'success');
-    logAudit({ action: 'delete', entityType: 'data', entityName: 'catalog', summary: `ลบแคตตาล็อก ${delTarget.code || delTarget.name}` });
+    logAudit({ action: 'delete', entityType: 'product', entityName: 'catalog', summary: `ลบแคตตาล็อก ${delTarget.code || delTarget.name}` });
     invalidateSaleCache('tmk_shirt_catalog');
     setItems(prev => (prev || []).filter(x => x.id !== delTarget.id));
     setDelTarget(null); setEdit(null);
@@ -312,7 +312,7 @@ export function ShirtCatalogView() {
       ok += chunk.length;
     }
     setImporting(false); toast(`นำเข้า ${ok} ลายแล้ว — แก้ไขเติมราคา/สี/ไซซ์ได้เลย`, 'success');
-    logAudit({ action: 'create', entityType: 'data', entityName: 'catalog', summary: `นำเข้าลายเสื้อจากตาราง ${ok} ลาย` });
+    logAudit({ action: 'create', entityType: 'product', entityName: 'catalog', summary: `นำเข้าลายเสื้อจากตาราง ${ok} ลาย` });
     invalidateSaleCache('tmk_shirt_catalog'); load(true);
   };
 

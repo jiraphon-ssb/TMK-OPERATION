@@ -8,7 +8,7 @@ import { TMK } from './data.js';
 import { Icon, Avatar } from './components.jsx';
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { logAudit } from './lib/audit.js';
+import { logAudit, diffFields } from './lib/audit.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -508,7 +508,20 @@ export function RolesView() {
         if (window.__toast) window.__toast('บันทึกรูป/ชื่อใน staff ไม่สำเร็จ: ' + e2.message, 'warn');
       }
 
-      logAudit({ action: 'update', entityType: 'user', entityName: editing, summary: `แก้ไขผู้ใช้ ${editName} (${editing})` });
+      // before→after สิทธิ์ (security-critical) — role + หน้าที่ล็อก
+      const before = users.find(x => x.email === editing) || {};
+      const lockLabel = (arr) => (Array.isArray(arr) && arr.length ? `${arr.length} หน้า (${arr.join(', ')})` : 'ไม่ล็อก');
+      const roleChanges = diffFields(
+        { role: before.role, locks: before.lockedSections || [] },
+        { role: editRole, locks: editRole === 'admin' ? [] : editLocks },
+        [['role', 'สิทธิ์'], { key: 'locks', label: 'หน้าที่ล็อก', fmt: lockLabel }],
+      );
+      logAudit({
+        action: 'update', entityType: 'user', entityName: editing,
+        severity: roleChanges.some(c => c.label === 'สิทธิ์') ? 'warn' : undefined, // เปลี่ยน role = สำคัญ
+        summary: `แก้ไขผู้ใช้ ${editName} (${editing})`,
+        changes: roleChanges.length ? roleChanges : null,
+      });
 
       // === 3. Force reload data (in case realtime doesn't fire) ===
       if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
@@ -545,6 +558,7 @@ export function RolesView() {
           try {
             await supabase.from('tmk_user_roles').update({ deleted_at: null }).eq('email', email);
             await supabase.from('tmk_staff').update({ deleted_at: null }).eq('email', email);
+            logAudit({ action: 'restore', entityType: 'user', entityName: email, summary: `กู้คืนผู้ใช้ ${email}` });
             if (refresh) await refresh(['tmk_user_roles', 'tmk_staff']); else if (reload) await reload();
             window.__toast?.('กู้คืนผู้ใช้แล้ว', 'success');
           } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }

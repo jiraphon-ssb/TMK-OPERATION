@@ -6,6 +6,7 @@
    - "as-imported": แก้ override/re-match ภายหลังไม่อัปเดต rollup → รายงานละเอียด = source of truth
    ============================================================ */
 import { supabase } from './supabaseClient.js';
+import { logAudit } from './audit.js';
 
 const num = (v) => Number(v) || 0;
 
@@ -44,6 +45,8 @@ export async function writeMonthlyRollup(master) {
     if (!rows.length) return true;
     const { error } = await supabase.from('tmk_monthly_rollup').upsert(rows, { onConflict: 'id' });
     if (error) return false;
+    const months = [...new Set(rows.map(r => r.month).filter(Boolean))].sort();
+    logAudit({ action: 'update', entityType: 'monthly', entityName: months.join(', ') || 'rollup', summary: `อัปเดตสรุปรายเดือน ${rows.length} แถว (${months.join(', ')})`, data: { rows: rows.length, months } });
     return true;
   } catch { return false; }
 }

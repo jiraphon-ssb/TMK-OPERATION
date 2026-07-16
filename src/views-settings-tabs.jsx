@@ -9,7 +9,7 @@ import { Icon } from './components.jsx';
 import { useData, computeMonth } from './dataContext.jsx';
 import { MonthPicker } from './components/MonthPicker.jsx';
 import { supabase } from './lib/supabaseClient.js';
-import { logAudit } from './lib/audit.js';
+import { logAudit, diffFields } from './lib/audit.js';
 import { useNotifications, prefOn as notifStorePrefOn, setPref as notifStoreSetPref } from './lib/notifStore.js';
 import { fetchTargets, saveTarget } from './lib/targets.js';
 import { APP_VERSION } from './changelog.js';
@@ -306,7 +306,8 @@ export function TargetsView() {
       window.__toast?.(miss ? 'ต้องรัน migration 20260701-targets.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error');
       return false;
     }
-    logAudit({ action: 'update', entityType: 'target', entityName: name, summary: `ตั้งเป้า/คอม ${name} เดือน ${month}` });
+    const tChanges = diffFields(baseline[name], { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate') }, [['sales_target', 'เป้ายอด'], ['commission_rate', 'เรตคอม %']]);
+    logAudit({ action: 'update', entityType: 'target', entityName: name, summary: `ตั้งเป้า/คอม ${name} เดือน ${month}`, changes: tChanges.length ? tChanges : null });
     setBaseline(b => ({ ...b, [name]: { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate') } }));
     return true;
   };
