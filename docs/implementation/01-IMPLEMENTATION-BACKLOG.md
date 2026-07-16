@@ -8,7 +8,7 @@
 ## 🔴 CRITICAL
 
 ### SEC-1 · SECURITY DEFINER functions ขาด `set search_path`
-- **Severity:** Critical (security) · **สถานะ:** ✅ **DONE** (migration `20260715-fix-secdef-search-path.sql` · Phase 1 · user รันแล้ว)
+- **Severity:** Critical (security) · **สถานะ:** ✅ **DONE + VERIFIED บน prod** (Q2 C1: definer funcs ทุกตัวมี `search_path` ครบ · `tmk_admin_set_password` ตรวจแล้ว = ปลอดภัย: revoke anon + admin-check ในฟังก์ชัน)
 - **หลักฐาน:** `supabase/migrations/20260713-sale-rpc.sql` (`tmk_delete_orders`, `tmk_void_receipts`, `tmk_restore_receipts`, `tmk_crm_directory`) และ `20260714-delete-cleanup.sql` (`tmk_delete_orders`) ประกาศ `security definer` **ไม่มี** `set search_path`. ฟังก์ชัน definer อื่น (`20260610/20260611/20260615`) ตั้ง search_path ถูก → 2 ไฟล์นี้เป็นข้อยกเว้น
 - **Impact:** Security = search-path hijack บน RPC สิทธิ์สูง (ลบ/void/restore ออเดอร์/ใบเสร็จ) · Data = ถ้าถูก exploit อาจเรียกฟังก์ชันปลอม · Business = ท่อลบ/คืนออเดอร์
 - **แนวทางแก้:** สร้าง migration ใหม่ `CREATE OR REPLACE FUNCTION … SET search_path = public` ทั้ง 5 ฟังก์ชัน (ไม่แก้ไฟล์เดิม · idempotent)
@@ -29,7 +29,7 @@
 ## 🟠 HIGH
 
 ### RT-1 · `tmk_audit_logs` subscribe แต่ไม่อยู่ใน realtime publication
-- **Severity:** High · **สถานะ:** ✅ **DONE** (migration `20260715-fix-audit-log-realtime.sql` · Phase 1 · user รันแล้ว)
+- **Severity:** High · **สถานะ:** ✅ **DONE + VERIFIED บน prod** (Q2 D: publication มี `tmk_audit_logs` จริง)
 - **หลักฐาน:** `src/views-log.jsx:222` subscribe INSERT บน `tmk_audit_logs` แต่ไม่มี migration ไหน `alter publication supabase_realtime add table tmk_audit_logs` (grep = ว่าง) — ต่างจาก `tmk_task_comments`/`tmk_notifications` ที่ publish แล้ว
 - **Impact:** หน้า "บันทึกกิจกรรม" ไม่ได้รับ event สด (เงียบ · degrade)
 - **แนวทางแก้:** migration ใหม่ idempotent `if not exists (…pg_publication_tables…) then alter publication supabase_realtime add table tmk_audit_logs`
@@ -48,14 +48,15 @@
 - **Migration:** ไม่ · **Complexity:** ต่ำ (ops)
 
 ### RLS-1 · ตรวจ RLS ต่อ role จริง (ไม่ใช่แค่ซ่อน UI)
-- **Severity:** High (security) · **สถานะ:** NEEDS-DECISION (ต้อง prod access)
-- **หลักฐาน:** สิทธิ์ฝั่ง client = `window.__canEdit`/`__isAdmin` + `lockedSections` (UI gate). เอกสาร `43-RLS-POLICY-REGISTER` เป็น boilerplate ไม่ระบุ policy จริง → ยืนยันจาก repo ไม่ได้ว่าแต่ละตาราง `tmk_*` เปิด RLS + policy ต่อ role ครบ
-- **แนวทางแก้:** ต้องมี `pg_policies` dump จาก prod + ทดสอบ API ต่อ role · **Migration:** อาจต้องเพิ่ม policy ถ้าพบช่อง · **Complexity:** สูง (Phase 1 verification)
+- **Severity:** 🔴 **Critical (ยืนยันแล้ว)** · **สถานะ:** **CONFIRMED + FIX READY** (2026-07-16 · รอ deploy FE → รัน migration)
+- **ผลตรวจ prod (Q2 section A):** `rls_enabled = false` **ทุกตาราง tmk_*** → สิทธิ์ทั้งหมดเป็น client-side ล้วน · anon key (สาธารณะใน bundle) อ่าน/เขียนทุกตารางผ่าน REST ได้ตรง = ข้อมูลลูกค้า/ยอดขายเปิดโล่งระดับ DB
+- **Fix (Tier 1 · ร่างแล้ว):** `supabase/migrations/20260716-enable-rls-tier1.sql` — เปิด RLS ทุกตาราง + policy `authenticated`-only + views `security_invoker` + **RPC สาธารณะ 2 ตัว** (`tmk_public_track`, `tmk_public_flow_bundle` · SECURITY DEFINER จำกัดคอลัมน์/เงื่อนไข) แทนหน้า track/share ที่เคยอ่าน anon ตรง
+- **FE พร้อมแล้ว (มี fallback = ก่อนรัน migration ทุกอย่างเหมือนเดิม):** dataContext โหลดหลังมี session + reload ตอน SIGNED_IN (กัน login แล้วแอปว่าง) · PublicTrackPage + PublicFlowShare เรียก RPC ก่อน-fallback อ่านตรง
+- **⚠️ ลำดับ deploy:** merge → Vercel deploy เสร็จ → **ค่อยรัน** 20260716 → ทดสอบ (login ใหม่/realtime/track/share) · rollback อยู่ท้ายไฟล์ migration
+- **Tier 2 (ภายหลัง):** policy ละเอียดต่อ role (admin/editor/viewer ระดับ DB) — ต้อง test matrix ต่อตาราง×role
 
 ### MIG-1 · Migration deploy-state + destructive drop
-- **Severity:** High · **สถานะ:** NEEDS-DECISION (ต้อง prod access)
-- **หลักฐาน:** 8 ไฟล์ future/unverified รวม `20260831-drop-stock-crm.sql` (`drop table cascade` กู้ไม่ได้ · แต่ FE ไม่อ้าง `tmk_purchase_orders`/stock-crm แล้ว = สอดคล้อง)
-- **แนวทางแก้:** เทียบ `schema_migrations` prod + backup ก่อนตัดสินใจ deploy drop · **ห้ามรัน migration ในขั้นนี้** · **Complexity:** กลาง (verification)
+- **Severity:** High · **สถานะ:** ✅ **CLOSED + VERIFIED** (Q2 E2: ตาราง stock-crm ทั้งหมด **ไม่มีแล้ว** = `20260831-drop-stock-crm.sql` deploy ไปแล้ว · ไม่มี migration destructive ค้าง · Q2 G: schema-tolerant columns ครบ)
 
 ### TEST-1 · ไม่มี component/integration/E2E test
 - **Severity:** High · **สถานะ:** PARTIAL (unit/characterization 6→11 ไฟล์ · 55→125 · ครอบ money+วันที่+ยอดขาย 2 แหล่ง · Phase 8+6 · เหลือ component/E2E env)
