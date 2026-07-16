@@ -67,6 +67,26 @@ async function loadList(email) {
   else setState({ loaded: true });
 }
 
+// Phase 1 (realtime scale): patch list จาก realtime payload แทน reload ทั้งชุด — pure reducer (testable)
+// INSERT → prepend (dedup by id · cap) · UPDATE → patch by id (เฉพาะที่มีใน list) · DELETE → remove by id
+export function reduceNotifList(list, payload, cap = 300) {
+  const type = payload?.eventType || payload?.type;
+  const row = payload?.new, old = payload?.old;
+  if (type === 'INSERT') {
+    if (!row?.id || list.some(n => n.id === row.id)) return list;
+    return [row, ...list].slice(0, cap);
+  }
+  if (type === 'UPDATE') {
+    if (!row?.id) return list;
+    return list.some(n => n.id === row.id) ? list.map(n => (n.id === row.id ? { ...n, ...row } : n)) : list;
+  }
+  if (type === 'DELETE') {
+    const id = old?.id;
+    return id != null && list.some(n => n.id === id) ? list.filter(n => n.id !== id) : list;
+  }
+  return list;
+}
+
 // ---------- init / teardown (เรียกจาก App ครั้งเดียวต่อ email) ----------
 export async function initNotifStore(email) {
   if (!email || inited === email) return;
@@ -76,9 +96,16 @@ export async function initNotifStore(email) {
   await Promise.all([loadList(email), loadPrefs(email)]);
   if (!supabase) return;
   try {
+    let didSubscribe = false; // ครั้งแรก = โหลดจาก initNotifStore แล้ว · SUBSCRIBED รอบถัดไป = reconnect → resync
     channel = supabase.channel('notif:' + email)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_notifications', filter: `user_email=eq.${email}` }, () => { rtDiag.event('tmk_notifications'); loadList(email); })
-      .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_notifications', filter: `user_email=eq.${email}` }, (payload) => {
+        rtDiag.event('tmk_notifications');
+        const next = reduceNotifList(state.list, payload); // Phase 1: patch row เดียว ไม่ reload ทั้ง list
+        if (next !== state.list) setState({ list: next });
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') { if (didSubscribe) loadList(email); didSubscribe = true; } // reconnect scoped sync (กัน event gap)
+      });
     rtDiag.channelOpen('notif:' + email); // Phase 0 baseline (dev-only)
   } catch { /* ignore */ }
 }
