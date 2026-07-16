@@ -5,6 +5,7 @@
    - key = "<salesperson>::<YYYY-MM>" (salesperson = ชื่อหลัง alias ให้ตรง bySalesperson.key)
    ============================================================ */
 import { supabase } from './supabaseClient.js';
+import { logAudit } from './audit.js';
 
 export const targetId = (salesperson, month) => `${salesperson}::${month}`;
 
@@ -37,7 +38,9 @@ export async function saveTarget({ salesperson, month, sales_target = 0, commiss
 
 /** ลบเป้า (ตั้งค่ากลับเป็น 0 = ลบแถว) */
 export async function deleteTarget(salesperson, month) {
-  return supabase.from('tmk_targets').delete().eq('id', targetId(salesperson, month));
+  const res = await supabase.from('tmk_targets').delete().eq('id', targetId(salesperson, month));
+  if (!res.error) logAudit({ action: 'delete', entityType: 'target', entityName: salesperson, severity: 'warn', summary: `ลบเป้า/คอม ${salesperson} เดือน ${month}` });
+  return res;
 }
 
 /**

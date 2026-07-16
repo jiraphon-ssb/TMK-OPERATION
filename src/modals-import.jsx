@@ -214,7 +214,7 @@ export function MpImportModal({ onClose, onDone }) {
       await writeMonthlyRollup(master);
       // 5) ล้างแคช sale เฉพาะตารางที่เพิ่งเขียน → dashboard เห็นข้อมูลใหม่โดยไม่ต้อง hard-reload
       invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
-      logAudit({ action: 'create', entityType: 'data', entityName: 'รายงานรวมข้ามช่อง', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }] });
+      logAudit({ action: 'create', entityType: 'order', entityName: 'นำเข้ามาร์เก็ตเพลส', summary: `นำเข้ารายงานรวม ${master.length} ออเดอร์ · ${sku.length} SKU (${overall})`, fields: [{ label: 'ออเดอร์', value: `${N(master.length)}` }, { label: 'ยอดขาย', value: baht(result.sum.sales) }], data: { orders: master.length, skus: sku.length } });
       toast(`บันทึกแล้ว: ${master.length} ออเดอร์ · ${sku.length} SKU`, 'success');
       onDone?.(); onClose();
     } catch (err) {

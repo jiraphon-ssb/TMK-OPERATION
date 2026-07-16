@@ -44,10 +44,13 @@ async function applyOrderReservations(order) {
     // re-derive จากค่าล่าสุด: เอา reservation เดิมของออเดอร์นี้ออกแล้วใส่ของใหม่ (optimistic-lock กัน lost update)
     return mutateProductReservations(pid, (cur) => [...cur.filter(r => r.orderId !== order.id), rsv]);
   }).filter(Boolean));
+  const nProd = Object.keys(byProd).length;
+  if (nProd) logAudit({ action: 'reserve', entityType: 'po', entityName: `ออเดอร์ ${order.code || order.id}`, summary: `จองสต็อก ${nProd} สินค้า (ออเดอร์ ${order.code || order.id})`, data: { orderId: order.id, products: nProd } });
 }
 async function releaseOrderReservations(orderId) {
   const affected = (MD.products || []).filter(p => (p.reservations || []).some(r => r.orderId === orderId));
   await Promise.all(affected.map(p => mutateProductReservations(p.id, (cur) => cur.filter(r => r.orderId !== orderId))));
+  if (affected.length) logAudit({ action: 'release', entityType: 'po', entityName: `ออเดอร์ ${orderId}`, summary: `ปล่อยจองสต็อก ${affected.length} สินค้า (ออเดอร์ ${orderId})`, data: { orderId, products: affected.length } });
 }
 // คำนวณการตัดสต็อก (FIFO) — ไม่เขียน DB → คืน batch updates + audit + จำนวนที่ตัดได้
 // (เขียนจริงแบบ atomic ใน advanceOrderStatus ผ่าน RPC tmk_fulfill_order)

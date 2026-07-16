@@ -291,7 +291,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     const { error } = await supabase.from('tmk_sku_overrides').upsert(row, { onConflict: 'key' });
     setBusy(false);
     if (error) { window.__toast && window.__toast(/relation|does not exist|schema cache/i.test(error.message) ? 'ต้องรัน migration tmk_sku_overrides ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    logAudit({ action: 'update', entityType: 'data', entityName: o.order_no, summary: `แก้ลายบรรทัด "${s.raw_sku_or_name}" → ${linePick.design}` });
+    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, entityId: o.order_no, summary: `แก้ลายบรรทัด "${s.raw_sku_or_name}" → ${linePick.design}` });
     window.__toast && window.__toast('แก้ลายบรรทัดนี้แล้ว — มีผลทันที ไม่ต้อง reimport', 'success');
     setLineEdit(null); onSaved && onSaved();
   };

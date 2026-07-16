@@ -5,7 +5,7 @@
    ยอดขึ้นชื่อ "คนที่ล็อกอิน" (user ที่ส่งเข้ามา) เสมอ
    PART 63: แบ่ง 2 ส่วน (ขาย / ลูกค้า) + หลายรายการต่อออเดอร์ + เลือกลาย/สี/ไซซ์จากสินค้า (หรือพิมพ์เอง)
    (แยกเป็นไฟล์อิสระ — กัน circular import ระหว่าง views-2 ↔ views-sale-submit) */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { Icon } from './components.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
@@ -100,11 +100,14 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
   const hasValidLine = f.lines.some(l => N(l.qty) >= 1 && lineAmount(l) > 0);
   const valid = f.channel && hasValidLine && effectiveTotal > 0;
 
+  // idempotency: order_no ที่สร้างเองต้อง "คงที่ต่อการกรอก 1 ใบ" — retry (เน็ตหลุด/กดซ้ำ) ใช้เลขเดิม → confirmReceipts กันซ้ำด้วย unique order_no (ไม่เกิดยอดเบิ้ล) · เคลียร์เมื่อบันทึกสำเร็จ
+  const genOnoRef = useRef(null);
   const save = async () => {
     if (!valid) { toast('เลือกช่องทาง + ใส่รายการ (ลาย/จำนวน/ราคา) ให้ครบก่อน', 'warn'); return; }
     setBusy(true);
     try {
-      const ono = f.order_no.trim().toUpperCase().replace(/\s+/g, '') || ('MN' + (Date.now().toString(36) + Math.random().toString(36).slice(2, 5)).toUpperCase());   // suffix สุ่ม กันชนใน ms เดียว
+      const typed = f.order_no.trim().toUpperCase().replace(/\s+/g, '');
+      const ono = typed || (genOnoRef.current ||= 'MN' + (Date.now().toString(36) + Math.random().toString(36).slice(2, 5)).toUpperCase());   // stable ต่อ session (กันซ้ำตอน retry)
       const lines = f.lines
         .filter(l => N(l.qty) >= 1 && lineAmount(l) > 0)
         .map(l => ({
@@ -125,8 +128,9 @@ export function ManualSaleSheet({ user, onClose, onSaved }) {
       };
       const res = await confirmReceipts([item], { email: user?.email || '', name: user?.name || '' });
       if (res.skipped.length) { toast(`บันทึกไม่ได้: ${res.skipped[0].reason}`, 'error'); return; }
-      logAudit({ action: 'create', entityType: 'data', entityName: 'เพิ่มออเดอร์', summary: `เพิ่มออเดอร์ ${ono} · ${lines.length} รายการ · ${fmtB(item.total)} (${user?.name || user?.email})` });
+      logAudit({ action: 'create', entityType: 'order', entityName: `ออเดอร์ ${ono}`, summary: `เพิ่มออเดอร์ ${ono} · ${lines.length} รายการ · ${fmtB(item.total)} (${user?.name || user?.email})`, data: { order_no: ono, lines: lines.length, total: item.total } });
       toast(`บันทึกแล้ว ${ono} ✓ — คีย์ต่อได้เลย`, 'success');
+      genOnoRef.current = null; // สำเร็จแล้ว → ใบถัดไปได้เลขใหม่
       onSaved?.();
       // เคลียร์เฉพาะรายการ/ยอด/ลูกค้า — คงวันที่/ช่องทาง/งาน/ชำระ ไว้คีย์ต่อเร็ว
       setF(p => ({ ...blank(), order_date: p.order_date, channel: p.channel, job_type: p.job_type, payment: p.payment }));
