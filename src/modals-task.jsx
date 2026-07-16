@@ -3,6 +3,7 @@ import { Icon, FlowIcon } from './components.jsx';
 import { DatePicker } from '@/components/ui/date-picker';
 import { supabase } from './lib/supabaseClient.js';
 import { rtDiag } from './realtime/diagnostics.js';
+import { reduceCommentList } from './lib/commentThread.js';
 import { parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -336,9 +337,13 @@ function TaskComments({ taskId, flow, onUnavailable }) {
     if (!supabase) return;
     let ch = null;
     try {
+      let didSub = false;
       ch = supabase.channel('cmts-' + taskId)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_task_comments', filter: `task_id=eq.${taskId}` }, () => { rtDiag.event('tmk_task_comments'); loadComments(); })
-        .subscribe();
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'tmk_task_comments', filter: `task_id=eq.${taskId}` }, (payload) => {
+          rtDiag.event('tmk_task_comments');
+          setList(prev => reduceCommentList(prev, payload)); // Phase 1: patch comment เดียว ไม่ reload ทั้ง thread
+        })
+        .subscribe((status) => { if (status === 'SUBSCRIBED') { if (didSub) loadComments(); didSub = true; } }); // reconnect scoped resync
       rtDiag.channelOpen('cmts:' + taskId); // Phase 0 baseline (dev-only)
     } catch { /* ignore */ }
     return () => { if (ch) { rtDiag.channelClose('cmts:' + taskId); try { supabase.removeChannel(ch); } catch { /* ignore */ } } };
