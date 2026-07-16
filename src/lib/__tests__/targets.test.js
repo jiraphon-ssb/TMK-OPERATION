@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { commissionFor, targetsByPerson, targetId } from '../targets.js';
+import { commissionFor, commissionDisplay, targetsByPerson, targetId } from '../targets.js';
 
 // Characterization tests — ล็อกพฤติกรรมสูตร "คอมมิชชั่น" (money-critical) ก่อน refactor
 describe('commissionFor', () => {
@@ -32,6 +32,26 @@ describe('commissionFor', () => {
   });
   it('ข้าม tier ที่ rate = null', () => {
     expect(commissionFor(1000, { tiers: [{ min: 0, rate: null }, { min: 0, rate: 4 }] })).toBe(40);
+  });
+});
+
+describe('commissionDisplay — decision เป้า/คอม (SellerCard 3 กรณี)', () => {
+  it('มีเป้ายอด → mode target', () => {
+    expect(commissionDisplay({ target: 10000, comm: 300, tgt: { sales_target: 10000, commission_rate: 3 } }))
+      .toEqual({ mode: 'target', comm: 300 });
+  });
+  it('ไม่มีเป้ายอด แต่มีคอม (flat rate) → mode commOnly + rateLabel เรต', () => {
+    expect(commissionDisplay({ target: 0, comm: 292.29, tgt: { sales_target: 0, commission_rate: 3 } }))
+      .toEqual({ mode: 'commOnly', comm: 292.29, rateLabel: 'เรต 3%' });
+  });
+  it('ไม่มีเป้ายอด คอมแบบขั้นบันได → rateLabel = ขั้นบันได', () => {
+    expect(commissionDisplay({ target: 0, comm: 500, tgt: { tiers: [{ min: 0, rate: 5 }] } }).rateLabel)
+      .toBe('ขั้นบันได');
+  });
+  it('ไม่มีทั้งเป้าและคอม → mode none', () => {
+    expect(commissionDisplay({ target: 0, comm: 0 })).toEqual({ mode: 'none' });
+    expect(commissionDisplay({})).toEqual({ mode: 'none' });
+    expect(commissionDisplay(null)).toEqual({ mode: 'none' });
   });
 });
 

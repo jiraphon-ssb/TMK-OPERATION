@@ -14,7 +14,7 @@ import {
 } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
-import { fetchTargets, commissionFor } from './lib/targets.js';
+import { fetchTargets, commissionFor, commissionDisplay } from './lib/targets.js';
 import { fmtBaht } from './lib/money.js';
 import { buildPerf, NO_SELLER, curMonth, daysInMonth, dayOf, isCancelled, spOf, deltaPct } from './lib/salePerfAgg.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
@@ -132,6 +132,7 @@ function MultiSelect({ label, options, value, onChange }) {
 function SellerCard({ r, rank, share, onOpen, cmp }) {
   const noSeller = r.name === NO_SELLER;
   const medal = rank < 3 ? MEDAL[rank] : null;
+  const cd = commissionDisplay(r); // decision เป้า/คอม (แยก test ได้ · lib/targets)
   return (
     <div onClick={onOpen}
       className="group relative rounded-2xl border bg-card p-4 flex flex-col gap-3.5 cursor-pointer overflow-hidden transition-all hover:shadow-lg hover:shadow-black/[0.04] hover:-translate-y-0.5"
@@ -164,7 +165,7 @@ function SellerCard({ r, rank, share, onOpen, cmp }) {
         ))}
       </div>
       <LeadPanel compact title="" total={r.leads} nw={r.newOld?.new || 0} old={r.newOld?.old || 0} close={r.closeRate} />
-      {r.target > 0 ? (
+      {cd.mode === 'target' ? (
         <div>
           <div className="flex items-center justify-between text-xs mb-1">
             <span className="text-muted-foreground">เป้า {fmtB(r.target)}</span>
@@ -173,11 +174,11 @@ function SellerCard({ r, rank, share, onOpen, cmp }) {
           <Progress value={Math.min(100, r.pctTarget)} className="h-1.5" indicatorColor={r.sales >= r.target ? 'var(--good)' : 'var(--accent)'} />
           {r.comm > 0 && <div className="text-xs mt-1.5 text-muted-foreground">คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b> {cmp?.comm != null && dPill(cmp.comm)}</div>}
         </div>
-      ) : r.comm > 0 ? (
+      ) : cd.mode === 'commOnly' ? (
         /* ไม่มีเป้ายอด แต่ตั้ง % คอมไว้ → คิดคอมจากยอดขายทั้งหมด × เรต (ไม่มีแถบเป้า) */
         <div className="text-xs text-muted-foreground">
-          คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(r.comm)}</b>
-          <span className="ml-1">· {r.tgt && Array.isArray(r.tgt.tiers) && r.tgt.tiers.length ? 'ขั้นบันได' : `เรต ${Number(r.tgt?.commission_rate) || 0}%`}</span>
+          คอม <b className="num" style={{ color: 'var(--accent-2)' }}>{fmtB(cd.comm)}</b>
+          <span className="ml-1">· {cd.rateLabel}</span>
           {cmp?.comm != null && <> {dPill(cmp.comm)}</>}
         </div>
       ) : (!noSeller && window.__canEdit !== false && (

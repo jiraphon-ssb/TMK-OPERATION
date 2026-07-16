@@ -56,6 +56,25 @@ export function commissionFor(sales, target) {
   return s * (Number(target.commission_rate) || 0) / 100;
 }
 
+/**
+ * ตัดสินใจการ "แสดงคอม/เป้า" ต่อเซลล์ 1 คน (แยก decision จาก JSX ให้ test ได้)
+ * row = { target (sales_target บาท), comm (คอมบาท), tgt (object เป้า มี commission_rate/tiers) }
+ * → mode 'target'   = มีเป้ายอด → โชว์แถบเป้า+%+คอม
+ *   mode 'commOnly' = ไม่มีเป้ายอด แต่ตั้ง %คอม → โชว์คอมล้วน + rateLabel
+ *   mode 'none'     = ไม่มีทั้งคู่ → ปุ่มตั้งค่า
+ */
+export function commissionDisplay(row) {
+  const target = Number(row?.target) || 0;
+  const comm = Number(row?.comm) || 0;
+  if (target > 0) return { mode: 'target', comm };
+  if (comm > 0) {
+    const t = row?.tgt;
+    const tier = !!(t && Array.isArray(t.tiers) && t.tiers.length);
+    return { mode: 'commOnly', comm, rateLabel: tier ? 'ขั้นบันได' : `เรต ${Number(t?.commission_rate) || 0}%` };
+  }
+  return { mode: 'none' };
+}
+
 /** map salesperson → target object สำหรับ lookup เร็วใน leaderboard */
 export function targetsByPerson(rows) {
   const m = new Map();
