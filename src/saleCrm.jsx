@@ -14,6 +14,7 @@ import { channelColor } from './charts.jsx';
 import { SideSheet } from './modals-core.jsx';
 import { FormSection, DrawerGroup, DrawerField, Field } from './saleWidgets.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
+import { fmtBaht } from './lib/money.js';
 import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
@@ -32,7 +33,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuChe
 import { SearchInput } from '@/components/ui/search-input';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 
-const baht = (n) => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const baht = (n) => fmtBaht(Number(n) || 0); // decimal-aware กลาง (lib/money.js)
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const num = (v) => Number(v) || 0;
 const toast = (m, t) => window.__toast && window.__toast(m, t);

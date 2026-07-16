@@ -10,6 +10,7 @@ import { MpImportModal } from './modals-import.jsx';
 import { MetricCard, CountUp, GradientSparkline, ComboChart, StackedBars, HBars, DonutChart, Heatmap, channelColor, CAT_COLORS, Sparkline, AreaTrend } from './charts.jsx';
 import { ChannelLogo, channelTint } from './lib/channelLogos.jsx';
 import { compute, series, deltaKpi, movers, sizeRank, normColor, normSize, customerAgg, rfmTiers, geoBreakdown, regionBreakdown } from './lib/saleAgg.js';
+import { fmtBaht } from './lib/money.js';
 import { bucketKey, bucketLabel, enumerateBuckets, autoGran, presetRange, PRESETS, prevPeriod, prevCalendarMonth, isFullCalendarMonth, diffDays } from './lib/saleTime.js';
 import { todayISO } from './lib/dateUtils.js';
 import { CATALOG_TYPES } from './lib/catalogMeta.js';
@@ -151,7 +152,7 @@ function SectionHead({ title, sub }) {
   );
 }
 
-const baht = (n) => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const baht = (n) => fmtBaht(Number(n) || 0); // decimal-aware กลาง (lib/money.js)
 // สีจริงของชื่อสีไทย (ใช้กับแท่ง "ยอดขายแต่ละสี")
 const COLOR_HEX = { 'ขาว': '#dcdce0', 'ดำ': '#2a2a2e', 'กรม': '#1f2d50', 'กรมท่า': '#1f2d50', 'ฟ้า': '#4a8be0', 'น้ำเงิน': '#1f3aa0', 'เขียว': '#2f9e6e', 'เหลือง': '#e8c23b', 'แดง': '#c0392b', 'ชมพู': '#e06aa0', 'ม่วง': '#7c5cff', 'ส้ม': '#e0772f', 'โอรส': '#e0772f', 'ครีม': '#e6dcc2' };
 const tierTone = { 'เพชร': '#7c5cff', 'ทอง': '#e39b2e', 'เงิน': '#3aa0c9', 'ทองแดง': '#8a909c' };
