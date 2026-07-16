@@ -13,6 +13,7 @@ import { useSaleRealtime } from './lib/saleRealtime.js';
 import { ManualSaleSheet } from './ManualSaleSheet.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
+import { useRenderCount } from './realtime/useRenderCount.js';
 import { isAdmin, orderVisibleTo } from './lib/roleAccess.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
@@ -98,6 +99,7 @@ const ORDERS_SORT = {
 };
 
 function MpOrdersView() {
+  useRenderCount('orders'); // Phase 0 baseline (dev-only)
   const { staff } = useData();   // รายชื่อทีม → ตัวเลือกเซลล์ใน SellerCombobox (แพทเทิร์นเดียวกับ funnelSellers หน้า ส่งยอด)
   const [orders, setOrders] = useState(null);
   const [rawSkus, setRawSkus] = useState([]);          // SKU ดิบจาก DB (frozen) — resolve ตอนแสดงผล

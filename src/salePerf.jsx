@@ -16,6 +16,7 @@ import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchTargets, commissionFor, commissionDisplay } from './lib/targets.js';
 import { fmtBaht } from './lib/money.js';
+import { useRenderCount } from './realtime/useRenderCount.js';
 import { buildPerf, NO_SELLER, curMonth, daysInMonth, dayOf, isCancelled, spOf, deltaPct } from './lib/salePerfAgg.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
 import { Card } from '@/components/ui/card';
@@ -228,6 +229,7 @@ function DeepPanel({ r, onOpen }) {
 }
 
 export function SalePerfView() {
+  useRenderCount('salePerf'); // Phase 0 baseline (dev-only)
   const beat = useBeat(350);
   const [month, setMonth] = useState(curMonth());
   const [loading, setLoading] = useState(true);
