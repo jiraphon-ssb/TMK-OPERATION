@@ -130,7 +130,7 @@ export function HBars({ data, height = 240, unit = '', color, ariaLabel = 'ก�
       <BarChart data={items} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }} aria-label={ariaLabel}>
         <CartesianGrid {...GRID} horizontal={false} />
         <XAxis type="number" tick={TICK} {...AXP} />
-        <YAxis dataKey="label" type="category" width={90} tick={{ fill: 'var(--ink)', fontSize: 12 }} {...AXP} />
+        <YAxis dataKey="label" type="category" width={90} interval={0} tick={{ fill: 'var(--ink)', fontSize: 12 }} {...AXP} />
         <ChartTooltip content={<ChartTooltipContent hideLabel formatter={tipRow(v => `${Math.round(v).toLocaleString()}${unit ? ' ' + unit : ''}`)} />} />
         <Bar dataKey="value" name={unit || 'ค่า'} radius={[0, 5, 5, 0]} maxBarSize={22}>
           {items.map((d, i) => <Cell key={i} fill={d.color || color || '#4338ca'} />)}

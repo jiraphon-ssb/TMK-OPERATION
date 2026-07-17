@@ -8,6 +8,7 @@
 import { bucketKey, inRange, diffDays } from './saleTime.js';
 import { codeType } from './catalogMeta.js';
 import { normalizeProvince, regionCodeOf, REGIONS } from './provinces.js';
+import { restoreColorMarks } from './shirtCatalog.js';
 
 const num = (v) => Number(v) || 0;
 const has = (arr) => arr && arr.length > 0;
@@ -280,6 +281,6 @@ const _COLOR_ALIAS = { 'กรม': 'กรมท่า', 'กรมม่า': 
 export function normColor(c) {
   let t = String(c || '').replace(/\(ตราอปท\.?\)/g, '').trim();
   t = t.replace(/[\s-]+(?:XS|S|M|L|XL|[2-8]XL|F|Free)$/i, '').trim() || 'ไม่ระบุ'; // ตัดไซซ์ที่ปนท้ายสี เช่น "กรมท่า XL"/"กรมท่า-XL"
-  return _COLOR_ALIAS[t] || t;
+  return _COLOR_ALIAS[t] || restoreColorMarks(t); // กู้วรรณยุกต์หายจากฟอนต์ใบเสร็จ (ฟา→ฟ้า) — merge ข้อมูลเก่าใน DB ตอน aggregate
 }
 export const sizeRank = (s) => { const i = SIZE_ORDER.indexOf(normSize(s)); return i < 0 ? 99 : i; };
