@@ -10,7 +10,7 @@
    - TikTok  = นับเป็นออเดอร์ใหม่ (คนละระบบ)
    - ตัดออเดอร์ยกเลิกทิ้ง · รวมหลาย LOT เป็นลายเดียว (design_key)
 ============================================================================ */
-import { BUILTIN_DESIGN_ALIASES, COLOR_TH2CODE } from './shirtCatalog.js'; // คำพ้องชัวร์ → ฉีดเข้า matcher อัตโนมัติ (จันทกานต์→จันทร์, สีดำ-*→OEM)
+import { BUILTIN_DESIGN_ALIASES, COLOR_TH2CODE, restoreColorMarks } from './shirtCatalog.js'; // คำพ้องชัวร์ → ฉีดเข้า matcher อัตโนมัติ (จันทกานต์→จันทร์, สีดำ-*→OEM)
 
 // รหัสสี → ชื่อสีไทย (invert COLOR_TH2CODE · เลือกชื่อยาวกว่าเมื่อรหัสซ้ำ เช่น N→กรมท่า, OR→โอรส เพื่อให้ตรงแคตตาล็อกหลัก)
 const CODE2COLOR_TH = (() => { const m = {}; for (const [th, code] of Object.entries(COLOR_TH2CODE)) if (!(code in m) || th.length > m[code].length) m[code] = th; return m; })();
@@ -227,14 +227,14 @@ export const MP_COLOR_WORDS = new Set([
   'ม่วง', 'ส้ม', 'เทา', 'น้ำตาล', 'ครีม', 'โอรส', 'ทอง', 'เงิน', 'บานเย็น', 'เลือดหมู',
   'กากี', 'ขาวอมเหลือง', 'เขียวขี้ม้า', 'ฟ้าอ่อน', 'เทาอ่อน',
 ]);
-// ตัดคำนำ "สี" เพื่อ normalize: สีฟ้า→ฟ้า, สีดำ→ดำ
+// ตัดคำนำ "สี" เพื่อ normalize: สีฟ้า→ฟ้า, สีดำ→ดำ + กู้วรรณยุกต์หายจากฟอนต์ใบเสร็จ (ฟา→ฟ้า, มวง→ม่วง)
 export function cleanColor(tok) {
   const t = String(tok || '').trim();
   if (!t) return '';
   const COLOR_MAP = { 'กรม': 'กรมท่า', 'กรมม่า': 'กรมท่า', 'กรมม่วง': 'กรมท่า', 'กรมทา': 'กรมท่า' };
   const clean = (s) => {
     const c = s.trim().replace(/^สี/, '').trim();
-    return COLOR_MAP[c] || c;
+    return COLOR_MAP[c] || restoreColorMarks(c);
   };
   return t.split(/[-/]/).map(clean).filter(Boolean).join('-') || t;
 }

@@ -62,6 +62,33 @@ export const GOLDEN_DESIGNS = [
 // สีไทย → โค้ดสีในรหัสสินค้า (เชื่อชื่อไทยเป็นหลัก — โค้ด WH ในตารางใช้มั่ว)
 export const COLOR_TH2CODE = { 'ขาว':'WH','ดำ':'BK','กรม':'N','กรมท่า':'N','ฟ้า':'S','น้ำเงิน':'B','เขียว':'G','เหลือง':'Y','แดง':'RD','ชมพู':'PK','ม่วง':'PP','ส้ม':'OR','โอรส':'OR','ครีม':'C' };
 
+/* ── กู้วรรณยุกต์/สระที่หายจากฟอนต์ใบเสร็จ (map เป็น \0 แล้วถูก strip): ฟ้า→"ฟา", ม่วง→"มวง" ──
+   กู้ generic ไม่ได้ แต่ "สี" เป็นคำศัพท์ปิด → สร้าง map ค่าเพี้ยน→ค่าถูก ล่วงหน้าแบบ deterministic
+   ใช้ทั้งฝั่งเขียน (cleanColor ตอน derive ใบเสร็จ/import) และฝั่งอ่าน (normColor ตอน aggregate — ครอบข้อมูลเก่าใน DB) */
+const THAI_COLOR_CANON = [
+  ...Object.keys(COLOR_TH2CODE),
+  'เทา', 'น้ำตาล', 'ทอง', 'เงิน', 'บานเย็น', 'เลือดหมู', 'กากี', 'ขาวอมเหลือง', 'เขียวขี้ม้า', 'ฟ้าอ่อน', 'เทาอ่อน',
+];
+const _stripMarks = (s) => s.replace(/[ัิ-ฺ็-๎]/g, ''); // สระบน-ล่าง + วรรณยุกต์ (combining)
+export const COLOR_LOST_MARK_MAP = (() => {
+  const canon = new Set(THAI_COLOR_CANON);
+  const m = {};
+  for (const c of [...THAI_COLOR_CANON].sort((a, b) => b.length - a.length)) { // ยาวก่อน → ฟ้าอ่อน ชนะ ฟ้า เมื่อ key ซ้อน
+    for (const v of new Set([_stripMarks(c), _stripMarks(c).replace(/ำ/g, 'า')])) { // + เคสนิคหิตหาย: ดำ→ดา, น้ำ→นา
+      if (v && v !== c && !canon.has(v) && !(v in m)) m[v] = c;
+    }
+  }
+  return m;
+})();
+/** คืนชื่อสีที่กู้วรรณยุกต์แล้ว (รองรับสีผสม "ดำ-ฟา") — ไม่ใช่สีที่รู้จัก = คืนค่าเดิม */
+export function restoreColorMarks(t) {
+  const s = String(t || '').trim();
+  if (!s) return s;
+  if (COLOR_LOST_MARK_MAP[s]) return COLOR_LOST_MARK_MAP[s];
+  if (/[-/]/.test(s)) return s.split(/([-/])/).map(p => COLOR_LOST_MARK_MAP[p.trim()] || p).join('');
+  return s;
+}
+
 // รหัส Shopee/MP เก่าที่ตารางลายเสื้อไม่มี → ชื่อลาย (เติมเองเพิ่มได้) — เฉพาะที่มั่นใจ
 export const LEGACY_CODE_ALIAS = { 'FTC111':'TRICOT ชาย','C01':'จันทร์','C03':'กนก','C04':'ชบา','C06':'ดอกบัว','B01':'จันทร์','B03':'กนก','B04':'ชบา','B05':'สิริราช','A02':'ยาม','JJK110':'จันทร์-อปท' };
 

@@ -117,13 +117,24 @@ export function WhatsNewPage() {
               <span className="cap" style={{ color: 'var(--ink-4)', marginLeft: 'auto' }}>{u.date}</span>
             </div>
             {items.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                {items.map((it, j) => (
-                  <div key={j} className="row" style={{ gap: 9, alignItems: 'flex-start' }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: m.c, marginTop: 6, flexShrink: 0 }} />
-                    <span className="sm" style={{ lineHeight: 1.55 }}>{it}</span>
-                  </div>
-                ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {items.map((it, j) => {
+                  // item รองรับ 2 แบบ: string (แบบเก่า มี emoji นำ) หรือ { icon, text } (แบบใหม่ ใช้ไอคอน)
+                  const obj = it && typeof it === 'object';
+                  const text = obj ? it.text : it;
+                  return (
+                    <div key={j} className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
+                      {obj && it.icon ? (
+                        <span className="grid place-items-center rounded-md flex-none" style={{ width: 22, height: 22, marginTop: 1, background: `color-mix(in srgb, ${m.c} 14%, transparent)`, color: m.c }}>
+                          <Icon name={it.icon} className="size-3.5" />
+                        </span>
+                      ) : (
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: m.c, marginTop: 6, flexShrink: 0 }} />
+                      )}
+                      <span className="sm" style={{ lineHeight: 1.55 }}>{text}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </Card>
