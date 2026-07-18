@@ -26,7 +26,7 @@
      channel_hint/channel_token · customer_masked · warnings[]
    regression: node scripts/test-receipts.mjs [โฟลเดอร์ PDF]
    ============================================================ */
-import { PROVINCES } from './provinces.js';
+import { PROVINCES, PROVINCE_TH_SHORT, provinceFromPostcode } from './provinces.js';
 
 /* ---------- pdf.js loader (lazy — โหลดเมื่อใช้จริงเท่านั้น) ---------- */
 let _pdfjs = null;
@@ -265,11 +265,24 @@ function wrappedCont(body, custRow, xFrom, xTo, sc) {
 
 /* ---------- หา "จังหวัด" จากที่อยู่ (เทียบ list จริง 77 จังหวัด · เลือกชื่อที่ยาวสุดที่เจอ) ---------- */
 function provinceFrom(address) {
-  const a = normThai(address).replace(/\s/g, '');
+  const raw = normThai(address);
+  const a = raw.replace(/\s/g, '');
   if (!a) return '';
-  if (a.includes('กรุงเทพ')) return 'กรุงเทพมหานคร';   // ที่อยู่ กทม. มักเขียนสั้น ไม่มี "จ."/"มหานคร"
+  if (a.includes('กรุงเทพ') || a.includes('กทม')) return 'กรุงเทพมหานคร'; // ที่อยู่ กทม. มักเขียนสั้น ไม่มี "จ."/"มหานคร"
   let best = '';
   for (const p of PROVINCES) if (a.includes(p.th) && p.th.length > best.length) best = p.th;
+  if (!best) {
+    // ชั้น 2 — ชื่อย่อ (จ.อยุธยา/จ.ปทุม/จ.สุราษ ฯลฯ): ต้องมี "จ."/"จังหวัด" นำหน้า กันชนชื่อตำบล/อำเภอ/ชื่อคน (เช่น ต.อุบล)
+    for (const [s, full] of PROVINCE_TH_SHORT) {
+      if (new RegExp(`(จ\\.?|จังหวัด)${s}`).test(a)) return full;
+    }
+    // ชั้น 3 — รหัสไปรษณีย์ (เลข 5 หลักตัวสุดท้ายในที่อยู่): ครอบคลุมชื่อย่อไม่มี "จ." นำ/สะกดเพี้ยนทุกแบบ
+    const zips = raw.match(/(?:^|\D)(\d{5})(?:\D|$)/g);
+    if (zips) {
+      const z = zips[zips.length - 1].replace(/\D/g, '');
+      best = provinceFromPostcode(z) || '';
+    }
+  }
   return best;
 }
 
@@ -279,8 +292,9 @@ function provinceFrom(address) {
 const BASE_W = 612;           // ความกว้างหน้าเทมเพลตอ้างอิง (pt) — SC = pageW/BASE_W
 const DEF_RIGHT_COL = 300;    // fallback คอลัมน์ขวา (×SC) เมื่อหา label เลขที่เอกสารไม่เจอ
 
-/* รหัสสินค้า เช่น JSK02-BK-S · JJK111-N-XL · JDRR111-BK-M · JDB111-Y-2XL (ตัวอักษร≥2 + เลข + -ส่วน) */
-const CODE_RE = /^[A-Za-z]{2,}[0-9]{1,4}(-[A-Za-z0-9]{1,5}){1,3}$/;
+/* รหัสสินค้า เช่น JSK02-BK-S · JJK111-N-XL · JDRR111-BK-M · JDB111-Y-2XL · C04-BK-S
+   (ตัวอักษร≥1 + เลข + -ส่วน — prefix ตัวเดียวเจอจริงในหมวดเพิ่มเอง เช่น C04 ชบา · ปลอดภัยเพราะบังคับมี -ส่วน) */
+const CODE_RE = /^[A-Za-z]{1,}[0-9]{1,4}(-[A-Za-z0-9]{1,5}){1,3}$/;
 // รหัสเปล่าไม่มี suffix สี-ไซซ์ (เช่น JSK02 · OEM111) — ยอมรับเฉพาะเมื่ออยู่ "คอลัมน์รหัส" (กันชนคำในชื่อสินค้า)
 const CODE_PLAIN_RE = /^[A-Za-z]{2,6}[0-9]{1,4}$/;
 const DATE_PAREN_RE = /^\(?\s*\d{1,2}\/\d{1,2}\/\d{4}\s*\)?$/; // บรรทัดวันที่ผลิต "(02/07/2026)" → ทิ้ง
@@ -336,6 +350,14 @@ function parseLineTable(rows, sc, rightCol) {
   );
   const bodyRows = rows.filter(r => r.y < headerRow.y - 4 * sc && r.y > bottomY + 4 * sc);
 
+  // วันที่ในวงเล็บใต้รายการ "(14/07/2026)" — ปกติทิ้ง แต่เก็บไว้เป็น fallback วันที่ใบ
+  // (ใบที่เซลล์ไม่กรอกวันที่หัวใบ: วันที่รายการคือวันสั่งจริง ดีกว่าใช้วันอัปโหลด)
+  const lineDates = [];
+  for (const r of bodyRows) {
+    const t = r.text.trim();
+    if (DATE_PAREN_RE.test(t)) { const d = parseThaiDate(t.replace(/[()]/g, '')); if (d) lineDates.push(d); }
+  }
+
   // แถวหลัก = มีตัวเลข ≥2 ในโซนขวา (ราคา/ยอด) · ที่เหลือ = เศษ (รหัส/ชื่อห่อ/วันที่)
   const mainRows = [], otherRows = [];
   for (const r of bodyRows) {
@@ -343,7 +365,7 @@ function parseLineTable(rows, sc, rightCol) {
     if (nums.length >= 2) { r._nums = nums; mainRows.push(r); }
     else otherRows.push(r);
   }
-  if (!mainRows.length) return { lines: [], found: true };
+  if (!mainRows.length) return { lines: [], found: true, lineDates };
   mainRows.sort((a, b) => b.y - a.y); // บน→ล่าง
 
   // จับเศษเข้ากับแถวหลักที่ y ใกล้สุด (รหัสอยู่บรรทัดเหนือ · ชื่อห่ออยู่เหนือ/ใต้ · วันที่ทิ้ง)
@@ -410,7 +432,7 @@ function parseLineTable(rows, sc, rightCol) {
     }
     lines.push({ code, name: normThai(name), qty: Math.max(0, Math.round(qty ?? 0)), unit_price: price ?? 0, discount: disc ?? 0, amount: amt ?? 0 });
   }
-  return { lines: lines.filter(l => l.qty > 0 || l.amount > 0), found: true };
+  return { lines: lines.filter(l => l.qty > 0 || l.amount > 0), found: true, lineDates };
 }
 
 function parsePage(rows, pageNo, pageW) {
@@ -425,7 +447,7 @@ function parsePage(rows, pageNo, pageW) {
   const rightCol = docLabel ? Math.max(60 * sc, docLabel.x - 30 * sc) : DEF_RIGHT_COL * sc;
 
   const docNoHit = valueAfterLabel(body, L.docNo, { labelMinX: rightCol, sc });
-  const { lines } = parseLineTable(body, sc, rightCol);
+  const { lines, lineDates = [] } = parseLineTable(body, sc, rightCol);
 
   /* ---- สรุปยอด + การชำระ/ขนส่ง/รหัสส่วนลด + หมายเหตุ — คำนวณ "ก่อน" เช็คใบหลัก/หน้าต่อ
      ใบยาวข้ามหน้า: สรุปยอด/หมายเหตุพิมพ์อยู่หน้าสุดท้าย (ซึ่งไม่มีเลขที่เอกสาร = หน้าต่อ)
@@ -486,7 +508,11 @@ function parsePage(rows, pageNo, pageW) {
   // เวลาบนใบ (เช่น "02/07/2026 09:10") — เก็บไว้ครบ ไม่ทิ้ง
   const tm = /(\d{1,2}):(\d{2})/.exec(thDigits(dateRaw));
   const order_time = tm ? `${tm[1].padStart(2, '0')}:${tm[2]}` : '';
-  if (!order_date) {
+  if (!order_date && lineDates.length) {
+    // หัวใบไม่มีวันที่ แต่รายการสินค้ามีวันที่ในวงเล็บ "(14/07/2026)" = วันสั่งจริง → ใช้วันล่าสุด
+    order_date = lineDates.slice().sort().pop();
+    warnings.push('ไม่มีวันที่หัวใบ — ใช้วันที่จากรายการสินค้า (แก้ได้)');
+  } else if (!order_date) {
     // วันที่ว่างบนใบ (เซลล์ไม่กรอกใน Shipnity) → เติมวันที่อัปโหลด (วันนี้) + เตือนให้ตรวจ (แก้ได้ในตาราง)
     order_date = todayISO();
     warnings.push('ไม่มีวันที่บนใบ — ใช้วันที่อัปโหลด (แก้ได้)');
