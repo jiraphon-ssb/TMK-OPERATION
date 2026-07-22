@@ -1,7 +1,8 @@
 /* ============================================================
    TMK Operation — "ประสิทธิภาพเซลล์" (Salesperson Performance)
    ============================================================
-   รายเดือน + รายวัน ละเอียดต่อคน — ทุกคนเห็นทุกคน (โปร่งใส/แข่งขัน · Q&A)
+   รายเดือน + รายวัน ละเอียดต่อคน — แยกรายคน (แบบหน้าออเดอร์/ส่งยอด · roleAccess):
+   แอดมินเห็นทั้งทีม · เซลล์ (editor/viewer) เห็นเฉพาะของตัวเอง (salesperson = ชื่อ/อีเมล)
    - แหล่งข้อมูลเดียวกับรายงานขาย: tmk_mp_orders (ตัด cancelled) + tmk_sales_funnel + targets + tmk_sale_receipts
    - เทียบเดือนก่อน (▲▼%) + Sparkline/Heatmap แนวโน้มรายวัน (Q&A เลือก)
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
@@ -15,6 +16,8 @@ import {
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchTargets, commissionFor, commissionDisplay } from './lib/targets.js';
+import { useUser } from './userContext.jsx';
+import { isAdmin, myNamesOf, orderVisibleTo } from './lib/roleAccess.js';
 import { fmtBaht } from './lib/money.js';
 import { useRenderCount } from './realtime/useRenderCount.js';
 import { buildPerf, NO_SELLER, curMonth, daysInMonth, dayOf, isCancelled, spOf, deltaPct } from './lib/salePerfAgg.js';
@@ -231,6 +234,10 @@ function DeepPanel({ r, onOpen }) {
 export function SalePerfView() {
   useRenderCount('salePerf'); // Phase 0 baseline (dev-only)
   const beat = useBeat(350);
+  // แยกรายคน: admin เห็นทั้งทีม · เซลล์เห็นเฉพาะของตัวเอง — reactive useUser (ไม่ใช้ window.__isAdmin ที่ lag first render)
+  const { user } = useUser();
+  const canSeeAll = isAdmin(user);
+  const mineSet = useMemo(() => new Set(myNamesOf(user)), [user]);
   const [month, setMonth] = useState(curMonth());
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevFull: null });
@@ -288,25 +295,34 @@ export function SalePerfView() {
   useEffect(() => { let live = true; loadResolverMaps(supabase).then(m => { if (live) setMaps(m); }); return () => { live = false; }; }, []);
   useSaleLiveReload(['tmk_sale_receipts', 'tmk_sales_funnel', 'tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides'], () => load(true), { invalidate: ['tmk_mp_orders', 'tmk_mp_skus', 'tmk_order_overrides', 'tmk_sales_funnel'] });
 
-  // ช่องทางทั้งหมด (ทำ option ตัวกรอง)
-  const channels = useMemo(() => [...new Set((data.orders || []).map(o => o.channel).filter(Boolean))].sort(), [data.orders]);
+  // ช่องทางทั้งหมด (ทำ option ตัวกรอง) — เซลล์เห็นเฉพาะช่องทางที่ตัวเองมียอด
+  const channels = useMemo(() => [...new Set((data.orders || []).filter(o => canSeeAll || orderVisibleTo(o, user)).map(o => o.channel).filter(Boolean))].sort(), [data.orders, canSeeAll, user]);
   // ชื่อลาย resolve สด (catalog→alias→golden→frozen + as-of) — ตรงแดชบอร์ด/CRM · คง color/size เดิม
   const resolvedSkus = useMemo(() => {
     if (!maps) return data.skus;
     const R = makeSkuResolver(maps);
     return (data.skus || []).map(k => { const r = R(k); return { ...k, design: r.design || k.design, product_code: r.product_code || k.product_code }; });
   }, [data.skus, maps]);
-  // กรองช่องทาง → orders/skus ที่กรองแล้ว (ใช้ทั้ง buildPerf + drill-down รายวันรายออเดอร์)
+  // กรองช่องทาง + scope "แยกรายคน" → orders/skus ที่กรองแล้ว (ใช้ทั้ง buildPerf + drill-down รายวันรายออเดอร์)
+  // scope ที่ต้นทางตรงนี้ (ไม่ใช่ rowsView) — DayDetail/DaySellerDetail รับ ordersF/skusF ตรง → ไม่รั่วออเดอร์คนอื่นตอนเจาะรายวัน
   const { ordersF, skusF } = useMemo(() => {
     const chSet = channelF.length ? new Set(channelF) : null;
-    return {
-      ordersF: chSet ? data.orders.filter(o => chSet.has(o.channel)) : data.orders,
-      skusF: chSet ? resolvedSkus.filter(k => chSet.has(k.channel)) : resolvedSkus,
-    };
-  }, [data.orders, resolvedSkus, channelF]);
+    let os = chSet ? data.orders.filter(o => chSet.has(o.channel)) : data.orders;
+    if (!canSeeAll) os = os.filter(o => orderVisibleTo(o, user));      // predicate เดียวกับหน้าออเดอร์
+    let ks = chSet ? resolvedSkus.filter(k => chSet.has(k.channel)) : resolvedSkus;
+    if (!canSeeAll) { const keep = new Set(os.map(o => o.order_no)); ks = ks.filter(k => keep.has(k.order_no)); } // sku ไม่มี salesperson — join ผ่าน order_no
+    return { ordersF: os, skusF: ks };
+  }, [data.orders, resolvedSkus, channelF, canSeeAll, user]);
+  // funnel/receipts มี field salesperson (ชื่อ staff) เหมือน orders → กรองด้วย mineSet
+  const funnelF = useMemo(() => canSeeAll ? data.funnel : (data.funnel || []).filter(f => mineSet.has(f.salesperson)), [data.funnel, canSeeAll, mineSet]);
+  const receiptsF = useMemo(() => canSeeAll ? data.receipts : (data.receipts || []).filter(r => mineSet.has(r.salesperson)), [data.receipts, canSeeAll, mineSet]);
+  const prevOrdersF = useMemo(() => {
+    const po = data.prevFull?.orders || [];
+    return canSeeAll ? po : po.filter(o => orderVisibleTo(o, user));
+  }, [data.prevFull, canSeeAll, user]);
   // prev = prevFull.orders (merge override แล้ว) → MoM delta ต่อเซลล์สะท้อน override ตรงกับ dashboard (เดิมใช้ prevOrders select แคบ merge ไม่ได้)
-  const perf = useMemo(() => buildPerf(month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevFull?.orders),
-    [month, ordersF, skusF, data.funnel, data.receipts, targets, data.prevFull]);
+  const perf = useMemo(() => buildPerf(month, ordersF, skusF, funnelF, receiptsF, targets, prevOrdersF),
+    [month, ordersF, skusF, funnelF, receiptsF, targets, prevOrdersF]);
   // โหมดเทียบเดือนก่อน: กรองช่องทาง + clamp วัน (MTD) แล้วรัน buildPerf รอบ 2
   const isCurMonth = month === curMonth();
   const daysPassed = isCurMonth ? Math.min(new Date().getDate(), daysInMonth(month)) : daysInMonth(month);
@@ -316,11 +332,15 @@ export function SalePerfView() {
     const pm = prevMonthOf(month);
     const chSet = channelF.length ? new Set(channelF) : null;
     const clampDay = mtdClamp ? daysPassed : Infinity;
-    const po = data.prevFull.orders.filter(o => (!chSet || chSet.has(o.channel)) && dayOf(o.order_date) <= clampDay);
-    const ps = data.prevFull.skus.filter(k => (!chSet || chSet.has(k.channel)) && dayOf(k.order_date) <= clampDay);
-    const pf = data.prevFull.funnel.filter(f => dayOf(f.date) <= clampDay);
+    // scope เดือนก่อนด้วยกติกาเดียวกัน — delta/กราฟเทียบไม่รั่วยอดคนอื่น
+    let po = data.prevFull.orders.filter(o => (!chSet || chSet.has(o.channel)) && dayOf(o.order_date) <= clampDay);
+    if (!canSeeAll) po = po.filter(o => orderVisibleTo(o, user));
+    let ps = data.prevFull.skus.filter(k => (!chSet || chSet.has(k.channel)) && dayOf(k.order_date) <= clampDay);
+    if (!canSeeAll) { const keep = new Set(po.map(o => o.order_no)); ps = ps.filter(k => keep.has(k.order_no)); }
+    let pf = data.prevFull.funnel.filter(f => dayOf(f.date) <= clampDay);
+    if (!canSeeAll) pf = pf.filter(f => mineSet.has(f.salesperson));
     return buildPerf(pm, po, ps, pf, [], prevTargets, []);
-  }, [data.prevFull, channelF, mtdClamp, daysPassed, month, prevTargets]);
+  }, [data.prevFull, channelF, mtdClamp, daysPassed, month, prevTargets, canSeeAll, user, mineSet]);
   // delta ต่อเซลล์ (ยอด/ออเดอร์/ตัว/AOV/คอม/คนทัก/%ปิด) — เทียบ perf กับ perfPrev (match ด้วยชื่อ)
   const deltasByName = useMemo(() => {
     const m = new Map();
@@ -381,7 +401,7 @@ export function SalePerfView() {
   const drillSheets = (
     <>
       {dayDrill && <SideSheet size="lg" icon="user" title={dayDrill.name === NO_SELLER ? 'ไม่ระบุเซลล์' : dayDrill.name} sub={`วันที่ ${dayDrill.day} ${monthLabel(month)}`} onClose={() => setDayDrill(null)}>
-        <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={data.funnel} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />
+        <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={funnelF} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />
       </SideSheet>}
       {dayAll && <SideSheet size="lg" icon="calendarDays" title={`วันที่ ${dayAll} ${monthLabel(month)}`} sub="ออเดอร์ทั้งวัน" onClose={() => setDayAll(null)}>
         <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} />
@@ -411,9 +431,10 @@ export function SalePerfView() {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-semibold">ประสิทธิภาพเซลล์</span>
             <SourceBadge kind="analytics" />
+            {!canSeeAll && <Badge variant="outline" className="gap-1 text-[11px] text-muted-foreground"><Icon name="user" className="size-3" />เฉพาะของฉัน</Badge>}
             {loading && perf.rows.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />กำลังอัปเดต…</span>}
             <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
-            <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />
+            {canSeeAll && <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />}
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className={'h-8 gap-1.5' + (nFilters ? ' border-[var(--accent)] text-[var(--accent-2)]' : '')}>
                 <Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
@@ -431,23 +452,29 @@ export function SalePerfView() {
           <CollapsibleContent>
             <div className="flex items-center gap-2 flex-wrap pt-3 mt-3 border-t">
               <MultiSelect label="ช่องทาง" options={channels} value={channelF} onChange={setChannelF} />
-              <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal' + (onlyTargets ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')} onClick={() => setOnlyTargets(v => !v)}>{onlyTargets ? '✓ ' : ''}เฉพาะที่มีเป้า</Button>
-              <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal' + (hideNoSeller ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')} onClick={() => setHideNoSeller(v => !v)}>{hideNoSeller ? '✓ ' : ''}ซ่อนไม่ระบุเซลล์</Button>
+              {/* ตัวกรองระดับทีม — มีความหมายเฉพาะตอนเห็นหลายคน (admin) */}
+              {canSeeAll && <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal' + (onlyTargets ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')} onClick={() => setOnlyTargets(v => !v)}>{onlyTargets ? '✓ ' : ''}เฉพาะที่มีเป้า</Button>}
+              {canSeeAll && <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal' + (hideNoSeller ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')} onClick={() => setHideNoSeller(v => !v)}>{hideNoSeller ? '✓ ' : ''}ซ่อนไม่ระบุเซลล์</Button>}
             </div>
           </CollapsibleContent>
         </Collapsible>
       </Card>
 
       {loading && !perf.rows.length ? <PerfSkeleton bodyOnly /> : !perf.rows.length ? (
-        <Card className="p-8 text-center text-sm text-muted-foreground">ยังไม่มีข้อมูลยอดเดือนนี้ — ส่งใบเสร็จ/คีย์มือในหน้า "ส่งยอด &amp; ข้อมูล" แล้วจะขึ้นที่นี่</Card>
+        <Card className="p-8 text-center text-sm text-muted-foreground">{canSeeAll ? 'ยังไม่มีข้อมูลยอดเดือนนี้ — ส่งใบเสร็จ/คีย์มือในหน้า "ส่งยอด & ข้อมูล" แล้วจะขึ้นที่นี่' : 'ยังไม่มียอดของคุณในเดือนนี้ — ส่งใบเสร็จ/คีย์มือในหน้า "ส่งยอด & ข้อมูล" แล้วจะขึ้นที่นี่'}</Card>
       ) : !rowsView.length ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">ไม่พบเซลล์ตามตัวกรอง · <button className="text-[var(--accent)] hover:underline" onClick={() => { setQ(''); clearFilters(); }}>ล้างตัวกรอง</button></Card>
+      ) : !canSeeAll ? (
+            /* เซลล์: หน้าเดียวจบ — รายละเอียดเต็มของตัวเองทันที (KPI · คนทัก · เป้า/คอม · กราฟรายวันกดเจาะ · %ปิดต่อช่องทาง · ช่องทาง/ลาย) ไม่ต้องกด "ดูรายละเอียดเต็ม" */
+            <Card className="p-4 sm:p-5">
+              <SpDetail sp={focus} cmp={deltasByName.get(focus.name)} onDay={(day) => setDayDrill({ name: focus.name, day })} />
+            </Card>
       ) : (
             <div className="flex flex-col gap-4">
               {/* การ์ดสรุปทีมด้านบน (ยอดรวม/ออเดอร์/AOV) + คนทัก แยกการ์ดย่อย — เคารพตัวกรอง+ค้นหา */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-xl border p-3">
-                  <div className="text-[11px] text-muted-foreground">ยอดขายรวม <InfoTip text="ยอดขายรวมของทีม (เคารพตัวกรอง+ค้นหา) · จากยอดที่เซลล์กรอก/ใบเสร็จ · ตัดออเดอร์ที่ยกเลิกออกแล้ว" /></div>
+                  <div className="text-[11px] text-muted-foreground">ยอดขายรวม <InfoTip text={canSeeAll ? 'ยอดขายรวมของทีม (เคารพตัวกรอง+ค้นหา) · จากยอดที่เซลล์กรอก/ใบเสร็จ · ตัดออเดอร์ที่ยกเลิกออกแล้ว' : 'ยอดขายของคุณ (เคารพตัวกรอง) · จากยอดที่กรอก/ใบเสร็จ · ตัดออเดอร์ที่ยกเลิกออกแล้ว'} /></div>
                   <div className="num text-xl font-bold leading-tight mt-0.5" style={{ color: 'var(--accent-2)' }}>{fmtB(teamView.sales)}</div>
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.sales)}</div>}
                 </div>
@@ -462,7 +489,7 @@ export function SalePerfView() {
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.aov)}</div>}
                 </div>
               </div>
-              <div className="rounded-xl border p-3"><LeadPanel title="คนทักทั้งทีม" total={teamView.leads} nw={teamView.newLeads} old={teamView.oldLeads} close={teamView.closeRate} /></div>
+              <div className="rounded-xl border p-3"><LeadPanel title={canSeeAll ? 'คนทักทั้งทีม' : 'คนทักของฉัน'} total={teamView.leads} nw={teamView.newLeads} old={teamView.oldLeads} close={teamView.closeRate} /></div>
               <TrendCard rows={rowsView} dim={perf.dim} month={month} onOpenDay={setDayAll}
                 prevSeries={perfPrev ? Array.from({ length: perf.dim }, (_, i) => perfPrev.rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0)) : null}
                 prevLabel={perfPrev ? monthLabel(prevMonthOf(month)) : null} />
