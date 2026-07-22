@@ -9,7 +9,7 @@ import { SideSheet } from './modals-core.jsx';
 import { MpImportModal } from './modals-import.jsx';
 import { MetricCard, CountUp, GradientSparkline, ComboChart, StackedBars, HBars, DonutChart, Heatmap, channelColor, CAT_COLORS, Sparkline, AreaTrend } from './charts.jsx';
 import { ChannelLogo, channelTint } from './lib/channelLogos.jsx';
-import { compute, series, deltaKpi, movers, sizeRank, normColor, normSize, customerAgg, rfmTiers, geoBreakdown, regionBreakdown } from './lib/saleAgg.js';
+import { compute, series, deltaKpi, movers, pareto, sizeRank, normColor, normSize, customerAgg, rfmTiers, geoBreakdown, regionBreakdown } from './lib/saleAgg.js';
 import { fmtBaht } from './lib/money.js';
 import { useRenderCount } from './realtime/useRenderCount.js';
 import { bucketKey, bucketLabel, enumerateBuckets, autoGran, presetRange, PRESETS, prevPeriod, prevCalendarMonth, isFullCalendarMonth, diffDays } from './lib/saleTime.js';
@@ -157,6 +157,8 @@ function SectionHead({ title, sub, right }) {
 const baht = (n) => fmtBaht(Number(n) || 0); // decimal-aware กลาง (lib/money.js)
 // สีจริงของชื่อสีไทย (ใช้กับแท่ง "ยอดขายแต่ละสี")
 const COLOR_HEX = { 'ขาว': '#dcdce0', 'ดำ': '#2a2a2e', 'กรม': '#1f2d50', 'กรมท่า': '#1f2d50', 'ฟ้า': '#4a8be0', 'น้ำเงิน': '#1f3aa0', 'เขียว': '#2f9e6e', 'เหลือง': '#e8c23b', 'แดง': '#c0392b', 'ชมพู': '#e06aa0', 'ม่วง': '#7c5cff', 'ส้ม': '#e0772f', 'โอรส': '#e0772f', 'ครีม': '#e6dcc2' };
+// สีตามวิธีชำระ (donut สัดส่วนธุรกิจ) — โอน=เขียว COD=ส้ม อื่นๆ=CAT_COLORS
+const PAY_HEX = { 'โอน': '#2f9e6e', 'COD': '#e0772f', 'เก็บปลายทาง': '#e0772f', 'มาร์เก็ตเพลส': '#7c5cff', 'บัตร': '#4a8be0' };
 const tierTone = { 'เพชร': '#7c5cff', 'ทอง': '#e39b2e', 'เงิน': '#3aa0c9', 'ทองแดง': '#8a909c' };
 
 /* Skeleton ตรง layout แดชบอร์ดจริง: แถบกรอง + hero (ยอด+กราฟ | การ์ดช่องทาง) + KPI4 sparkline + insight + เจาะลึก + แท็บ + กราฟเทรนด์ */
@@ -454,8 +456,9 @@ export function SaleDashboard() {
     const inR = (d) => (!range.from || d >= range.from) && (!range.to || d <= range.to);
     const fr = (funnel || []).filter(r => inR(r.date) && (!f.salesperson.length || f.salesperson.includes(r.salesperson)));
     if (!fr.length) return null;
-    const sumK = (key) => fr.reduce((a, r) => a + (Number(r[key]) || 0), 0);
-    const totalLeads = sumK('leads_fb_new') + sumK('leads_fb_old') + sumK('leads_line_new') + sumK('leads_line_old');
+    // นับคนทักรวมผ่าน funnelTotal → รองรับทั้ง 3 ฟอร์แมต (jsonb ใหม่/เก่า + legacy 4 คอลัมน์)
+    // เดิมบวกเฉพาะ leads_fb_*/leads_line_* (legacy) → พลาดข้อมูลที่เก็บเป็น jsonb (ฟอร์แมตปัจจุบัน) = โชว์ 0%
+    const totalLeads = fr.reduce((a, r) => a + funnelTotal(r), 0);
     const funnelSps = new Set(fr.map(r => r.salesperson));
     const orders = (A._ords || []).filter(o => funnelSps.has(o.salesperson)).length;
     return { totalLeads, orders, pct: totalLeads ? Math.round(orders / totalLeads * 100) : 0 };
@@ -697,6 +700,87 @@ export function SaleDashboard() {
               return <HBars data={top} unit="ตัว" height={310} />;
             })()}
           </Card>
+        </div>
+
+        {/* ===== สัดส่วนธุรกิจ (การชำระ · ประเภทงาน · หมวดสินค้า) — จากมิติที่ saleAgg คำนวณอยู่แล้ว ===== */}
+        <SectionHead title="สัดส่วนธุรกิจ" sub="การชำระ · ประเภทงาน · หมวดสินค้า" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20, alignItems: 'start' }}>
+          {/* การชำระเงิน */}
+          <Card className="p-[22px]">
+            <CardTitle className="m-0 text-base font-semibold mb-[14px]">การชำระเงิน</CardTitle>
+            {A.byPayment.filter(p => p.sales > 0).length === 0
+              ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '24px 0', textAlign: 'center' }}>ไม่มีข้อมูล</div>
+              : <>
+                <div style={{ maxWidth: 220, margin: '0 auto' }}><DonutChart data={A.byPayment.filter(p => p.sales > 0).map((p, i) => ({ label: p.key, value: p.sales, color: PAY_HEX[p.key] || CAT_COLORS[i % CAT_COLORS.length] }))} height={180} /></div>
+                <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                  {A.byPayment.filter(p => p.sales > 0).map((p, i) => (
+                    <div key={p.key} className="row between" style={{ cursor: 'pointer' }} onClick={() => toggleFilter('payment_type', p.key)} title={`กรอง ${p.key}`}>
+                      <span className="row" style={{ gap: 6, fontSize: 13 }}><span style={{ width: 9, height: 9, borderRadius: 3, background: PAY_HEX[p.key] || CAT_COLORS[i % CAT_COLORS.length] }} />{p.key}</span>
+                      <span className="num cap" style={{ fontWeight: 600 }}>{baht(p.sales)} <span style={{ color: 'var(--ink-4)', fontWeight: 400 }}>{Math.round(p.share * 100)}%</span></span>
+                    </div>
+                  ))}
+                </div>
+              </>}
+          </Card>
+          {/* ประเภทงาน */}
+          <Card className="p-[22px]">
+            <CardTitle className="m-0 text-base font-semibold mb-[14px]">ประเภทงาน <span className="dim">· ตามยอดขาย</span></CardTitle>
+            {A.byJobType.filter(j => j.sales > 0).length === 0
+              ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '24px 0', textAlign: 'center' }}>ไม่มีข้อมูล</div>
+              : <HBars data={A.byJobType.filter(j => j.sales > 0).map(j => ({ label: j.key, value: j.sales }))} unit="บาท" height={Math.max(140, A.byJobType.filter(j => j.sales > 0).length * 46)} />}
+          </Card>
+          {/* หมวดสินค้า */}
+          <Card className="p-[22px]">
+            <CardTitle className="m-0 text-base font-semibold mb-[14px]">หมวดสินค้า <span className="dim">· ตามจำนวนตัว</span></CardTitle>
+            {A.byType.filter(t => t.qty > 0).length === 0
+              ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '24px 0', textAlign: 'center' }}>ไม่มีข้อมูล</div>
+              : <HBars data={A.byType.filter(t => t.qty > 0).slice(0, 10).map(t => ({ label: t.key, value: t.qty }))} unit="ตัว" height={Math.max(140, Math.min(10, A.byType.filter(t => t.qty > 0).length) * 34)} />}
+          </Card>
+        </div>
+
+        {/* ===== กฎ 80/20 + ดาวรุ่ง/ดาวร่วง ===== */}
+        <SectionHead title="ลายทำเงิน & แนวโน้ม" sub={cmp ? 'กฎ 80/20 · เทียบช่วงก่อน' : 'กฎ 80/20'} />
+        <div style={{ display: 'grid', gridTemplateColumns: cmp ? '1.2fr 1fr 1fr' : '1fr', gap: 20, alignItems: 'start' }}>
+          {/* Pareto 80/20 */}
+          {(() => {
+            const ranked = [...A.byDesign].filter(d => d.sales > 0).sort((a, b) => b.sales - a.sales);
+            const par = pareto(ranked, 'sales');
+            const idx80 = par.findIndex(x => x.cumPct >= 0.8);
+            const n80 = idx80 < 0 ? par.length : idx80 + 1;
+            return (
+              <Card className="p-[22px]">
+                <CardTitle className="m-0 text-base font-semibold mb-[4px]">กฎ 80/20 — ลายทำเงินหลัก</CardTitle>
+                {par.length === 0
+                  ? <div className="cap" style={{ color: 'var(--ink-4)', padding: '20px 0' }}>ยังไม่มีข้อมูลลาย</div>
+                  : <>
+                    <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 14 }}><b style={{ color: 'var(--accent)', fontSize: 20, fontWeight: 700 }}>{n80}</b> ลาย ทำ <b style={{ color: 'var(--ink)' }}>80%</b> ของยอด (จากทั้งหมด {N(par.length)} ลาย)</div>
+                    <div style={{ display: 'grid', gap: 7 }}>
+                      {par.slice(0, 8).map((d, i) => {
+                        const inTop = i < n80;
+                        return (
+                          <div key={d.key} className="row" style={{ gap: 10, alignItems: 'center', cursor: 'pointer', opacity: inTop ? 1 : 0.55 }} onClick={() => toggleFilter('design', d.key)} title={`กรองลาย ${d.key}`}>
+                            <span className="num" style={{ width: 18, textAlign: 'center', color: 'var(--ink-4)', fontWeight: 700 }}>{i + 1}</span>
+                            <span style={{ flex: '0 0 108px', fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.key}</span>
+                            <div style={{ flex: 1, height: 8, background: 'var(--surface-2)', borderRadius: 4, overflow: 'hidden' }}><div style={{ width: `${Math.round(d.cumPct * 100)}%`, height: '100%', background: inTop ? 'var(--accent)' : 'var(--ink-4)', borderRadius: 4 }} /></div>
+                            <span className="num cap" style={{ flex: '0 0 auto', minWidth: 46, textAlign: 'right', color: 'var(--ink-3)', fontWeight: 600 }}>{Math.round(d.cumPct * 100)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>}
+              </Card>
+            );
+          })()}
+          {/* ดาวรุ่ง/ดาวร่วง — เฉพาะตอนเทียบช่วง */}
+          {cmp && prevA && (() => {
+            const mv = movers(A.byDesign, prevA.byDesign, 'sales').filter(m => m.prev > 0 && m.cur > 0);
+            const risers = mv.slice(0, 5);
+            const fallers = mv.slice(-5).reverse().filter(m => m.d < 0);
+            return <>
+              <MoversCard title="ดาวรุ่ง (ลาย)" icon="up" tone="var(--good)" data={risers} />
+              <MoversCard title="ดาวร่วง (ลาย)" icon="down" tone="var(--bad)" data={fallers} />
+            </>;
+          })()}
         </div>
 
       </>)}

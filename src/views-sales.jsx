@@ -281,11 +281,13 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
               const yoyStr = yoyPct == null ? '—' : (yoyPct >= 0 ? '+' : '') + P(yoyPct, 0);
               const yoyColor = yoyPct == null ? 'var(--ink-3)' : yoyPct >= 0 ? 'var(--good)' : 'var(--bad)';
               return [['Run rate', C.RUN ? B(C.RUN) : '—', consts.TARGET && C.RUN >= consts.TARGET ? 'var(--good)' : 'var(--warn)'],
-              ['ออเดอร์', N(C.ORD)], ['AOV', C.ORD ? B(C.AOV) : '—'], [`YoY ${curAbbr}`, yoyStr, yoyColor]];
+              ['ออเดอร์', N(C.ORD)], ['AOV', C.ORD ? B(C.AOV) : '—'], [`YoY ${curAbbr}`, yoyStr, yoyColor, yoyPct == null]];
             })().map((x,i)=>(
               <div key={i}>
                 <div className="cap">{x[0]}</div>
                 <div className="num h3" style={{ color: x[2] || 'var(--ink)' }}>{x[1]}</div>
+                {/* YoY ยังไม่มีปีก่อน → ลิงก์กรอกย้อนหลัง (แทน "—" ตายๆ) */}
+                {x[3] && <button type="button" onClick={() => window.__openModal?.('historical')} className="cap" style={{ background: 'none', border: 'none', padding: 0, marginTop: 1, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} title="กรอกยอดปีก่อนเพื่อเทียบ YoY">＋ กรอกปีก่อน</button>}
               </div>
             ))}
           </div>
@@ -662,6 +664,42 @@ function SalesAds({ dateProps, md }) {
           </div>
         )}
       </Card>
+
+      {/* ผลตอบแทนแอดรวม (blended ROAS/ACOS) — จาก ACOS_TOT ที่คำนวณไว้แต่ไม่เคยแสดง */}
+      {(() => {
+        const C = md.computed;
+        const roas = C.AD > 0 ? C.MTD / C.AD : null;
+        const acos = C.ACOS_TOT;
+        const acosOk = C.AD <= 0 || acos <= consts.ACOS_CEIL;
+        return (
+          <Card className="p-[22px] mb-4">
+            <CardHeader className="flex-row items-center justify-between space-y-0 p-0 pb-4">
+              <CardTitle className="m-0 text-lg font-semibold flex items-center gap-2"><span style={{ color: 'var(--accent)' }}><Icon name="sales" /></span> {'ผลตอบแทนจากแอด (รวมทุกช่อง)'}</CardTitle>
+              <span className="cap">{'เพดาน'} ACOS {consts.ACOS_CEIL}%</span>
+            </CardHeader>
+            <div className="grid g4">
+              <div>
+                <div className="cap">ROAS {'รวม'}</div>
+                <div className="num h1" style={{ color: roas == null ? 'var(--ink-3)' : roas >= 3 ? 'var(--good)' : roas >= 2 ? 'var(--warn)' : 'var(--bad)' }}>{roas == null ? '—' : roas.toFixed(1) + 'x'}</div>
+                {roas != null && <span className="cap">{'ทุก ฿1 แอด → ฿' + roas.toFixed(1) + ' ยอด'}</span>}
+              </div>
+              <div>
+                <div className="cap">ACOS {'รวม'}</div>
+                <div className="num h1" style={{ color: C.AD <= 0 ? 'var(--ink-3)' : acosOk ? 'var(--good)' : 'var(--bad)' }}>{C.AD > 0 ? P(acos, 0) : '—'}</div>
+                <span className="cap">{'ค่าแอด ÷ ยอดขาย'}</span>
+              </div>
+              <div>
+                <div className="cap">{'ค่าแอดรวม'}</div>
+                <div className="num h1">{Bk(C.AD)}</div>
+              </div>
+              <div>
+                <div className="cap">{'ยอดขายรวม'}</div>
+                <div className="num h1">{Bk(C.MTD)}</div>
+              </div>
+            </div>
+          </Card>
+        );
+      })()}
 
       {/* แผงเปรียบเทียบตามช่องทาง — เลือกได้ มีผลเฉพาะแผงนี้ */}
       <Card className="p-[22px] mb-4" style={{ background: 'var(--surface-2)', border: '1px dashed var(--line-2)' }}>

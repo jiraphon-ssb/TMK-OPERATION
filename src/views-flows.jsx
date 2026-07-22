@@ -103,6 +103,8 @@ export function FlowsView({ sub, tasks, setTasks, activeFlow }) {
   const [busy, setBusy] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [query, setQuery] = useState(''); // ค้นหางานข้ามโครงการ (E4)
+  const [drill, setDrill] = useState(''); // เจาะดูงานตาม KPI: '' | 'open' | 'soon' | 'overdue'
+  const [flowSort, setFlowSort] = useState('default'); // จัดเรียงการ์ดโครงการ: default | progress | overdue | tasks
 
   const goView = (flowId, view) => { window.__setFlow?.(flowId); window.__goSection?.('flows', view || 'kanban'); };
 
@@ -144,17 +146,53 @@ export function FlowsView({ sub, tasks, setTasks, activeFlow }) {
   if (sub === 'overview' || !sub) {
     const openTask = (t) => window.__openModal?.('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] });
     const doneOfTask = (t) => doneSetOf(flows.find(f => (f.scopeId ?? f.id ?? '') === (t.flow || '')) || {}).has(t.status);
+    const dueOf = (t) => t.dateEnd || t.dateISO || '';
     const allTasks = TMK.tasks || [];
     const tdy = todayISO();
-    let kDone = 0, kOverdue = 0;
-    allTasks.forEach(t => { if (doneOfTask(t)) kDone++; else { const due = t.dateEnd || t.dateISO || ''; if (due && due < tdy) kOverdue++; } });
+    const weekEnd = (() => { const d = new Date(tdy + 'T00:00:00'); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
+    // จัดกลุ่มงานรอบเดียว: เสร็จ / ค้าง / เลยกำหนด / ครบใน 7 วัน
+    let kDone = 0;
+    const openTasks = [], overdueTasks = [], soonTasks = [];
+    allTasks.forEach(t => {
+      if (doneOfTask(t)) { kDone++; return; }
+      openTasks.push(t);
+      const due = dueOf(t);
+      if (due && due < tdy) overdueTasks.push(t);
+      else if (due && due <= weekEnd) soonTasks.push(t);
+    });
+    const donePct = allTasks.length ? Math.round(kDone / allTasks.length * 100) : 0;
     const kpis = [
-      { label: 'โครงการ', value: realFlows.length, tone: 'var(--ink-2)' },
-      { label: 'งานทั้งหมด', value: allTasks.length, tone: 'var(--ink-2)' },
-      { label: 'เสร็จแล้ว', value: kDone, tone: 'var(--good, #1f8a5b)' },
-      { label: 'ค้างอยู่', value: allTasks.length - kDone, tone: 'var(--info, #2563eb)' },
-      { label: 'เลยกำหนด', value: kOverdue, tone: '#cf4d5c' },
+      { key: 'flows', label: 'โครงการ', value: realFlows.length, tone: 'var(--ink-2)' },
+      { key: 'all', label: 'งานทั้งหมด', value: allTasks.length, tone: 'var(--ink-2)' },
+      { key: 'done', label: 'เสร็จแล้ว', value: kDone, tone: 'var(--good, #1f8a5b)' },
+      { key: 'open', label: 'ค้างอยู่', value: openTasks.length, tone: 'var(--info, #2563eb)', drill: 'open' },
+      { key: 'soon', label: 'ครบใน 7 วัน', value: soonTasks.length, tone: '#c08a3e', drill: 'soon' },
+      { key: 'overdue', label: 'เลยกำหนด', value: overdueTasks.length, tone: '#cf4d5c', drill: 'overdue' },
     ];
+    // งานต่อคน (workload) — เฉพาะงานค้าง เรียงคนที่ถือเยอะสุด
+    const workload = (() => {
+      const m = {};
+      openTasks.forEach(t => (t.responsible || []).forEach(r => {
+        if (!r) return; const g = m[r] || (m[r] = { name: r, open: 0, overdue: 0 });
+        g.open++; const due = dueOf(t); if (due && due < tdy) g.overdue++;
+      }));
+      return Object.values(m).sort((a, b) => b.open - a.open).slice(0, 8);
+    })();
+    // สถิติต่อโครงการ (สำหรับจัดเรียงการ์ด)
+    const flowStat = (f) => {
+      const ts = tasksOf(f), ds = doneSetOf(f);
+      const done = ts.filter(t => ds.has(t.status)).length;
+      const overdue = ts.filter(t => !ds.has(t.status) && dueOf(t) && dueOf(t) < tdy).length;
+      return { total: ts.length, pct: ts.length ? done / ts.length : 0, overdue };
+    };
+    const sortedFlows = flowSort === 'default' ? flows : [...flows].sort((a, b) => {
+      if (a.isGeneral !== b.isGeneral) return a.isGeneral ? -1 : 1; // งานทั่วไปนำเสมอ
+      const sa = flowStat(a), sb = flowStat(b);
+      if (flowSort === 'progress') return sb.pct - sa.pct;
+      if (flowSort === 'overdue') return sb.overdue - sa.overdue;
+      if (flowSort === 'tasks') return sb.total - sa.total;
+      return 0;
+    });
     const q = query.trim().toLowerCase();
     const results = q ? allTasks.filter(t =>
       (t.title || '').toLowerCase().includes(q) ||
@@ -162,6 +200,10 @@ export function FlowsView({ sub, tasks, setTasks, activeFlow }) {
       (t.tags || []).some(tg => String(tg).toLowerCase().includes(q)) ||
       (t.responsible || []).some(r => String(r).toLowerCase().includes(q))
     ) : [];
+    const drillMeta = { open: { label: 'งานค้างทั้งหมด', tasks: openTasks }, soon: { label: 'ครบกำหนดใน 7 วัน', tasks: soonTasks }, overdue: { label: 'งานเลยกำหนด', tasks: overdueTasks } };
+    const drillView = drill && drillMeta[drill] ? drillMeta[drill] : null;
+    const drillTasks = drillView ? [...drillView.tasks].sort((a, b) => (dueOf(a) || '9999').localeCompare(dueOf(b) || '9999')) : [];
+    const SORTS = [['default', 'เริ่มต้น'], ['progress', 'คืบหน้า'], ['overdue', 'เลยกำหนด'], ['tasks', 'งานเยอะ']];
     return (
       <div className="flex flex-col gap-6 w-full">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -175,14 +217,30 @@ export function FlowsView({ sub, tasks, setTasks, activeFlow }) {
           </div>
         </div>
 
-        {/* แดชบอร์ดสรุป (ทุกโครงการ) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {kpis.map(k => (
-            <div key={k.label} className="rounded-xl border bg-card px-4 py-3">
-              <div className="text-2xl font-bold tabular-nums" style={{ color: k.tone }}>{k.value}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{k.label}</div>
+        {/* แดชบอร์ดสรุป (ทุกโครงการ) — การ์ดที่ drill ได้ กดเจาะดูรายการงาน */}
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            {kpis.map(k => {
+              const active = drill && k.drill === drill;
+              return (
+                <button key={k.key} type="button" disabled={!k.drill}
+                  onClick={() => k.drill && setDrill(drill === k.drill ? '' : k.drill)}
+                  className={'rounded-xl border bg-card px-4 py-3 text-left transition-colors ' + (k.drill ? 'hover:bg-muted/40 cursor-pointer' : 'cursor-default') + (active ? ' ring-2 ring-offset-1' : '')}
+                  style={active ? { '--tw-ring-color': k.tone } : undefined}>
+                  <div className="text-2xl font-bold tabular-nums" style={{ color: k.tone }}>{k.value}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">{k.label}{k.drill && <Icon name="chevR" className="size-3 opacity-40" />}</div>
+                </button>
+              );
+            })}
+          </div>
+          {/* แถบความคืบหน้ารวมทุกโครงการ */}
+          {allTasks.length > 0 && (
+            <div className="rounded-xl border bg-card px-4 py-3 flex items-center gap-3">
+              <span className="text-xs text-muted-foreground shrink-0 flex items-center gap-1.5"><Icon name="listChecks" className="size-3.5" />คืบหน้ารวม</span>
+              <Progress value={donePct} className="h-2 flex-1" />
+              <span className="text-sm font-semibold tabular-nums shrink-0">{donePct}%</span>
             </div>
-          ))}
+          )}
         </div>
 
         {q ? (
@@ -192,14 +250,60 @@ export function FlowsView({ sub, tasks, setTasks, activeFlow }) {
               ? <div className="text-sm text-muted-foreground py-8 text-center">ไม่พบงานที่ตรงกับคำค้น</div>
               : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">{results.map(t => <TaskCard key={t.id} task={t} showFlow onClick={() => openTask(t)} />)}</div>}
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {flows.map(f => (
-              <FlowCard key={f.id} flow={f} tasks={tasksOf(f)}
-                onOpen={() => goView(f.id, f.defaultView)}
-                onSettings={() => goView(f.id, 'settings')} />
-            ))}
+        ) : drillView ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-foreground">{drillView.label} — {drillTasks.length} งาน</div>
+              <Button variant="ghost" size="sm" onClick={() => setDrill('')}><Icon name="x" className="size-3.5 mr-1" /> ปิด</Button>
+            </div>
+            {drillTasks.length === 0
+              ? <div className="text-sm text-muted-foreground py-8 text-center">ไม่มีงานในกลุ่มนี้ 🎉</div>
+              : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 items-start">{drillTasks.map(t => <TaskCard key={t.id} task={t} showFlow onClick={() => openTask(t)} />)}</div>}
           </div>
+        ) : (
+          <>
+            {/* งานต่อคน (workload) */}
+            {workload.length > 0 && (
+              <div className="rounded-xl border bg-card p-4">
+                <div className="text-sm font-semibold text-foreground mb-3 flex items-center gap-1.5"><Icon name="users" className="size-4" />งานค้างต่อคน</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-2.5">
+                  {workload.map(w => {
+                    const s = (TMK.staff || []).find(x => x.name === w.name) || { color: '#888' };
+                    const max = workload[0].open || 1;
+                    return (
+                      <div key={w.name} className="flex items-center gap-2.5 min-w-0">
+                        <Avatar name={w.name} color={s.color} size={26} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-medium truncate">{w.name}</span>
+                            <span className="text-xs tabular-nums shrink-0">{w.open}{w.overdue > 0 && <span className="text-[var(--bad,#cf4d5c)]"> · {w.overdue} เลย</span>}</span>
+                          </div>
+                          <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden"><div className="h-full rounded-full" style={{ width: `${w.open / max * 100}%`, background: w.overdue > 0 ? 'var(--bad, #cf4d5c)' : s.color }} /></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* จัดเรียงการ์ดโครงการ */}
+            {realFlows.length > 1 && (
+              <div className="flex items-center gap-2 -mb-2">
+                <span className="text-xs text-muted-foreground">เรียงตาม</span>
+                <ToggleGroup type="single" value={flowSort} onValueChange={(v) => v && setFlowSort(v)} className="gap-0.5 rounded-md border bg-muted/30 p-0.5">
+                  {SORTS.map(([v, l]) => <ToggleGroupItem key={v} value={v} size="sm" className="px-2.5 text-xs data-[state=on]:bg-background data-[state=on]:shadow-sm">{l}</ToggleGroupItem>)}
+                </ToggleGroup>
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {sortedFlows.map(f => (
+                <FlowCard key={f.id} flow={f} tasks={tasksOf(f)}
+                  onOpen={() => goView(f.id, f.defaultView)}
+                  onSettings={() => goView(f.id, 'settings')} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     );
