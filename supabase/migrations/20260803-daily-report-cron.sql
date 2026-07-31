@@ -1,24 +1,23 @@
 -- ============================================================
 -- 20260803-daily-report-cron.sql
--- ตั้งเวลาให้ Edge Function daily-sale-report ยิงสรุปยอดเข้า LINE วันละ 2 รอบ
---   รอบเที่ยง 12:00 น. (ไทย) = 05:00 UTC
---   รอบเย็น  18:00 น. (ไทย) = 11:00 UTC
+-- ตั้งเวลาให้ Edge Function daily-sale-report ยิงสรุปยอดเข้า LINE วันละ 3 รอบ
+--   รอบเที่ยง   12:00 น. (ไทย) = 05:00 UTC
+--   รอบเย็น    17:00 น. (ไทย) = 10:00 UTC
+--   รอบสิ้นวัน  22:00 น. (ไทย) = 15:00 UTC
 -- pg_cron ทำงานเป็น UTC เสมอ → ตั้งเวลา UTC (ไทย = UTC+7)
+-- cron.schedule ชื่อซ้ำ = อัปเดตทับ (idempotent) — รันซ้ำได้
 -- ============================================================
--- ⚠️ ก่อนรัน migration นี้ ต้องแทนที่ 2 ค่านี้ก่อน (Find & Replace ทั้งไฟล์):
---     __PROJECT_REF__   → project ref ของ Supabase (เช่น abcdefgh — ดูจาก URL โปรเจกต์)
---     __CRON_SECRET__   → สตริงลับที่ตั้งไว้ (ต้องตรงกับ `supabase secrets set CRON_SECRET=...`)
+-- ⚠️ ก่อนรัน แทนที่ 2 ค่า (Find & Replace ทั้งไฟล์):
+--     __PROJECT_REF__   → project ref ของ Supabase
+--     __CRON_SECRET__   → ให้ตรงกับ secret CRON_SECRET
 -- ============================================================
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 
--- cron.schedule(name, schedule, command) — ถ้าชื่อซ้ำจะอัปเดตทับ (idempotent)
-
--- รอบเที่ยง
+-- รอบเที่ยง 12:00
 select cron.schedule(
-  'daily-sale-report-noon',
-  '0 5 * * *',
+  'daily-sale-report-noon', '0 5 * * *',
   $$
   select net.http_post(
     url     := 'https://__PROJECT_REF__.supabase.co/functions/v1/daily-sale-report?slot=noon',
@@ -28,10 +27,9 @@ select cron.schedule(
   $$
 );
 
--- รอบเย็น
+-- รอบเย็น 17:00
 select cron.schedule(
-  'daily-sale-report-evening',
-  '0 11 * * *',
+  'daily-sale-report-evening', '0 10 * * *',
   $$
   select net.http_post(
     url     := 'https://__PROJECT_REF__.supabase.co/functions/v1/daily-sale-report?slot=evening',
@@ -41,8 +39,21 @@ select cron.schedule(
   $$
 );
 
+-- รอบสิ้นวัน 22:00
+select cron.schedule(
+  'daily-sale-report-night', '0 15 * * *',
+  $$
+  select net.http_post(
+    url     := 'https://__PROJECT_REF__.supabase.co/functions/v1/daily-sale-report?slot=night',
+    headers := jsonb_build_object('Content-Type','application/json','x-cron-secret','__CRON_SECRET__'),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+
 -- ---- คำสั่งช่วยดูแล (รันแยกเมื่อต้องการ) ----
--- ดู job ทั้งหมด:            select * from cron.job;
+-- ดู job ทั้งหมด:            select jobname, schedule from cron.job;
 -- ดูประวัติการรัน 20 ล่าสุด:  select * from cron.job_run_details order by start_time desc limit 20;
 -- ยกเลิก:                    select cron.unschedule('daily-sale-report-noon');
 --                            select cron.unschedule('daily-sale-report-evening');
+--                            select cron.unschedule('daily-sale-report-night');

@@ -84,7 +84,7 @@ const C = {
 function buildFlex(m: any) {
   const [yy, mm, dd] = m.day.split("-").map(Number);
   const dateTh = `${dd} ${TH_MON[mm]} ${yy + 543}`;
-  const head = m.slot === "evening" ? "สรุปยอดเย็น" : m.slot === "noon" ? "สรุปยอดเที่ยง" : "สรุปยอดวันนี้";
+  const head = m.slot === "night" ? "สรุปยอดสิ้นวัน" : m.slot === "evening" ? "สรุปยอดเย็น" : m.slot === "noon" ? "สรุปยอดเที่ยง" : "สรุปยอดวันนี้";
   const B = (n: number) => "฿" + Math.round(n).toLocaleString("en-US");
   // แบรนด์ — โลโก้ (URL สาธารณะ เช่นบน Storage tmk-images) + ลิงก์เปิดเว็บ (ตั้งผ่าน secrets · ไม่ตั้ง = ซ่อน)
   const logoUrl = Deno.env.get("LOGO_URL") || "";
@@ -122,34 +122,36 @@ function buildFlex(m: any) {
   });
   const numCell = (n: number, flexN: number) =>
     ({ type: "text", text: n > 0 ? String(n) : "—", size: "sm", weight: "bold", color: n > 0 ? C.ink : C.ink4, align: "end", flex: flexN });
-  const plats: Record<string, any> = m.platAgg || {};
-  // โชว์ 6 แพลตฟอร์มมาตรฐานของหน้าส่งยอดเสมอ + แพลตฟอร์มอื่นที่มีข้อมูลจริง
-  const platNames = ["Facebook", "LINE", "Instagram", "TikTok", "Phone", "อื่นๆ"];
-  Object.keys(plats).forEach((p) => { if (!platNames.includes(p) && (plats[p].nw + plats[p].od + plats[p].unk) > 0) platNames.push(p); });
+  // ตารางช่องทางยุบ 5 แถว (FB/LINE/Phone/POS/อื่นๆ) — คนทัก ใหม่/เก่า + ยอดขายบาทต่อช่องทาง
   const platHeader = {
     type: "box", layout: "horizontal", contents: [
-      { type: "text", text: "ช่องทาง", size: "xxs", color: C.ink3, flex: 4 },
+      { type: "text", text: "ช่องทาง", size: "xxs", color: C.ink3, flex: 3 },
       { type: "text", text: "ใหม่", size: "xxs", color: C.ink3, align: "end", flex: 2 },
       { type: "text", text: "เก่า", size: "xxs", color: C.ink3, align: "end", flex: 2 },
-      { type: "text", text: "รวม", size: "xxs", color: C.ink3, align: "end", flex: 2 },
+      { type: "text", text: "ยอดขาย", size: "xxs", color: C.ink3, align: "end", flex: 3 },
     ],
   };
-  const platRows = platNames.map((p) => {
-    const g = plats[p] || { nw: 0, od: 0, unk: 0 };
+  const chNames = ["Facebook", "LINE", "Phone", "POS", "อื่นๆ"];
+  const platRows = chNames.map((p) => {
+    const g = (m.chLeads || {})[p] || { nw: 0, od: 0, unk: 0 };
+    const s = (m.chSales || {})[p] || 0;
     return {
       type: "box", layout: "horizontal", contents: [
-        { type: "text", text: p, size: "sm", color: C.ink3, flex: 4 },
-        numCell(g.nw, 2), numCell(g.od, 2), numCell(g.nw + g.od + g.unk, 2),
+        { type: "text", text: p, size: "sm", color: C.ink3, flex: 3 },
+        numCell(g.nw, 2), numCell(g.od, 2),
+        { type: "text", text: s > 0 ? B(s) : "—", size: "sm", weight: "bold", color: s > 0 ? C.ink : C.ink4, align: "end", flex: 3 },
       ],
     };
   });
 
-  // แถวแบรนด์: โลโก้ (ถ้าตั้ง LOGO_URL) + ชื่อระบบ + วันที่
-  const brandRow = {
-    type: "box", layout: "baseline", spacing: "sm", contents: [
-      ...(logoUrl ? [{ type: "icon", url: logoUrl, size: "lg" }] : []),
-      { type: "text", text: "TMK Operation", size: "sm", weight: "bold", color: C.ink, flex: 0 },
-      { type: "text", text: dateTh, size: "xs", color: C.ink3, align: "end" },
+  // หัวการ์ด: โลโก้ (ซ้าย) + ชื่อรายงานตัวใหญ่ + บรรทัดรอง "TMK Operation · วันที่"
+  const headerRow = {
+    type: "box", layout: "horizontal", spacing: "md", contents: [
+      ...(logoUrl ? [{ type: "image", url: logoUrl, size: "44px", aspectRatio: "1:1", aspectMode: "fit", flex: 0, gravity: "center" }] : []),
+      { type: "box", layout: "vertical", spacing: "xs", justifyContent: "center", contents: [
+        { type: "text", text: head, size: "lg", weight: "bold", color: C.ink },
+        { type: "text", text: `TMK Operation · ${dateTh}`, size: "xs", color: C.ink3 },
+      ] },
     ],
   };
 
@@ -159,11 +161,10 @@ function buildFlex(m: any) {
     body: {
       type: "box", layout: "vertical", spacing: "sm", paddingAll: "20px",
       contents: [
-        brandRow,
-        // ชื่อรายงาน — สไตล์หัวเพจของเว็บ (ไม่มีแถบสีทึบ)
-        { type: "text", text: head, size: "lg", weight: "bold", color: C.ink, margin: "sm" },
+        headerRow,
+        { type: "separator", margin: "lg", color: C.border },
         // ยอดขายรวม — การ์ดเต็มแถว ตัวเลขสี accent-2 เหมือนการ์ดทีม
-        { type: "box", layout: "vertical", margin: "md", contents: [
+        { type: "box", layout: "vertical", margin: "lg", contents: [
           card("ยอดขายรวม", B(m.sales), C.accent2),
         ] },
         // โอน / COD
@@ -218,7 +219,7 @@ Deno.serve(async (req) => {
     const target = Deno.env.get("LINE_TARGET_ID"); // groupId/userId ปลายทาง
 
     const url = new URL(req.url);
-    const slot = url.searchParams.get("slot") || "";           // noon | evening
+    const slot = url.searchParams.get("slot") || "";           // noon | evening | night
     const day = url.searchParams.get("date") || bkkToday();     // override วันได้ (ทดสอบ/ย้อนหลัง)
     const dry = url.searchParams.get("dry") === "1";            // dry=1 → ไม่ส่งจริง คืน preview
 
@@ -278,6 +279,19 @@ Deno.serve(async (req) => {
     Object.values(platAgg).forEach((g) => { newLeads += g.nw; oldLeads += g.od; leads += g.nw + g.od + g.unk; });
     const closeRate = leads > 0 ? (nOrders / leads * 100).toFixed(2) : null; // เช่น "9.09"
 
+    // ---- ตารางช่องทางแบบยุบ: Facebook/LINE/Phone/POS คงไว้ · ที่เหลือ (IG/TikTok/มาร์เก็ตเพลส/Direct) → อื่นๆ ----
+    const CH_KEEP = ["Facebook", "LINE", "Phone", "POS"];
+    const chKey = (c: string) => (CH_KEEP.includes(c) ? c : "อื่นๆ");
+    // ยอดขายต่อช่องทาง (จากออเดอร์ที่ merge override แล้ว · ตัดยกเลิกแล้ว)
+    const chSales: Record<string, number> = {};
+    orders.forEach((o) => { const k = chKey(String(o.channel || "อื่นๆ")); chSales[k] = (chSales[k] || 0) + N(o.sales); });
+    // คนทักต่อช่องทาง (ยุบด้วย key เดียวกัน)
+    const chLeads: Record<string, { nw: number; od: number; unk: number }> = {};
+    Object.entries(platAgg).forEach(([p, g]) => {
+      const k = chKey(p); const t = chLeads[k] || (chLeads[k] = { nw: 0, od: 0, unk: 0 });
+      t.nw += g.nw; t.od += g.od; t.unk += g.unk;
+    });
+
     // ---- ข้อความ ----
     const head = slot === "evening" ? "🌆 สรุปยอดเย็น" : slot === "noon" ? "🕛 สรุปยอดเที่ยง" : "📊 สรุปยอดขายวันนี้";
     const [yy, mm, dd] = day.split("-");
@@ -302,7 +316,7 @@ Deno.serve(async (req) => {
 
     // ---- การ์ด Flex (default) · ตั้ง REPORT_FORMAT=text เพื่อส่งเป็นข้อความล้วนแทน ----
     const useText = (Deno.env.get("REPORT_FORMAT") || "flex") === "text" || url.searchParams.get("format") === "text";
-    const flex = buildFlex({ slot, day, sales, transfer, cod, other, nOrders, qty, leads, newLeads, oldLeads, platAgg, closeRate, aov, avgUnits, nDft, qtyDft });
+    const flex = buildFlex({ slot, day, sales, transfer, cod, other, nOrders, qty, leads, newLeads, oldLeads, chLeads, chSales, closeRate, aov, avgUnits, nDft, qtyDft });
     const lineMsg = useText
       ? { type: "text", text: message.slice(0, 4900) }
       : { type: "flex", altText: message.slice(0, 400), contents: flex };
