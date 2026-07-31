@@ -5,7 +5,7 @@
    - UpdateBanner (แถบ poll เวอร์ชันใหม่) ยังคงไว้
    - จุดแดง "ยังไม่อ่าน" sync ข้าม component ด้วย CustomEvent (useUnseenVersion)
    ============================================================ */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { CHANGELOG, APP_VERSION } from './changelog.js';
 import { Icon } from './components.jsx';
 import { Card } from '@/components/ui/card';
@@ -13,11 +13,12 @@ import { Badge } from '@/components/ui/badge';
 
 /* ---------- แถบ "มีเวอร์ชันใหม่" (แบบ A — นุ่ม) ----------
    เช็ค version.json บนเซิร์ฟเวอร์ทุก ~3 นาที + ตอนกลับมาที่แท็บ
-   ถ้าเวอร์ชันที่ deploy ≠ เวอร์ชันที่รันอยู่ → เด้งแถบบนสุด กดอัปเดตเอง (ไม่บังคับ reload) */
+   ถ้าเวอร์ชันที่ deploy ≠ เวอร์ชันที่รันอยู่ → เด้งแถบบนสุด กดอัปเดตเอง (ไม่บังคับ reload)
+   กดปิด = ปิดเลย "ต่อเวอร์ชันนั้น" (จำใน localStorage) — ไม่เด้งซ้ำกวนใจ · เด้งใหม่เฉพาะมี deploy เวอร์ชันใหม่กว่า */
+const UPD_DISMISS_KEY = 'tmk-update-dismissed';
 export function UpdateBanner() {
   const [newVer, setNewVer] = useState(null);
-  const [hidden, setHidden] = useState(false);
-  const hiddenUntil = useRef(0);
+  const [dismissedVer, setDismissedVer] = useState(() => { try { return localStorage.getItem(UPD_DISMISS_KEY) || ''; } catch { return ''; } });
   useEffect(() => {
     let alive = true;
     const base = import.meta.env.BASE_URL || '/';
@@ -28,8 +29,7 @@ export function UpdateBanner() {
         const data = await res.json();
         if (!alive || !data || !data.version) return;
         if (data.version !== APP_VERSION) {
-          setNewVer(data.version);
-          if (Date.now() >= hiddenUntil.current) setHidden(false); // เด้งซ้ำหลังเงียบครบเวลา
+          setNewVer(data.version); // เด้งเฉพาะเมื่อยังไม่เคยกดปิดเวอร์ชันนี้ (เช็คตอน render)
         } else {
           setNewVer(null); // เซิร์ฟเวอร์ตรงกับที่รันแล้ว → เคลียร์แถบ (กันค้างกรณี rollback)
         }
@@ -41,8 +41,8 @@ export function UpdateBanner() {
     document.addEventListener('visibilitychange', onVis);
     return () => { alive = false; clearInterval(id); document.removeEventListener('visibilitychange', onVis); };
   }, []);
-  if (!newVer || hidden) return null;
-  const dismiss = () => { setHidden(true); hiddenUntil.current = Date.now() + 600000; }; // เงียบ 10 นาที แล้วเด้งซ้ำ
+  if (!newVer || newVer === dismissedVer) return null;
+  const dismiss = () => { setDismissedVer(newVer); try { localStorage.setItem(UPD_DISMISS_KEY, newVer); } catch { /* ignore */ } };
   return (
     <div className="update-banner" role="alert">
       <span className="update-banner-ico">

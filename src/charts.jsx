@@ -286,7 +286,7 @@ export function ComboChart({ labels, bars, line, cmpBars, breakdown, barLabel = 
 }
 
 // ---- แท่งซ้อน (channel × เวลา) ----
-export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = 'กราฟแท่งซ้อน' }) {
+export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = 'กราฟแท่งซ้อน', onDayClick }) {
   const ds = datasets || [];
   const chartData = (labels || []).map((label, i) => {
     const row = { label };
@@ -295,7 +295,9 @@ export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = '
   });
   return (
     <ChartContainer config={mkCfg(ds.map((d, i) => [`d${i}`, d.label]))} className={CC_CLS} style={{ height }}>
-      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} aria-label={ariaLabel}>
+      <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }} aria-label={ariaLabel}
+        style={onDayClick ? { cursor: 'pointer' } : undefined}
+        onClick={onDayClick ? (st) => { const i = st?.activeTooltipIndex; if (i != null && i >= 0) onDayClick(i); } : undefined}>
         <CartesianGrid {...GRID} vertical={false} />
         <XAxis dataKey="label" tick={TICK} {...AXP} interval="preserveStartEnd" />
         <YAxis tickFormatter={KFMT} tick={TICK} {...AXP} width={52} />

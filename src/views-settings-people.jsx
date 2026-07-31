@@ -321,7 +321,7 @@ export function RolesView() {
       { id: 'report', label: 'รายงานขาย' },
       { id: 'perf', label: 'ประสิทธิภาพเซลล์' },
       { id: 'orders', label: 'ออเดอร์' },
-      { id: 'crm', label: 'ลูกค้า (CRM)' },
+      { id: 'crm', label: 'ภาพรวม CRM' },
       { id: 'data', label: 'ส่งยอด & ข้อมูล' },
       { id: 'shirts', label: 'สินค้า' },
     ] },

@@ -374,6 +374,13 @@ export function SalePerfView() {
     return t;
   }, [rowsView, perf.team.dSales]);
   const rankMap = useMemo(() => { const m = new Map(); [...rowsView].sort((a, b) => b.sales - a.sales).forEach((r, i) => m.set(r.name, i)); return m; }, [rowsView]);
+  // แยกยอดโอน/COD ของทีม (จาก ordersF ของเซลล์ที่โชว์อยู่ · ตัดยกเลิก) — ให้การ์ดสรุปบนโชว์เหมือนป๊อปอัพรายวัน
+  const teamPay = useMemo(() => {
+    const names = new Set(rowsView.map(r => r.name));
+    let transfer = 0, cod = 0;
+    (ordersF || []).forEach(o => { if (isCancelled(o) || !names.has(spOf(o))) return; const s = Number(o.sales) || 0; if (isCodOrder(o)) cod += s; else if (o.payment_type === 'โอน') transfer += s; });
+    return { transfer, cod };
+  }, [ordersF, rowsView]);
   const openSp = perf.rows.find(r => r.name === detail) || null;
 
   const nFilters = channelF.length + (onlyTargets ? 1 : 0) + (hideNoSeller ? 1 : 0);
@@ -392,6 +399,11 @@ export function SalePerfView() {
   const realSellers = useMemo(() => rowsView.filter(r => r.name !== NO_SELLER), [rowsView]);
   const soloMode = realSellers.length <= 1;
   const focus = realSellers[0] || rowsView[0] || null;
+  // ยอดรวมทีมทั้งเดือน (โชว์ให้เซลล์เห็นตัวเลขรวมเดียว) — จาก data.orders ที่โหลดทั้งทีมไว้แล้ว (ตัดยกเลิก)
+  const teamMonthTotal = useMemo(() => {
+    const os = (data.orders || []).filter(o => !isCancelled(o));
+    return { sales: os.reduce((s, o) => s + (Number(o.sales) || 0), 0), orders: os.length };
+  }, [data.orders]);
 
   if (beat) return <PerfSkeleton />;
 
@@ -404,7 +416,7 @@ export function SalePerfView() {
         <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={funnelF} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />
       </SideSheet>}
       {dayAll && <SideSheet size="lg" icon="calendarDays" title={`วันที่ ${dayAll} ${monthLabel(month)}`} sub="ออเดอร์ทั้งวัน" onClose={() => setDayAll(null)}>
-        <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} />
+        <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} funnel={funnelF} />
       </SideSheet>}
     </>
   );
@@ -465,18 +477,32 @@ export function SalePerfView() {
       ) : !rowsView.length ? (
         <Card className="p-8 text-center text-sm text-muted-foreground">ไม่พบเซลล์ตามตัวกรอง · <button className="text-[var(--accent)] hover:underline" onClick={() => { setQ(''); clearFilters(); }}>ล้างตัวกรอง</button></Card>
       ) : !canSeeAll ? (
-            /* เซลล์: หน้าเดียวจบ — รายละเอียดเต็มของตัวเองทันที (KPI · คนทัก · เป้า/คอม · กราฟรายวันกดเจาะ · %ปิดต่อช่องทาง · ช่องทาง/ลาย) ไม่ต้องกด "ดูรายละเอียดเต็ม" */
-            <Card className="p-4 sm:p-5">
-              <SpDetail sp={focus} cmp={deltasByName.get(focus.name)} onDay={(day) => setDayDrill({ name: focus.name, day })} />
-            </Card>
+            /* เซลล์: หน้าเดียวจบ — รายละเอียดเต็มของตัวเอง + แถบยอดรวมทีม (ตัวเลขเดียว โปร่งใส) */
+            <div className="flex flex-col gap-4">
+              <div className="rounded-xl border bg-card px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5"><Icon name="users" className="size-3.5" />ยอดรวมทั้งทีมเดือนนี้</span>
+                <span className="text-sm"><b className="num text-[var(--accent-2)]">{fmtB(teamMonthTotal.sales)}</b> <span className="text-muted-foreground">· {N(teamMonthTotal.orders)} ออเดอร์</span></span>
+              </div>
+              <Card className="p-4 sm:p-5">
+                <SpDetail sp={focus} cmp={deltasByName.get(focus.name)} onDay={(day) => setDayDrill({ name: focus.name, day })} />
+              </Card>
+            </div>
       ) : (
             <div className="flex flex-col gap-4">
-              {/* การ์ดสรุปทีมด้านบน (ยอดรวม/ออเดอร์/AOV) + คนทัก แยกการ์ดย่อย — เคารพตัวกรอง+ค้นหา */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* การ์ดสรุปทีมด้านบน — ยอดรวม/โอน/COD/ออเดอร์/ตัว/AOV (เคารพตัวกรอง+ค้นหา) */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="rounded-xl border p-3">
                   <div className="text-[11px] text-muted-foreground">ยอดขายรวม <InfoTip text={canSeeAll ? 'ยอดขายรวมของทีม (เคารพตัวกรอง+ค้นหา) · จากยอดที่เซลล์กรอก/ใบเสร็จ · ตัดออเดอร์ที่ยกเลิกออกแล้ว' : 'ยอดขายของคุณ (เคารพตัวกรอง) · จากยอดที่กรอก/ใบเสร็จ · ตัดออเดอร์ที่ยกเลิกออกแล้ว'} /></div>
                   <div className="num text-xl font-bold leading-tight mt-0.5" style={{ color: 'var(--accent-2)' }}>{fmtB(teamView.sales)}</div>
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.sales)}</div>}
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-[11px] text-muted-foreground">ยอดโอน <InfoTip text="ยอดขายที่ชำระด้วยการโอน" /></div>
+                  <div className="num text-xl font-bold leading-tight mt-0.5" style={{ color: teamPay.transfer ? 'var(--good)' : 'var(--ink-3)' }}>{teamPay.transfer ? fmtB(teamPay.transfer) : '—'}</div>
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-[11px] text-muted-foreground">ยอด COD <InfoTip text="ยอดขายที่เก็บเงินปลายทาง (COD)" /></div>
+                  <div className="num text-xl font-bold leading-tight mt-0.5" style={{ color: teamPay.cod ? 'var(--warn)' : 'var(--ink-3)' }}>{teamPay.cod ? fmtB(teamPay.cod) : '—'}</div>
                 </div>
                 <div className="rounded-xl border p-3">
                   <div className="text-[11px] text-muted-foreground">ออเดอร์ <InfoTip text="จำนวนออเดอร์รวมของทีมในช่วง (ตัดที่ยกเลิกออกแล้ว)" /></div>
@@ -484,7 +510,12 @@ export function SalePerfView() {
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.orders)}</div>}
                 </div>
                 <div className="rounded-xl border p-3">
-                  <div className="text-[11px] text-muted-foreground">ยอดเฉลี่ย/ออเดอร์ (AOV) <InfoTip text="ยอดขายรวม ÷ จำนวนออเดอร์ (Average Order Value) · เทียบกับเดือนก่อนที่แถบด้านล่าง" /></div>
+                  <div className="text-[11px] text-muted-foreground">จำนวนตัว <InfoTip text="จำนวนชิ้นสินค้ารวมที่ขายได้" /></div>
+                  <div className="num text-xl font-bold leading-tight mt-0.5">{N(teamView.qty)}</div>
+                  {teamCmp && <div className="mt-1">{dPill(teamCmp.qty)}</div>}
+                </div>
+                <div className="rounded-xl border p-3">
+                  <div className="text-[11px] text-muted-foreground">Basket/AOV <InfoTip text="ยอดขายรวม ÷ จำนวนออเดอร์ (Average Order Value) · เทียบเดือนก่อนที่แถบด้านล่าง" /></div>
                   <div className="num text-xl font-bold leading-tight mt-0.5">{fmtB(teamView.aov)}</div>
                   {teamCmp && <div className="mt-1">{dPill(teamCmp.aov)}</div>}
                 </div>
@@ -626,16 +657,43 @@ function OrderCard({ o, lines, showSeller }) {
   );
 }
 
+/* ---- สรุปยอดต่อวัน (แยกโอน/COD + คนทัก/%ปิด) → ใช้ทั้ง DayDetail + DaySellerDetail ---- */
+const isCodOrder = (o) => o.payment_type === 'COD' || (Number(o.cod_amount) || 0) > 0;
+function daySummary(ords, dayFunnel) {
+  const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
+  const qty = ords.reduce((s, o) => s + (Number(o.qty) || 0), 0);
+  const transfer = ords.filter(o => o.payment_type === 'โอน').reduce((s, o) => s + (Number(o.sales) || 0), 0);
+  const cod = ords.filter(isCodOrder).reduce((s, o) => s + (Number(o.sales) || 0), 0);
+  const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
+  const leads = (dayFunnel || []).reduce((s, f) => s + funnelTotal(f), 0);
+  const orders = ords.length;
+  return { sales, qty, transfer, cod, newC, leads, orders, other: Math.max(0, sales - transfer - cod),
+    close: leads > 0 ? Math.round(orders / leads * 100) : null, aov: orders ? sales / orders : 0, avgQty: orders ? qty / orders : 0 };
+}
+/* กริดตัวชี้วัดรายวัน 10 ช่อง (ยอดรวม/โอน/COD/ออเดอร์/ตัว/ลูกค้าใหม่/คนทัก/%ปิด/Basket/AVG) */
+function DayTiles({ s }) {
+  const tiles = [
+    ['ยอดขายรวม', fmtB(s.sales)], ['ยอดโอน', s.transfer ? fmtB(s.transfer) : '—'], ['ยอด COD', s.cod ? fmtB(s.cod) : '—'],
+    ['ออเดอร์', N(s.orders)], ['จำนวนตัว', N(s.qty)], ['ลูกค้าใหม่', N(s.newC)],
+    ['คนทัก', N(s.leads)], ['%ปิดการขาย', s.close == null ? '—' : s.close + '%'],
+    ['Basket size', s.orders ? fmtB(s.aov) : '—'], ['AVG ตัว/ออเดอร์', s.orders ? s.avgQty.toFixed(2) : '—'],
+  ];
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-center">
+      {tiles.map(([l, v], i) => <div key={l} className="rounded-lg border p-2" style={i === 7 && s.close != null ? { borderColor: closeTone(s.close) } : undefined}><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold" style={i === 7 && s.close != null ? { color: closeTone(s.close) } : undefined}>{v}</div></div>)}
+    </div>
+  );
+}
+
 /* ---- ป๊อปอัพ "ทั้งวัน" (คลิกจากกราฟรายวัน) — ออเดอร์ทุกใบของวันนั้นในขอบเขตที่กรอง ----
-   สรุปวัน + แยกช่องทาง + การ์ดออเดอร์รายตัวครบ (โชว์ชื่อเซลล์เมื่อมีหลายคน) */
-function DayDetail({ day, orders, skus }) {
+   สรุปวัน (10 ตัวชี้วัด: ยอดรวม/โอน/COD/ออเดอร์/ตัว/ลูกค้าใหม่/คนทัก/%ปิด/Basket/AVG) + แยกช่องทาง + การ์ดออเดอร์รายตัว */
+function DayDetail({ day, orders, skus, funnel }) {
   const ords = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
+  const dayFunnel = (funnel || []).filter(f => dayOf(f.date) === day);
   const skuBy = new Map();
   (skus || []).forEach(k => { const arr = skuBy.get(k.order_no) || []; arr.push(k); skuBy.set(k.order_no, arr); });
   const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
-  const qty = ords.reduce((s, o) => s + (Number(o.qty) || 0), 0);
-  const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
   const sellers = new Set(ords.map(spOf));
   const multiSeller = sellers.size > 1;
   // แยกช่องทาง (ออเดอร์/ยอด/%)
@@ -646,12 +704,8 @@ function DayDetail({ day, orders, skus }) {
   return (
     <>
       <div className="flex flex-col gap-4">
-        {/* สรุปวัน */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-          {[['ยอดวันนี้', fmtB(sales)], ['ออเดอร์', N(ords.length)], ['จำนวนตัว', N(qty)], ['ลูกค้าใหม่', N(newC)]].map(([l, v]) => (
-            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div></div>
-          ))}
-        </div>
+        {/* สรุปวัน — 10 ตัวชี้วัด */}
+        <DayTiles s={daySummary(ords, dayFunnel)} />
         {/* แยกช่องทาง */}
         {chans.length > 0 && (
           <div>
@@ -695,8 +749,6 @@ function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth 
   const skuBy = new Map();
   (skus || []).forEach(k => { const arr = skuBy.get(k.order_no) || []; arr.push(k); skuBy.set(k.order_no, arr); });
   const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
-  const qty = ords.reduce((s, o) => s + (Number(o.qty) || 0), 0);
-  const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
   const comm = target ? commissionFor(sales, target) : 0;
   const tierMode = target && Array.isArray(target.tiers) && target.tiers.length;
   const rate = target && !tierMode ? Number(target.commission_rate) || 0 : null;
@@ -704,13 +756,9 @@ function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth 
   return (
     <>
       <div className="flex flex-col gap-4">
-        {/* สรุปวัน */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-          {[['ยอดวันนี้', fmtB(sales)], ['ออเดอร์', N(ords.length)], ['จำนวนตัว', N(qty)], ['ลูกค้าใหม่', N(newC)]].map(([l, v]) => (
-            <div key={l} className="rounded-lg border p-2"><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold">{v}</div></div>
-          ))}
-        </div>
-        <LeadPanel title="คนทักวันนี้" total={leadTot} nw={leadNO.new} old={leadNO.old} close={ords.length && leadTot ? ords.length / leadTot * 100 : null} />
+        {/* สรุปวัน — 10 ตัวชี้วัด (ชุดเดียวกับป๊อปอัพทั้งวัน) */}
+        <DayTiles s={daySummary(ords, dayFunnel)} />
+        <LeadPanel title="คนทักวันนี้ (แยกใหม่/เก่า)" total={leadTot} nw={leadNO.new} old={leadNO.old} close={ords.length && leadTot ? ords.length / leadTot * 100 : null} />
         {/* คอมของวัน (ประมาณ) — คิดจากยอดวันนี้ × เรต · หมายเหตุ: คอมจริงคิดจากยอดรวมทั้งเดือน */}
         {target && (
           <div className="rounded-lg border p-3 text-sm flex items-center gap-3 flex-wrap" style={{ background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}>

@@ -15,7 +15,7 @@ import { isAdmin } from './lib/roleAccess.js';
 import { supabase } from './lib/supabaseClient.js';
 import { SideSheet, Modal } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
-import { funnelPlatforms, funnelBreakdown, funnelNewOld, getDateBounds } from './lib/saleData.js';
+import { funnelPlatforms, funnelBreakdown, funnelNewOld, funnelTotal, getDateBounds } from './lib/saleData.js';
 import { presetRange } from './lib/saleTime.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { channelColor } from './charts.jsx';
@@ -387,8 +387,8 @@ export function SubmitSalesView() {
           )}
         </div>
       </Card>
-      {/* คนทักวันนี้ (funnel) — แยกใหม่/เก่า ต่อแพลตฟอร์ม · แอดมินกรอกให้ทั้งทีม */}
-      <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={canSeeTeam} myName={user?.name || ''} ordersToday={ordersToday} />
+      {/* คนทัก (funnel) — แต่ละคนกรอกของตัวเอง · แอดมินกรอก/แก้แทนได้ + ดูภาพรวมทีม */}
+      <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={canSeeTeam} canEdit={canEdit} myName={user?.name || ''} ordersToday={ordersToday} />
       </div>
 
       {/* ขั้น 1: เลือกไฟล์ */}
@@ -562,13 +562,14 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel }) {
 /* ManualSaleSheet ("คีย์มือ") ย้ายไปไฟล์แยก src/ManualSaleSheet.jsx (reuse ในหน้าออเดอร์ด้วย) */
 
 /* ============================================================
-   คนทักวันนี้ (funnel) — แยก "คนใหม่/คนเก่า" ต่อแพลตฟอร์ม · แอดมินกรอกให้ทั้งทีม
+   คนทัก (funnel) — แยก "คนใหม่/คนเก่า" ต่อแพลตฟอร์ม
    เก็บ jsonb `leads` {Facebook:{new,old}, ...} · เขียนคอลัมน์เก่า fb/line ด้วย (back-compat แดชบอร์ด)
-   สิทธิ์: เฉพาะแอดมิน (isAdmin) เลือกเซลล์แล้วกรอกให้ · คนอื่นดูแถบทีมอย่างเดียว
+   สิทธิ์: แต่ละคน (canEdit) กรอกของตัวเองได้ (ล็อกชื่อ = ตัวเอง) · แอดมิน (isAdmin) เลือก/แก้แทนทุกคน + ดูภาพรวมทีม
+   หมายเหตุ: ตาราง tmk_sales_funnel ยังไม่มี RLS → gate ฝั่ง client เท่านั้น (ถ้าต้องบังคับจริงต้อง migration RLS)
    ============================================================ */
 const FUNNEL_PLATFORMS = ['Facebook', 'LINE', 'Instagram', 'TikTok', 'Phone', 'อื่นๆ'];
 const emptyLeads = () => Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, { new: '', old: '' }]));
-function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday = {} }) {
+function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName = '', ordersToday = {} }) {
   const [date, setDate] = useState(todayISO());   // เลือกวันได้ — กรอก/ดูคนทักย้อนหลัง
   const isToday = date === todayISO();
   const [leads, setLeads] = useState(emptyLeads);
@@ -599,8 +600,8 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
     const { data } = await q;
     setTeam(data || []);
   }, [date, isAdmin, myName]);
-  // เลือกเซลล์คนแรกให้อัตโนมัติ (แอดมินเปิดมาพร้อมกรอก)
-  useEffect(() => { if (!selSeller && sellers.length) setSelSeller(sellers[0]); }, [sellers, selSeller]);
+  // เลือกเซลล์เริ่มต้น: แอดมิน = คนแรก · เซลล์ = ตัวเองเสมอ (ล็อก ไม่มี Select)
+  useEffect(() => { if (!selSeller) setSelSeller(isAdmin ? (sellers[0] || '') : (myName || '')); }, [sellers, selSeller, isAdmin, myName]);
   useEffect(() => { if (selSeller) loadSeller(selSeller); }, [selSeller, loadSeller]);
   useEffect(() => { loadTeam(); }, [loadTeam]);
   // realtime: ใครกรอกคนทัก → แถบทีม + ฟอร์มเซลล์ที่เลือกขยับสด
@@ -618,13 +619,15 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
   const totalLeads = FUNNEL_PLATFORMS.reduce((a, p) => a + platTot(p), 0);
   const totalNew = FUNNEL_PLATFORMS.reduce((a, p) => a + nv(leads[p]?.new), 0);
   const totalOld = FUNNEL_PLATFORMS.reduce((a, p) => a + nv(leads[p]?.old), 0);
-  const ordersCount = nv(ordersToday[selSeller]);
-  const close = totalLeads ? Math.round(ordersCount / totalLeads * 100) : 0;
-  const closeTone = close >= 15 ? 'var(--good)' : close >= 8 ? 'var(--warn)' : 'var(--bad)';
+  // ปิดได้/%ปิด อ้างจำนวนออเดอร์ "วันนี้" เท่านั้น — วันย้อนหลังไม่รู้ออเดอร์วันนั้นตรงนี้ → null (โชว์ —) กันเลขหลอก
+  const ordersCount = isToday ? nv(ordersToday[selSeller]) : null;
+  const close = (ordersCount != null && totalLeads) ? Math.round(ordersCount / totalLeads * 100) : null;
+  const closeTone = close == null ? 'var(--ink-4)' : close >= 15 ? 'var(--good)' : close >= 8 ? 'var(--warn)' : 'var(--bad)';
   const setNum = (p, field, v) => setLeads(prev => ({ ...prev, [p]: { ...prev[p], [field]: v === '' ? '' : String(Math.max(0, Math.floor(Number(v) || 0))) } }));
   const save = async () => {
-    if (!isAdmin) { toast('เฉพาะแอดมินกรอกคนทัก', 'error'); return; }
-    if (!selSeller) { toast('เลือกเซลล์ก่อน', 'warn'); return; }
+    if (!canEdit) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!isAdmin && selSeller !== myName) { toast('กรอกได้เฉพาะคนทักของตัวเอง', 'error'); return; }
+    if (!selSeller) { toast(isAdmin ? 'เลือกเซลล์ก่อน' : 'ไม่พบชื่อของคุณในระบบ — แจ้งแอดมินเพิ่มทีมงาน', 'warn'); return; }
     setBusy(true);
     const leadsJson = {};
     FUNNEL_PLATFORMS.forEach(p => { const nw = nv(leads[p]?.new), od = nv(leads[p]?.old); if (nw + od > 0) leadsJson[p] = { new: nw, old: od }; });
@@ -647,15 +650,17 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
     toast(`บันทึกคนทัก ${selSeller} แล้ว ✓`, 'success'); setExists(true); setOpen(false); loadTeam();
     logAudit({
       action: exists ? 'update' : 'create', entityType: 'daily', entityName: `คนทัก ${selSeller}`,
-      summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld} · ปิด ${ordersCount}`,
+      summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld}${ordersCount != null ? ` · ปิด ${ordersCount}` : ''}`,
       fields: [
         { label: 'เซลล์', value: selSeller },
         { label: 'วันที่', value: date },
         { label: 'ทักใหม่', value: `${totalNew} คน` },
         { label: 'ทักเก่า', value: `${totalOld} คน` },
         { label: 'ทักรวม', value: `${totalNew + totalOld} คน` },
-        { label: 'ปิดการขาย', value: `${ordersCount} ออเดอร์` },
-        { label: '%ปิด', value: `${(totalNew + totalOld) > 0 ? Math.round(ordersCount / (totalNew + totalOld) * 100) : 0}%` },
+        ...(ordersCount != null ? [
+          { label: 'ปิดการขาย', value: `${ordersCount} ออเดอร์` },
+          { label: '%ปิด', value: `${(totalNew + totalOld) > 0 ? Math.round(ordersCount / (totalNew + totalOld) * 100) : 0}%` },
+        ] : []),
       ],
       data: { seller: selSeller, date, new: totalNew, old: totalOld, closed: ordersCount, leads: row.leads },
     });
@@ -667,15 +672,15 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
           <div className="flex items-center gap-3 min-w-0">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold">{(isToday ? 'คนทักวันนี้' : `คนทัก ${fmtD(date)}`)}{isAdmin ? ' · ทีม' : ''}</div>
+              <div className="text-[15px] font-semibold">{(isToday ? 'คนทักวันนี้' : `คนทัก ${fmtD(date)}`)}{isAdmin ? ' · ทีม' : ' · ของฉัน'}</div>
               {teamStat.total > 0
                 ? <div className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b>{isAdmin ? ` (${teamStat.people} คน)` : ''}</div>
                 : <div className="text-xs text-muted-foreground">{isAdmin ? 'ยังไม่มีใครกรอก' : 'ยังไม่มีคนทักของคุณ'}{isToday ? 'วันนี้' : `วันที่ ${fmtD(date)}`}</div>}
             </div>
           </div>
-          {isAdmin
-            ? <Button size="sm" disabled={!sellers.length} onClick={() => setOpen(true)}><Icon name="pencil" /> กรอก/แก้คนทัก</Button>
-            : <Badge variant="secondary" className="text-[11px]">แอดมินเป็นผู้กรอกคนทัก</Badge>}
+          {canEdit
+            ? <Button size="sm" onClick={() => setOpen(true)}><Icon name="pencil" /> {isAdmin ? 'กรอก/แก้คนทัก' : 'กรอกคนทักของฉัน'}</Button>
+            : <Badge variant="secondary" className="text-[11px]">ดูอย่างเดียว</Badge>}
         </div>
         {/* ทีมวันนี้ ต่อแพลตฟอร์ม — ทุกคนเห็น (สด · realtime) · จุดสีช่องทาง */}
         {teamStat.total > 0 && (
@@ -687,24 +692,58 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
           </div>
         )}
       </Card>
-      {open && <SideSheet size="md" icon="users" title={`${isToday ? 'คนทักวันนี้' : 'คนทัก'} (แอดมินกรอกให้ทีม)`} sub="เลือกวัน + เซลล์ แล้วใส่จำนวนคนทัก แยกใหม่/เก่า ต่อช่องทาง" onClose={() => setOpen(false)}
+      {open && <SideSheet size="md" icon="users" title={`คนทัก${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ แล้วใส่จำนวนคนทัก แยกใหม่/เก่า ต่อช่องทาง' : 'ใส่จำนวนคนทักของคุณ แยกใหม่/เก่า ต่อช่องทาง'} onClose={() => setOpen(false)}
         footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
         <div className="field mb-3">
           <label>วันที่{!isToday && <span className="ml-1.5 text-[11px] rounded-full px-1.5 py-0.5 bg-amber-500/12 text-amber-600 dark:text-amber-400">ย้อนหลัง</span>}</label>
           <DatePicker value={date} onChange={v => setDate(v || todayISO())} max={todayISO()} />
         </div>
-        {!sellers.length
-          ? <div className="rounded-xl border p-4 text-sm text-muted-foreground" style={{ borderColor: 'var(--line)' }}>ยังไม่มีรายชื่อเซลล์ในระบบ — เพิ่มทีมงานที่ ตั้งค่า → สมาชิก ก่อน แล้วจึงกรอกคนทัก</div>
-          : <div className="field mb-4">
-          <label>เซลล์ที่กรอกให้</label>
-          <div className="flex items-center gap-2">
-            <Select value={selSeller || undefined} onValueChange={setSelSeller}>
-              <SelectTrigger className="max-w-[260px]"><SelectValue placeholder="เลือกเซลล์" /></SelectTrigger>
-              <SelectContent>{sellers.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-            </Select>
-            <Badge variant={exists ? 'secondary' : 'outline'} className="text-[11px]">{exists ? 'มีข้อมูลแล้ว' : 'ยังไม่กรอก'}</Badge>
+        {/* เซลล์: ล็อกชื่อตัวเอง · แอดมิน: เลือกได้ + ตารางภาพรวมทีม */}
+        {!isAdmin ? (
+          <div className="field mb-4">
+            <label>กรอกในนาม</label>
+            <div className="flex items-center gap-2">
+              <div className="rounded-md border px-3 py-1.5 text-sm font-medium" style={{ borderColor: 'var(--line)' }}>{selSeller || myName || '—'} <span className="text-[11px] text-muted-foreground">(คุณ)</span></div>
+              <Badge variant={exists ? 'secondary' : 'outline'} className="text-[11px]">{exists ? 'มีข้อมูลแล้ว' : 'ยังไม่กรอก'}</Badge>
+            </div>
           </div>
-        </div>}
+        ) : !sellers.length ? (
+          <div className="rounded-xl border p-4 text-sm text-muted-foreground" style={{ borderColor: 'var(--line)' }}>ยังไม่มีรายชื่อเซลล์ในระบบ — เพิ่มทีมงานที่ ตั้งค่า → สมาชิก ก่อน แล้วจึงกรอกคนทัก</div>
+        ) : (
+          <div className="field mb-4">
+            <label>เซลล์ที่กรอกให้</label>
+            <div className="flex items-center gap-2">
+              <Select value={selSeller || undefined} onValueChange={setSelSeller}>
+                <SelectTrigger className="max-w-[260px]"><SelectValue placeholder="เลือกเซลล์" /></SelectTrigger>
+                <SelectContent>{sellers.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+              <Badge variant={exists ? 'secondary' : 'outline'} className="text-[11px]">{exists ? 'มีข้อมูลแล้ว' : 'ยังไม่กรอก'}</Badge>
+            </div>
+            {/* ภาพรวมทีมวันที่เลือก — กดชื่อเพื่อกรอก/แก้แทน */}
+            {sellers.length > 0 && (() => {
+              const byName = new Map((team || []).map(r => [r.salesperson, r]));
+              return (
+                <div className="mt-3 rounded-lg border overflow-hidden text-xs" style={{ borderColor: 'var(--line)' }}>
+                  <table className="w-full">
+                    <thead className="bg-muted/40 text-muted-foreground"><tr><th className="text-left px-2 py-1 font-medium">เซลล์</th><th className="text-right px-2 py-1 font-medium">ทัก</th><th className="text-right px-2 py-1 font-medium">ใหม่</th><th className="text-right px-2 py-1 font-medium">เก่า</th><th className="text-right px-2 py-1 font-medium">สถานะ</th></tr></thead>
+                    <tbody>{sellers.map(s => {
+                      const r = byName.get(s); const tot = r ? funnelTotal(r) : 0; const no = r ? funnelNewOld(r) : { new: 0, old: 0 };
+                      return (
+                        <tr key={s} className={'border-t cursor-pointer hover:bg-muted/30' + (s === selSeller ? ' bg-[var(--accent-soft)]' : '')} onClick={() => setSelSeller(s)}>
+                          <td className="px-2 py-1 font-medium">{s}</td>
+                          <td className="px-2 py-1 text-right">{tot ? N(tot) : '—'}</td>
+                          <td className="px-2 py-1 text-right" style={{ color: no.new ? 'var(--good)' : 'var(--ink-4)' }}>{no.new || '—'}</td>
+                          <td className="px-2 py-1 text-right text-muted-foreground">{no.old || '—'}</td>
+                          <td className="px-2 py-1 text-right">{r ? <span style={{ color: 'var(--good)' }}>กรอกแล้ว</span> : <span className="text-muted-foreground">ยังไม่กรอก</span>}</td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           {FUNNEL_PLATFORMS.map(p => (
             <div key={p} className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
@@ -726,7 +765,7 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, myName = '', ordersToday
           ))}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
-          {[['ทักรวม', N(totalLeads), ''], ['ใหม่', N(totalNew), 'var(--good)'], ['เก่า', N(totalOld), 'var(--ink-3)'], ['ปิดได้', N(ordersCount), 'var(--accent)'], ['%ปิด', close + '%', closeTone]].map(([lb, val, c]) => (
+          {[['ทักรวม', N(totalLeads), ''], ['ใหม่', N(totalNew), 'var(--good)'], ['เก่า', N(totalOld), 'var(--ink-3)'], ['ปิดได้', ordersCount == null ? '—' : N(ordersCount), 'var(--accent)'], ['%ปิด', close == null ? '—' : close + '%', closeTone]].map(([lb, val, c]) => (
             <div key={lb} className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
               <div className="text-[11px] text-muted-foreground">{lb}</div>
               <div className="num text-xl font-bold" style={c ? { color: c } : undefined}>{val}</div>

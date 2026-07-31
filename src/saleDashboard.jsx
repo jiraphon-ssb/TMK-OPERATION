@@ -628,9 +628,10 @@ export function SaleDashboard() {
             <SectionHead title="เจาะลึก" sub="ตัวเลขเสริมรายสัดส่วน" />
             <div className="metric-grid" style={{ marginTop: 10 }}>
               <MetricCard index={0} label="ออเดอร์ก้อนใหญ่" value={N(k.big)} sub={`${Math.round(k.bigPct * 100)}% (≥11 ตัว)`} />
-              <MetricCard index={1} label="%ปิดการขาย" value={funnelClose ? `${funnelClose.pct}%` : '—'} icon="target" tone={funnelClose ? (funnelClose.pct >= 15 ? 'var(--good)' : funnelClose.pct >= 8 ? 'var(--warn)' : 'var(--bad)') : undefined} sub={funnelClose ? `ปิด ${N(funnelClose.orders)}/${N(funnelClose.totalLeads)} คนทัก` : 'ยังไม่มีข้อมูลคนทัก'} />
-              <MetricCard index={2} label="Basket Size" value={baht(k.aov)} sub="ยอดเฉลี่ย/ออเดอร์" />
-              <MetricCard index={3} label="AVG ตัว/ออเดอร์" value={basketQty.toFixed(2)} sub={`${baht(k.ppu)}/ตัว`} />
+              <MetricCard index={1} label="คนทักรวม" value={funnelClose ? N(funnelClose.totalLeads) : '—'} icon="chat" sub={funnelClose ? 'จากข้อมูลคนทักในช่วง' : 'ยังไม่มีข้อมูลคนทัก'} />
+              <MetricCard index={2} label="%ปิดการขาย" value={funnelClose ? `${funnelClose.pct}%` : '—'} icon="target" tone={funnelClose ? (funnelClose.pct >= 15 ? 'var(--good)' : funnelClose.pct >= 8 ? 'var(--warn)' : 'var(--bad)') : undefined} sub={funnelClose ? `ปิด ${N(funnelClose.orders)}/${N(funnelClose.totalLeads)} คนทัก` : 'ยังไม่มีข้อมูลคนทัก'} />
+              <MetricCard index={3} label="Basket Size" value={baht(k.aov)} sub="ยอดเฉลี่ย/ออเดอร์" />
+              <MetricCard index={4} label="AVG ตัว/ออเดอร์" value={basketQty.toFixed(2)} sub={`${baht(k.ppu)}/ตัว`} />
             </div>
           </div>
         </>;
@@ -782,6 +783,59 @@ export function SaleDashboard() {
             </>;
           })()}
         </div>
+
+        {/* ===== ตารางรายวัน: ยอดรวม + แยกโอน/COD (คำขอทีม — ดูยอดแต่ละวันแยกการชำระ) ===== */}
+        <Card className="p-[22px]">
+          <CardTitle className="m-0 text-base font-semibold mb-[6px]">ยอดรายวัน แยกการชำระ <span className="dim">· โอน / COD</span></CardTitle>
+          <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 12 }}>COD = เก็บเงินปลายทาง · อื่นๆ = มาร์เก็ตเพลส/ไม่ระบุ · เรียงวันล่าสุดก่อน</div>
+          {(() => {
+            // group ออเดอร์ (ผ่านตัวกรองแล้ว) ตามวัน → ยอดรวม/โอน/COD/อื่นๆ ต่อวัน
+            const isCod = (o) => o.payment_type === 'COD' || (Number(o.cod_amount) || 0) > 0;
+            const m = new Map();
+            (A._ords || []).forEach(o => {
+              const d = o.order_date; if (!d) return;
+              const g = m.get(d) || { d, orders: 0, sales: 0, transfer: 0, cod: 0, other: 0 };
+              const s = Number(o.sales) || 0;
+              g.orders += 1; g.sales += s;
+              if (isCod(o)) g.cod += s; else if (o.payment_type === 'โอน') g.transfer += s; else g.other += s;
+              m.set(d, g);
+            });
+            const days = [...m.values()].sort((a, b) => b.d.localeCompare(a.d));
+            const tot = days.reduce((a, g) => ({ orders: a.orders + g.orders, sales: a.sales + g.sales, transfer: a.transfer + g.transfer, cod: a.cod + g.cod, other: a.other + g.other }), { orders: 0, sales: 0, transfer: 0, cod: 0, other: 0 });
+            const hasOther = tot.other > 0;
+            if (!days.length) return <div className="cap" style={{ color: 'var(--ink-4)', padding: '20px 0', textAlign: 'center' }}>ไม่มีข้อมูลในช่วงนี้</div>;
+            return (
+              <CardTable style={{ maxHeight: 420, overflowY: 'auto' }}><Table>
+                <TableHeader><TableRow>
+                  <TableHead>วันที่</TableHead><TableHead style={{ textAlign: 'right' }}>ออเดอร์</TableHead>
+                  <TableHead style={{ textAlign: 'right' }}>โอน</TableHead><TableHead style={{ textAlign: 'right' }}>COD</TableHead>
+                  {hasOther && <TableHead style={{ textAlign: 'right' }}>อื่นๆ</TableHead>}
+                  <TableHead style={{ textAlign: 'right' }}>ยอดรวม</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {days.map(g => (
+                    <TableRow key={g.d}>
+                      <TableCell className="cell-title num">{bucketLabel(g.d, 'day')}</TableCell>
+                      <TableCell className="num" style={{ textAlign: 'right' }}>{N(g.orders)}</TableCell>
+                      <TableCell className="num" style={{ textAlign: 'right', color: g.transfer ? 'var(--good)' : 'var(--ink-4)' }}>{g.transfer ? baht(g.transfer) : '—'}</TableCell>
+                      <TableCell className="num" style={{ textAlign: 'right', color: g.cod ? 'var(--warn)' : 'var(--ink-4)' }}>{g.cod ? baht(g.cod) : '—'}</TableCell>
+                      {hasOther && <TableCell className="num" style={{ textAlign: 'right', color: g.other ? 'var(--ink-3)' : 'var(--ink-4)' }}>{g.other ? baht(g.other) : '—'}</TableCell>}
+                      <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{baht(g.sales)}</TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow style={{ background: 'var(--surface-2)' }}>
+                    <TableCell className="cell-title" style={{ fontWeight: 700 }}>รวม {N(days.length)} วัน</TableCell>
+                    <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{N(tot.orders)}</TableCell>
+                    <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--good)' }}>{baht(tot.transfer)}</TableCell>
+                    <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--warn)' }}>{baht(tot.cod)}</TableCell>
+                    {hasOther && <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{baht(tot.other)}</TableCell>}
+                    <TableCell className="num" style={{ textAlign: 'right', fontWeight: 700 }}>{baht(tot.sales)}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table></CardTable>
+            );
+          })()}
+        </Card>
 
       </>)}
 

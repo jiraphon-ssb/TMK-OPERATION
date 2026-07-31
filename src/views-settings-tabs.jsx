@@ -12,6 +12,7 @@ import { supabase } from './lib/supabaseClient.js';
 import { logAudit, diffFields } from './lib/audit.js';
 import { useNotifications, prefOn as notifStorePrefOn, setPref as notifStoreSetPref } from './lib/notifStore.js';
 import { fetchTargets, saveTarget } from './lib/targets.js';
+import { fetchCrmTargets, saveCrmTarget } from './lib/crmTargets.js';
 import { APP_VERSION } from './changelog.js';
 import { getToday, todayISO, THAI_MONTHS as MONTHS_TH_SHORT } from './lib/dateUtils.js';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -265,11 +266,12 @@ export function TargetsView() {
       const { data } = await supabase.from('tmk_sale_receipts').select('salesperson').eq('order_month', month).neq('status', 'void');
       (data || []).forEach(r => add(r.salesperson));
     } catch { /* ตารางใบเสร็จ optional */ }
-    const targets = await fetchTargets(month);
+    const [targets, crmTargets] = await Promise.all([fetchTargets(month), fetchCrmTargets(month)]);
     const map = {};
-    targets.forEach(t => { map[t.salesperson] = { sales_target: t.sales_target ?? 0, commission_rate: t.commission_rate ?? 0 }; });
-    // เป้าที่บันทึกไว้แต่คนนั้นยังไม่ส่งใบเสร็จเดือนนี้ → orphan (โผล่เมื่อกด "แสดง" · กันเป้าหาย)
-    const orphans = [...new Set(targets.map(t => t.salesperson).filter(n => n && !recSet.has(n)))];
+    targets.forEach(t => { map[t.salesperson] = { ...(map[t.salesperson] || {}), sales_target: t.sales_target ?? 0, commission_rate: t.commission_rate ?? 0 }; });
+    crmTargets.forEach(t => { map[t.salesperson] = { ...(map[t.salesperson] || {}), crm_target: t.sales_target ?? 0 }; });
+    // เป้าที่บันทึกไว้แต่คนนั้นยังไม่ส่งใบเสร็จเดือนนี้ → orphan (โผล่เมื่อกด "แสดง" · กันเป้าหาย · รวมคนที่ตั้งแต่เป้า CRM)
+    const orphans = [...new Set([...targets.map(t => t.salesperson), ...crmTargets.map(t => t.salesperson)].filter(n => n && !recSet.has(n)))];
     setReceiptNames([...recSet]);
     setOrphanNames(orphans);
     setRows(map);
@@ -286,14 +288,15 @@ export function TargetsView() {
   }, [receiptNames, manualNames, orphanNames, showOrphans]);
 
   const isDirty = (name) => numOf(rows[name], 'sales_target') !== numOf(baseline[name], 'sales_target')
-    || numOf(rows[name], 'commission_rate') !== numOf(baseline[name], 'commission_rate');
+    || numOf(rows[name], 'commission_rate') !== numOf(baseline[name], 'commission_rate')
+    || numOf(rows[name], 'crm_target') !== numOf(baseline[name], 'crm_target');
   const dirtyNames = people.filter(isDirty);
 
   // สรุปจากค่าที่บันทึกแล้ว (baseline รวม orphan → "ตั้งเป้าแล้ว" = เป้าจริงทั้งเดือน)
   const summary = useMemo(() => {
-    let setCount = 0, totalTarget = 0;
-    Object.values(baseline).forEach(b => { const t = numOf(b, 'sales_target'); if (t > 0 || numOf(b, 'commission_rate') > 0) setCount++; totalTarget += t; });
-    return { setCount, totalTarget };
+    let setCount = 0, totalTarget = 0, totalCrm = 0;
+    Object.values(baseline).forEach(b => { const t = numOf(b, 'sales_target'); if (t > 0 || numOf(b, 'commission_rate') > 0 || numOf(b, 'crm_target') > 0) setCount++; totalTarget += t; totalCrm += numOf(b, 'crm_target'); });
+    return { setCount, totalTarget, totalCrm };
   }, [baseline]);
 
   const setField = (name, field, val) => setRows(p => ({ ...p, [name]: { ...(p[name] || {}), [field]: val } }));
@@ -306,9 +309,18 @@ export function TargetsView() {
       window.__toast?.(miss ? 'ต้องรัน migration 20260701-targets.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error');
       return false;
     }
-    const tChanges = diffFields(baseline[name], { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate') }, [['sales_target', 'เป้ายอด'], ['commission_rate', 'เรตคอม %']]);
+    // เป้า CRM แยกตาราง (tmk_crm_targets) — บันทึกเฉพาะเมื่อเปลี่ยน · ตารางยังไม่ migrate → toast ชี้ migration
+    if (numOf(r, 'crm_target') !== numOf(baseline[name], 'crm_target')) {
+      const { error: ce } = await saveCrmTarget({ salesperson: name, month, sales_target: r.crm_target });
+      if (ce) {
+        const miss = /relation .* does not exist|tmk_crm_targets|schema cache/i.test(ce.message || '');
+        window.__toast?.(miss ? 'ต้องรัน migration 20260731-crm-targets-notes.sql ใน Supabase ก่อน' : 'บันทึกเป้า CRM ไม่สำเร็จ: ' + ce.message, 'error');
+        return false;
+      }
+    }
+    const tChanges = diffFields(baseline[name], { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate'), crm_target: numOf(r, 'crm_target') }, [['sales_target', 'เป้ายอด'], ['commission_rate', 'เรตคอม %'], ['crm_target', 'เป้า CRM']]);
     logAudit({ action: 'update', entityType: 'target', entityName: name, summary: `ตั้งเป้า/คอม ${name} เดือน ${month}`, changes: tChanges.length ? tChanges : null });
-    setBaseline(b => ({ ...b, [name]: { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate') } }));
+    setBaseline(b => ({ ...b, [name]: { sales_target: numOf(r, 'sales_target'), commission_rate: numOf(r, 'commission_rate'), crm_target: numOf(r, 'crm_target') } }));
     return true;
   };
 
@@ -338,7 +350,7 @@ export function TargetsView() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Icon name="target" className="size-5" /> เป้าขาย & คอมมิชชั่นต่อเซลล์</CardTitle>
-        <CardDescription>ตั้งเป้ายอดขาย (บาท) และอัตราคอม (%) แยกรายคน รายเดือน → โชว์ความคืบหน้า + คอมคำนวณในหน้า “ยอดขาย → เซลล์”</CardDescription>
+        <CardDescription>ตั้งเป้ายอดขาย (บาท) · อัตราคอม (%) · เป้า CRM (โทร+LINE) แยกรายคน รายเดือน → โชว์ในหน้า “ยอดขาย → เซลล์” และ “ภาพรวม CRM”</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* แถวควบคุมเดือน + เพิ่มเซลล์ */}
@@ -365,6 +377,7 @@ export function TargetsView() {
             <span><span className="text-muted-foreground">เซลล์เดือนนี้</span> <b>{people.length}</b> คน</span>
             <span><span className="text-muted-foreground">ตั้งเป้าแล้ว</span> <b>{summary.setCount}</b> คน</span>
             <span><span className="text-muted-foreground">เป้ารวม</span> <b>฿{money(summary.totalTarget)}</b></span>
+            {summary.totalCrm > 0 && <span><span className="text-muted-foreground">เป้า CRM รวม</span> <b>฿{money(summary.totalCrm)}</b></span>}
             {dirtyNames.length > 0 && (
               <Button size="sm" className="ml-auto" disabled={savingAll} onClick={saveAll}>
                 {savingAll ? 'กำลังบันทึก…' : <><Icon name="check" className="size-4" /> บันทึกทั้งหมด ({dirtyNames.length})</>}
@@ -386,6 +399,7 @@ export function TargetsView() {
                 <TableHead>เซลล์</TableHead>
                 <TableHead className="text-right">เป้ายอดขาย (บาท)</TableHead>
                 <TableHead className="text-right">คอม (%)</TableHead>
+                <TableHead className="text-right">เป้า CRM (บาท)</TableHead>
                 <TableHead className="text-right hidden sm:table-cell">คอมเมื่อถึงเป้า</TableHead>
                 <TableHead className="text-right w-[110px]"></TableHead>
               </TableRow>
@@ -410,6 +424,9 @@ export function TargetsView() {
                     </TableCell>
                     <TableCell className="text-right">
                       <Input type="number" inputMode="decimal" step="0.1" value={r.commission_rate ?? ''} onChange={e => setField(name, 'commission_rate', e.target.value)} className="w-[90px] ml-auto text-right" placeholder="0" />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Input type="number" inputMode="numeric" value={r.crm_target ?? ''} onChange={e => setField(name, 'crm_target', e.target.value)} className="w-[140px] ml-auto text-right" placeholder="0" title="เป้ายอด CRM (โทร+LINE) — โชว์ในหน้าภาพรวม CRM" />
                     </TableCell>
                     <TableCell className="text-right hidden sm:table-cell text-muted-foreground">
                       {commAtTarget > 0 ? `฿${money(Math.round(commAtTarget))}` : '—'}

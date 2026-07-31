@@ -10,16 +10,25 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from './lib/supabaseClient.js';
 import { N, Icon, Skel, SkelTable, useDelayedFlag, PersonAvatar } from './components.jsx';
-import { channelColor } from './charts.jsx';
+import { channelColor, MetricCard, DonutChart, StackedBars } from './charts.jsx';
 import { SideSheet } from './modals-core.jsx';
-import { FormSection, DrawerGroup, DrawerField, Field } from './saleWidgets.jsx';
+import { FormSection, DrawerGroup, DrawerField, Field, PriceBreakdown } from './saleWidgets.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
+import { buildCrmMonth, isCrmOrder, crmCustomerKey, crmTargetProgress } from './lib/crmAgg.js';
+import { isCancelled } from './lib/salePerfAgg.js';
+import { mergeOrderOverrides } from './lib/saleOverrides.js';
+import { fetchCrmTargets, fetchCrmNotes, saveCrmNote } from './lib/crmTargets.js';
+import { useUser } from './userContext.jsx';
+import { isAdmin, myNamesOf } from './lib/roleAccess.js';
+import { Progress } from '@/components/ui/progress';
 import { fmtBaht } from './lib/money.js';
-import { cachedFetchAll, CUST_SEL, invalidateSaleCache } from './lib/saleData.js';
+import { cachedFetchAll, CUST_SEL, OVERRIDES_SEL, invalidateSaleCache } from './lib/saleData.js';
+import { MonthPicker } from './components/MonthPicker.jsx';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
 import { T } from './lib/tables.js';
 import { usePersistedState } from './hooks/usePersistedState.js';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { downloadCsv } from './lib/exportCsv.js';
 import { logAudit } from './lib/audit.js';
 import { useTableSort, SortHead, CardTable } from './components/DataTableParts.jsx';
@@ -29,12 +38,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from '@/components/ui/table';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 
 const baht = (n) => fmtBaht(Number(n) || 0); // decimal-aware กลาง (lib/money.js)
 const todayISO = () => new Date().toISOString().slice(0, 10);
+try { localStorage.removeItem('tmk-crm-seller'); } catch { /* เลิก persist ตัวเลือกเซลล์ — เข้าใหม่ล็อคเซลล์หลักเสมอ (PART 87.2) */ }
 const num = (v) => Number(v) || 0;
 const toast = (m, t) => window.__toast && window.__toast(m, t);
 const TIER_CHIP = { 'เพชร': 'tier-chip-diamond', 'ทอง': 'tier-chip-gold', 'เงิน': 'tier-chip-silver', 'ทองแดง': 'tier-chip-bronze' };
@@ -103,7 +113,9 @@ async function loadProfiles() {
   if (r.error && /contact_channel|note|last_order|column/i.test(r.error.message || '')) r = await cachedFetchAll('tmk_mp_customers', CUST_SEL);
   return r;
 }
-const ORDERS_CRM_SEL = 'order_no,customer_code,customer_name,customer_social,channel,salesperson,province,sales,qty,order_date,status';
+// source ต้องมี — ORDER_OV_KEY = `${source}:${order_no}` (merge override ระดับออเดอร์)
+// payment_type/cod_amount/customer_type/note/customer_phone/job_type — ไว้ใช้ในการ์ดออเดอร์ popup รายวัน (OVERRIDES_SEL มีครบ merge ต่อเนื่อง)
+const ORDERS_CRM_SEL = 'order_no,source,customer_code,customer_name,customer_social,customer_phone,channel,salesperson,province,sales,qty,order_date,status,payment_type,cod_amount,customer_type,note,job_type';
 
 /* ---------- รวม directory: โปรไฟล์ + ออเดอร์สด + เซลล์กรอกเอง ---------- */
 function buildDirectory(profiles, orders, asOf) {
@@ -111,7 +123,7 @@ function buildDirectory(profiles, orders, asOf) {
   const ensure = (key) => {
     let r = m.get(key);
     if (!r) {
-      r = { key, name: '', contact: '', social: '', address: '', district: '', postcode: '', province: '', owner: '', cadence: '', note: '', contactChannel: '', repurchase: 0, tags: [], since: '', salesperson: '', sales: 0, count: 0, qty: 0, first: '', last: '', channels: new Map(), orders: [], ltSales: 0, ltOrders: 0, profile: null };
+      r = { key, name: '', contact: '', social: '', address: '', district: '', postcode: '', province: '', owner: '', cadence: '', note: '', contactChannel: '', repurchase: 0, tags: [], since: '', salesperson: '', sales: 0, count: 0, qty: 0, first: '', last: '', channels: new Map(), chSales: new Map(), orders: [], ltSales: 0, ltOrders: 0, profile: null };
       m.set(key, r);
     }
     return r;
@@ -150,7 +162,7 @@ function buildDirectory(profiles, orders, asOf) {
     const d = o.order_date || '';
     if (d && (!r.first || d < r.first)) r.first = d;
     if (d > r.last) r.last = d;
-    if (o.channel) r.channels.set(o.channel, (r.channels.get(o.channel) || 0) + 1);
+    if (o.channel) { r.channels.set(o.channel, (r.channels.get(o.channel) || 0) + 1); r.chSales.set(o.channel, (r.chSales.get(o.channel) || 0) + num(o.sales)); }
     r.orders.push({ date: d, order_no: o.order_no, channel: o.channel || '', sales: num(o.sales), qty: num(o.qty) });
   });
   const arr = [...m.values()];
@@ -161,28 +173,27 @@ function buildDirectory(profiles, orders, asOf) {
   return arr.map(r => {
     const t = tmap.get(r.key) || {};
     const mainChannel = [...r.channels.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || r.contactChannel || '';
+    // segment โทร/LINE: เป็นสมาชิกถ้าเคยซื้อผ่านช่องนั้น หรือถูกตั้ง "ช่องทางติดต่อหลัก (CRM)" ไว้ (r.contactChannel)
+    const segPhone = r.channels.has('Phone') || r.contactChannel === 'Phone';
+    const segLine = r.channels.has('LINE') || r.contactChannel === 'LINE';
     return {
       ...r, orders: r.orders.sort((a, b) => (b.date || '').localeCompare(a.date || '')),
       aov: r.count ? r.sales / r.count : 0,
       recency: t.recency, tier: t.tier, flag: t.flag,
       repeat: r.count > 1, hasContact: !!r.contact, queue: !!(r.cadence || r.owner), mainChannel,
+      segPhone, segLine, segCrm: segPhone || segLine,
+      phoneSales: r.chSales.get('Phone') || 0, lineSales: r.chSales.get('LINE') || 0,
     };
   }).sort((a, b) => b.sales - a.sales);
 }
 
-/* ---------- แถบสรุปแบบ inline (แพทเทิร์น HealthStat — PART 42) ---------- */
-const CrmStat = ({ label, value, tone }) => (
-  <div style={{ minWidth: 84 }}>
-    <div className="cap" style={{ color: 'var(--ink-4)' }}>{label}</div>
-    <div className="num" style={{ fontWeight: 800, fontSize: 20, lineHeight: 1.2, color: tone || 'var(--ink-1)' }}>{value}</div>
-  </div>
-);
-
-/* ---------- Skeleton (แถบสรุป + ตาราง) ---------- */
+/* ---------- Skeleton (แดชบอร์ด + ตาราง) ---------- */
 function CrmSkeleton() {
   return (
     <div className="content-inner rise" style={{ display: 'grid', gap: 14 }}>
-      <Card className="p-4"><div className="row" style={{ gap: 26, flexWrap: 'wrap' }}>{Array.from({ length: 5 }).map((_, i) => <div key={i}><Skel w={64} h={9} /><Skel w={48} h={20} style={{ marginTop: 7 }} /></div>)}</div></Card>
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 10 }}><Skel w={200} h={18} /><Skel w={130} h={30} r={8} /></div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">{Array.from({ length: 6 }).map((_, i) => <Card key={i} className="p-3"><Skel w={70} h={9} /><Skel w={80} h={22} style={{ marginTop: 8 }} /></Card>)}</div>
+      <div className="grid lg:grid-cols-3 gap-3"><Card className="p-4 lg:col-span-2"><Skel w={140} h={14} style={{ marginBottom: 12 }} /><Skel w="100%" h={200} r={9} /></Card><Card className="p-4"><Skel w={120} h={14} style={{ marginBottom: 12 }} /><Skel w="100%" h={150} r={9} /></Card></div>
       <Card className="p-4">
         <div className="row between" style={{ flexWrap: 'wrap', gap: 10, marginBottom: 12 }}><Skel w={160} h={16} /><Skel w={90} h={28} r={8} /></div>
         <Skel w="100%" h={34} r={9} style={{ marginBottom: 12 }} />
@@ -192,11 +203,337 @@ function CrmSkeleton() {
   );
 }
 
+/* ---------- แดชบอร์ดยอด CRM รายเดือน (โทร + LINE) — PART 87 ---------- */
+const LINE_C = channelColor('LINE');   // #06c755
+const PHONE_C = channelColor('Phone'); // #3aa0c9
+// delta % เทียบเดือนก่อน → { delta, deltaUp } | null
+const dlt = (cur, prev) => {
+  if (prev == null || prev <= 0) return null;
+  const p = Math.round((cur - prev) / prev * 100);
+  if (p === 0) return null;
+  return { delta: `${p > 0 ? '+' : ''}${p}%`, deltaUp: p > 0 };
+};
+
+function CrmDashboard({ stats, month, setMonth, curYm, seller, setSeller, target, targetProg, isAdminUser, onDayClick }) {
+  const s = stats;
+  const empty = s.crmOrders === 0;
+  const isCurMonth = month === curYm;
+  const dailyData = [
+    { label: 'LINE', data: s.byDay.map(d => d.line), color: LINE_C },
+    { label: 'โทร', data: s.byDay.map(d => d.phone), color: PHONE_C },
+  ];
+  const dailyLabels = s.byDay.map((_, i) => String(i + 1));
+  const otherSales = Math.max(0, s.totalSales - s.crmSales);
+  const buyers = s.buyers;
+  const newPct = buyers ? Math.round(s.newBuyers / buyers * 100) : 0;
+  const scopeLabel = seller || 'รวมทุกคน';
+
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      {/* Zone A — พาดหัวเซลล์ (สลับคนได้) + เลือกเดือน */}
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+        <div className="row items-center" style={{ gap: 10, minWidth: 0 }}>
+          <PersonAvatar name={scopeLabel} size={40} />
+          <div style={{ minWidth: 0 }}>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="row items-center gap-1.5 text-lg font-bold leading-tight hover:opacity-80" style={{ color: 'var(--ink)' }}>
+                  {scopeLabel} <Icon name="down" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-auto">
+                <DropdownMenuLabel className="py-1">เลือกเซลล์ CRM</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setSeller('')}>
+                  <span className="min-w-0 flex-1">รวมทุกคน</span>{!seller && <Icon name="check" />}
+                </DropdownMenuItem>
+                {s.bySeller.map(sp => (
+                  <DropdownMenuItem key={sp.name} onSelect={() => setSeller(sp.name)}>
+                    <PersonAvatar name={sp.name} size={20} />
+                    <span className="min-w-0 flex-1 truncate">{sp.name}</span>
+                    {seller === sp.name && <Icon name="check" />}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 1 }}>ยอด CRM (โทร + LINE){seller ? '' : ' ทั้งทีม'} · ไม่นับใบยกเลิก</div>
+          </div>
+        </div>
+        <MonthPicker value={month} onChange={setMonth} max={curYm} />
+      </div>
+
+      {/* Zone B — KPI 6 ใบ */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        {(() => { const d = dlt(s.crmSales, s.prev.crmSales); return (
+          <MetricCard index={0} label="ยอด CRM เดือนนี้" value={baht(s.crmSales)} tone="var(--accent)" icon="chat" {...(d || {})} sub={d ? 'เทียบเดือนก่อน' : undefined} />
+        ); })()}
+        <MetricCard index={1} label="ยอด LINE" value={baht(s.lineSales)} tone={LINE_C} icon="chat" />
+        <MetricCard index={2} label="ยอดโทร" value={baht(s.phoneSales)} tone={PHONE_C} icon="phone" />
+        {(() => { const d = dlt(s.crmOrders, s.prev.crmOrders); return (
+          <MetricCard index={3} label="ออเดอร์ CRM" value={N(s.crmOrders)} icon="bag" {...(d || {})} sub={d ? 'เทียบเดือนก่อน' : undefined} />
+        ); })()}
+        {(() => { const d = dlt(s.buyers, s.prev.buyers); return (
+          <MetricCard index={4} label="ลูกค้าที่ซื้อ" value={N(s.buyers)} icon="users" {...(d || {})} sub={d ? 'เทียบเดือนก่อน' : undefined} />
+        ); })()}
+        <MetricCard index={5} label="สัดส่วน CRM" value={`${Math.round(s.crmShare)}%`} icon="target" sub={`จากยอดรวม ${baht(s.totalSales)}`} />
+      </div>
+
+      {/* เป้ายอดขาย CRM — ความคืบหน้า + วันเหลือ + ส่วนต่าง + คาดสิ้นเดือน (pattern เดียวกับหน้าเซลล์) */}
+      {target > 0 ? (() => {
+        const p = targetProg || {};
+        const pct = p.pct || 0;
+        const reached = s.crmSales >= target;
+        return (
+          <Card className="p-4">
+            <div className="row between mb-2" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'baseline' }}>
+              <div className="cap" style={{ color: 'var(--ink-2)' }}>
+                เป้ายอดขาย CRM <b style={{ color: 'var(--ink)' }}>{baht(target)}</b> · ยอดสะสม <b style={{ color: 'var(--ink)' }}>{baht(s.crmSales)}</b>
+                <span style={{ color: reached ? 'var(--good)' : 'var(--accent-2)', fontWeight: 700, marginLeft: 4 }}>({Math.round(pct)}%)</span>
+              </div>
+              {isCurMonth && <span className="cap" style={{ color: 'var(--ink-4)' }}>เหลืออีก {N(p.daysLeft)} วัน</span>}
+            </div>
+            <Progress value={Math.min(100, pct)} className="h-2" indicatorColor={reached ? 'var(--good)' : 'var(--accent)'} />
+            <div className="row mt-2.5" style={{ gap: 20, flexWrap: 'wrap', alignItems: 'baseline' }}>
+              <div>
+                <span className="cap" style={{ color: 'var(--ink-4)' }}>ส่วนต่างยอดขาย </span>
+                <b className="num" style={{ color: p.gap >= 0 ? 'var(--good)' : 'var(--bad)' }}>{p.gap >= 0 ? '+' : '−'}{baht(Math.abs(p.gap))}</b>
+                <span className="cap" style={{ color: 'var(--ink-4)', marginLeft: 3 }}>{p.gap >= 0 ? 'เกินเป้า' : 'ถึงเป้า'}</span>
+              </div>
+              {isCurMonth && p.projected > 0 && (
+                <div><span className="cap" style={{ color: 'var(--ink-4)' }}>คาดสิ้นเดือน </span><b className="num" style={{ color: p.projected >= target ? 'var(--good)' : 'var(--ink-2)' }}>{baht(p.projected)}</b></div>
+              )}
+            </div>
+          </Card>
+        );
+      })() : isAdminUser ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 border-dashed p-4">
+          <div className="cap" style={{ color: 'var(--ink-3)' }}>ยังไม่ได้ตั้งเป้ายอดขาย CRM {seller ? `ของ ${seller}` : ''} เดือนนี้</div>
+          <Button variant="outline" size="sm" onClick={() => window.__goSection?.('settings', 'targets')}><Icon name="target" /> ตั้งเป้า CRM</Button>
+        </Card>
+      ) : null}
+
+      {/* Zone C — กราฟรายวัน (กดแท่งดูรายวัน) + สัดส่วน + ใหม่/ซื้อซ้ำ (ซ้าย-ขวาสูงเท่ากัน) */}
+      <div className="grid lg:grid-cols-3 gap-3 items-stretch">
+        <Card className="p-4 lg:col-span-2 flex flex-col">
+          <div className="row between mb-3" style={{ alignItems: 'baseline' }}>
+            <div className="cap" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>ยอด CRM รายวัน — LINE เทียบโทร</div>
+            {!empty && <span className="cap" style={{ color: 'var(--ink-4)' }}>กดแท่งเพื่อดูออเดอร์วันนั้น</span>}
+          </div>
+          {empty
+            ? <div className="flex flex-1 items-center justify-center text-center" style={{ minHeight: 240, color: 'var(--ink-4)' }}>ยังไม่มียอด CRM ในเดือนนี้</div>
+            : <div className="flex-1"><StackedBars labels={dailyLabels} datasets={dailyData} height={260} fmt={baht} onDayClick={onDayClick} /></div>}
+        </Card>
+        <div className="flex flex-col gap-3">
+          <Card className="p-4 flex-1 flex flex-col justify-center">
+            <div className="cap mb-2" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>CRM เทียบยอดรวม</div>
+            {s.totalSales > 0
+              ? <div className="relative">
+                  <DonutChart height={140} data={[{ label: 'CRM (โทร+LINE)', value: s.crmSales, color: 'var(--accent)' }, { label: 'ช่องทางอื่น', value: otherSales, color: '#8a909c' }]} />
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <div className="num" style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)' }}>{Math.round(s.crmShare)}%</div>
+                    <div className="cap" style={{ color: 'var(--ink-4)' }}>เป็น CRM</div>
+                  </div>
+                </div>
+              : <div className="flex items-center justify-center text-center" style={{ height: 120, color: 'var(--ink-4)' }}>ยังไม่มียอดขายในเดือนนี้</div>}
+          </Card>
+          <Card className="p-4 flex-1 flex flex-col justify-center">
+            <div className="cap mb-2" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>ลูกค้า CRM เดือนนี้</div>
+            <div className="row" style={{ gap: 20, alignItems: 'baseline' }}>
+              <div><div className="num" style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)' }}>{N(s.newBuyers)}</div><div className="cap" style={{ color: 'var(--ink-4)' }}>ลูกค้าใหม่</div></div>
+              <div><div className="num" style={{ fontSize: 22, fontWeight: 800, color: 'var(--good)' }}>{N(s.repeatBuyers)}</div><div className="cap" style={{ color: 'var(--ink-4)' }}>ซื้อซ้ำ</div></div>
+              <div className="ml-auto text-right"><div className="num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink-2)' }}>{N(buyers)}</div><div className="cap" style={{ color: 'var(--ink-4)' }}>รวม</div></div>
+            </div>
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'color-mix(in srgb, var(--good) 22%, transparent)' }}>
+              <div style={{ width: `${newPct}%`, height: '100%', background: 'var(--accent)' }} />
+            </div>
+            <div className="cap mt-1.5" style={{ color: 'var(--ink-4)' }}>ใหม่ = ซื้อผ่าน LINE/โทรครั้งแรกในเดือนนี้</div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Popup รายละเอียดวัน (กดแท่งกราฟ) — แบบหน้าประสิทธิภาพเซลล์ ---------- */
+function CrmDayTile({ label, value, tone }) {
+  return (
+    <div className="rounded-xl border p-2.5" style={{ borderColor: 'var(--line)' }}>
+      <div className="cap" style={{ color: 'var(--ink-4)' }}>{label}</div>
+      <div className="num" style={{ fontSize: 17, fontWeight: 800, color: tone || 'var(--ink)', marginTop: 2 }}>{value}</div>
+    </div>
+  );
+}
+const JOB_COLOR = { DFT: 'var(--warn)', OEM: 'var(--accent-2)' };
+// ป้ายการชำระ — COD (ยอดเก็บปลายทาง) หรือ โอน/อื่นๆ
+function payLabel(o) {
+  const cod = num(o.cod_amount);
+  if (o.payment_type === 'COD' || cod > 0) return `COD ${baht(cod || o.sales)}`;
+  return o.payment_type === 'โอน' ? 'โอน' : (o.payment_type || 'โอน');
+}
+// การ์ดออเดอร์ CRM แบบเต็ม (ไว้แคปรายงาน) — หัว/รายการสินค้า/แยกราคา/ท้าย
+function CrmDayOrderCard({ o, lines, fin, onPick }) {
+  const ch = o.channel || '';
+  const isNew = o.customer_type === 'ลูกค้าใหม่';
+  const job = (o.job_type || '').toUpperCase();
+  return (
+    <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--line)' }}>
+      <div className="row items-center gap-2 flex-wrap px-3 py-2" style={{ background: 'var(--surface-2)' }}>
+        <span className="num text-[12px] font-semibold" style={{ color: 'var(--ink-3)' }}>{o.order_no}</span>
+        {ch && <Badge variant="outline" className="rounded-full text-[10px] font-medium" style={{ color: channelColor(ch), background: `color-mix(in srgb, ${channelColor(ch)} 14%, transparent)`, borderColor: `color-mix(in srgb, ${channelColor(ch)} 40%, transparent)` }}>{ch === 'Phone' ? 'โทร' : ch}</Badge>}
+        <button onClick={() => onPick?.(o)} className="truncate text-[13px] font-semibold hover:underline" style={{ color: 'var(--ink)', maxWidth: 200 }} title="ดูโปรไฟล์ลูกค้า">{o.customer_name || o.customer_code || 'ไม่ระบุลูกค้า'}</button>
+        {isNew && <Badge variant="outline" className="rounded-full text-[10px]" style={{ color: 'var(--accent)', borderColor: 'currentColor' }}>ใหม่</Badge>}
+        {(job === 'DFT' || job === 'OEM') && <Badge variant="outline" className="rounded-full text-[10px]" style={{ color: JOB_COLOR[job], borderColor: 'currentColor' }}>{job}</Badge>}
+        <span className="num ml-auto text-[14px] font-bold" style={{ color: 'var(--accent-2)' }}>{baht(o.sales)}</span>
+      </div>
+      {/* รายการสินค้า */}
+      {lines && lines.length > 0 && (
+        <div className="px-3 py-1.5">
+          {lines.map((l, i) => (
+            <div key={i} className="row items-center gap-2 py-0.5 text-[12px]">
+              <span className="min-w-0 flex-1 truncate" style={{ color: 'var(--ink-2)' }}>{l.design || l.product_code || 'ไม่ระบุลาย'}</span>
+              <span className="shrink-0 cap" style={{ color: 'var(--ink-4)' }}>{[l.color, l.size].filter(Boolean).join(' · ') || '—'}</span>
+              <span className="shrink-0 num" style={{ color: 'var(--ink-3)', width: 34, textAlign: 'right' }}>×{N(l.qty)}</span>
+              <span className="shrink-0 num" style={{ color: 'var(--ink-2)', width: 74, textAlign: 'right' }}>{l.line_sales != null ? baht(l.line_sales) : '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* แยกราคา — ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT (ซ่อนเองถ้าไม่มี) */}
+      {fin && <div className="px-3 pb-2"><PriceBreakdown subtotal={fin.subtotal} discount={fin.discount} shipping={fin.shipping} vat={fin.vat} total={o.sales} /></div>}
+      {/* ท้าย — จำนวนตัว/ชำระ/จังหวัด/เบอร์/โน้ต */}
+      <div className="row flex-wrap gap-x-3 gap-y-0.5 px-3 pb-2 text-[11px]" style={{ color: 'var(--ink-4)' }}>
+        <span>จำนวน <b style={{ color: 'var(--ink-3)' }}>{N(o.qty)}</b> ตัว</span>
+        <span>ชำระ: <b style={{ color: 'var(--ink-3)' }}>{payLabel(o)}</b></span>
+        {o.province && <span>{o.province}</span>}
+        {(o.customer_phone || o.customer_social) && <span className="num">{o.customer_phone || '@' + o.customer_social}</span>}
+      </div>
+      {o.note && <div className="px-3 pb-2 text-[11px]" style={{ color: 'var(--ink-3)', whiteSpace: 'pre-wrap' }}>📝 {o.note}</div>}
+    </div>
+  );
+}
+function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
+  const [lineBy, setLineBy] = useState(null); // order_no → [{design,color,size,qty,line_sales}]
+  const [finBy, setFinBy] = useState({});     // "source:order_no" → {subtotal,discount,shipping,vat}
+  const [notes, setNotes] = useState([]);     // บันทึกประจำวัน ของวันนั้น (ทุกคน)
+  const [noteDraft, setNoteDraft] = useState('');
+  const [noteBusy, setNoteBusy] = useState(false);
+  const loading = lineBy === null;
+
+  // ออเดอร์ CRM (LINE/โทร) ของวันนั้น — เรียงยอดมาก→น้อย
+  const ords = useMemo(() => (orders || []).filter(o => o.order_date === dateISO && !isCancelled(o) && isCrmOrder(o))
+    .sort((a, b) => (num(b.sales) - num(a.sales))), [orders, dateISO]);
+  const line = ords.filter(o => o.channel === 'LINE').reduce((x, o) => x + num(o.sales), 0);
+  const phone = ords.filter(o => o.channel === 'Phone').reduce((x, o) => x + num(o.sales), 0);
+  const qty = ords.reduce((x, o) => x + num(o.qty), 0);
+  const buyers = new Set(ords.map(o => crmCustomerKey(o)).filter(Boolean)).size;
+
+  // lazy: รายการสินค้า (skus) + แยกราคา (attrs) + บันทึกประจำวัน — โหลดตอนเปิด popup เท่านั้น (ออเดอร์/วันไม่มาก · egress ต่ำ)
+  useEffect(() => {
+    let live = true;
+    setLineBy(null); setFinBy({}); setNotes([]);
+    (async () => {
+      const nos = [...new Set(ords.map(o => o.order_no).filter(x => x && !String(x).startsWith('(')))];
+      const lb = new Map();
+      if (nos.length) {
+        const rows = [];
+        for (let i = 0; i < nos.length; i += 150) {
+          const { data } = await supabase.from('tmk_mp_skus').select('order_no,design,color,size,qty,line_sales,product_code,raw_sku_or_name,order_date').in('order_no', nos.slice(i, i + 150));
+          rows.push(...(data || []));
+        }
+        // resolve ชื่อลายสด (ตรงหน้าออเดอร์/แดชบอร์ด)
+        const maps = await loadResolverMaps(supabase);
+        if (!live) return;
+        const resolve = makeSkuResolver(maps);
+        rows.forEach(s => { s.design = resolve(s).design || s.design; const g = lb.get(s.order_no) || []; g.push(s); lb.set(s.order_no, g); });
+        // attrs (ส่วนลด/ค่าส่ง/VAT/ราคาเสื้อ) — คีย์ source:order_no กันชนข้าม source
+        const fb = {};
+        const { data: aData } = await supabase.from('tmk_mp_orders').select('order_no,source,attrs').in('order_no', nos);
+        (aData || []).forEach(r => { const a = r.attrs || {}; fb[`${r.source || ''}:${r.order_no}`] = { subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat }; });
+        if (live) setFinBy(fb);
+      }
+      if (!live) return;
+      setLineBy(lb);
+      setNotes(await fetchCrmNotes(dateISO));
+    })();
+    return () => { live = false; };
+  }, [dateISO, ords]);
+
+  // ส่วนลดรวมของวัน (จาก attrs · ไม่มี = 0 ตามจริง — ใบเสร็จที่ไม่มีส่วนลดจะไม่เขียน attrs.discount)
+  const discTotal = useMemo(() => ords.reduce((x, o) => x + (Number(finBy[`${o.source || ''}:${o.order_no}`]?.discount) || 0), 0), [ords, finBy]);
+
+  // บันทึกประจำวัน — scope เดี่ยว = ของเซลล์คนนั้น · แก้ได้ถ้า admin หรือเป็นตัวเอง
+  const canEditNote = (sp) => isAdmin(user) || myNamesOf(user).includes(sp);
+  const singleNote = seller ? (notes.find(n => n.salesperson === seller)?.note || '') : null;
+  useEffect(() => { setNoteDraft(singleNote || ''); }, [singleNote, dateISO]);
+  const saveNote = async (sp, text) => {
+    setNoteBusy(true);
+    const { error } = await saveCrmNote({ salesperson: sp, date: dateISO, note: text });
+    setNoteBusy(false);
+    if (error) {
+      const miss = /relation .* does not exist|tmk_crm_notes|schema cache/i.test(error.message || '');
+      toast(miss ? 'ต้องรัน migration 20260731-crm-targets-notes.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ', 'error');
+      return;
+    }
+    toast('บันทึกแล้ว', 'success');
+    setNotes(await fetchCrmNotes(dateISO));
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* tiles สรุปวัน (7 ใบ) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <CrmDayTile label="ยอด CRM" value={baht(line + phone)} tone="var(--accent)" />
+        <CrmDayTile label="ยอด LINE" value={baht(line)} tone={LINE_C} />
+        <CrmDayTile label="ยอดโทร" value={baht(phone)} tone={PHONE_C} />
+        <CrmDayTile label="ออเดอร์" value={N(ords.length)} />
+        <CrmDayTile label="จำนวนตัว" value={N(qty)} />
+        <CrmDayTile label="ลูกค้าที่ซื้อ" value={N(buyers)} />
+        <CrmDayTile label="ส่วนลดรวม" value={discTotal > 0 ? baht(discTotal) : '—'} tone={discTotal > 0 ? 'var(--bad)' : undefined} />
+      </div>
+
+      {/* บันทึกประจำวัน CRM (อยู่ในรูปแคปด้วย) */}
+      {seller ? (
+        (canEditNote(seller) || singleNote) && (
+          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+            <div className="cap mb-1.5" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน — {seller}</div>
+            {canEditNote(seller) ? (
+              <div className="flex flex-col gap-2">
+                <Textarea rows={2} value={noteDraft} onChange={e => setNoteDraft(e.target.value)} placeholder="เช่น ลูกค้าสอบถามเสื้อสีเทา อสม. เข้ามาเยอะ" />
+                <Button size="sm" className="self-end" disabled={noteBusy || noteDraft === (singleNote || '')} onClick={() => saveNote(seller, noteDraft)}><Icon name="check" /> บันทึก</Button>
+              </div>
+            ) : <div className="text-[13px]" style={{ color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{singleNote}</div>}
+          </div>
+        )
+      ) : notes.length > 0 && (
+        <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+          <div className="cap mb-1.5" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน</div>
+          <div className="flex flex-col gap-1.5">
+            {notes.map(n => <div key={n.id} className="text-[13px]" style={{ color: 'var(--ink-2)' }}><b style={{ color: 'var(--ink)' }}>{n.salesperson}:</b> <span style={{ whiteSpace: 'pre-wrap' }}>{n.note}</span></div>)}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div className="text-sm font-semibold mb-1.5" style={{ color: 'var(--ink)' }}>ออเดอร์ CRM วันนี้ ({N(ords.length)})</div>
+        {ords.length === 0
+          ? <div className="rounded-lg border p-6 text-center text-sm" style={{ color: 'var(--ink-4)' }}>ไม่มีออเดอร์ CRM ในวันนี้</div>
+          : loading
+            ? <div className="flex flex-col gap-2">{Array.from({ length: Math.min(ords.length, 3) }).map((_, i) => <Skel key={i} w="100%" h={90} r={9} />)}</div>
+            : <div className="flex flex-col gap-2">
+                {ords.map((o, i) => (
+                  <CrmDayOrderCard key={o.order_no + '#' + i} o={o} lines={lineBy?.get(o.order_no)} fin={finBy[`${o.source || ''}:${o.order_no}`]} onPick={onPickCustomer} />
+                ))}
+              </div>}
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================
    หน้า ลูกค้า (CRM)
    ============================================================ */
 export function CrmView() {
-  const [data, setData] = useState(null);
+  const [raw, setRaw] = useState(null); // { profiles, orders } — orders merge override แล้ว
   const [err, setErr] = useState('');
   const [q, setQ] = useState('');
   const [statusF, setStatusF] = usePersistedState('tmk-crm-statusF', []);
@@ -204,34 +541,85 @@ export function CrmView() {
   const [channelF, setChannelF] = usePersistedState('tmk-crm-channelF', []);
   const [provF, setProvF] = usePersistedState('tmk-crm-provF', []);
   const [tierF, setTierF] = usePersistedState('tmk-crm-tierF', []);
+  const [seg, setSeg] = usePersistedState('tmk-crm-seg', 'all'); // แยกช่องทาง: all | crm | phone | line
+  const [month, setMonth] = usePersistedState('tmk-crm-month', todayISO().slice(0, 7)); // แดชบอร์ด CRM
+  const [seller, setSeller] = useState(null); // scope เซลล์ CRM (session-only) · null = ยังไม่เลือก (default = เซลล์หลัก · เข้าใหม่ล็อคเสมอ) · '' = รวมทุกคน
+  const [crmTargets, setCrmTargets] = useState([]); // เป้า CRM ต่อเซลล์ของเดือนที่ดู
+  const { user } = useUser();
+  const [dayOpen, setDayOpen] = useState(null); // 'YYYY-MM-DD' ที่กดในกราฟ → popup รายวัน
   const [sel, setSel] = useState(null);
   const [page, setPage] = useState(1);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [rk, setRk] = useState(0); // bump จาก realtime → refetch สด
 
   useEffect(() => { (async () => {
-    const [p, o] = await Promise.all([
+    const [p, o, ov] = await Promise.all([
       loadProfiles(),
       cachedFetchAll('tmk_mp_orders', ORDERS_CRM_SEL),
+      cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
     ]);
     if (p.error) { setErr(p.error.message); return; }
-    setData(buildDirectory(p.data || [], o.error ? [] : (o.data || []), todayISO()));
+    // merge override (channel/ยอด/วันที่ ที่แอดมินแก้) ทับออเดอร์ดิบ — ให้ยอด CRM ตรง dashboard/perf
+    const ovMap = {}; if (ov && !ov.error) (ov.data || []).forEach(x => { ovMap[x.order_id] = x; });
+    const orders = mergeOrderOverrides(o.error ? [] : (o.data || []), ovMap);
+    setRaw({ profiles: p.data || [], orders });
   })(); }, [rk]);
-  // realtime: ออเดอร์/ลูกค้าใหม่จากใบเสร็จหรือคนอื่น → CRM เห็นสด (ไม่ต้องรีเฟรช)
-  useSaleLiveReload([T.mpOrders, T.mpCustomers], () => setRk(k => k + 1), { invalidate: [T.mpOrders, T.mpCustomers] });
+  // realtime: ออเดอร์/ลูกค้า/override เปลี่ยน → CRM เห็นสด (invalidate cache ก่อน refetch — บทเรียน PART 80)
+  useSaleLiveReload([T.mpOrders, T.mpCustomers, T.orderOverrides], () => setRk(k => k + 1), { invalidate: [T.mpOrders, T.mpCustomers, T.orderOverrides] });
 
-  // แก้โปรไฟล์จาก drawer → อัปเดตแถวใน list + แถวที่เปิดอยู่ in-place (ไม่ refetch)
+  // เป้า CRM ต่อเซลล์ของเดือนที่ดู (graceful [] ก่อน migration) · rk เพื่อ refresh หลังตั้งค่า
+  const curYm = todayISO().slice(0, 7);
+  const monthClamped = month > curYm ? curYm : month; // เดือน persisted อนาคต → clamp
+  useEffect(() => { (async () => { setCrmTargets(await fetchCrmTargets(monthClamped)); })(); }, [monthClamped, rk]);
+
+  // directory (ตารางลูกค้า all-time) + stats (แดชบอร์ด CRM รายเดือน) — derive จาก raw
+  const data = useMemo(() => raw ? buildDirectory(raw.profiles, raw.orders, todayISO()) : null, [raw]);
+  // statsAll = รวมทุกคน (ให้ bySeller + default เซลล์หลัก) · effSeller = seller ที่เลือก (null → default = เซลล์ CRM อันดับ 1)
+  const statsAll = useMemo(() => raw ? buildCrmMonth(raw.orders, monthClamped, '') : null, [raw, monthClamped]);
+  const effSeller = seller === null ? (statsAll?.bySeller?.[0]?.name || '') : seller;
+  const stats = useMemo(() => {
+    if (!raw) return null;
+    return effSeller === '' ? statsAll : buildCrmMonth(raw.orders, monthClamped, effSeller);
+  }, [raw, monthClamped, effSeller, statsAll]);
+  // เป้า CRM: เลือกคน → เป้าคนนั้น · รวมทุกคน → ผลรวมเป้าทุกเซลล์ (ตรง requirement) · ความคืบหน้าเทียบยอดสะสม
+  const target = useMemo(() => {
+    if (!effSeller) return crmTargets.reduce((s, t) => s + (Number(t.sales_target) || 0), 0);
+    return Number(crmTargets.find(t => t.salesperson === effSeller)?.sales_target) || 0;
+  }, [crmTargets, effSeller]);
+  const targetProg = useMemo(() => stats ? crmTargetProgress({ crmSales: stats.crmSales, month: monthClamped, target, todayISO: todayISO() }) : null, [stats, monthClamped, target]);
+  // ออเดอร์ที่ scope ตามเซลล์ (สำหรับ popup รายวัน)
+  const dayOrders = useMemo(() => {
+    const os = raw?.orders || [];
+    return effSeller ? os.filter(o => (o.salesperson || '').trim() === effSeller) : os;
+  }, [raw, effSeller]);
+
+  // แก้โปรไฟล์จาก drawer → patch raw.profiles (ตาราง+memo คำนวณใหม่) + sel in-place (drawer ที่เปิดอยู่)
   const applyProfile = (key, row) => {
-    const merge = (r) => ({
-      ...r,
-      name: row.name || r.name, contact: row.phone ?? r.contact, social: row.social_name ?? r.social,
-      address: row.address ?? r.address, province: row.province ?? r.province,
-      owner: row.owner ?? r.owner, cadence: row.cadence ?? r.cadence,
-      note: row.note ?? r.note, tags: Array.isArray(row.tags) ? row.tags : r.tags,
-      hasContact: !!(row.phone || r.contact), queue: !!((row.cadence ?? r.cadence) || (row.owner ?? r.owner)),
+    // อัปเดตโปรไฟล์ต้นทาง — buildDirectory คีย์ตาม p.customer_code
+    setRaw(prev => {
+      if (!prev) return prev;
+      const profiles = [...(prev.profiles || [])];
+      const idx = profiles.findIndex(p => p.customer_code === key);
+      if (idx >= 0) profiles[idx] = { ...profiles[idx], ...row };
+      else profiles.push({ ...row, customer_code: key });
+      return { ...prev, profiles };
     });
-    setData(d => (d || []).map(r => r.key === key ? merge(r) : r));
-    setSel(s => (s && s.key === key) ? merge(s) : s);
+    // drawer ที่เปิดอยู่ — merge in-place ให้เห็นผลทันที (memo ไม่ผูกกับ sel)
+    setSel(s => {
+      if (!s || s.key !== key) return s;
+      const contactChannel = row.contact_channel ?? s.contactChannel;
+      const segPhone = s.channels?.has?.('Phone') || contactChannel === 'Phone';
+      const segLine = s.channels?.has?.('LINE') || contactChannel === 'LINE';
+      return {
+        ...s,
+        name: row.name || s.name, contact: row.phone ?? s.contact, social: row.social_name ?? s.social,
+        address: row.address ?? s.address, province: row.province ?? s.province,
+        owner: row.owner ?? s.owner, cadence: row.cadence ?? s.cadence,
+        note: row.note ?? s.note, tags: Array.isArray(row.tags) ? row.tags : s.tags,
+        contactChannel, segPhone, segLine, segCrm: segPhone || segLine,
+        hasContact: !!(row.phone || s.contact), queue: !!((row.cadence ?? s.cadence) || (row.owner ?? s.owner)),
+      };
+    });
   };
 
   const opts = useMemo(() => {
@@ -245,8 +633,19 @@ export function CrmView() {
     };
   }, [data]);
 
+  // segment โทร/LINE (แยกช่องทาง) — CRM = โทร+LINE · สมาชิกจากช่องที่เคยซื้อ + ที่ตั้ง contact_channel ไว้
+  const segRows = useMemo(() => {
+    const d = data || [];
+    if (seg === 'crm') return d.filter(c => c.segCrm);
+    if (seg === 'phone') return d.filter(c => c.segPhone);
+    if (seg === 'line') return d.filter(c => c.segLine);
+    return d;
+  }, [data, seg]);
+  // ยอดที่เกี่ยวกับ segment (โทร→ยอดโทร · LINE→ยอดไลน์ · อื่น→ยอดรวม)
+  const segSalesOf = (c) => seg === 'phone' ? c.phoneSales : seg === 'line' ? c.lineSales : c.sales;
+
   const filtered = useMemo(() => {
-    let r = data || [];
+    let r = segRows;
     const sf = statusF.filter(s => STATUS_PRED[s]);   // ทิ้งป้ายเก่าที่ persisted จากเวอร์ชันก่อน
     if (sf.length) r = r.filter(c => sf.some(s => STATUS_PRED[s](c)));
     if (ownerF.length) r = r.filter(c => ownerF.includes(c.owner));
@@ -256,10 +655,10 @@ export function CrmView() {
     const ql = q.trim().toLowerCase();
     if (ql) r = r.filter(c => `${c.name} ${c.contact} ${c.social} ${c.owner} ${c.salesperson} ${c.province}`.toLowerCase().includes(ql));
     return r;
-  }, [data, statusF, ownerF, channelF, provF, tierF, q]);
+  }, [segRows, statusF, ownerF, channelF, provF, tierF, q]);
 
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'sales', dir: 'desc', accessors: CRM_SORT });
-  useEffect(() => { setPage(1); }, [statusF, ownerF, channelF, provF, tierF, q, sortKey, sortDir]);
+  useEffect(() => { setPage(1); }, [statusF, ownerF, channelF, provF, tierF, q, seg, sortKey, sortDir]);
   const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
   const pageClamped = Math.min(page, totalPages);
   const pageRows = sorted.slice((pageClamped - 1) * PER_PAGE, pageClamped * PER_PAGE);
@@ -278,26 +677,30 @@ export function CrmView() {
   if (showSkel) return <CrmSkeleton />;
   if (!data) return null;
 
-  const curMonth = todayISO().slice(0, 7);
-  const total = data.length;
-  const newMonth = data.filter(c => (c.first || c.since || '').slice(0, 7) === curMonth).length;
-  const repeat = data.filter(c => c.repeat).length;
-  const risk = data.filter(c => c.flag === 'เสี่ยงหลุด').length;
-  const withContact = data.filter(c => c.hasContact).length;
+  const total = segRows.length; // ใช้ใน empty state ของตาราง
+  const SEGS = [['all', 'ทั้งหมด'], ['crm', 'CRM (โทร+LINE)'], ['phone', 'โทร'], ['line', 'LINE']];
 
   return (
     <div className="content-inner rise" style={{ display: 'grid', gap: 14 }}>
-      {/* แถบสรุปบรรทัดเดียว */}
-      <Card className="p-4">
-        <div className="row" style={{ gap: 26, alignItems: 'center', flexWrap: 'wrap' }}>
-          <CrmStat label="ลูกค้าทั้งหมด" value={N(total)} />
-          <CrmStat label="ใหม่เดือนนี้" value={N(newMonth)} tone={newMonth ? 'var(--accent)' : undefined} />
-          <CrmStat label="ซื้อซ้ำ" value={total ? N(repeat) : '—'} tone={repeat ? 'var(--good)' : undefined} />
-          <CrmStat label="เสี่ยงหลุด" value={N(risk)} tone={risk ? 'var(--warn)' : 'var(--good)'} />
-          <CrmStat label="มีเบอร์ติดต่อ" value={total ? `${Math.round(withContact / total * 100)}%` : '—'} />
-        </div>
-        {total === 0 && <div className="cap" style={{ color: 'var(--ink-4)', marginTop: 8 }}>ยังไม่มีลูกค้า — ลูกค้าจะถูกเติมอัตโนมัติเมื่อส่งยอดใบเสร็จ (Sale › ส่งยอด &amp; ข้อมูล)</div>}
-      </Card>
+      {/* แดชบอร์ดยอด CRM รายเดือน (โทร + LINE) — PART 87 · พาดหัวสลับเซลล์ได้ + กดแท่งดูรายวัน */}
+      {stats && <CrmDashboard stats={stats} month={monthClamped} setMonth={setMonth} curYm={curYm}
+        seller={effSeller} setSeller={setSeller}
+        target={target} targetProg={targetProg} isAdminUser={isAdmin(user)}
+        onDayClick={(i) => { const d = stats.byDay[i]; if (d) setDayOpen(d.date); }} />}
+
+      {/* คั่น: ด้านบน = แดชบอร์ดรายเดือน · ด้านล่าง = รายชื่อลูกค้าทั้งหมด (ไม่จำกัดเดือน) */}
+      <div className="row items-center gap-2" style={{ marginTop: 4, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+        <Icon name="users" />
+        <h2 className="m-0 text-lg font-bold leading-tight" style={{ color: 'var(--ink)' }}>รายชื่อลูกค้า</h2>
+        <span className="cap" style={{ color: 'var(--ink-4)' }}>ทั้งหมด ไม่จำกัดเดือน</span>
+      </div>
+      {/* แยกช่องทาง: ทั้งหมด | CRM(โทร+LINE) | โทร | LINE — สลับแล้วตาราง+สรุปคิดตาม segment */}
+      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <ToggleGroup type="single" value={seg} onValueChange={(v) => v && setSeg(v)} className="gap-0.5 rounded-md border bg-muted/30 p-0.5">
+          {SEGS.map(([v, l]) => <ToggleGroupItem key={v} value={v} size="sm" className="px-3 text-xs data-[state=on]:bg-background data-[state=on]:shadow-sm">{l}</ToggleGroupItem>)}
+        </ToggleGroup>
+        {seg !== 'all' && <span className="cap" style={{ color: 'var(--ink-4)' }}>ลูกค้าที่เคยซื้อผ่านช่องนี้ หรือถูกตั้ง "ช่องทางติดต่อหลัก" ไว้</span>}
+      </div>
 
       {/* ตารางลูกค้า */}
       <Card className="p-4">
@@ -380,7 +783,10 @@ export function CrmView() {
                   {c.mainChannel && <Badge variant="outline" className="ml-1.5 rounded-full text-[10px] font-medium" style={{ color: channelColor(c.mainChannel), background: `color-mix(in srgb, ${channelColor(c.mainChannel)} 14%, transparent)`, borderColor: `color-mix(in srgb, ${channelColor(c.mainChannel)} 40%, transparent)` }}>{c.mainChannel}</Badge>}
                 </TableCell>
                 <TableCell>{c.tier && <span className={`tier-chip ${TIER_CHIP[c.tier] || ''}`}>{c.tier}</span>}</TableCell>
-                <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(c.sales)}</TableCell>
+                <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>
+                  {baht(c.sales)}
+                  {(seg === 'phone' || seg === 'line') && <div className="cap" style={{ color: channelColor(seg === 'phone' ? 'Phone' : 'LINE'), fontWeight: 500 }}>{seg === 'phone' ? 'โทร' : 'LINE'} {baht(segSalesOf(c))}</div>}
+                </TableCell>
                 <TableCell className="num" style={{ textAlign: 'right' }}>{N(c.count)}</TableCell>
                 <TableCell className="num cap" style={{ textAlign: 'right', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
                   {c.recency != null ? `${N(c.recency)} วันก่อน` : (c.last || '—')}
@@ -404,6 +810,17 @@ export function CrmView() {
           </div>
         )}
       </Card>
+
+      {/* popup รายละเอียดวัน (กดแท่งกราฟ) */}
+      {dayOpen && (
+        <SideSheet size="lg" icon="calendarDays"
+          title={`ออเดอร์ CRM วันที่ ${Number(dayOpen.slice(8, 10))}`}
+          sub={`${dayOpen}${effSeller ? ` · ${effSeller}` : ' · รวมทุกคน'}`}
+          onClose={() => setDayOpen(null)}>
+          <CrmDayDetail dateISO={dayOpen} orders={dayOrders} seller={effSeller} user={user}
+            onPickCustomer={(o) => { const c = (data || []).find(x => x.key === crmCustomerKey(o)); setDayOpen(null); if (c) setSel(c); }} />
+        </SideSheet>
+      )}
 
       {sel && <CustomerDetail c={sel} onClose={() => setSel(null)} onSaved={applyProfile} />}
     </div>
@@ -473,7 +890,7 @@ function CustomerDetail({ c, onClose, onSaved }) {
   };
 
   const startEdit = () => {
-    setF({ name: c.name || '', phone: c.contact || '', social: c.social || '', address: c.address || '', province: c.province || '', owner: c.owner || '', cadence: c.cadence || '', note: c.note || '', tags: [...(c.tags || [])] });
+    setF({ name: c.name || '', phone: c.contact || '', social: c.social || '', address: c.address || '', province: c.province || '', owner: c.owner || '', cadence: c.cadence || '', note: c.note || '', tags: [...(c.tags || [])], contactChannel: c.contactChannel || '' });
     setEditing(true);
   };
   const saveProfile = async () => {
@@ -485,11 +902,12 @@ function CustomerDetail({ c, onClose, onSaved }) {
         name: f.name.trim(), phone: f.phone.replace(/\D/g, ''), social_name: f.social.trim(),
         address: f.address.trim(), province: f.province.trim(),
         owner: f.owner.trim(), cadence: f.cadence.trim(), note: f.note.trim(),
+        contact_channel: f.contactChannel || '',
         tags: f.tags, updated_at: new Date().toISOString(),
       };
       let { error } = await supabase.from('tmk_mp_customers').upsert(row, { onConflict: 'customer_code' });
-      if (error && /note|cadence|tags|column/i.test(error.message || '')) {   // คอลัมน์เสริมยังไม่มี → เซฟส่วนที่เหลือ
-        const r2 = { ...row }; delete r2.note; delete r2.cadence; delete r2.tags;
+      if (error && /note|cadence|tags|contact_channel|column/i.test(error.message || '')) {   // คอลัมน์เสริมยังไม่มี → เซฟส่วนที่เหลือ
+        const r2 = { ...row }; delete r2.note; delete r2.cadence; delete r2.tags; delete r2.contact_channel;
         ({ error } = await supabase.from('tmk_mp_customers').upsert(r2, { onConflict: 'customer_code' }));
       }
       if (error) { toast('บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
@@ -617,6 +1035,14 @@ function CustomerDetail({ c, onClose, onSaved }) {
             <Field label="เซลล์เจ้าของ"><Input value={f.owner} onChange={e => setF({ ...f, owner: e.target.value })} placeholder="ชื่อเซลล์ที่ดูแล" /></Field>
             <Field label="ตามต่อ (เช่น 7D / 30D)"><Input value={f.cadence} onChange={e => setF({ ...f, cadence: e.target.value })} placeholder="เว้นว่าง = ไม่ตั้ง" /></Field>
           </div>
+          {/* ช่องทางติดต่อหลัก (CRM) — กำหนดว่าลูกค้ารายนี้เป็นลูกค้า "โทร/LINE" (เข้ากลุ่ม CRM แม้ยอดมาจากช่องอื่น) */}
+          <Field label="ช่องทางติดต่อหลัก (CRM)" className="mt-3">
+            <ToggleGroup type="single" value={f.contactChannel || 'none'} onValueChange={(v) => setF({ ...f, contactChannel: v === 'none' ? '' : v })} className="gap-0.5 rounded-md border bg-muted/30 p-0.5 w-fit">
+              {[['none', 'ไม่ระบุ'], ['Phone', 'โทร'], ['LINE', 'LINE'], ['Facebook', 'Facebook']].map(([v, l]) => (
+                <ToggleGroupItem key={v} value={v} size="sm" className="px-3 text-xs data-[state=on]:bg-background data-[state=on]:shadow-sm">{l}</ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </Field>
           <Field label="ที่อยู่จัดส่ง" className="mt-3"><Textarea rows={2} value={f.address} onChange={e => setF({ ...f, address: e.target.value })} /></Field>
           {/* แท็ก — พิมพ์แล้ว Enter เพื่อเพิ่ม */}
           <Field label={`แท็ก (${f.tags.length})`} className="mt-3">
