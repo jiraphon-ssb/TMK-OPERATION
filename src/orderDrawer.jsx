@@ -25,7 +25,8 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DatePicker } from '@/components/ui/date-picker';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { DrawerField, DrawerGroup, SellerCombobox, FormSection, CustomerTypeChips, MoneyCard, ReceiptPdfModal, Field, _pageList } from './saleWidgets.jsx';
+import { DrawerField, DrawerGroup, SellerCombobox, FormSection, CustomerTypeChips, MoneyCard, ReceiptPdfModal, Field, FieldLabel, _pageList } from './saleWidgets.jsx';
+import { MoneySummaryRows, payLabel } from './orderCard.jsx';
 
 const custCodeShow = (code, name) => { const c = String(code || '').replace(/^[PSN]/, '').trim(); return c && c !== String(name || '').trim() ? c : ''; };
 // label ฟิลด์ในฟอร์มแก้ = จางเล็ก 11px (หัวข้อกลุ่ม FormSection เด่นกว่า — ลำดับชั้นถูกทาง · PART 81.5)
@@ -38,8 +39,9 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   const isCancelled = o.status === 'cancelled';            // ยกเลิกแล้ว → ปุ่มเป็น "นำกลับมา"
   const [edit, setEdit] = useState(null);                  // null | ฟอร์มแก้เต็มทุกช่อง
   const [busy, setBusy] = useState(false);
-  const [lineEdit, setLineEdit] = useState(null);          // index ของบรรทัดที่กำลังแก้ลาย
-  const [linePick, setLinePick] = useState({ design: '', code: '', color: '', size: '' });
+  // โหมดแก้ไขครบจบ (PART 88.2) — รายการสินค้า editable ทุกบรรทัด + ลบ/เพิ่ม (เขียนตอน "บันทึกทั้งหมด" ทีเดียว)
+  const [editLines, setEditLines] = useState(null);        // [{id,raw,design,code,color,size,qty,line_sales,_design0,_code0}]
+  const [delIds, setDelIds] = useState([]);                // id ของบรรทัดเดิมที่กดลบ
   const [fin, setFin] = useState(null);                    // ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT จาก attrs (โหลด lazy ตอนเปิด — attrs ไม่อยู่ใน ORDERS_SEL กัน egress)
   useEffect(() => {
     let cancel = false;
@@ -48,7 +50,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
         const { data } = await supabase.from('tmk_mp_orders').select('attrs').eq('order_no', o.order_no).eq('source', o.source || '').maybeSingle();
         if (cancel) return;
         const a = data?.attrs || {};
-        setFin({ subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat });
+        setFin({ subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat, promo: a.promo_code });
       } catch { /* attrs optional */ }
     })();
     return () => { cancel = true; };
@@ -95,7 +97,16 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
       customer_phone: o.customer_phone || '', customer_social: o.customer_social || '',
       customer_address: '',
       province: o.province || '', salesperson: o.salesperson || '', note: o.note || '',
+      // เงินละเอียด (attrs) — ครบจบที่เดียว: ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT แก้ได้แล้ว
+      subtotal: fin?.subtotal ?? '', discount: fin?.discount ?? '', shipping: fin?.shipping ?? '', vat: fin?.vat ?? '',
     });
+    setEditLines(sk.map(s => ({
+      id: s.id || null, raw: s.raw_sku_or_name || '',
+      design: s.design || '', code: s.product_code || '', color: s.color || '', size: s.size || '',
+      qty: String(s.qty ?? ''), line_sales: String(s.line_sales ?? ''),
+      _design0: s.design || '', _code0: s.product_code || '',
+    })));
+    setDelIds([]);
     // ที่อยู่อยู่ที่โปรไฟล์ลูกค้า (ไม่มีคอลัมน์บนออเดอร์) — prefill best-effort ถ้ายังไม่พิมพ์ทับ
     if (o.customer_code) {
       supabase.from('tmk_mp_customers').select('address').eq('customer_code', o.customer_code).maybeSingle()
@@ -103,6 +114,27 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
         .catch(() => { /* โปรไฟล์ optional */ });
     }
   };
+  // ---- helper รายการสินค้าในโหมดแก้ไข (PART 88.2) — จำนวนรวมเติมอัตโนมัติจากบรรทัด ----
+  const _sumQ = (ls) => ls.reduce((a, l) => a + (Number(l.qty) || 0), 0);
+  const _sumS = (ls) => ls.reduce((a, l) => a + (Number(l.line_sales) || 0), 0);
+  const setLine = (i, patch) => setEditLines(ls => {
+    const n = ls.map((l, j) => j === i ? { ...l, ...patch } : l);
+    if ('qty' in patch) setEdit(prev => prev ? { ...prev, qty: String(_sumQ(n)) } : prev);
+    return n;
+  });
+  const addLine = () => setEditLines(ls => {
+    const n = [...ls, { id: null, raw: '', design: '', code: '', color: '', size: '', qty: '1', line_sales: '', _design0: '', _code0: '' }];
+    setEdit(prev => prev ? { ...prev, qty: String(_sumQ(n)) } : prev);
+    return n;
+  });
+  const removeLine = (i) => setEditLines(ls => {
+    const l = ls[i];
+    if (l?.id) setDelIds(d => [...d, l.id]);
+    const n = ls.filter((_, j) => j !== i);
+    setEdit(prev => prev ? { ...prev, qty: String(_sumQ(n)) } : prev);
+    return n;
+  });
+
   // บันทึก: อัปเดตตรงที่ tmk_mp_orders (มีผลทุกรายงานทันที) + override field ที่รองรับ (ประกันข้าม reimport)
   // + ใบเสร็จ: sync แถว tmk_sale_receipts ให้ feed ส่งยอดตรงกัน
   const saveOrder = async () => {
@@ -167,38 +199,62 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
       if (isReceipt) {
         try { await supabase.from('tmk_sale_receipts').update({ channel: patch.channel, order_date: patch.order_date, order_month: patch.order_month, sales: patch.sales, qty: patch.qty, salesperson: patch.salesperson, updated_at: now }).eq('order_no', o.order_no); } catch { /* เงียบ */ }
       }
-      // ปรับ SKU (+ confirmed payload ของใบเสร็จ) ให้ยอด/จำนวนรวมตรงกับที่แก้ — กัน breakdown ลาย/สี/geo เพี้ยนจาก order total
-      const oldSales = sk.reduce((a, s) => a + (Number(s.line_sales) || 0), 0);
-      const oldQty = sk.reduce((a, s) => a + (Number(s.qty) || 0), 0);
-      if (sk.length && (Math.abs(oldSales - patch.sales) > 0.01 || oldQty !== patch.qty)) {
-        // แบ่งสัดส่วนตามของเดิม · reconcile บรรทัดสุดท้ายให้รวมตรงเป๊ะ
-        const splitVals = (rows, getV, total, integer) => {
-          const base = rows.map(getV); const sum = base.reduce((a, v) => a + v, 0); let acc = 0;
-          return rows.map((r, i) => {
-            if (i === rows.length - 1) return Math.max(0, integer ? Math.round(total - acc) : Math.round((total - acc) * 100) / 100);
-            const v = sum > 0 ? (base[i] / sum) * total : total / rows.length;
-            const rv = integer ? Math.round(v) : Math.round(v * 100) / 100; acc += rv; return Math.max(0, rv);
-          });
-        };
-        const newLS = splitVals(sk, s => Number(s.line_sales) || 0, patch.sales, false);
-        const newQ = splitVals(sk, s => Number(s.qty) || 0, patch.qty, true);
-        for (let i = 0; i < sk.length; i++) {
-          if (!sk[i].id) continue;
-          try { await supabase.from('tmk_mp_skus').update({ line_sales: newLS[i], qty: newQ[i] }).eq('id', sk[i].id); } catch { /* order-level ถูกแล้ว */ }
-        }
-        if (isReceipt) {
-          try {
-            const { data: rc } = await supabase.from('tmk_sale_receipts').select('confirmed').eq('order_no', o.order_no).maybeSingle();
-            const cf = rc?.confirmed;
-            if (cf && Array.isArray(cf.lines) && cf.lines.length) {
-              const cLS = splitVals(cf.lines, l => Number(l.amount) || 0, patch.sales, false);
-              const cQ = splitVals(cf.lines, l => Number(l.qty) || 0, patch.qty, true);
-              cf.lines = cf.lines.map((l, i) => ({ ...l, amount: cLS[i], qty: cQ[i] }));
-              cf.total = patch.sales; cf.subtotal = patch.sales;
-              await supabase.from('tmk_sale_receipts').update({ confirmed: cf }).eq('order_no', o.order_no);
+      // รายการสินค้า — เขียนตามที่แก้จริงในฟอร์ม (PART 88.2 แก้ครบจบที่เดียว · เลิกแบ่งสัดส่วนอัตโนมัติ)
+      if (editLines) {
+        try {
+          // ลบบรรทัดที่กด 🗑 (+ ล้าง override ของบรรทัดนั้น กัน orphan — pattern PART 72)
+          for (const id of delIds) {
+            await supabase.from('tmk_mp_skus').delete().eq('id', id);
+          }
+          const delRaws = sk.filter(s => delIds.includes(s.id)).map(s => s.raw_sku_or_name).filter(Boolean);
+          for (const raw of delRaws) {
+            try { await supabase.from('tmk_sku_overrides').delete().eq('key', skuOverrideKey(o.order_no, raw)); } catch { /* optional */ }
+          }
+          for (let i = 0; i < editLines.length; i++) {
+            const l = editLines[i];
+            if (!String(l.design || '').trim() && !(Number(l.qty) > 0)) continue;  // บรรทัดว่าง — ข้าม
+            const baseCode = (l.code || '').trim();
+            const fullCode = buildLineSku(baseCode, l.color, l.size) || baseCode;
+            const row = { design: (l.design || '').trim(), product_code: fullCode, color: l.color || '', size: l.size || '', qty: Number(l.qty) || 0, line_sales: Number(l.line_sales) || 0 };
+            if (l.id) await supabase.from('tmk_mp_skus').update(row).eq('id', l.id);
+            else await supabase.from('tmk_mp_skus').insert({ id: `${o.source || 'manual'}:${o.order_no}:edit:${Date.now()}:${i}`, order_no: o.order_no, source: o.source || '', channel: patch.channel, order_month: patch.order_month, order_date: patch.order_date, raw_sku_or_name: row.design, match_how: 'manual', ...row });
+            // เปลี่ยนลาย/รหัส → override กันหายตอน reimport (เฉพาะบรรทัดเดิมที่มี raw)
+            if (l.id && l.raw && (row.design !== l._design0 || fullCode !== l._code0)) {
+              try { await supabase.from('tmk_sku_overrides').upsert({ key: skuOverrideKey(o.order_no, l.raw), order_no: o.order_no, design: row.design, product_code: fullCode, updated_at: now }, { onConflict: 'key' }); } catch { /* optional */ }
             }
-          } catch { /* เงียบ — restore จะใช้ payload เดิม */ }
-        }
+          }
+        } catch { /* บรรทัดพลาดบางส่วน — order-level บันทึกแล้ว */ }
+      }
+      // เงินละเอียด (ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT) → attrs ของออเดอร์ (merge คีย์อื่นคงเดิม) — เดิมแก้จากหน้าจอไหนไม่ได้เลย
+      const numOr = (v) => (v === '' || v == null) ? null : (Number(v) || 0);
+      const finPatch = { subtotal: numOr(edit.subtotal), discount: numOr(edit.discount), shipping: numOr(edit.shipping), vat: numOr(edit.vat) };
+      const finChanged = ['subtotal', 'discount', 'shipping', 'vat'].some(k => (finPatch[k] ?? null) !== (numOr(fin?.[k]) ?? null));
+      if (finChanged) {
+        try {
+          const { data: cur } = await supabase.from('tmk_mp_orders').select('attrs').eq('order_no', o.order_no).eq('source', o.source || '').maybeSingle();
+          const a = { ...(cur?.attrs || {}) };
+          for (const k of ['subtotal', 'discount', 'shipping', 'vat']) {
+            if (finPatch[k] == null || finPatch[k] === 0) delete a[k]; else a[k] = finPatch[k];
+          }
+          await supabase.from('tmk_mp_orders').update({ attrs: a }).eq('order_no', o.order_no).eq('source', o.source || '');
+          setFin({ subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat, promo: a.promo_code });
+        } catch { /* attrs optional */ }
+      }
+      // ใบเสร็จ: sync confirmed payload ให้ restore/รายงานใบเสร็จตรงกับที่แก้
+      if (isReceipt && (editLines || finChanged)) {
+        try {
+          const { data: rc } = await supabase.from('tmk_sale_receipts').select('confirmed').eq('order_no', o.order_no).maybeSingle();
+          const cf = rc?.confirmed;
+          if (cf) {
+            if (editLines) cf.lines = editLines.filter(l => String(l.design || '').trim() || Number(l.qty) > 0).map(l => ({ name: (l.design || '').trim(), code: buildLineSku((l.code || '').trim(), l.color, l.size) || (l.code || '').trim(), qty: Number(l.qty) || 0, unit_price: (Number(l.qty) || 0) > 0 ? Math.round(((Number(l.line_sales) || 0) / (Number(l.qty) || 1)) * 100) / 100 : (Number(l.line_sales) || 0), amount: Number(l.line_sales) || 0 }));
+            cf.total = patch.sales;
+            cf.subtotal = finPatch.subtotal ?? patch.sales;
+            if (finPatch.discount != null) cf.discount = finPatch.discount; else delete cf.discount;
+            if (finPatch.shipping != null) cf.shipping = finPatch.shipping; else delete cf.shipping;
+            if (finPatch.vat != null) cf.vat = finPatch.vat; else delete cf.vat;
+            await supabase.from('tmk_sale_receipts').update({ confirmed: cf }).eq('order_no', o.order_no);
+          }
+        } catch { /* เงียบ — restore จะใช้ payload เดิม */ }
       }
       logAudit({
         action: 'update', entityType: 'order', entityName: o.order_no, entityId: o.order_no,
@@ -219,6 +275,8 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
           { label: 'จังหวัด', value: patch.province || '—' },
           { label: 'เซลล์', value: patch.salesperson || '—' },
           { label: 'วันที่', value: patch.order_date || o.order_date || '—' },
+          ...(editLines ? [{ label: 'รายการสินค้า', value: `${editLines.length} บรรทัด${delIds.length ? ` · ลบ ${delIds.length}` : ''}` }] : []),
+          ...(finChanged ? [{ label: 'เงินละเอียด', value: `ส่วนลด ${finPatch.discount ?? 0} · ส่ง ${finPatch.shipping ?? 0} · VAT ${finPatch.vat ?? 0}` }] : []),
         ],
       });
       toast('บันทึกการแก้ไขแล้ว — ยอดในรายงานอัปเดตทันที', 'success');
@@ -302,38 +360,17 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     } catch (e) { toast('ลบไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
     finally { setBusy(false); }
   };
-  const saveLine = async (s) => {
-    setBusy(true);
-    // รหัสสินค้าเต็ม = รหัสฐาน + สี + ไซซ์ (JSK01-WH-XL) → derive สี/ไซซ์ตอนอ่าน · ไม่ต้องคอลัมน์ใหม่
-    const baseCode = (linePick.code || '').trim();
-    const fullCode = buildLineSku(baseCode, linePick.color, linePick.size) || baseCode;
-    const row = { key: skuOverrideKey(o.order_no, s.raw_sku_or_name), order_no: o.order_no, design: linePick.design.trim(), product_code: fullCode, updated_at: new Date().toISOString() };
-    const { error } = await supabase.from('tmk_sku_overrides').upsert(row, { onConflict: 'key' });
-    setBusy(false);
-    if (error) { window.__toast && window.__toast(/relation|does not exist|schema cache/i.test(error.message) ? 'ต้องรัน migration tmk_sku_overrides ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
-    logAudit({ action: 'update', entityType: 'order', entityName: o.order_no, entityId: o.order_no, summary: `แก้ลายบรรทัด "${s.raw_sku_or_name}" → ${linePick.design}`, changes: [{ label: 'ลาย', from: s.design || s.raw_sku_or_name || '—', to: linePick.design || '—' }, { label: 'รหัส', from: s.product_code || '—', to: fullCode || '—' }], fields: [{ label: 'ออเดอร์', value: o.order_no }, { label: 'บรรทัด', value: s.raw_sku_or_name || '—' }, { label: 'ลายใหม่', value: linePick.design || '—' }, { label: 'รหัสใหม่', value: fullCode || '—' }, { label: 'สี', value: linePick.color || '—' }, { label: 'ไซซ์', value: linePick.size || '—' }] });
-    window.__toast && window.__toast('แก้ลายบรรทัดนี้แล้ว — มีผลทันที ไม่ต้อง reimport', 'success');
-    setLineEdit(null); onSaved && onSaved();
-  };
+  // saveLine รายบรรทัดถูกยุบเข้า "บันทึกทั้งหมด" ของโหมดแก้ไขครบจบ (PART 88.2)
   const stMap = { completed: 'สำเร็จ', delivered: 'ส่งแล้ว', cancelled: 'ยกเลิก', pending: 'รอดำเนินการ', processing: 'กำลังทำ', shipped: 'จัดส่งแล้ว' };
   // COD เต็มจำนวน (ยอด COD = ยอดขาย) → โชว์ป้าย "เก็บปลายทาง" แทนเลขซ้ำ · COD บางส่วน → โชว์เลขจริง
   const isFullCod = o.cod_amount > 0 && Number(o.cod_amount) === Number(o.sales);
   const money = [{ label: 'ยอดขาย', val: B(o.sales), badge: isFullCod ? 'เก็บปลายทาง (COD)' : '' }];
   if (o.mkt_commission > 0) money.push({ label: 'ค่าธรรมเนียม', val: '−' + B(o.mkt_commission) });
   if (o.cod_amount > 0 && !isFullCod) money.push({ label: 'ยอด COD', val: B(o.cod_amount) });
-  // ปุ่มจัดการอยู่ที่ footer (กันทับ badge บนหัว) — ตอนแก้ไขเหลือแค่ "ปิด" (ฟอร์มมี Save/Cancel เอง)
-  const footerActions = edit ? <Button variant="outline" onClick={onClose}>ปิด</Button> : (
-    <div className="flex w-full items-center gap-2 flex-wrap">
-      {!isCancelled && window.__canEdit !== false && <Button variant="outline" size="sm" className="gap-1" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>}
-      {isCancelled
-        ? <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--good)' }} onClick={restoreOrder} disabled={busy}><Icon name="refresh" /> นำกลับมา</Button>
-        : <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}><Icon name="x" /> ยกเลิกออเดอร์</Button>}
-      <Button variant="outline" size="sm" className="gap-1" style={{ color: 'var(--bad)' }} onClick={deleteOrder} disabled={busy}><Icon name="trash" /> ลบ</Button>
-      <Button variant="outline" className="ml-auto" onClick={onClose}>ปิด</Button>
-    </div>
-  );
+  // PART 88.1: โหมดดู — ปุ่มจัดการย้ายเข้าการ์ด "ไฟล์ใบเสร็จ & จัดการ" (ไม่มี footer bar) · โหมดแก้ไขคง footer "ปิด"
+  const footerActions = edit ? <Button variant="outline" onClick={onClose}>ปิด</Button> : undefined;
+  // หัว drawer สะอาด — ชื่อออเดอร์อย่างเดียว (ช่องทาง/วันที่/ยอด ไปอยู่การ์ด "ข้อมูลออเดอร์" + กล่องยอด · PART 88.1)
   return <SideSheet size="lg" icon="listChecks" title={`ออเดอร์ ${o.order_no}`}
-    sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className="order-channel-chip"><span className="order-channel-dot" style={{ background: channelColor(o.channel) }} />{o.channel}</span><span style={{ color: 'var(--ink-4)' }}>{o.order_date || o.order_month}</span><b style={{ color: 'var(--ink)' }}>{B(o.sales)}</b></span>}
     onClose={onClose} footer={footerActions}>
     {(isCancelled || sk.length === 0 || designs.some(d => d.design === '(จับคู่ไม่ได้)')) && (
       <div className="quality-row items-center">
@@ -345,73 +382,117 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
 
     {edit && (
       <div className="flex flex-col gap-3">
-        <div className="cap cap-head" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — มีผลกับรายงานทันที</div>
+        <div className="cap cap-head" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ไขออเดอร์ — แก้ตรงช่องได้ทุกจุด บันทึกครั้งเดียว มีผลกับรายงานทันที</div>
 
-        <FormSection icon="listChecks" title="ออเดอร์">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="วันที่"><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></Field>
-            <Field label="ช่องทาง">
-              <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
-                <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
-                <SelectContent>{[...new Set([...CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-            <Field label="ประเภทงาน">
-              {(() => {
-                // ยึด "หมายเหตุ" ตัดสิน ปลีก/DFT (isDftNote) · OEM = เลือกตรง — เลือก DFT/ปลีก = เติม/ถอดคำ "DFT" ในหมายเหตุให้เอง
-                const eff = edit.job_type === 'OEM' ? 'OEM' : (isDftNote(edit.note) ? 'DFT' : 'ปลีก');
-                const stripDft = (s) => String(s || '').replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
-                const pick = (v) => {
-                  if (!v || v === eff) return;
-                  if (v === 'OEM') { setEdit({ ...edit, job_type: 'OEM' }); return; }
-                  let n = stripDft(edit.note);
-                  if (v === 'DFT') n = (n ? n + ' ' : '') + 'DFT';
-                  setEdit({ ...edit, job_type: v, note: n });
-                };
-                return (
-                  <ToggleGroup type="single" value={eff} onValueChange={pick} variant="outline" className="justify-start"
-                    title="ปลีก/DFT ตัดสินจากคำ “DFT” ในหมายเหตุ — เลือกแล้วระบบเติม/ถอดให้">
-                    {JOB_TYPES.map(j => <ToggleGroupItem key={j} value={j} className="h-9 px-3 text-[13px] whitespace-nowrap">{j}</ToggleGroupItem>)}
-                  </ToggleGroup>
-                );
+        {/* เงิน — ตำแหน่ง/หน้าตาเดียวกับกล่องยอดโหมดดู: ยอดขายใหญ่กลาง + ส่วนลด/ค่าส่ง/VAT/ราคาเสื้อ/จำนวนรวม */}
+        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
+          <div className="mx-auto flex w-full max-w-[220px] flex-col items-center gap-1">
+            <FieldLabel>ยอดขาย (฿)</FieldLabel>
+            <Input className="h-11 bg-background text-center text-[20px] font-bold tabular-nums" type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} />
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <Field label="ราคาเสื้อ (฿)"><Input className="bg-background text-right" type="number" inputMode="decimal" min="0" step="0.01" value={edit.subtotal} onChange={e => setEdit({ ...edit, subtotal: e.target.value })} placeholder="—" /></Field>
+            <Field label="ส่วนลด (฿)"><Input className="bg-background text-right" type="number" inputMode="decimal" min="0" step="0.01" value={edit.discount} onChange={e => setEdit({ ...edit, discount: e.target.value })} placeholder="0" /></Field>
+            <Field label="ค่าส่ง (฿)"><Input className="bg-background text-right" type="number" inputMode="decimal" min="0" step="0.01" value={edit.shipping} onChange={e => setEdit({ ...edit, shipping: e.target.value })} placeholder="0" /></Field>
+            <Field label="VAT (฿)"><Input className="bg-background text-right" type="number" inputMode="decimal" min="0" step="0.01" value={edit.vat} onChange={e => setEdit({ ...edit, vat: e.target.value })} placeholder="0" /></Field>
+            <Field label="จำนวนรวม (ตัว)"><Input className="bg-background text-right" type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></Field>
+          </div>
+        </div>
+
+        {/* รายการสินค้า — บล็อกหน้าตาเดียวกับโหมดดู แต่แก้ตรงช่อง + เพิ่ม/ลบบรรทัด (จำนวนรวมเติมอัตโนมัติ) */}
+        <div className="overflow-hidden rounded-xl border shadow-sm" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+          <div className="flex items-center gap-2 border-b px-3.5 py-2.5" style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}>
+            <span className="grid size-7 place-items-center rounded-lg" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name="bag" /></span>
+            <span className="text-[13px] font-bold">รายการสินค้า</span>
+            <span className="cap" style={{ color: 'var(--ink-4)' }}>· {N((editLines || []).length)} รายการ · {N(_sumQ(editLines || []))} ตัว</span>
+          </div>
+          <div className="flex flex-col gap-1.5 p-3.5">
+            {editLines && editLines.length > 0 && (
+              <div className="hidden items-center gap-1.5 text-[11px] font-semibold text-muted-foreground sm:grid" style={{ gridTemplateColumns: 'minmax(150px,2fr) minmax(90px,1fr) minmax(70px,0.9fr) 56px 84px 30px' }}>
+                <span>ลาย</span><span>สี</span><span>ไซซ์</span><span className="text-right">จำนวน</span><span className="text-right">ยอด (฿)</span><span />
+              </div>
+            )}
+            {(editLines || []).map((l, i) => (
+              <div key={(l.id || 'new') + '#' + i} className="grid items-center gap-1.5" style={{ gridTemplateColumns: 'minmax(150px,2fr) minmax(90px,1fr) minmax(70px,0.9fr) 56px 84px 30px' }}>
+                <DesignCombobox value={l.design} code={l.code} onPick={({ name, code, design: d }) => setLine(i, { design: name, code: code || l.code, color: (l.color && d?.colors?.length && !d.colors.includes(l.color)) ? '' : l.color, size: (l.size && d?.sizes?.length && !d.sizes.includes(l.size)) ? '' : l.size })} />
+                <ColorSelect design={findDesign(l.design)} value={l.color} onChange={v => setLine(i, { color: v })} />
+                <SizeSelect design={findDesign(l.design)} value={l.size} onChange={v => setLine(i, { size: v })} />
+                <Input className="bg-background text-right" inputMode="numeric" value={l.qty} onChange={e => setLine(i, { qty: e.target.value })} />
+                <Input className="bg-background text-right" inputMode="decimal" value={l.line_sales} onChange={e => setLine(i, { line_sales: e.target.value })} />
+                <Button variant="ghost" size="sm" className="h-8 px-2" style={{ color: 'var(--bad)' }} onClick={() => removeLine(i)} title="ลบบรรทัดนี้"><Icon name="trash" /></Button>
+              </div>
+            ))}
+            {(!editLines || editLines.length === 0) && <div className="cap py-2 text-center" style={{ color: 'var(--ink-4)' }}>ยังไม่มีรายการ — กด "เพิ่มรายการ"</div>}
+            <div className="mt-1 flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" className="h-8 gap-1" onClick={addLine}><Icon name="plus" /> เพิ่มรายการ</Button>
+              {editLines && editLines.length > 0 && (() => {
+                const s = _sumS(editLines); const match = Math.abs(s - (Number(edit.sales) || 0)) <= 0.01;
+                return <span className="cap ml-auto" style={{ color: match ? 'var(--good)' : 'var(--warn)' }}>รวมรายการ {_sumQ(editLines)} ตัว · {B(s)} {match ? '= ยอดขาย ✓' : `≠ ยอดขาย ${B(Number(edit.sales) || 0)}`}</span>;
               })()}
-            </Field>
+            </div>
           </div>
-        </FormSection>
+        </div>
 
-        <FormSection icon="wallet" title="เงิน">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="ยอดขาย (฿)"><Input className="bg-background" type="number" inputMode="decimal" min="0" step="0.01" value={edit.sales} onChange={e => setEdit({ ...edit, sales: e.target.value })} /></Field>
-            <Field label="จำนวน (ตัว)"><Input className="bg-background" type="number" inputMode="numeric" min="0" value={edit.qty} onChange={e => setEdit({ ...edit, qty: e.target.value })} /></Field>
-            <Field label="การชำระ">
-              <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
-                <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
-                <SelectContent>{[...new Set([...PAYMENT_TYPES, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>
-          </div>
-        </FormSection>
+        {/* ข้อมูลออเดอร์ | ลูกค้า — การ์ดคู่ตำแหน่งเดียวกับโหมดดู แก้ตรงช่อง */}
+        <div className="grid items-start gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+          <FormSection icon="listChecks" title="ข้อมูลออเดอร์">
+            <div className="flex flex-col gap-3">
+              <Field label="วันที่"><DatePicker value={edit.order_date} onChange={v => setEdit({ ...edit, order_date: v || '' })} /></Field>
+              <Field label="ช่องทาง">
+                <Select value={edit.channel || undefined} onValueChange={v => setEdit({ ...edit, channel: v })}>
+                  <SelectTrigger className="bg-background"><SelectValue placeholder="เลือกช่องทาง" /></SelectTrigger>
+                  <SelectContent>{[...new Set([...CHANNELS, edit.channel].filter(Boolean))].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+              <Field label="ประเภทงาน">
+                {(() => {
+                  // ยึด "หมายเหตุ" ตัดสิน ปลีก/DFT (isDftNote) · OEM = เลือกตรง — เลือก DFT/ปลีก = เติม/ถอดคำ "DFT" ในหมายเหตุให้เอง
+                  const eff = edit.job_type === 'OEM' ? 'OEM' : (isDftNote(edit.note) ? 'DFT' : 'ปลีก');
+                  const stripDft = (s) => String(s || '').replace(/\bdft\b/ig, '').replace(/\s{2,}/g, ' ').trim();
+                  const pick = (v) => {
+                    if (!v || v === eff) return;
+                    if (v === 'OEM') { setEdit({ ...edit, job_type: 'OEM' }); return; }
+                    let n = stripDft(edit.note);
+                    if (v === 'DFT') n = (n ? n + ' ' : '') + 'DFT';
+                    setEdit({ ...edit, job_type: v, note: n });
+                  };
+                  return (
+                    <ToggleGroup type="single" value={eff} onValueChange={pick} variant="outline" className="justify-start"
+                      title="ปลีก/DFT ตัดสินจากคำ “DFT” ในหมายเหตุ — เลือกแล้วระบบเติม/ถอดให้">
+                      {JOB_TYPES.map(j => <ToggleGroupItem key={j} value={j} className="h-9 px-3 text-[13px] whitespace-nowrap">{j}</ToggleGroupItem>)}
+                    </ToggleGroup>
+                  );
+                })()}
+              </Field>
+              <Field label="การชำระ">
+                <Select value={edit.payment_type || 'ไม่ระบุ'} onValueChange={v => setEdit({ ...edit, payment_type: v })}>
+                  <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
+                  <SelectContent>{[...new Set([...PAYMENT_TYPES, edit.payment_type].filter(Boolean))].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                </Select>
+              </Field>
+            </div>
+          </FormSection>
+          <FormSection icon="user" title="ลูกค้า">
+            <div className="flex flex-col gap-3">
+              <Field label="ชื่อลูกค้า"><Input className="bg-background" value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="เบอร์โทร"><Input className="bg-background" value={edit.customer_phone} onChange={e => setEdit({ ...edit, customer_phone: e.target.value })} placeholder="ไว้ตามต่อ / เข้า CRM" /></Field>
+                <Field label="โซเชียล (FB/LINE)"><Input className="bg-background" value={edit.customer_social} onChange={e => setEdit({ ...edit, customer_social: e.target.value })} placeholder="ชื่อเพจ/ไลน์" /></Field>
+              </div>
+              <Field label="สถานะลูกค้า"><CustomerTypeChips value={edit.customer_type} onChange={v => setEdit({ ...edit, customer_type: v })} /></Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="จังหวัด"><ProvinceCombobox className="bg-background" value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></Field>
+                <Field label="เซลล์"><SellerCombobox className="bg-background" value={edit.salesperson} onChange={v => setEdit({ ...edit, salesperson: v })} options={sellerOptions} /></Field>
+              </div>
+              <Field label="ที่อยู่"><Input className="bg-background" value={edit.customer_address} onChange={e => setEdit({ ...edit, customer_address: e.target.value })} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></Field>
+              <Field label="หมายเหตุ"><Textarea className="bg-background" rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></Field>
+            </div>
+          </FormSection>
+        </div>
 
-        <FormSection icon="user" title="ลูกค้า">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="ชื่อลูกค้า"><Input className="bg-background" value={edit.customer_name} onChange={e => setEdit({ ...edit, customer_name: e.target.value })} placeholder="ชื่อลูกค้า" /></Field>
-            <Field label="เบอร์โทร"><Input className="bg-background" value={edit.customer_phone} onChange={e => setEdit({ ...edit, customer_phone: e.target.value })} placeholder="ไว้ตามต่อ / เข้า CRM" /></Field>
-            <Field label="โซเชียล (FB/LINE)"><Input className="bg-background" value={edit.customer_social} onChange={e => setEdit({ ...edit, customer_social: e.target.value })} placeholder="ชื่อเพจ/ไลน์" /></Field>
-            <Field label="จังหวัด"><ProvinceCombobox className="bg-background" value={edit.province} onChange={v => setEdit({ ...edit, province: v })} /></Field>
-            <Field label="ที่อยู่" className="sm:col-span-2"><Input className="bg-background" value={edit.customer_address} onChange={e => setEdit({ ...edit, customer_address: e.target.value })} placeholder="ที่อยู่จัดส่ง (เข้าโปรไฟล์ลูกค้า CRM)" /></Field>
-          </div>
-          <div className="mt-3"><CustomerTypeChips value={edit.customer_type} onChange={v => setEdit({ ...edit, customer_type: v })} /></div>
-        </FormSection>
-
-        <FormSection icon="pencil" title="อื่นๆ">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="เซลล์"><SellerCombobox className="bg-background" value={edit.salesperson} onChange={v => setEdit({ ...edit, salesperson: v })} options={sellerOptions} /></Field>
-            <Field label="หมายเหตุ"><Textarea className="bg-background" rows={2} value={edit.note} onChange={e => setEdit({ ...edit, note: e.target.value })} placeholder="เช่น DFT / ล็อตสินค้า / โน้ตภายใน" /></Field>
-          </div>
-        </FormSection>
-
-        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Button onClick={saveOrder} disabled={busy || edit.sales === '' || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button>
+        {/* แถวบันทึก — การ์ดเดียวแบบแถวจัดการโหมดดู */}
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border px-4 py-3 shadow-sm" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+          <Button onClick={saveOrder} disabled={busy || edit.sales === '' || !(Number(edit.sales) >= 0)}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึกทั้งหมด'}</Button>
           <Button variant="ghost" onClick={() => setEdit(null)} disabled={busy}>ยกเลิก</Button>
           {hasOv && <Button variant="ghost" className="ml-auto" style={{ color: 'var(--bad)' }} onClick={revertOrder} disabled={busy}><Icon name="refresh" /> คืนค่าจากไฟล์</Button>}
         </div>
@@ -419,24 +500,82 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     )}
 
     {/* ยอดเงิน — การ์ดเดียว: ยอดเด่น + COD badge + เซลล์เสริม (ค่าธรรมเนียม/COD) + แยกราคา (ไม่โชว์ยอดซ้ำ) */}
-    <MoneyCard total={o.sales} codBadge={isFullCod ? 'เก็บปลายทาง (COD)' : ''} extras={money.slice(1)}
-      subtotal={!edit && fin ? fin.subtotal : undefined} discount={!edit && fin ? fin.discount : undefined}
-      shipping={!edit && fin ? fin.shipping : undefined} vat={!edit && fin ? fin.vat : undefined} />
+    {!edit && <MoneyCard total={o.sales} codBadge={isFullCod ? 'เก็บปลายทาง (COD)' : ''} extras={money.slice(1)} discount={fin?.discount} />}
 
-    {/* ไฟล์ใบเสร็จ — เปิด(popup ฝัง PDF)/แนบ/เปลี่ยน (เฉพาะออเดอร์จากใบเสร็จ) */}
-    {!edit && isReceipt && rec && (
-      <div className="flex items-center gap-2 flex-wrap">
-        {rec.file_url
-          ? <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPdfOpen(true)}><Icon name="external" className="size-3.5" /> เปิดไฟล์ใบเสร็จ</Button>
-          : <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Icon name="external" className="size-3.5 opacity-60" /> ยังไม่มีไฟล์แนบ</span>}
-        {rec.status !== 'void' && canEditReceipt(rec, { email: window.__userEmail, isAdmin: window.__isAdmin === true }) && (
-          <>
-            <input ref={attachRef} type="file" accept="application/pdf" hidden onChange={e => { attachReceiptToOrder(e.target.files?.[0]); e.target.value = ''; }} />
-            <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={attaching} onClick={() => attachRef.current?.click()}>
-              <Icon name="pencil" className="size-3.5" /> {attaching ? 'กำลังแนบ…' : rec.file_url ? 'เปลี่ยนไฟล์' : 'แนบไฟล์'}
-            </Button>
-          </>
-        )}
+    {/* ===== Order Summary (Lemon · PART 88.1) — รายการสินค้า + สรุปเงิน เป็นบล็อกเดียวถัดจากยอด (ซ่อนตอนแก้ — ฟอร์มมีของตัวเอง) ===== */}
+    {!edit && sk.length > 0 && <div className="overflow-hidden rounded-xl border shadow-sm" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+      <div className="flex items-center gap-2 px-3.5 py-2.5 border-b" style={{ background: 'var(--surface-2)', borderColor: 'var(--line)' }}>
+        <span className="grid place-items-center rounded-lg size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)', flex: 'none' }}><Icon name="bag" /></span>
+        <span className="text-[13px] font-bold">รายการสินค้า</span>
+        <span className="cap" style={{ color: 'var(--ink-4)' }}>· {N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ตัว</span>
+      </div>
+      <CardTable className="table-wrap"><Table>
+        <TableHeader><TableRow><TableHead>ลาย</TableHead><TableHead>รหัส</TableHead><TableHead>สี</TableHead><TableHead>ไซซ์</TableHead><TableHead style={{ textAlign: 'right' }}>จำนวน</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead>จับคู่</TableHead></TableRow></TableHeader>
+        <TableBody>{sk.map((s, i) => (
+          <TableRow key={i}>
+            <TableCell className="cell-title" style={{ fontWeight: 600 }}>{s.design || <span style={{ color: 'var(--bad)' }}>จับคู่ไม่ได้</span>}{s._resolveSrc === 'override' && <Badge variant="outline" className="ml-1.5 text-[10px]" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>แก้มือ</Badge>}{s.raw_sku_or_name && s.raw_sku_or_name !== s.design && <div className="cap" style={{ color: 'var(--ink-4)' }}>{s.raw_sku_or_name}</div>}</TableCell>
+            <TableCell className="cap">{s.product_code || '—'}</TableCell>
+            <TableCell className="cap">{s.color || '—'}</TableCell>
+            <TableCell className="cap">{s.size || '—'}</TableCell>
+            <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</TableCell>
+            <TableCell className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</TableCell>
+            <TableCell><span className="cap" style={{ color: s.match_how ? 'var(--ink-3)' : 'var(--bad)' }}>{s.match_how || '—'}</span></TableCell>
+          </TableRow>
+        ))}</TableBody>
+      </Table></CardTable>
+      {/* สรุปเงินท้ายรายการ (Lemon) — ราคาเสื้อ→ส่วนลด→ค่าส่ง→VAT→ยอดขาย · ซ่อนเองถ้าไม่มี breakdown */}
+      <MoneySummaryRows fin={edit ? null : fin} total={o.sales} />
+    </div>}
+
+    {/* ===== ข้อมูลออเดอร์ + ลูกค้า — การ์ดคู่โชว์เลย (ซ่อนตอนแก้ — ฟอร์มมีครบ) ===== */}
+    {!edit && <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+      <DrawerGroup icon="listChecks" title="ข้อมูลออเดอร์">
+        <DrawerField label="เลขออเดอร์">{o.order_no}</DrawerField>
+        {o.marketplace_id && o.marketplace_id !== '-' && <DrawerField label="ID มาร์เก็ตเพลส">{o.marketplace_id}</DrawerField>}
+        <DrawerField label="วันที่">{o.order_date || o.order_month}</DrawerField>
+        <DrawerField label="ช่องทาง"><span className="row" style={{ gap: 6, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: 3, background: channelColor(o.channel), flex: 'none' }} />{o.channel}</span></DrawerField>
+        <DrawerField label="ประเภทงาน">{jt === 'ปลีก' ? 'ปลีก' : <span className={'chip ' + jtCls}>{jt}</span>}</DrawerField>
+        {o.status && o.status !== 'completed' && o.status !== 'active' && <DrawerField label="สถานะ"><Badge variant="secondary">{stMap[o.status] || o.status}</Badge></DrawerField>}
+        <DrawerField label="การชำระ">{payLabel(o)}</DrawerField>
+      </DrawerGroup>
+      <DrawerGroup icon="user" title="ลูกค้า">
+        <DrawerField label="ลูกค้า">{o.customer_name || '—'}</DrawerField>
+        {custCodeShow(o.customer_code, o.customer_name) && <DrawerField label="รหัสลูกค้า">{custCodeShow(o.customer_code, o.customer_name)}</DrawerField>}
+        {o.customer_phone && <DrawerField label="เบอร์">{o.customer_phone}</DrawerField>}
+        {o.customer_social && o.customer_social !== o.customer_name && <DrawerField label="โซเชียล">{o.customer_social}</DrawerField>}
+        <DrawerField label="สถานะลูกค้า">{o.customer_type || '—'}</DrawerField>
+        {o.cust_total_orders > 0 && <DrawerField label="ออเดอร์สะสม">{N(o.cust_total_orders)} ครั้ง</DrawerField>}
+        {o.province && <DrawerField label="จังหวัด">{o.province}</DrawerField>}
+        <DrawerField label="เซลล์">{o.salesperson || '—'}</DrawerField>
+      </DrawerGroup>
+    </div>}
+
+    {/* ไฟล์ใบเสร็จ + จัดการออเดอร์ — แบบ A: การ์ดแถวเดียวจบ (PART 88.1 · user เลือกจาก mockup)
+        ซ้าย = สถานะไฟล์ + เปิด/เปลี่ยน · ขวา = แก้ไข(เด่น) · ยกเลิก/ลบ(ghost) · ไม่มีปุ่ม "ปิด" (ใช้ ✕ บนหัว) */}
+    {!edit && (
+      <div className="flex items-center gap-2 flex-wrap rounded-xl border px-4 py-3 shadow-sm" style={{ borderColor: 'var(--line)', background: 'var(--surface)' }}>
+        {isReceipt && rec && (<>
+          <span className="inline-flex items-center gap-1.5 text-[13px]" style={{ color: 'var(--ink-3)' }}>
+            <span className="inline-flex [&_svg]:size-4" style={{ color: 'var(--accent)' }}><Icon name="external" /></span> ใบเสร็จ
+            <b style={{ color: rec.file_url ? 'var(--good)' : 'var(--ink-4)' }}>{rec.file_url ? 'แนบแล้ว' : 'ยังไม่แนบ'}</b>
+          </span>
+          {rec.file_url && <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPdfOpen(true)}><Icon name="external" className="size-3.5" /> เปิดไฟล์</Button>}
+          {rec.status !== 'void' && canEditReceipt(rec, { email: window.__userEmail, isAdmin: window.__isAdmin === true }) && (
+            <>
+              <input ref={attachRef} type="file" accept="application/pdf" hidden onChange={e => { attachReceiptToOrder(e.target.files?.[0]); e.target.value = ''; }} />
+              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={attaching} onClick={() => attachRef.current?.click()}>
+                {attaching ? 'กำลังแนบ…' : rec.file_url ? 'เปลี่ยนไฟล์' : 'แนบไฟล์'}
+              </Button>
+            </>
+          )}
+        </>)}
+        <span className="ml-auto flex items-center gap-1.5 flex-wrap">
+          {!isCancelled && window.__canEdit !== false && <Button size="sm" className="h-8 gap-1.5" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>}
+          {isCancelled
+            ? <Button variant="outline" size="sm" className="h-8 gap-1.5" style={{ color: 'var(--good)' }} onClick={restoreOrder} disabled={busy}><Icon name="refresh" /> นำกลับมา</Button>
+            : <Button variant="ghost" size="sm" className="h-8 gap-1.5" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}>ยกเลิก</Button>}
+          <Button variant="ghost" size="sm" className="h-8 px-2.5" style={{ color: 'var(--bad)' }} onClick={deleteOrder} disabled={busy} title="ลบออเดอร์ถาวร"><Icon name="trash" /></Button>
+        </span>
       </div>
     )}
     {pdfOpen && rec?.file_url && <ReceiptPdfModal url={rec.file_url} title={`ใบเสร็จ ${o.order_no}`} onClose={() => setPdfOpen(false)} />}
@@ -451,66 +590,5 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
       </div>
     )}
 
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-      <DrawerGroup icon="listChecks" title="ข้อมูลออเดอร์">
-        <DrawerField label="เลขออเดอร์">{o.order_no}</DrawerField>
-        {o.marketplace_id && o.marketplace_id !== '-' && <DrawerField label="ID มาร์เก็ตเพลส">{o.marketplace_id}</DrawerField>}
-        <DrawerField label="วันที่">{o.order_date || o.order_month}</DrawerField>
-        <DrawerField label="ช่องทาง"><span className="row" style={{ gap: 6, alignItems: 'center' }}><span style={{ width: 8, height: 8, borderRadius: 3, background: channelColor(o.channel), flex: 'none' }} />{o.channel}</span></DrawerField>
-        <DrawerField label="ประเภทงาน">{jt === 'ปลีก' ? 'ปลีก' : <span className={'chip ' + jtCls}>{jt}</span>}</DrawerField>
-        {o.status && o.status !== 'completed' && o.status !== 'active' && <DrawerField label="สถานะ"><Badge variant="secondary">{stMap[o.status] || o.status}</Badge></DrawerField>}
-        <DrawerField label="การชำระ">{o.payment_type || '—'}</DrawerField>
-      </DrawerGroup>
-      <DrawerGroup icon="user" title="ลูกค้า">
-        <DrawerField label="ลูกค้า">{o.customer_name || '—'}</DrawerField>
-        {custCodeShow(o.customer_code, o.customer_name) && <DrawerField label="รหัสลูกค้า">{custCodeShow(o.customer_code, o.customer_name)}</DrawerField>}
-        {o.customer_phone && <DrawerField label="เบอร์">{o.customer_phone}</DrawerField>}
-        {o.customer_social && o.customer_social !== o.customer_name && <DrawerField label="โซเชียล">{o.customer_social}</DrawerField>}
-        <DrawerField label="สถานะลูกค้า">{o.customer_type || '—'}</DrawerField>
-        {o.cust_total_orders > 0 && <DrawerField label="ออเดอร์สะสม">{N(o.cust_total_orders)} ครั้ง</DrawerField>}
-        {o.province && <DrawerField label="จังหวัด">{o.province}</DrawerField>}
-        <DrawerField label="เซลล์">{o.salesperson || '—'}</DrawerField>
-      </DrawerGroup>
-    </div>
-    {designs.length > 0 && <>
-      <div className="cap cap-head mt-1 mb-1.5" style={{ fontWeight: 600, color: 'var(--accent)' }}><Icon name="bag" /> ลายเสื้อในออเดอร์นี้ ({N(designs.length)} ลาย)</div>
-      <div style={{ display: 'grid', gap: 6, marginBottom: 4 }}>{designs.map((d, i) => (
-        <div key={i} className="row between" style={{ gap: 8, padding: '7px 11px', borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', border: '1px solid var(--line)', flexWrap: 'wrap' }}>
-          <span style={{ minWidth: 0 }}><b style={{ color: d.design === '(จับคู่ไม่ได้)' ? 'var(--bad)' : 'var(--ink)' }}>{d.design}</b>{d.codes.size > 0 && <Badge variant="outline" style={{ marginLeft: 8 }}>รหัส {[...d.codes].join(', ')}</Badge>}</span>
-          <span className="num cap"><b style={{ color: 'var(--ink)' }}>{N(d.qty)}</b> ตัว · {B(d.sales)}</span>
-        </div>
-      ))}</div>
-    </>}
-    {sk.length > 0 && <>
-      <div className="cap mt-1 mb-1.5" style={{ fontWeight: 600, color: 'var(--ink-3)' }}>รายการสินค้า ({N(sk.length)} รายการ · {N(sk.reduce((a, x) => a + (Number(x.qty) || 0), 0))} ตัว)</div>
-      <CardTable className="table-wrap"><Table>
-        <TableHeader><TableRow><TableHead>ลาย</TableHead><TableHead>รหัส</TableHead><TableHead>สี</TableHead><TableHead>ไซซ์</TableHead><TableHead style={{ textAlign: 'right' }}>จำนวน</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead>จับคู่</TableHead><TableHead /></TableRow></TableHeader>
-        <TableBody>{sk.map((s, i) => [
-          <TableRow key={i}>
-            <TableCell className="cell-title" style={{ fontWeight: 600 }}>{s.design || <span style={{ color: 'var(--bad)' }}>จับคู่ไม่ได้</span>}{s._resolveSrc === 'override' && <Badge variant="outline" className="ml-1.5 text-[10px]" style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}>แก้มือ</Badge>}{s.raw_sku_or_name && s.raw_sku_or_name !== s.design && <div className="cap" style={{ color: 'var(--ink-4)' }}>{s.raw_sku_or_name}</div>}</TableCell>
-            <TableCell className="cap">{s.product_code || '—'}</TableCell>
-            <TableCell className="cap">{s.color || '—'}</TableCell>
-            <TableCell className="cap">{s.size || '—'}</TableCell>
-            <TableCell className="num" style={{ textAlign: 'right' }}>{N(s.qty)}</TableCell>
-            <TableCell className="num" style={{ textAlign: 'right' }}>{B(s.line_sales)}</TableCell>
-            <TableCell><span className="cap" style={{ color: s.match_how ? 'var(--ink-3)' : 'var(--bad)' }}>{s.match_how || '—'}</span></TableCell>
-            <TableCell style={{ textAlign: 'right' }}>{lineEdit !== i && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" onClick={() => { setLineEdit(i); const d = findDesign(s.design); setLinePick({ design: s.design || '', code: d?.code || s.product_code || '', color: s.color || '', size: s.size || '' }); }} title="แก้ลาย/สี/ไซซ์บรรทัดนี้"><Icon name="pencil" /></Button>}</TableCell>
-          </TableRow>,
-          lineEdit === i && <TableRow key={i + '-edit'}>
-            <TableCell colSpan={8} style={{ background: 'var(--surface-2)' }}>
-              <div className="cap cap-head mb-2" style={{ fontWeight: 700, color: 'var(--accent)' }}><Icon name="pencil" /> แก้ลาย/สี/ไซซ์ของ "{s.raw_sku_or_name || s.design}" (เลือกจากสินค้า หรือพิมพ์รหัสเอง)</div>
-              <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ minWidth: 220 }}><DesignCombobox value={linePick.design} code={linePick.code} onPick={({ name, code, design: d }) => setLinePick(p => ({ design: name, code: code || p.code, color: (p.color && d?.colors?.length && !d.colors.includes(p.color)) ? '' : p.color, size: (p.size && d?.sizes?.length && !d.sizes.includes(p.size)) ? '' : p.size }))} /></div>
-                <div style={{ minWidth: 120 }}><ColorSelect design={findDesign(linePick.design)} value={linePick.color} onChange={v => setLinePick(p => ({ ...p, color: v }))} /></div>
-                <div style={{ minWidth: 90 }}><SizeSelect design={findDesign(linePick.design)} value={linePick.size} onChange={v => setLinePick(p => ({ ...p, size: v }))} /></div>
-                <Input value={linePick.code} onChange={e => setLinePick({ ...linePick, code: e.target.value })} placeholder="รหัสฐาน เช่น JRP111" style={{ maxWidth: 150 }} />
-                <Button size="sm" onClick={() => saveLine(s)} disabled={busy || !linePick.design.trim()}><Icon name="check" /> บันทึก</Button>
-                <Button size="sm" variant="ghost" onClick={() => setLineEdit(null)} disabled={busy}>ยกเลิก</Button>
-              </div>
-            </TableCell>
-          </TableRow>,
-        ])}</TableBody>
-      </Table></CardTable>
-    </>}
   </SideSheet>;
 }

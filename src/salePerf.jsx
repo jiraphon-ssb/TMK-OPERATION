@@ -32,6 +32,8 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuChe
 import { SearchInput } from '@/components/ui/search-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MonthPicker } from './components/MonthPicker.jsx';
+import { OrderCard, daySummary, DayTiles, isCodOrder, useOrderFinancials, finOf } from './orderCard.jsx';
+import { CustomerDrawer, custFromOrders } from './customerDrawer.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { ComboChart, DonutChart, HBars, Sparkline, channelColor } from './charts.jsx';
 
@@ -359,6 +361,7 @@ export function SalePerfView() {
   }, [perf, perfPrev]);
   const [dayDrill, setDayDrill] = useState(null);   // { name, day } — เซลล์+วันที่เปิดดูออเดอร์รายตัว (drill-down รายวัน)
   const [dayAll, setDayAll] = useState(null);       // วันที่ (number) — คลิกจากกราฟ → ป๊อปอัพออเดอร์ทั้งวัน
+  const [custDrill, setCustDrill] = useState(null); // กดชื่อลูกค้าบนการ์ดออเดอร์ → drawer ลูกค้า (PART 88)
   // กรอง rows ฝั่งแสดงผล (ค้นหา/เฉพาะมีเป้า/ซ่อนไม่ระบุเซลล์) + คำนวณทีมใหม่ + จัดอันดับตามยอด
   const ql = q.trim().toLowerCase();
   const rowsView = useMemo(() => perf.rows.filter(r =>
@@ -413,11 +416,12 @@ export function SalePerfView() {
   const drillSheets = (
     <>
       {dayDrill && <SideSheet size="lg" icon="user" title={dayDrill.name === NO_SELLER ? 'ไม่ระบุเซลล์' : dayDrill.name} sub={`วันที่ ${dayDrill.day} ${monthLabel(month)}`} onClose={() => setDayDrill(null)}>
-        <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={funnelF} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} />
+        <DaySellerDetail name={dayDrill.name} day={dayDrill.day} month={month} orders={ordersF} skus={skusF} funnel={funnelF} target={targets[dayDrill.name]} onOpenMonth={() => { const n = dayDrill.name; setDayDrill(null); setDetail(n); }} onPickCustomer={(o) => setCustDrill(custFromOrders(o, ordersF))} />
       </SideSheet>}
       {dayAll && <SideSheet size="lg" icon="calendarDays" title={`วันที่ ${dayAll} ${monthLabel(month)}`} sub="ออเดอร์ทั้งวัน" onClose={() => setDayAll(null)}>
-        <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} funnel={funnelF} />
+        <DayDetail day={dayAll} month={month} orders={ordersF} skus={skusF} funnel={funnelF} onPickCustomer={(o) => setCustDrill(custFromOrders(o, ordersF))} />
       </SideSheet>}
+      {custDrill && <CustomerDrawer cust={custDrill} ords={ordersF} skus={skusF} onClose={() => setCustDrill(null)} />}
     </>
   );
 
@@ -615,82 +619,15 @@ function SpDetail({ sp, onDay, cmp }) {
   );
 }
 
-/* ---- การ์ดออเดอร์ 1 ใบ (reuse: drill รายวันของเซลล์ + ป๊อปอัพทั้งวัน) ----
-   เลขที่ · ช่องทาง · ลูกค้า · ใหม่/เก่า · งาน(DFT/OEM) · เซลล์(โหมดทีม) · ยอด
-   + line items (ลาย/สี/ไซซ์/จำนวน/ยอด) + ชำระ/จังหวัด/หมายเหตุ */
-const JOB_COLOR = { DFT: 'var(--info)', OEM: 'var(--accent-2)' };
-function OrderCard({ o, lines, showSeller }) {
-  const isCod = /cod|ปลายทาง/i.test(String(o.payment_type || ''));
-  const seller = spOf(o);
-  return (
-    <div className="rounded-lg border overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted/30 flex-wrap">
-        <span className="font-mono text-xs font-bold">{o.order_no}</span>
-        {o.channel && <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full" style={{ background: channelColor(o.channel) + '22', color: channelColor(o.channel) }}>{o.channel}</span>}
-        <span className="text-sm truncate max-w-[160px]">{o.customer_name || '—'}</span>
-        {o.customer_type === 'ลูกค้าใหม่' && <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px] px-1.5 py-0">ใหม่</Badge>}
-        {o.job_type && o.job_type !== 'ปลีก' && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded" style={{ background: (JOB_COLOR[o.job_type] || 'var(--ink-3)') + '1a', color: JOB_COLOR[o.job_type] || 'var(--ink-3)' }}>{o.job_type}</span>}
-        {showSeller && <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">{seller === NO_SELLER ? <span className="grid place-items-center rounded-full size-4 text-[8px] font-bold" style={{ background: 'var(--surface-3)', color: 'var(--ink-3)' }}>?</span> : <PersonAvatar name={seller} size={16} />}{seller === NO_SELLER ? 'ไม่ระบุ' : seller}</span>}
-        <span className="ml-auto font-bold whitespace-nowrap">{fmtB(o.sales)}</span>
-      </div>
-      {lines.length > 0 && (
-        <table className="w-full text-xs">
-          <tbody>
-            {lines.map((k, i) => (
-              <tr key={k.id || i} className="border-t border-border/50">
-                <td className="px-3 py-1.5">{(k.design && String(k.design).trim()) || k.product_code || 'ไม่ระบุลาย'}</td>
-                <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap">{[k.color, k.size].filter(Boolean).join(' · ') || '—'}</td>
-                <td className="px-2 py-1.5 text-right whitespace-nowrap">×{N(k.qty)}</td>
-                <td className="px-3 py-1.5 text-right whitespace-nowrap">{k.line_sales != null ? fmtB(k.line_sales) : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <div className="flex items-center gap-3 px-3 py-1.5 border-t border-border/50 text-[11px] text-muted-foreground flex-wrap">
-        <span>จำนวน {N(o.qty)} ตัว</span>
-        <span>ชำระ: {isCod ? `COD ${fmtB(o.cod_amount || o.sales)}` : (o.payment_type || 'โอน')}</span>
-        {o.province && <span>· {o.province}</span>}
-        {o.note && <span className="truncate max-w-[200px]">· {o.note}</span>}
-      </div>
-    </div>
-  );
-}
-
-/* ---- สรุปยอดต่อวัน (แยกโอน/COD + คนทัก/%ปิด) → ใช้ทั้ง DayDetail + DaySellerDetail ---- */
-const isCodOrder = (o) => o.payment_type === 'COD' || (Number(o.cod_amount) || 0) > 0;
-function daySummary(ords, dayFunnel) {
-  const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
-  const qty = ords.reduce((s, o) => s + (Number(o.qty) || 0), 0);
-  const transfer = ords.filter(o => o.payment_type === 'โอน').reduce((s, o) => s + (Number(o.sales) || 0), 0);
-  const cod = ords.filter(isCodOrder).reduce((s, o) => s + (Number(o.sales) || 0), 0);
-  const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
-  const leads = (dayFunnel || []).reduce((s, f) => s + funnelTotal(f), 0);
-  const orders = ords.length;
-  return { sales, qty, transfer, cod, newC, leads, orders, other: Math.max(0, sales - transfer - cod),
-    close: leads > 0 ? Math.round(orders / leads * 100) : null, aov: orders ? sales / orders : 0, avgQty: orders ? qty / orders : 0 };
-}
-/* กริดตัวชี้วัดรายวัน 10 ช่อง (ยอดรวม/โอน/COD/ออเดอร์/ตัว/ลูกค้าใหม่/คนทัก/%ปิด/Basket/AVG) */
-function DayTiles({ s }) {
-  const tiles = [
-    ['ยอดขายรวม', fmtB(s.sales)], ['ยอดโอน', s.transfer ? fmtB(s.transfer) : '—'], ['ยอด COD', s.cod ? fmtB(s.cod) : '—'],
-    ['ออเดอร์', N(s.orders)], ['จำนวนตัว', N(s.qty)], ['ลูกค้าใหม่', N(s.newC)],
-    ['คนทัก', N(s.leads)], ['%ปิดการขาย', s.close == null ? '—' : s.close + '%'],
-    ['Basket size', s.orders ? fmtB(s.aov) : '—'], ['AVG ตัว/ออเดอร์', s.orders ? s.avgQty.toFixed(2) : '—'],
-  ];
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-center">
-      {tiles.map(([l, v], i) => <div key={l} className="rounded-lg border p-2" style={i === 7 && s.close != null ? { borderColor: closeTone(s.close) } : undefined}><div className="text-[11px] text-muted-foreground">{l}</div><div className="font-bold" style={i === 7 && s.close != null ? { color: closeTone(s.close) } : undefined}>{v}</div></div>)}
-    </div>
-  );
-}
+/* การ์ดออเดอร์ + daySummary/DayTiles ย้ายไปเป็นของกลางใน orderCard.jsx (PART 88) — import ด้านบน */
 
 /* ---- ป๊อปอัพ "ทั้งวัน" (คลิกจากกราฟรายวัน) — ออเดอร์ทุกใบของวันนั้นในขอบเขตที่กรอง ----
    สรุปวัน (10 ตัวชี้วัด: ยอดรวม/โอน/COD/ออเดอร์/ตัว/ลูกค้าใหม่/คนทัก/%ปิด/Basket/AVG) + แยกช่องทาง + การ์ดออเดอร์รายตัว */
-function DayDetail({ day, orders, skus, funnel }) {
+function DayDetail({ day, orders, skus, funnel, onPickCustomer }) {
   const ords = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
   const dayFunnel = (funnel || []).filter(f => dayOf(f.date) === day);
+  const finBy = useOrderFinancials(ords); // ส่วนลด/ค่าส่ง/VAT — batch ตอน popup เปิด (PART 88)
   const skuBy = new Map();
   (skus || []).forEach(k => { const arr = skuBy.get(k.order_no) || []; arr.push(k); skuBy.set(k.order_no, arr); });
   const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
@@ -727,7 +664,7 @@ function DayDetail({ day, orders, skus, funnel }) {
             <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">ไม่มีออเดอร์ในวันนี้</div>
           ) : (
             <div className="flex flex-col gap-2.5">
-              {ords.map(o => <OrderCard key={o.order_no} o={o} lines={skuBy.get(o.order_no) || []} showSeller={multiSeller} />)}
+              {ords.map(o => <OrderCard key={o.order_no} o={o} lines={skuBy.get(o.order_no) || []} fin={finOf(finBy, o)} showSeller={multiSeller} onPickCustomer={onPickCustomer} />)}
             </div>
           )}
         </div>
@@ -737,10 +674,11 @@ function DayDetail({ day, orders, skus, funnel }) {
 }
 
 /* ---- Drill-down รายวัน: ออเดอร์รายตัวของเซลล์ในวันนั้น (ตรวจสอบ/คิดคอม) ---- */
-function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth }) {
+function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth, onPickCustomer }) {
   // ออเดอร์ของเซลล์คนนี้ในวันนี้ (ตัดยกเลิก) เรียงยอดมาก→น้อย
   const ords = (orders || []).filter(o => !isCancelled(o) && spOf(o) === name && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
+  const finBy = useOrderFinancials(ords); // ส่วนลด/ค่าส่ง/VAT — batch ตอน popup เปิด (PART 88)
   // คนทักของเซลล์คนนี้ในวันนี้ (แยกใหม่/เก่า) — จากแถว funnel วันนั้น
   const dayFunnel = (funnel || []).filter(f => String(f.salesperson || '').trim() === name && dayOf(f.date) === day);
   const leadTot = dayFunnel.reduce((s, f) => s + funnelTotal(f), 0);
@@ -775,7 +713,7 @@ function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth 
             <div className="rounded-lg border p-6 text-center text-sm text-muted-foreground">ไม่มีออเดอร์ของเซลล์คนนี้ในวันนี้</div>
           ) : (
             <div className="flex flex-col gap-2.5">
-              {ords.map(o => <OrderCard key={o.order_no} o={o} lines={skuBy.get(o.order_no) || []} />)}
+              {ords.map(o => <OrderCard key={o.order_no} o={o} lines={skuBy.get(o.order_no) || []} fin={finOf(finBy, o)} onPickCustomer={onPickCustomer} />)}
             </div>
           )}
         </div>

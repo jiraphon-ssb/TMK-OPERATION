@@ -18,6 +18,8 @@ import { CATALOG_TYPES } from './lib/catalogMeta.js';
 import { PROVINCES, REGIONS, normalizeProvince, TH_BBOX } from './lib/provinces.js';
 import { TH_PATHS } from './lib/thMapPaths.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
+import { OrderCard, daySummary, DayTiles, useOrderFinancials, finOf } from './orderCard.jsx';
+import { CustomerDrawer, custFromOrders } from './customerDrawer.jsx';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
@@ -257,6 +259,7 @@ export function SaleDashboard() {
   const [topN, setTopN] = useState(12);
   const [drill, setDrill] = useState(null);
   const [custDetail, setCustDetail] = useState(null);
+  const [dayPay, setDayPay] = useState(null); // วันที่ (ISO) — คลิกแถวตารางโอน/COD → popup ออเดอร์ทั้งวัน (PART 88)
   const [custTier, setCustTier] = useState('all');
   const [geoMetric, setGeoMetric] = useState('sales');
   const [geoRegion, setGeoRegion] = useState('all');
@@ -814,7 +817,7 @@ export function SaleDashboard() {
                 </TableRow></TableHeader>
                 <TableBody>
                   {days.map(g => (
-                    <TableRow key={g.d}>
+                    <TableRow key={g.d} onClick={() => setDayPay(g.d)} style={{ cursor: 'pointer' }} title="คลิกดูออเดอร์ทั้งวัน">
                       <TableCell className="cell-title num">{bucketLabel(g.d, 'day')}</TableCell>
                       <TableCell className="num" style={{ textAlign: 'right' }}>{N(g.orders)}</TableCell>
                       <TableCell className="num" style={{ textAlign: 'right', color: g.transfer ? 'var(--good)' : 'var(--ink-4)' }}>{g.transfer ? baht(g.transfer) : '—'}</TableCell>
@@ -1004,6 +1007,11 @@ export function SaleDashboard() {
 
       {drill && <DrillModal drill={drill} orders={orders} skus={skus} eff={eff} onClose={() => setDrill(null)} />}
       {custDetail && A && <CustomerDrawer cust={custDetail} ords={A._ords} skus={A._skus} onClose={() => setCustDetail(null)} />}
+      {dayPay && A && <SideSheet size="lg" icon="calendarDays" title={bucketLabel(dayPay, 'day')} sub="ออเดอร์ทั้งวัน · คลิกจากตารางโอน/COD" onClose={() => setDayPay(null)}>
+        <DashDayDetail dateISO={dayPay} ords={A._ords} skus={A._skus}
+          funnelRows={(funnel || []).filter(r => r.date === dayPay && (!f.salesperson.length || f.salesperson.includes(r.salesperson)))}
+          onPickCustomer={(o) => setCustDetail(custFromOrders(o, A._ords))} />
+      </SideSheet>}
       {importOpen && <MpImportModal onClose={() => setImportOpen(false)} onDone={() => { clearSaleCache(); setReloadKey(k => k + 1); }} />}
     </div>
   );
@@ -1457,69 +1465,29 @@ function DrillModal({ drill, orders, skus, eff, onClose }) {
   </SideSheet>;
 }
 
-// ---------- รายละเอียดลูกค้า (เปิดจากตาราง RFM) ----------
-function CustomerDrawer({ cust, ords, skus, onClose }) {
-  const TIER_CHIP = { 'เพชร': 'tier-chip-diamond', 'ทอง': 'tier-chip-gold', 'เงิน': 'tier-chip-silver', 'ทองแดง': 'tier-chip-bronze' };
-  const flagTone = (fl) => fl === 'เสี่ยงหลุด' ? 'var(--bad)' : fl === 'ใหม่' ? 'var(--accent)' : fl === 'ขาประจำ' ? 'var(--good)' : 'var(--ink-4)';
-  const { myOrds, designTop, colorTop, chTop, qtyTotal } = useMemo(() => {
-    const mo = (ords || []).filter(o => o.customer_code === cust.code).sort((a, b) => (b.order_date || '').localeCompare(a.order_date || ''));
-    const noSet = new Set(mo.map(o => o.order_no));
-    const ms = (skus || []).filter(s => noSet.has(s.order_no));
-    const agg = (rows, keyFn) => { const m = {}; rows.forEach(r => { const k = keyFn(r); if (!k) return; m[k] = (m[k] || 0) + (Number(r.qty) || 0); }); return Object.entries(m).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value); };
-    const ch = {}; mo.forEach(o => { if (o.channel) ch[o.channel] = (ch[o.channel] || 0) + (Number(o.sales) || 0); });
-    return {
-      myOrds: mo,
-      designTop: agg(ms, s => s.design).slice(0, 8),
-      colorTop: agg(ms, s => normColor(s.color)).slice(0, 6),
-      chTop: Object.entries(ch).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value),
-      qtyTotal: ms.reduce((a, s) => a + (Number(s.qty) || 0), 0) || mo.reduce((a, o) => a + (Number(o.qty) || 0), 0),
-    };
-  }, [cust.code, ords, skus]);
-  return <SideSheet size="lg" icon="user" title={cust.name}
-    sub={<span className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}><span className={`tier-chip ${TIER_CHIP[cust.tier] || ''}`}>{cust.tier}</span><span style={{ color: 'var(--ink-4)' }}>รหัส {cust.code}</span>{cust.flag && <Badge variant="outline" style={{ fontSize: 10, color: flagTone(cust.flag) }}>{cust.flag}</Badge>}</span>}
-    onClose={onClose} footer={<Button variant="outline" onClick={onClose}>ปิด</Button>}>
-    <div className="metric-grid" style={{ marginBottom: 14 }}>
-      <MetricCard label="ยอดซื้อรวม" value={baht(cust.sales)} tone="var(--accent)" />
-      <MetricCard label="จำนวนครั้ง" value={N(cust.orders)} />
-      <MetricCard label="เฉลี่ย/ครั้ง" value={baht(cust.aov)} />
-      <MetricCard label="ตัวรวม" value={N(qtyTotal)} />
+// CustomerDrawer ย้ายไปเป็นของกลางใน customerDrawer.jsx (PART 88) — ประวัติซื้อเป็นแถวย่อกดขยาย
+// popup วัน (คลิกแถวตารางโอน/COD) — tiles 10 ช่องชุดเดียวกับหน้าประสิทธิภาพเซลล์ + การ์ดออเดอร์กลาง (โชว์เซลล์)
+function DashDayDetail({ dateISO, ords, skus, funnelRows, onPickCustomer }) {
+  const dayOrds = useMemo(() => (ords || []).filter(o => o.order_date === dateISO)
+    .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0)), [ords, dateISO]);
+  const skuBy = useMemo(() => {
+    const noSet = new Set(dayOrds.map(o => o.order_no));
+    const m = new Map();
+    (skus || []).forEach(k => { if (!noSet.has(k.order_no)) return; const arr = m.get(k.order_no) || []; arr.push(k); m.set(k.order_no, arr); });
+    return m;
+  }, [skus, dayOrds]);
+  const finBy = useOrderFinancials(dayOrds); // ส่วนลด/ค่าส่ง/VAT — batch ตอน popup เปิด
+  return (
+    <div className="flex flex-col gap-4">
+      <DayTiles s={daySummary(dayOrds, funnelRows)} />
+      <div>
+        <div className="text-sm font-semibold mb-1.5" style={{ color: 'var(--ink)' }}>ออเดอร์ทั้งวัน ({N(dayOrds.length)})</div>
+        {dayOrds.length === 0
+          ? <div className="rounded-lg border p-6 text-center text-sm" style={{ color: 'var(--ink-4)' }}>ไม่มีออเดอร์ในวันนี้</div>
+          : <div className="flex flex-col gap-2">
+              {dayOrds.map((o, i) => <OrderCard key={(o.order_no || '') + '#' + i} o={o} lines={skuBy.get(o.order_no) || []} fin={finOf(finBy, o)} showSeller onPickCustomer={onPickCustomer} />)}
+            </div>}
+      </div>
     </div>
-    <div className="grid g2" style={{ alignItems: 'start', marginBottom: 14 }}>
-      <Card className="p-[16px]">
-        <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ความเคลื่อนไหว</div>
-        <div style={{ display: 'grid', gap: 7, fontSize: 13.5 }}>
-          <div className="row between"><span style={{ color: 'var(--ink-4)' }}>ซื้อครั้งแรก</span><span className="num">{cust.first || '—'}</span></div>
-          <div className="row between"><span style={{ color: 'var(--ink-4)' }}>ซื้อล่าสุด</span><span className="num">{cust.last || '—'}{cust.recency != null ? ` (${cust.recency} ว.ก่อน)` : ''}</span></div>
-          <div className="row between"><span style={{ color: 'var(--ink-4)' }}>ช่องทางที่ใช้</span><span className="num">{N(cust.channels)} ช่อง</span></div>
-        </div>
-      </Card>
-      <Card className="p-[16px]">
-        <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยอดซื้อแยกช่องทาง</div>
-        {chTop.length ? <HBars data={chTop.map(c => ({ label: c.label, value: c.value, color: channelColor(c.label) }))} height={Math.max(80, chTop.length * 30)} unit="฿" /> : <div className="cap" style={{ color: 'var(--ink-4)' }}>—</div>}
-      </Card>
-    </div>
-    {designTop.length > 0 && <div className="grid g2" style={{ alignItems: 'start', marginBottom: 14 }}>
-      <Card className="p-[16px]">
-        <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ลายที่ซื้อบ่อย</div>
-        <HBars data={designTop} height={Math.max(120, designTop.length * 30)} unit="ตัว" />
-      </Card>
-      <Card className="p-[16px]">
-        <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>สีที่ซื้อบ่อย</div>
-        <HBars data={colorTop.map(c => ({ label: c.label, value: c.value, color: COLOR_HEX[c.label] || 'var(--accent-2)' }))} height={Math.max(120, colorTop.length * 30)} unit="ตัว" />
-      </Card>
-    </div>}
-    <CardTitle className="m-0 text-base font-semibold mb-[10px]">ประวัติการสั่งซื้อ <span className="dim">· {N(myOrds.length)} ครั้ง</span></CardTitle>
-    <CardTable style={{ maxHeight: 320, overflow: 'auto' }}><Table>
-      <TableHeader><TableRow><TableHead>วันที่</TableHead><TableHead>เลขออเดอร์</TableHead><TableHead>ช่องทาง</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead></TableRow></TableHeader>
-      <TableBody>{myOrds.map((o, i) => (
-        <TableRow key={o.order_no || i}>
-          <TableCell className="num cap">{o.order_date || '—'}</TableCell>
-          <TableCell className="num cap" style={{ color: 'var(--ink-3)' }}>{o.order_no || '—'}</TableCell>
-          <TableCell><span className="row" style={{ gap: 6 }}><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: channelColor(o.channel) }} />{o.channel || '—'}</span></TableCell>
-          <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(Number(o.sales) || 0)}</TableCell>
-          <TableCell className="num" style={{ textAlign: 'right', color: 'var(--ink-3)' }}>{N(Number(o.qty) || 0)}</TableCell>
-        </TableRow>
-      ))}</TableBody>
-    </Table></CardTable>
-  </SideSheet>;
+  );
 }

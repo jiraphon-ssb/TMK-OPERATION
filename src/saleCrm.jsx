@@ -12,7 +12,8 @@ import { supabase } from './lib/supabaseClient.js';
 import { N, Icon, Skel, SkelTable, useDelayedFlag, PersonAvatar } from './components.jsx';
 import { channelColor, MetricCard, DonutChart, StackedBars } from './charts.jsx';
 import { SideSheet } from './modals-core.jsx';
-import { FormSection, DrawerGroup, DrawerField, Field, PriceBreakdown } from './saleWidgets.jsx';
+import { FormSection, DrawerGroup, DrawerField, Field } from './saleWidgets.jsx';
+import { OrderCard } from './orderCard.jsx';
 import { rfmTiers } from './lib/saleAgg.js';
 import { buildCrmMonth, isCrmOrder, crmCustomerKey, crmTargetProgress } from './lib/crmAgg.js';
 import { isCancelled } from './lib/salePerfAgg.js';
@@ -363,54 +364,7 @@ function CrmDayTile({ label, value, tone }) {
     </div>
   );
 }
-const JOB_COLOR = { DFT: 'var(--warn)', OEM: 'var(--accent-2)' };
-// ป้ายการชำระ — COD (ยอดเก็บปลายทาง) หรือ โอน/อื่นๆ
-function payLabel(o) {
-  const cod = num(o.cod_amount);
-  if (o.payment_type === 'COD' || cod > 0) return `COD ${baht(cod || o.sales)}`;
-  return o.payment_type === 'โอน' ? 'โอน' : (o.payment_type || 'โอน');
-}
-// การ์ดออเดอร์ CRM แบบเต็ม (ไว้แคปรายงาน) — หัว/รายการสินค้า/แยกราคา/ท้าย
-function CrmDayOrderCard({ o, lines, fin, onPick }) {
-  const ch = o.channel || '';
-  const isNew = o.customer_type === 'ลูกค้าใหม่';
-  const job = (o.job_type || '').toUpperCase();
-  return (
-    <div className="rounded-lg border overflow-hidden" style={{ borderColor: 'var(--line)' }}>
-      <div className="row items-center gap-2 flex-wrap px-3 py-2" style={{ background: 'var(--surface-2)' }}>
-        <span className="num text-[12px] font-semibold" style={{ color: 'var(--ink-3)' }}>{o.order_no}</span>
-        {ch && <Badge variant="outline" className="rounded-full text-[10px] font-medium" style={{ color: channelColor(ch), background: `color-mix(in srgb, ${channelColor(ch)} 14%, transparent)`, borderColor: `color-mix(in srgb, ${channelColor(ch)} 40%, transparent)` }}>{ch === 'Phone' ? 'โทร' : ch}</Badge>}
-        <button onClick={() => onPick?.(o)} className="truncate text-[13px] font-semibold hover:underline" style={{ color: 'var(--ink)', maxWidth: 200 }} title="ดูโปรไฟล์ลูกค้า">{o.customer_name || o.customer_code || 'ไม่ระบุลูกค้า'}</button>
-        {isNew && <Badge variant="outline" className="rounded-full text-[10px]" style={{ color: 'var(--accent)', borderColor: 'currentColor' }}>ใหม่</Badge>}
-        {(job === 'DFT' || job === 'OEM') && <Badge variant="outline" className="rounded-full text-[10px]" style={{ color: JOB_COLOR[job], borderColor: 'currentColor' }}>{job}</Badge>}
-        <span className="num ml-auto text-[14px] font-bold" style={{ color: 'var(--accent-2)' }}>{baht(o.sales)}</span>
-      </div>
-      {/* รายการสินค้า */}
-      {lines && lines.length > 0 && (
-        <div className="px-3 py-1.5">
-          {lines.map((l, i) => (
-            <div key={i} className="row items-center gap-2 py-0.5 text-[12px]">
-              <span className="min-w-0 flex-1 truncate" style={{ color: 'var(--ink-2)' }}>{l.design || l.product_code || 'ไม่ระบุลาย'}</span>
-              <span className="shrink-0 cap" style={{ color: 'var(--ink-4)' }}>{[l.color, l.size].filter(Boolean).join(' · ') || '—'}</span>
-              <span className="shrink-0 num" style={{ color: 'var(--ink-3)', width: 34, textAlign: 'right' }}>×{N(l.qty)}</span>
-              <span className="shrink-0 num" style={{ color: 'var(--ink-2)', width: 74, textAlign: 'right' }}>{l.line_sales != null ? baht(l.line_sales) : '—'}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {/* แยกราคา — ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT (ซ่อนเองถ้าไม่มี) */}
-      {fin && <div className="px-3 pb-2"><PriceBreakdown subtotal={fin.subtotal} discount={fin.discount} shipping={fin.shipping} vat={fin.vat} total={o.sales} /></div>}
-      {/* ท้าย — จำนวนตัว/ชำระ/จังหวัด/เบอร์/โน้ต */}
-      <div className="row flex-wrap gap-x-3 gap-y-0.5 px-3 pb-2 text-[11px]" style={{ color: 'var(--ink-4)' }}>
-        <span>จำนวน <b style={{ color: 'var(--ink-3)' }}>{N(o.qty)}</b> ตัว</span>
-        <span>ชำระ: <b style={{ color: 'var(--ink-3)' }}>{payLabel(o)}</b></span>
-        {o.province && <span>{o.province}</span>}
-        {(o.customer_phone || o.customer_social) && <span className="num">{o.customer_phone || '@' + o.customer_social}</span>}
-      </div>
-      {o.note && <div className="px-3 pb-2 text-[11px]" style={{ color: 'var(--ink-3)', whiteSpace: 'pre-wrap' }}>📝 {o.note}</div>}
-    </div>
-  );
-}
+// การ์ดออเดอร์ → ใช้ OrderCard กลาง (orderCard.jsx · PART 88) — ดีไซน์ Lemon: ส่วนลดที่หัว + สรุปเงินท้ายรายการ
 function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
   const [lineBy, setLineBy] = useState(null); // order_no → [{design,color,size,qty,line_sales}]
   const [finBy, setFinBy] = useState({});     // "source:order_no" → {subtotal,discount,shipping,vat}
@@ -448,7 +402,7 @@ function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
         // attrs (ส่วนลด/ค่าส่ง/VAT/ราคาเสื้อ) — คีย์ source:order_no กันชนข้าม source
         const fb = {};
         const { data: aData } = await supabase.from('tmk_mp_orders').select('order_no,source,attrs').in('order_no', nos);
-        (aData || []).forEach(r => { const a = r.attrs || {}; fb[`${r.source || ''}:${r.order_no}`] = { subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat }; });
+        (aData || []).forEach(r => { const a = r.attrs || {}; fb[`${r.source || ''}:${r.order_no}`] = { subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat, promo: a.promo_code }; });
         if (live) setFinBy(fb);
       }
       if (!live) return;
@@ -521,7 +475,7 @@ function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
             ? <div className="flex flex-col gap-2">{Array.from({ length: Math.min(ords.length, 3) }).map((_, i) => <Skel key={i} w="100%" h={90} r={9} />)}</div>
             : <div className="flex flex-col gap-2">
                 {ords.map((o, i) => (
-                  <CrmDayOrderCard key={o.order_no + '#' + i} o={o} lines={lineBy?.get(o.order_no)} fin={finBy[`${o.source || ''}:${o.order_no}`]} onPick={onPickCustomer} />
+                  <OrderCard key={o.order_no + '#' + i} o={o} lines={lineBy?.get(o.order_no)} fin={finBy[`${o.source || ''}:${o.order_no}`]} onPickCustomer={onPickCustomer} />
                 ))}
               </div>}
       </div>
@@ -933,7 +887,7 @@ function CustomerDetail({ c, onClose, onSaved }) {
   };
 
   const addr = c.address || (c.province ? `${c.district ? c.district + ' · ' : ''}${c.province} ${c.postcode || ''}` : '');
-  const desByOrder = insight?.desByOrder || {};
+  // desByOrder เลิกใช้ — ประวัติซื้อเปลี่ยนเป็นการ์ดกลางที่โหลดรายการสินค้าเองตอนขยาย (PART 88)
 
   return (
     <SideSheet size="lg" icon="user" title={c.name} sub={`${c.tier || ''} · ${baht(c.sales)} · ${N(c.count)} ครั้ง`} onClose={onClose}
@@ -1007,23 +961,13 @@ function CustomerDetail({ c, onClose, onSaved }) {
           </div>
         )}
 
-        {/* ประวัติซื้อ — จาก directory (ไม่ fetch ซ้ำ) */}
+        {/* ประวัติซื้อ — แถวย่อกดขยายเป็นการ์ดเต็ม (PART 88 · โหลดรายการสินค้า/ส่วนลดเฉพาะใบที่กด) */}
         <div className="cap mb-2" style={{ fontWeight: 600, color: 'var(--ink-3)', marginTop: 16 }}>ประวัติการซื้อ ({N((c.orders || []).length)})</div>
         {(c.orders || []).length === 0
           ? <div className="cap" style={{ color: 'var(--ink-4)', padding: 12 }}>ไม่มีประวัติออเดอร์ในระบบ</div>
-          : <CardTable className="table-wrap" style={{ maxHeight: 300, overflow: 'auto' }}><Table>
-            <TableHeader><TableRow><TableHead>วันที่</TableHead><TableHead>ออเดอร์</TableHead><TableHead>ช่อง</TableHead><TableHead>ลาย</TableHead><TableHead style={{ textAlign: 'right' }}>ยอด</TableHead><TableHead style={{ textAlign: 'right' }}>ตัว</TableHead></TableRow></TableHeader>
-            <TableBody>{(c.orders || []).map((o, i) => (
-              <TableRow key={o.order_no + '#' + i}>
-                <TableCell className="cap">{o.date || '—'}</TableCell>
-                <TableCell className="num cell-title">{o.order_no}</TableCell>
-                <TableCell className="cap">{o.channel || '—'}</TableCell>
-                <TableCell className="cap">{desByOrder[o.order_no] ? [...desByOrder[o.order_no]].join(', ') : '—'}</TableCell>
-                <TableCell className="num" style={{ textAlign: 'right', fontWeight: 600 }}>{baht(o.sales)}</TableCell>
-                <TableCell className="num" style={{ textAlign: 'right' }}>{N(o.qty)}</TableCell>
-              </TableRow>
-            ))}</TableBody>
-          </Table></CardTable>}
+          : <div className="flex flex-col gap-1.5" style={{ maxHeight: 340, overflowY: 'auto' }}>
+              {(c.orders || []).map((o, i) => <OrderCard key={o.order_no + '#' + i} o={o} collapsed />)}
+            </div>}
       </>) : (
         /* ---------- โหมดแก้ไขโปรไฟล์ ---------- */
         <FormSection icon="user" title="แก้ไขโปรไฟล์ลูกค้า">

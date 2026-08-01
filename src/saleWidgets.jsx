@@ -78,16 +78,10 @@ export function PriceBreakdown({ subtotal, discount, shipping, vat, total, class
 
 /* ---- MoneyCard — ยอดเด่น + COD badge + แยกราคา (รวมการ์ดบน+breakdown เป็นใบเดียว · PART 83) ----
    เลิกโชว์ยอดซ้ำ 2 ที่ · extras = เซลล์เสริม (ค่าธรรมเนียม/ยอด COD) · breakdown props = ราคาเสื้อ/ส่วนลด/ค่าส่ง/VAT */
-export function MoneyCard({ total, codBadge, extras = [], subtotal, discount, shipping, vat, className = '' }) {
-  const d = Number(discount) || 0, s = Number(shipping) || 0, v = Number(vat) || 0, tot = Number(total) || 0;
-  const sub = subtotal != null && subtotal !== '' ? Number(subtotal) : null;
-  const hasBreak = d || s || v || (sub != null && Math.abs(sub - tot) > 0.01);
-  const Row = ({ label, val, sign = '' }) => (
-    <div className="flex items-center justify-between text-[13px]">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="tabular-nums text-muted-foreground">{sign}{_fmtB(val)}</span>
-    </div>
-  );
+export function MoneyCard({ total, codBadge, extras = [], discount, className = '' }) {
+  // PART 88: breakdown เต็มย้ายไปท้ายตารางรายการสินค้า (MoneySummaryRows · orderCard.jsx)
+  // หัวโชว์ "ยอดสุทธิ + ส่วนลดเห็นทันที" ตามระบบการ์ดกลาง (Lemon)
+  const d = Number(discount) || 0, tot = Number(total) || 0;
   return (
     <div className={'rounded-xl border p-4 ' + className} style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
       <div className="flex flex-col items-center gap-0.5">
@@ -95,20 +89,12 @@ export function MoneyCard({ total, codBadge, extras = [], subtotal, discount, sh
           <span className="text-[26px] font-extrabold leading-none tabular-nums" style={{ color: 'var(--accent)' }}>{_fmtB(tot)}</span>
           {codBadge && <Badge variant="secondary" className="bg-amber-500/15 text-amber-600 dark:text-amber-400">{codBadge}</Badge>}
         </div>
-        <span className="text-[11px] text-muted-foreground">ยอดขาย</span>
+        <span className="text-[11px] text-muted-foreground">ยอดขาย{d > 0 && <span className="ml-1.5 font-semibold" style={{ color: 'var(--bad)' }}>· ส่วนลด −{_fmtB(d)}</span>}</span>
       </div>
       {extras.length > 0 && (
         <div className="mt-3 flex items-stretch justify-center gap-5">{extras.map(e => (
           <div key={e.label} className="text-center"><div className="text-[13px] font-bold tabular-nums">{e.val}</div><div className="text-[11px] text-muted-foreground">{e.label}</div></div>
         ))}</div>
-      )}
-      {hasBreak && (
-        <div className="mt-3 border-t pt-2.5 flex flex-col gap-1" style={{ borderColor: 'var(--line)' }}>
-          {sub != null && <Row label="ราคาเสื้อ" val={sub} />}
-          {d ? <Row label="ส่วนลด" val={d} sign="−" /> : null}
-          {s ? <Row label="ค่าส่ง" val={s} sign="+" /> : null}
-          {v ? <Row label="VAT" val={v} sign="+" /> : null}
-        </div>
       )}
     </div>
   );

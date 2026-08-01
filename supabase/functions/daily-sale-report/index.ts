@@ -27,7 +27,7 @@ function bkkToday(): string {
   const t = new Date(Date.now() + 7 * 3600 * 1000);
   return t.toISOString().slice(0, 10); // YYYY-MM-DD
 }
-const baht = (n: number) => "฿" + Math.round(Number(n) || 0).toLocaleString("en-US");
+const baht = (n: number) => "฿ " + Math.round(Number(n) || 0).toLocaleString("en-US"); // เว้นวรรคหลัง ฿ ให้ตรงกับการ์ด Flex
 const N = (v: unknown) => Number(v) || 0;
 
 // ---- override merge (พอร์ตจาก src/lib/saleOverrides.js เฉพาะฟิลด์ที่กระทบ KPI) ----
@@ -42,6 +42,7 @@ function mergeOv(orders: any[], ovMap: Record<string, any>) {
     return {
       ...o,
       salesperson: ov.salesperson || o.salesperson,
+      channel: _str(ov.channel, o.channel), // CRM นิยามด้วย channel → ต้อง merge ด้วย
       payment_type: _str(ov.payment_type, o.payment_type),
       customer_type: ov.customer_type || o.customer_type,
       sales: _num(ov.sales, o.sales),
@@ -73,31 +74,36 @@ const TH_MON = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.�
 // การ์ดขาว ขอบ #E4E4E7 มุม 12px · label 11px --ink-3 · ยอดรวม --accent-2 · โอน --good · COD --warn
 const C = {
   ink: "#09090B",      // --ink
+  ink2: "#3F3F46",     // --ink-2 (ข้อความรอง เช่น บันทึก CRM)
   ink3: "#71717A",     // --ink-3 (muted label)
   ink4: "#A1A1AA",     // --ink-4 (ค่าว่าง —)
   border: "#E4E4E7",   // --surface-3 (ขอบการ์ด)
+  surface2: "#F4F4F5", // --surface-2 (รางแถบ progress)
   accent2: "#4338CA",  // --accent-2 (ยอดขายรวม)
-  good: "#16A34A",     // --good (โอน)
+  good: "#16A34A",     // --good (โอน / ถึงเป้า)
   warn: "#CA8A04",     // --warn (COD)
+  bad: "#DC2626",      // --bad (ต่ำกว่าเป้า)
   white: "#FFFFFF",
 };
 function buildFlex(m: any) {
   const [yy, mm, dd] = m.day.split("-").map(Number);
   const dateTh = `${dd} ${TH_MON[mm]} ${yy + 543}`;
-  const head = m.slot === "night" ? "สรุปยอดสิ้นวัน" : m.slot === "evening" ? "สรุปยอดเย็น" : m.slot === "noon" ? "สรุปยอดเที่ยง" : "สรุปยอดวันนี้";
-  const B = (n: number) => "฿" + Math.round(n).toLocaleString("en-US");
+  // ชื่อรอบใส่เวลาตรงๆ — เลี่ยงคำวรรณยุกต์ซ้อนสระบน (เที่ยง/สิ้นวัน) ที่ LINE Flex ตัดชั้นบนหาย
+  const head = m.slot === "night" ? "สรุปยอด 22:00 น." : m.slot === "evening" ? "สรุปยอด 17:00 น." : m.slot === "noon" ? "สรุปยอด 12:00 น." : "สรุปยอดประจำวัน";
+  const B = (n: number) => "฿ " + Math.round(n).toLocaleString("en-US"); // เว้นวรรคหลัง ฿ — ฟอนต์ LINE เรนเดอร์ ฿ เบียดเลขจนดูเหมือนขีดทับ
   // แบรนด์ — โลโก้ (URL สาธารณะ เช่นบน Storage tmk-images) + ลิงก์เปิดเว็บ (ตั้งผ่าน secrets · ไม่ตั้ง = ซ่อน)
   const logoUrl = Deno.env.get("LOGO_URL") || "";
   const dashUrl = Deno.env.get("DASHBOARD_URL") || "";
 
   // การ์ดตัวเลข = rounded-xl border p-3 ของเว็บ (ขอบบางบนพื้นขาว ไม่มีพื้นสี)
-  const card = (label: string, val: string, color: string) => ({
+  // sz: ฟอนต์ตัวเลข — คุมไม่ให้ใหญ่จนล้นการ์ด (hero=lg · ที่เหลือ=md)
+  const card = (label: string, val: string, color: string, sz = "md") => ({
     type: "box", layout: "vertical", flex: 1,
     borderWidth: "1px", borderColor: C.border, cornerRadius: "12px",
     paddingAll: "12px", backgroundColor: C.white, spacing: "none",
     contents: [
       { type: "text", text: label, size: "xs", color: C.ink3 },
-      { type: "text", text: val, size: "xl", weight: "bold", color, margin: "sm" },
+      { type: "text", text: val, size: sz, weight: "bold", color, margin: "sm" },
     ],
   });
   // ค่าเงินที่เป็น 0 → "—" สี ink-3 (ตามเว็บ)
@@ -117,7 +123,7 @@ function buildFlex(m: any) {
     type: "box", layout: "vertical", flex: 1, borderWidth: "1px", borderColor: C.border,
     cornerRadius: "12px", paddingAll: "8px", contents: [
       { type: "text", text: label, size: "xxs", color: C.ink3, align: "center" },
-      { type: "text", text: val, size: "md", weight: "bold", color, align: "center", margin: "xs" },
+      { type: "text", text: val, size: "sm", weight: "bold", color, align: "center", margin: "xs" },
     ],
   });
   const numCell = (n: number, flexN: number) =>
@@ -131,7 +137,7 @@ function buildFlex(m: any) {
       { type: "text", text: "ยอดขาย", size: "xxs", color: C.ink3, align: "end", flex: 3 },
     ],
   };
-  const chNames = ["Facebook", "LINE", "Phone", "POS", "อื่นๆ"];
+  const chNames = ["Facebook", "LINE", "Phone", "POS", "Others"];
   const platRows = chNames.map((p) => {
     const g = (m.chLeads || {})[p] || { nw: 0, od: 0, unk: 0 };
     const s = (m.chSales || {})[p] || 0;
@@ -143,6 +149,34 @@ function buildFlex(m: any) {
       ],
     };
   });
+
+  // ---- โซน CRM (ยอดวันนี้ + เป้าเดือน + แถบ progress + บันทึกจากเว็บ) ----
+  const crm = m.crm;
+  const crmRows: any[] = [];
+  const crmNotes: any[] = [];
+  if (crm) {
+    crmRows.push(kvRow("ยอด CRM", crm.orders > 0 ? `${B(crm.sales)} · ${crm.orders} ออเดอร์` : "—", crm.orders > 0 ? C.ink : C.ink4));
+    crmRows.push(kvRow("แยกช่องทาง", `LINE ${crm.line > 0 ? B(crm.line) : "—"} · โทร ${crm.phone > 0 ? B(crm.phone) : "—"}`, (crm.line + crm.phone) > 0 ? C.ink : C.ink4));
+    crmRows.push(kvRow("ลูกค้า", crm.orders > 0 ? `เก่า ${crm.oldC} · ใหม่ ${crm.newC}` : "—", crm.orders > 0 ? C.ink : C.ink4));
+    if (crm.target > 0) {
+      const pct = crm.mtd / crm.target * 100;
+      const diff = crm.mtd - crm.target;
+      crmRows.push(kvRow(`เป้า ${TH_MON[mm]}`, B(crm.target)));
+      crmRows.push(kvRow(`สะสม ${TH_MON[mm]}`, `${B(crm.mtd)} (${pct.toFixed(0)}%)`, pct >= 100 ? C.good : C.ink));
+      crmRows.push(kvRow("ส่วนต่าง · วันเหลือ", `${diff >= 0 ? "+" : "-"}${B(Math.abs(diff))} · ${crm.daysLeft} วัน`, diff >= 0 ? C.good : C.bad));
+      // แถบ progress เป้า (เขียวเมื่อถึงเป้า)
+      crmRows.push({
+        type: "box", layout: "vertical", backgroundColor: C.surface2, cornerRadius: "3px", height: "6px", margin: "sm",
+        contents: [{
+          type: "box", layout: "vertical", backgroundColor: pct >= 100 ? C.good : C.accent2, cornerRadius: "3px", height: "6px",
+          width: Math.max(2, Math.min(100, Math.round(pct))) + "%", contents: [{ type: "filler" }],
+        }],
+      });
+    }
+    for (const r of (crm.notes || []).slice(0, 3)) {
+      crmNotes.push({ type: "text", text: `📝 ${r.salesperson}: ${String(r.note).slice(0, 200)}`, size: "xs", color: C.ink2, wrap: true, margin: "sm" });
+    }
+  }
 
   // หัวการ์ด: โลโก้ (ซ้าย) + ชื่อรายงานตัวใหญ่ + บรรทัดรอง "TMK Operation · วันที่"
   const headerRow = {
@@ -165,7 +199,7 @@ function buildFlex(m: any) {
         { type: "separator", margin: "lg", color: C.border },
         // ยอดขายรวม — การ์ดเต็มแถว ตัวเลขสี accent-2 เหมือนการ์ดทีม
         { type: "box", layout: "vertical", margin: "lg", contents: [
-          card("ยอดขายรวม", B(m.sales), C.accent2),
+          card("ยอดขายรวม", B(m.sales), C.accent2, "lg"),
         ] },
         // โอน / COD
         { type: "box", layout: "horizontal", spacing: "sm", margin: "sm", contents: [
@@ -179,21 +213,28 @@ function buildFlex(m: any) {
         ] },
         { type: "separator", margin: "lg", color: C.border },
         // ---- คนทักทั้งทีม (โชว์เสมอ แม้ยังไม่มีข้อมูล) ----
-        { type: "text", text: "คนทักทั้งทีม", size: "sm", weight: "bold", color: C.ink, margin: "lg" },
-        { type: "box", layout: "horizontal", spacing: "sm", margin: "sm", contents: [
+        { type: "text", text: "คนทักของทีม", size: "sm", weight: "bold", color: C.ink, margin: "lg" },
+        { type: "box", layout: "horizontal", spacing: "sm", margin: "md", contents: [
           tile("ทักรวม", String(m.leads), m.leads > 0 ? C.ink : C.ink4),
           tile("ใหม่", String(m.newLeads), m.newLeads > 0 ? C.good : C.ink4),
           tile("เก่า", String(m.oldLeads), m.oldLeads > 0 ? C.ink : C.ink4),
-          tile("%ปิด", m.closeRate != null ? `${m.closeRate}%` : "—", m.closeRate != null ? C.ink : C.ink4),
+          tile("%ปิด", m.closeRate != null ? `${m.closeRate.toFixed(1)}%` : "—", m.closeRate != null ? C.ink : C.ink4),
         ] },
         { type: "box", layout: "vertical", spacing: "sm", margin: "md", contents: [platHeader, ...platRows] },
         { type: "separator", margin: "lg", color: C.border },
         // ---- มิติรอง ----
         { type: "box", layout: "vertical", spacing: "sm", margin: "lg", contents: [
           kvRow("Basket/AOV", B(m.aov)),
-          kvRow("เฉลี่ย/ออเดอร์", fmtAvg(m.avgUnits) + " ตัว"),
+          kvRow("AVG ตัว/ออเดอร์", fmtAvg(m.avgUnits) + " ตัว"),
           kvRow("งาน DFT", m.nDft > 0 ? `${m.nDft} ออเดอร์ · ${m.qtyDft} ตัว` : "—", m.nDft > 0 ? C.ink : C.ink4),
         ] },
+        // ---- CRM (โชว์เสมอ · เป้า/บันทึกโผล่เมื่อมีข้อมูล) ----
+        ...(crmRows.length ? [
+          { type: "separator", margin: "lg", color: C.border },
+          { type: "text", text: crm?.seller ? `CRM · ${crm.seller} (LINE + โทร)` : "CRM (LINE + โทร)", size: "sm", weight: "bold", color: C.ink, margin: "lg" },
+          { type: "box", layout: "vertical", spacing: "sm", margin: "md", contents: crmRows },
+          ...crmNotes,
+        ] : []),
       ],
     },
   };
@@ -228,20 +269,25 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ---- ดึงข้อมูลของวันนั้น ----
-    const [ordersRes, ovRes, funnelRes] = await Promise.all([
+    // ---- ดึงข้อมูล: ออเดอร์ทั้งเดือนถึงวันนี้ (วันนี้=รายงาน · ทั้งเดือน=CRM สะสม) + เป้า/บันทึก CRM ----
+    // หมายเหตุ: เดือนละ ~300-500 แถว ยังต่ำกว่า cap 1000 ของ PostgREST มาก — ถ้าธุรกิจโตแตะพันออเดอร์/เดือน ต้องเปลี่ยนเป็น paged fetch
+    const month = day.slice(0, 7);
+    const [ordersRes, ovRes, funnelRes, crmTargetRes, crmNoteRes] = await Promise.all([
       sb.from("tmk_mp_orders")
         .select("order_no,source,salesperson,payment_type,customer_type,qty,sales,cod_amount,order_date,status,channel,job_type,note")
-        .eq("order_date", day),
+        .gte("order_date", month + "-01").lte("order_date", day),
       sb.from("tmk_order_overrides").select("*"),
       sb.from("tmk_sales_funnel").select("*").eq("date", day),
+      sb.from("tmk_crm_targets").select("salesperson,sales_target").eq("month", month), // ตารางอาจยังไม่มี → graceful
+      sb.from("tmk_crm_notes").select("salesperson,note").eq("date", day),
     ]);
     if (ordersRes.error) return json({ error: "อ่านออเดอร์ไม่ได้: " + ordersRes.error.message }, 500);
 
     const ovMap: Record<string, any> = {};
     (ovRes.data || []).forEach((x: any) => { ovMap[x.order_id] = x; });
-    const orders = mergeOv(ordersRes.data || [], ovMap)
-      .filter((o) => !isCancelled(o) && o.order_date === day) // order_date อาจถูก override → กรองซ้ำ
+    const monthOrders = mergeOv(ordersRes.data || [], ovMap)
+      .filter((o) => !isCancelled(o) && o.order_date >= month + "-01" && o.order_date <= day); // order_date อาจถูก override → กรองซ้ำ
+    const orders = monthOrders.filter((o) => o.order_date === day)
       .map((o) => ({ ...o, job_type: resolveJobType(o.job_type, o.note) })); // DFT จากหมายเหตุ (ทั้งมี/ไม่มี override)
 
     // ---- KPI (สูตรเดียวกับการ์ดทีมใน salePerf.jsx) ----
@@ -277,14 +323,38 @@ Deno.serve(async (req) => {
     });
     let leads = 0, newLeads = 0, oldLeads = 0;
     Object.values(platAgg).forEach((g) => { newLeads += g.nw; oldLeads += g.od; leads += g.nw + g.od + g.unk; });
-    const closeRate = leads > 0 ? (nOrders / leads * 100).toFixed(2) : null; // เช่น "9.09"
+    const closeRate = leads > 0 ? nOrders / leads * 100 : null; // number — ที่แสดงค่อย toFixed
+
+    // ---- CRM (นิยาม ADR-001 เดียวกับหน้าภาพรวม CRM: ออเดอร์ช่อง LINE + โทร) ----
+    // สโคปเฉพาะเซลล์ CRM คนเดียวผ่าน secret CRM_SELLER (เช่น "FAH") — ว่าง = ทั้งทีม
+    // เทียบแบบ trim+case-insensitive กันชื่อในระบบพิมพ์เล็ก/ใหญ่ไม่ตรง
+    const crmSeller = (Deno.env.get("CRM_SELLER") || "").trim();
+    const sameSeller = (s: any) => String(s || "").trim().toLowerCase() === crmSeller.toLowerCase();
+    const inCrmScope = (o: any) => !crmSeller || sameSeller(o.salesperson);
+    const isCrm = (o: any) => (o.channel === "LINE" || o.channel === "Phone") && inCrmScope(o);
+    const crmToday = orders.filter(isCrm);
+    const dim = (() => { const [y, m] = month.split("-").map(Number); return new Date(y, m, 0).getDate(); })();
+    const crm = {
+      seller: crmSeller,
+      sales: crmToday.reduce((a, o) => a + N(o.sales), 0),
+      orders: crmToday.length,
+      line: crmToday.filter((o) => o.channel === "LINE").reduce((a, o) => a + N(o.sales), 0),
+      phone: crmToday.filter((o) => o.channel === "Phone").reduce((a, o) => a + N(o.sales), 0),
+      oldC: crmToday.filter((o) => o.customer_type === "ลูกค้าเก่า").length,
+      newC: crmToday.filter((o) => o.customer_type === "ลูกค้าใหม่").length,
+      mtd: monthOrders.filter(isCrm).reduce((a, o) => a + N(o.sales), 0),
+      target: (crmTargetRes.data || []).filter((r: any) => !crmSeller || sameSeller(r.salesperson))
+        .reduce((a: number, r: any) => a + N(r.sales_target), 0),
+      daysLeft: dim - Number(day.slice(8, 10)),
+      notes: (crmNoteRes.data || []).filter((r: any) => String(r.note || "").trim() && (!crmSeller || sameSeller(r.salesperson))),
+    };
 
     // ---- ตารางช่องทางแบบยุบ: Facebook/LINE/Phone/POS คงไว้ · ที่เหลือ (IG/TikTok/มาร์เก็ตเพลส/Direct) → อื่นๆ ----
     const CH_KEEP = ["Facebook", "LINE", "Phone", "POS"];
-    const chKey = (c: string) => (CH_KEEP.includes(c) ? c : "อื่นๆ");
+    const chKey = (c: string) => (CH_KEEP.includes(c) ? c : "Others"); // "อื่นๆ" สระ+วรรณยุกต์ซ้อน → Flex ตัดชั้นบน · ใช้อังกฤษเข้าชุดชื่อช่องทาง
     // ยอดขายต่อช่องทาง (จากออเดอร์ที่ merge override แล้ว · ตัดยกเลิกแล้ว)
     const chSales: Record<string, number> = {};
-    orders.forEach((o) => { const k = chKey(String(o.channel || "อื่นๆ")); chSales[k] = (chSales[k] || 0) + N(o.sales); });
+    orders.forEach((o) => { const k = chKey(String(o.channel || "")); chSales[k] = (chSales[k] || 0) + N(o.sales); });
     // คนทักต่อช่องทาง (ยุบด้วย key เดียวกัน)
     const chLeads: Record<string, { nw: number; od: number; unk: number }> = {};
     Object.entries(platAgg).forEach(([p, g]) => {
@@ -293,7 +363,7 @@ Deno.serve(async (req) => {
     });
 
     // ---- ข้อความ ----
-    const head = slot === "evening" ? "🌆 สรุปยอดเย็น" : slot === "noon" ? "🕛 สรุปยอดเที่ยง" : "📊 สรุปยอดขายวันนี้";
+    const head = slot === "night" ? "🌙 สรุปยอด 22:00 น." : slot === "evening" ? "🌆 สรุปยอด 17:00 น." : slot === "noon" ? "🕛 สรุปยอด 12:00 น." : "📊 สรุปยอดประจำวัน";
     const [yy, mm, dd] = day.split("-");
     const dateTh = `${Number(dd)}/${Number(mm)}/${Number(yy) + 543}`;
     const lines = [
@@ -307,16 +377,19 @@ Deno.serve(async (req) => {
     lines.push(`📦 จำนวนออเดอร์  ${nOrders}`);
     lines.push(`👕 จำนวนตัว  ${qty}`);
     lines.push(`━━━━━━━━━━━━`);
-    lines.push(`💬 รวมคนทัก  ${leads} (ใหม่ ${newLeads} · เก่า ${oldLeads})${closeRate != null ? ` · ปิด ${closeRate}%` : ""}`);
+    lines.push(`💬 รวมคนทัก  ${leads} (ใหม่ ${newLeads} · เก่า ${oldLeads})${closeRate != null ? ` · ปิด ${closeRate.toFixed(2)}%` : ""}`);
     lines.push(`🧺 Basket size  ${baht(aov)}`);
     lines.push(`📐 AVG  ${fmtAvg(avgUnits)} ตัว/ออเดอร์`);
     lines.push(`🧵 DFT  ${nDft} ออเดอร์ · ${qtyDft} ตัว`);
+    lines.push(`━━━━━━━━━━━━`);
+    lines.push(`📞 CRM วันนี้  ${crm.orders > 0 ? `${baht(crm.sales)} · ${crm.orders} ออเดอร์ (เก่า ${crm.oldC}/ใหม่ ${crm.newC})` : "—"}`);
+    if (crm.target > 0) lines.push(`🎯 เป้า CRM ${baht(crm.target)} · สะสม ${baht(crm.mtd)} (${Math.round(crm.mtd / crm.target * 100)}%)`);
     if (nOrders === 0) lines.push(`(ยังไม่มีออเดอร์ในวันนี้)`);
     const message = lines.join("\n"); // ใช้เป็น altText (โผล่ใน noti) + fallback text
 
     // ---- การ์ด Flex (default) · ตั้ง REPORT_FORMAT=text เพื่อส่งเป็นข้อความล้วนแทน ----
     const useText = (Deno.env.get("REPORT_FORMAT") || "flex") === "text" || url.searchParams.get("format") === "text";
-    const flex = buildFlex({ slot, day, sales, transfer, cod, other, nOrders, qty, leads, newLeads, oldLeads, chLeads, chSales, closeRate, aov, avgUnits, nDft, qtyDft });
+    const flex = buildFlex({ slot, day, sales, transfer, cod, other, nOrders, qty, leads, newLeads, oldLeads, chLeads, chSales, closeRate, aov, avgUnits, nDft, qtyDft, crm });
     const lineMsg = useText
       ? { type: "text", text: message.slice(0, 4900) }
       : { type: "flex", altText: message.slice(0, 400), contents: flex };
