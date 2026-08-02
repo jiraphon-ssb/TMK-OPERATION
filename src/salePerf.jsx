@@ -370,8 +370,8 @@ export function SalePerfView() {
     (!hideNoSeller || r.name !== NO_SELLER)
   ), [perf.rows, ql, onlyTargets, hideNoSeller]);
   const teamView = useMemo(() => {
-    const t = rowsView.reduce((a, r) => ({ sales: a.sales + r.sales, orders: a.orders + r.orders, qty: a.qty + r.qty, leads: a.leads + r.leads, newC: a.newC + r.newC, newLeads: a.newLeads + (r.newOld?.new || 0), oldLeads: a.oldLeads + (r.newOld?.old || 0) }), { sales: 0, orders: 0, qty: 0, leads: 0, newC: 0, newLeads: 0, oldLeads: 0 });
-    t.closeRate = t.leads > 0 ? t.orders / t.leads * 100 : null;
+    const t = rowsView.reduce((a, r) => ({ sales: a.sales + r.sales, orders: a.orders + r.orders, chatOrders: a.chatOrders + (r.chatOrders || 0), qty: a.qty + r.qty, leads: a.leads + r.leads, newC: a.newC + r.newC, newLeads: a.newLeads + (r.newOld?.new || 0), oldLeads: a.oldLeads + (r.newOld?.old || 0) }), { sales: 0, orders: 0, chatOrders: 0, qty: 0, leads: 0, newC: 0, newLeads: 0, oldLeads: 0 });
+    t.closeRate = t.leads > 0 ? t.chatOrders / t.leads * 100 : null;  // ออเดอร์ช่องแชท ÷ คนทัก (ตัดมาร์เก็ตเพลส)
     t.aov = t.orders > 0 ? t.sales / t.orders : 0;
     t.dSales = perf.team.dSales;
     return t;

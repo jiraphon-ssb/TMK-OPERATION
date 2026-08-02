@@ -144,4 +144,22 @@ describe('buildPerf', () => {
     expect(team.closeRate).toBe(null);
     expect(team.dSales).toBe(null);
   });
+
+  // P89: %ปิด = ออเดอร์ช่องแชท ÷ คนทัก — มาร์เก็ตเพลส (Shopee/Lazada/POS) ไม่นับตัวตั้ง → ไม่เกิน 100%
+  it('closeRate นับเฉพาะออเดอร์ช่องแชท ไม่รวมมาร์เก็ตเพลส', () => {
+    const orders = [
+      { order_no: 'C1', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'LINE', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'C2', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'Phone', order_date: '2026-03-06', status: 'confirmed' },
+      { order_no: 'M1', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'Shopee', order_date: '2026-03-06', status: 'confirmed' },
+      { order_no: 'M2', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'Lazada', order_date: '2026-03-07', status: 'confirmed' },
+      { order_no: 'M3', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'POS', order_date: '2026-03-07', status: 'confirmed' },
+    ];
+    const funnel = [{ date: '2026-03-05', salesperson: 'ฟ้า', leads: { LINE: { new: 3, old: 2 } } }]; // 5 คนทัก
+    const { rows, team } = buildPerf('2026-03', orders, [], funnel, [], {}, []);
+    const fa = rows.find(r => r.name === 'ฟ้า');
+    expect(fa.orders).toBe(5);          // ออเดอร์ทั้งหมด 5
+    expect(fa.chatOrders).toBe(2);      // แชท 2 (LINE+Phone)
+    expect(fa.closeRate).toBe(40);      // 2/5 = 40% (ไม่ใช่ 5/5=100% หรือเกิน)
+    expect(team.closeRate).toBe(40);
+  });
 });

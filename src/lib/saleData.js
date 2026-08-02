@@ -145,6 +145,7 @@ export function invalidateSaleCache(prefix, { mark = true } = {}) {
   if (mark) markSaleWrite(prefix);
   for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
   for (const k of [...inflight.keys()]) if (k.startsWith(prefix)) inflight.delete(k);
+  cache.delete(`__bounds|${prefix}`);   // bounds cache คีย์ขึ้นต้น __bounds| → ไม่โดน startsWith → ลบตรง (กันช่วงวันที่ picker ค้างหลังเพิ่มออเดอร์วันใหม่)
 }
 
 /* ---------- คนทัก (funnel) — helper กลาง ----------

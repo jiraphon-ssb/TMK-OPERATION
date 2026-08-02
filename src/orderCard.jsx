@@ -16,7 +16,10 @@ import { N, Icon, Skel, PersonAvatar } from './components.jsx';
 import { channelColor } from './charts.jsx';
 import { fmtBaht } from './lib/money.js';
 import { funnelTotal } from './lib/saleData.js';
+import { isLeadChannel } from './lib/saleFields.js';
 import { loadResolverMaps, makeSkuResolver } from './lib/designResolve.js';
+import { mergeOrderOverrides } from './lib/saleOverrides.js';
+import { OVERRIDES_SEL } from './lib/saleData.js';
 import { T } from './lib/tables.js';
 import { Badge } from '@/components/ui/badge';
 
@@ -96,14 +99,21 @@ export async function fetchOrderDetail(stub) {
     supabase.from(T.mpSkus).select('order_no,design,color,size,qty,line_sales,product_code,raw_sku_or_name,order_date').eq('order_no', no),
   ]);
   // order_no อาจซ้ำข้าม source — เลือกแถวที่ channel ตรง stub ก่อน
-  const or = (oRows || []).find(r => !stub.channel || r.channel === stub.channel) || (oRows || [])[0] || null;
+  let or = (oRows || []).find(r => !stub.channel || r.channel === stub.channel) || (oRows || [])[0] || null;
   const lines = sRows || [];
   try {
     const maps = await loadResolverMaps(supabase);
     const resolve = makeSkuResolver(maps);
     lines.forEach(s => { s.design = resolve(s).design || s.design; });
   } catch { /* resolver ล้ม → ใช้ชื่อลายดิบ */ }
-  // merge: ค่าใน stub (ผ่าน override/merge จากหน้าจอ) ชนะแถวดิบ · แถวดิบเติมช่องที่ stub ไม่มี
+  // 3.4: merge override ของออเดอร์เอง (note/job_type/customer_type/payment/channel ที่แอดมินแก้) — stub จากประวัติซื้อไม่พก field พวกนี้ → ต้อง merge เอง ไม่งั้นโชว์ค่าก่อนแก้
+  if (or) {
+    try {
+      const { data: ov } = await supabase.from(T.orderOverrides).select(OVERRIDES_SEL).eq('order_id', `${or.source || ''}:${no}`).maybeSingle();
+      if (ov) or = mergeOrderOverrides([or], { [ov.order_id]: ov })[0];
+    } catch { /* override optional */ }
+  }
+  // merge: ค่าใน stub (ผ่าน override/merge จากหน้าจอ) ชนะแถวดิบที่ merge override แล้ว · แถวดิบเติมช่องที่ stub ไม่มี
   const order = { ...(or || {}), ...Object.fromEntries(Object.entries(stub).filter(([, v]) => v != null && v !== '')) };
   if (!order.order_date && stub.date) order.order_date = stub.date;
   return { order, lines, fin: finFromAttrs(or?.attrs) };
@@ -206,13 +216,15 @@ function OrderCardBody({ o, lines, fin, showSeller, onPickCustomer, bare = false
 export function daySummary(ords, dayFunnel) {
   const sales = ords.reduce((s, o) => s + num(o.sales), 0);
   const qty = ords.reduce((s, o) => s + num(o.qty), 0);
-  const transfer = ords.filter(o => o.payment_type === 'โอน').reduce((s, o) => s + num(o.sales), 0);
+  // COD ก่อน (เก็บปลายทาง) → โอน = ที่เหลือที่ payment_type='โอน' · กันนับซ้ำถ้าออเดอร์เป็นทั้งโอน+cod_amount
   const cod = ords.filter(isCodOrder).reduce((s, o) => s + num(o.sales), 0);
+  const transfer = ords.filter(o => !isCodOrder(o) && o.payment_type === 'โอน').reduce((s, o) => s + num(o.sales), 0);
   const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
   const leads = (dayFunnel || []).reduce((s, f) => s + funnelTotal(f), 0);
   const orders = ords.length;
-  return { sales, qty, transfer, cod, newC, leads, orders, other: Math.max(0, sales - transfer - cod),
-    close: leads > 0 ? Math.round(orders / leads * 100) : null, aov: orders ? sales / orders : 0, avgQty: orders ? qty / orders : 0 };
+  const chatOrders = ords.filter(o => isLeadChannel(o.channel)).length;   // %ปิด = ออเดอร์ช่องแชท ÷ คนทัก
+  return { sales, qty, transfer, cod, newC, leads, orders, chatOrders, other: Math.max(0, sales - transfer - cod),
+    close: leads > 0 ? Math.round(chatOrders / leads * 100) : null, aov: orders ? sales / orders : 0, avgQty: orders ? qty / orders : 0 };
 }
 export function DayTiles({ s }) {
   const tiles = [

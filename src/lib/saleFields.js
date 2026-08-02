@@ -7,6 +7,10 @@
 
 // ช่องทางขาย — ตรงชื่อที่ funnel/%ปิด join ด้วย string (อย่าแก้ชื่อโดยไม่ดู funnelPlatforms)
 export const CHANNELS = ['Facebook', 'LINE', 'Instagram', 'Phone', 'POS', 'Direct', 'Shopee', 'Lazada', 'TikTok'];
+// ช่องมาร์เก็ตเพลส/หน้าร้าน — ไม่มี "คนทัก" (ลูกค้าสั่งเองในแพลตฟอร์ม) → ไม่นับเข้าตัวตั้ง %ปิดการขาย
+// ที่เหลือ (FB/LINE/IG/TikTok/โทร/Direct) = ช่องแชท ที่มีการทักก่อนปิดการขาย
+export const MARKETPLACE_CHANNELS = ['Shopee', 'Lazada', 'POS'];
+export const isLeadChannel = (ch) => !!ch && !MARKETPLACE_CHANNELS.includes(ch);
 
 // ประเภทงาน — ปลีก/DFT ตัดสินจากคำ "DFT" ในหมายเหตุ (isDftNote) · OEM = เลือกตรง
 export const JOB_TYPES = ['ปลีก', 'OEM', 'DFT'];

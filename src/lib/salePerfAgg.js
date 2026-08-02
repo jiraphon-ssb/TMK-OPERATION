@@ -6,6 +6,7 @@
    ============================================================ */
 import { funnelTotal, funnelBreakdown, funnelNewOld } from './saleData.js';
 import { commissionFor } from './targets.js';
+import { isLeadChannel } from './saleFields.js';
 
 export const NO_SELLER = 'ไม่ระบุเซลล์';
 export const curMonth = () => new Date().toISOString().slice(0, 7);
@@ -25,7 +26,7 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
   const bySp = new Map();
   const ensure = (name) => {
     if (!bySp.has(name)) bySp.set(name, {
-      name, sales: 0, orders: 0, qty: 0, newC: 0, leads: 0,
+      name, sales: 0, orders: 0, chatOrders: 0, qty: 0, newC: 0, leads: 0,
       channels: {}, chStats: {}, leadsByPlat: {}, newOld: { new: 0, old: 0 },
       designs: {}, daily: Array.from({ length: dim }, (_, i) => ({ day: i + 1, sales: 0, leads: 0, orders: 0 })),
       receipts: [],
@@ -38,6 +39,7 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
     onToSp.set(o.order_no, name);
     const amt = Number(o.sales) || 0, q = Number(o.qty) || 0;
     s.sales += amt; s.orders += 1; s.qty += q;
+    if (isLeadChannel(o.channel)) s.chatOrders += 1;   // %ปิด = ออเดอร์ช่องแชท ÷ คนทัก (ตัดมาร์เก็ตเพลสที่ไม่มีการทัก)
     if (o.customer_type === 'ลูกค้าใหม่') s.newC += 1;
     if (o.channel) {
       s.channels[o.channel] = (s.channels[o.channel] || 0) + amt;
@@ -74,7 +76,7 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
   const rows = [...bySp.values()].map(s => {
     const t = targets[s.name] || null;
     const target = Number(t?.sales_target) || 0;
-    const closeRate = s.leads > 0 ? s.orders / s.leads * 100 : null;
+    const closeRate = s.leads > 0 ? s.chatOrders / s.leads * 100 : null;
     const projected = isCur && daysPassed > 0 ? s.sales / daysPassed * dim : s.sales;
     // %ปิดต่อช่องทาง — จับคู่ leads(แพลตฟอร์ม) กับ orders(channel) ชื่อเดียวกัน (มาร์เก็ตเพลส/POS ไม่มีคนทัก → closeRate null)
     const channelClose = Object.keys({ ...s.chStats, ...s.leadsByPlat }).map(ch => {
@@ -94,10 +96,10 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
   }).sort((a, b) => b.sales - a.sales);
 
   const team = rows.reduce((a, r) => ({
-    sales: a.sales + r.sales, orders: a.orders + r.orders, qty: a.qty + r.qty,
+    sales: a.sales + r.sales, orders: a.orders + r.orders, chatOrders: a.chatOrders + (r.chatOrders || 0), qty: a.qty + r.qty,
     leads: a.leads + r.leads, newC: a.newC + r.newC,
-  }), { sales: 0, orders: 0, qty: 0, leads: 0, newC: 0 });
-  team.closeRate = team.leads > 0 ? team.orders / team.leads * 100 : null;
+  }), { sales: 0, orders: 0, chatOrders: 0, qty: 0, leads: 0, newC: 0 });
+  team.closeRate = team.leads > 0 ? team.chatOrders / team.leads * 100 : null;
   const prevTeam = [...prevSp.values()].reduce((a, v) => a + v, 0);
   team.dSales = deltaPct(team.sales, prevTeam);
   return { rows, team, dim };

@@ -23,7 +23,9 @@ export const COLOR_HEX = { 'ขาว': '#dcdce0', 'ดำ': '#2a2a2e', 'กร�
 export function custFromOrders(o, ords) {
   const code = o.customer_code || '';
   const name = o.customer_name || code || 'ไม่ระบุลูกค้า';
-  const mine = (ords || []).filter(x => code ? x.customer_code === code : (x.customer_name === o.customer_name));
+  // 1.9: จับด้วย code ก่อน · ถ้าไม่มี code แต่มีชื่อ → จับด้วยชื่อ · ไม่มีทั้งคู่ → เฉพาะใบนี้ (กันแมตช์ทุกใบชื่อว่าง)
+  const mine = code ? (ords || []).filter(x => x.customer_code === code)
+    : (o.customer_name ? (ords || []).filter(x => x.customer_name === o.customer_name) : [o]);
   const sales = mine.reduce((a, x) => a + (Number(x.sales) || 0), 0);
   const dates = mine.map(x => x.order_date || '').filter(Boolean).sort();
   return { code, name, sales, orders: mine.length, aov: mine.length ? sales / mine.length : 0, first: dates[0] || '', last: dates[dates.length - 1] || '' };

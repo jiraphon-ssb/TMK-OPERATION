@@ -506,25 +506,30 @@ export function CrmView() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [rk, setRk] = useState(0); // bump จาก realtime → refetch สด
 
-  useEffect(() => { (async () => {
-    const [p, o, ov] = await Promise.all([
-      loadProfiles(),
-      cachedFetchAll('tmk_mp_orders', ORDERS_CRM_SEL),
-      cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
-    ]);
-    if (p.error) { setErr(p.error.message); return; }
-    // merge override (channel/ยอด/วันที่ ที่แอดมินแก้) ทับออเดอร์ดิบ — ให้ยอด CRM ตรง dashboard/perf
-    const ovMap = {}; if (ov && !ov.error) (ov.data || []).forEach(x => { ovMap[x.order_id] = x; });
-    const orders = mergeOrderOverrides(o.error ? [] : (o.data || []), ovMap);
-    setRaw({ profiles: p.data || [], orders });
-  })(); }, [rk]);
+  useEffect(() => {
+    let alive = true;   // 1.6: กัน setState หลัง unmount (fetch all-time ช้า)
+    (async () => {
+      const [p, o, ov] = await Promise.all([
+        loadProfiles(),
+        cachedFetchAll('tmk_mp_orders', ORDERS_CRM_SEL),
+        cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
+      ]);
+      if (!alive) return;
+      if (p.error) { setErr(p.error.message); return; }
+      // merge override (channel/ยอด/วันที่ ที่แอดมินแก้) ทับออเดอร์ดิบ — ให้ยอด CRM ตรง dashboard/perf
+      const ovMap = {}; if (ov && !ov.error) (ov.data || []).forEach(x => { ovMap[x.order_id] = x; });
+      const orders = mergeOrderOverrides(o.error ? [] : (o.data || []), ovMap);
+      setRaw({ profiles: p.data || [], orders });
+    })();
+    return () => { alive = false; };
+  }, [rk]);
   // realtime: ออเดอร์/ลูกค้า/override เปลี่ยน → CRM เห็นสด (invalidate cache ก่อน refetch — บทเรียน PART 80)
   useSaleLiveReload([T.mpOrders, T.mpCustomers, T.orderOverrides], () => setRk(k => k + 1), { invalidate: [T.mpOrders, T.mpCustomers, T.orderOverrides] });
 
   // เป้า CRM ต่อเซลล์ของเดือนที่ดู (graceful [] ก่อน migration) · rk เพื่อ refresh หลังตั้งค่า
   const curYm = todayISO().slice(0, 7);
   const monthClamped = month > curYm ? curYm : month; // เดือน persisted อนาคต → clamp
-  useEffect(() => { (async () => { setCrmTargets(await fetchCrmTargets(monthClamped)); })(); }, [monthClamped, rk]);
+  useEffect(() => { let alive = true; (async () => { const t = await fetchCrmTargets(monthClamped); if (alive) setCrmTargets(t); })(); return () => { alive = false; }; }, [monthClamped, rk]);
 
   // directory (ตารางลูกค้า all-time) + stats (แดชบอร์ด CRM รายเดือน) — derive จาก raw
   const data = useMemo(() => raw ? buildDirectory(raw.profiles, raw.orders, todayISO()) : null, [raw]);

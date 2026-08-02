@@ -15,6 +15,7 @@ import { useRenderCount } from './realtime/useRenderCount.js';
 import { bucketKey, bucketLabel, enumerateBuckets, autoGran, presetRange, PRESETS, prevPeriod, prevCalendarMonth, isFullCalendarMonth, diffDays } from './lib/saleTime.js';
 import { todayISO } from './lib/dateUtils.js';
 import { CATALOG_TYPES } from './lib/catalogMeta.js';
+import { isLeadChannel } from './lib/saleFields.js';
 import { PROVINCES, REGIONS, normalizeProvince, TH_BBOX } from './lib/provinces.js';
 import { TH_PATHS } from './lib/thMapPaths.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
@@ -463,7 +464,8 @@ export function SaleDashboard() {
     // เดิมบวกเฉพาะ leads_fb_*/leads_line_* (legacy) → พลาดข้อมูลที่เก็บเป็น jsonb (ฟอร์แมตปัจจุบัน) = โชว์ 0%
     const totalLeads = fr.reduce((a, r) => a + funnelTotal(r), 0);
     const funnelSps = new Set(fr.map(r => r.salesperson));
-    const orders = (A._ords || []).filter(o => funnelSps.has(o.salesperson)).length;
+    // %ปิด = ออเดอร์ช่องแชท (ตัดมาร์เก็ตเพลสที่ไม่มีการทัก) ÷ คนทัก → ไม่เกิน 100% ทั้งที่ขายมาร์เก็ตเพลสเยอะ
+    const orders = (A._ords || []).filter(o => funnelSps.has(o.salesperson) && isLeadChannel(o.channel)).length;
     return { totalLeads, orders, pct: totalLeads ? Math.round(orders / totalLeads * 100) : 0 };
   })();
   const basketQty = k.orders ? k.qty / k.orders : 0;
