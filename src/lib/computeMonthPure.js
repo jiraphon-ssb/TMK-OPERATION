@@ -37,11 +37,19 @@ export function computeMonthPure(monthIdx0, yearBE, ctx) {
       adBudget: Number((meta.adChannels && meta.adChannels[base.id]) || 0) };
   });
 
-  // fallback: เดือนอดีตที่กรอกผ่าน "ข้อมูลย้อนหลัง" (มี monthly.actual แต่ไม่มี daily) → ใช้ยอดรายเดือน (กัน SalesView โชว์ ฿0 ทั้งที่กราฟมียอด)
-  // โหมดข้อมูลของเดือน (meta.entryMode): 'monthly' = ใช้ยอดรวมรายเดือน · 'daily' = ใช้ผลรวมรายวัน
-  // อดีตที่มียอดรวมรายเดือน → ใช้ยอดรวมเสมอ (กันข้อมูลรายวันบางส่วนมา "ทับ" ยอดรวมหาย) เว้นแต่เลือกโหมด 'daily' ชัดเจน
-  // (เดือนปัจจุบัน/อนาคต = สดจาก daily เสมอ)
-  const _useMonthly = !isFuture && !isCurrent && Number(mRow?.actual || 0) > 0 && meta.entryMode !== 'daily';
+  // แหล่งยอดของเดือน (PART 90 · แก้บั๊กยอด ก.ค. หาย):
+  //  - daily-first: ถ้ามีข้อมูลรายวันจริง → ใช้ผลรวมรายวันเสมอ (กัน snapshot สรุปเดือนที่ค้างมา "ทับ" ยอดรายวันครบ)
+  //  - monthly ใช้เฉพาะ (ก) เดือนเก่าที่ไม่มี daily (เกินหน้าต่างโหลด 13 เดือน) หรือ (ข) ล็อคโหมด 'monthly' ชัดเจน (กรอกยอดรวมมือ)
+  //  - เดือนปัจจุบัน/อนาคต = สดจาก daily เสมอ
+  //  เดิม default อันตราย: "ไม่มี entryMode = ใช้ monthly" → ก.ค.(ไม่มี entryMode)+มี snapshot ค้าง = การ์ดโชว์ยอดค้าง
+  const _dailySum = round2(channels.reduce((s, c) => s + c.actual, 0));
+  const _hasDaily = rows.length > 0 && _dailySum > 0;
+  const _monthlyActual = round2(Number(mRow?.actual || 0));
+  //  entryMode 'daily' = ล็อกใช้รายวันเสมอ (แม้ว่าง) · 'monthly' = ล็อกใช้ยอดรวม · ไม่ระบุ = auto (มี daily→daily, ไม่มี→monthly)
+  const _useMonthly = !isFuture && !isCurrent && _monthlyActual > 0 && meta.entryMode !== 'daily' && (meta.entryMode === 'monthly' || !_hasDaily);
+  const srcMode = _useMonthly ? 'monthly' : 'daily';
+  // เตือนเมื่อยอดสรุปเดือน (กรอกมือ/snapshot) ต่างจากผลรวมรายวันจริง > 5% ทั้งที่มี daily — สัญญาณ snapshot ค้าง/กรอกผิด
+  const srcMismatch = _hasDaily && _monthlyActual > 0 && Math.abs(_monthlyActual - _dailySum) / Math.max(_dailySum, 1) > 0.05;
   const MTD = round2(_useMonthly ? Number(mRow.actual || 0) : channels.reduce((s, c) => s + c.actual, 0));
   const ORD = _useMonthly ? Number(mRow.orders || 0) : channels.reduce((s, c) => s + c.orders, 0);
   const AD = round2(_useMonthly ? Number(mRow.adSpend || 0) : rows.reduce((s, r) => s + r.adSpend, 0));
@@ -129,6 +137,7 @@ export function computeMonthPure(monthIdx0, yearBE, ctx) {
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET },
+    srcMode, srcMismatch, dailySum: _dailySum, monthlyActual: _monthlyActual,   // แหล่งยอด + สัญญาณเตือน (PART 90)
     channels, dailyMonth, dailyLog, dailyBreakdown, enteredDays: rows.length, isCurrent, isFuture, fb, month3, yoy, fbMsgTrend, custWeekly,
     computed: { MTD, ORD, AD, NEW_REV: 0, OLD_REV: 0, NEW_C, OLD_C, PACE_TGT, PACE_PCT, RUN, AOV, ACOS_TOT, CLV: clv || 0 },
   };

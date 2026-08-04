@@ -143,9 +143,6 @@ export function MonthlyTargetModal({ data, onClose }) {
     setBusy(true);
     try {
       const existing = (MD.monthly || []).find(m => m.month === monthIdx + 1 && m.year === year);
-      // เดือนปัจจุบัน: actual/orders คำนวณจากยอดรายวัน (single source of truth) → ห้าม baked ค่าสด overlay ลง DB
-      const _t = getToday();
-      const isCurMonth = (monthIdx + 1) === _t.month && year === _t.yearBE;
       const meta = {
         ...((existing && existing.meta) || {}), // preserve คีย์อื่น เช่น entryMode (กันโหมดรายวัน/รายเดือนถูกรีเซ็ตตอนเซฟเป้า)
         adBudget: adSum, // งบแอดรวม = ผลรวมงบต่อช่อง (อัตโนมัติ)
@@ -154,12 +151,13 @@ export function MonthlyTargetModal({ data, onClose }) {
         newCustTarget: nn(newCustTarget),
         acosCeil: Number(acosCeil) || 25,
       };
+      // PART 90: ตัวตั้งเป้า/งบแอด เขียนเฉพาะ target/meta — **ไม่แตะ actual/orders/projected/messages เด็ดขาด**
+      // (เดิมเขียน existing.actual ที่เป็นค่าสด in-memory จาก mapToTMK → snapshot ยอดค้างทับผลรวมรายวัน = บั๊กยอดเดือนหาย)
+      // upsert PostgREST อัปเฉพาะคอลัมน์ที่ส่ง → คอลัมน์ที่ไม่ส่งคงค่าเดิมใน DB (insert ใหม่ = default)
       const row = {
         id: `${year}-${String(monthIdx + 1).padStart(2, '0')}`,
         month: monthIdx + 1, year, month_th: months[monthIdx],
         target: nn(total),
-        actual: isCurMonth ? 0 : (existing?.actual || 0), projected: existing?.projected || 0,
-        orders: isCurMonth ? 0 : (existing?.orders || 0), messages: existing?.messages || 0,
         meta,
       };
       const { error } = await supabase.from('tmk_monthly_history').upsert(row);

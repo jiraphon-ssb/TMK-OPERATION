@@ -127,3 +127,48 @@ describe('computeMonthPure — เดือนอนาคต + ว่าง', (
     expect(md.computed.CLV).toBe(1234);
   });
 });
+
+// PART 90 — daily-first source (แก้บั๊กยอด ก.ค. หาย: snapshot สรุปเดือนค้างทับผลรวมรายวัน)
+describe('computeMonthPure — แหล่งยอดเดือน (daily-first · PART 90)', () => {
+  const TODAY90 = { yearBE: 2569, month: 8, day: 4 };  // ปัจจุบัน = ส.ค. → ก.ค.(=7) เป็นอดีต
+  const CH2 = [{ id: 'facebook', name: 'Facebook', hex: '#1877f2' }, { id: 'shopee', name: 'Shopee', hex: '#ee4d2d' }];
+  const julRows = [
+    { year: 2569, month: 7, day: 5, adSpend: 0, replyMin: 0, note: '', dayName: '', ch: { facebook: c(400000, 200), shopee: c(200000, 100) } },
+    { year: 2569, month: 7, day: 20, adSpend: 0, replyMin: 0, note: '', dayName: '', ch: { facebook: c(150000, 80), shopee: c(42779.14, 20) } },
+  ]; // รวมรายวัน = 792,779.14 · ออเดอร์ 400
+
+  it('เดือนอดีตมี daily + snapshot สรุปเดือนค้าง (ไม่มี entryMode) → ใช้ผลรวมรายวัน (ไม่โดน snapshot ทับ)', () => {
+    const monthly = [{ year: 2569, month: 7, actual: 199857.60, orders: 417, meta: {} }]; // snapshot ค้าง (วันที่ 7)
+    const md = computeMonthPure(6 /* ก.ค. */, 2569, { dailyAll: julRows, monthly, channels: CH2, clv: 0, today: TODAY90 });
+    expect(md.srcMode).toBe('daily');
+    expect(md.computed.MTD).toBeCloseTo(792779.14, 2);
+    expect(md.computed.ORD).toBe(400);
+    expect(md.srcMismatch).toBe(true);       // ต่างจากรายวัน → เตือน
+    expect(md.dailySum).toBeCloseTo(792779.14, 2);
+    expect(md.monthlyActual).toBeCloseTo(199857.60, 2);
+  });
+
+  it('entryMode="monthly" (กรอกยอดรวมมือตั้งใจ) → ใช้ยอดสรุปเดือน แม้มี daily', () => {
+    const monthly = [{ year: 2569, month: 7, actual: 1071756.02, orders: 999, meta: { entryMode: 'monthly' } }];
+    const md = computeMonthPure(6, 2569, { dailyAll: julRows, monthly, channels: CH2, clv: 0, today: TODAY90 });
+    expect(md.srcMode).toBe('monthly');
+    expect(md.computed.MTD).toBeCloseTo(1071756.02, 2);
+    expect(md.computed.ORD).toBe(999);
+  });
+
+  it('เดือนเก่าไม่มี daily (เกินหน้าต่างโหลด) → fallback ยอดสรุปเดือน', () => {
+    const monthly = [{ year: 2568, month: 3, actual: 500000, orders: 300, meta: {} }];
+    const md = computeMonthPure(2, 2568, { dailyAll: [], monthly, channels: CH2, clv: 0, today: TODAY90 });
+    expect(md.srcMode).toBe('monthly');
+    expect(md.computed.MTD).toBe(500000);
+    expect(md.srcMismatch).toBe(false);      // ไม่มี daily → ไม่เตือน
+  });
+
+  it('เดือนปัจจุบัน = daily เสมอ แม้มี snapshot', () => {
+    const monthly = [{ year: 2569, month: 8, actual: 99999, orders: 5, meta: {} }];
+    const augRows = [{ year: 2569, month: 8, day: 2, adSpend: 0, replyMin: 0, note: '', dayName: '', ch: { facebook: c(30000, 10) } }];
+    const md = computeMonthPure(7 /* ส.ค. */, 2569, { dailyAll: augRows, monthly, channels: CH2, clv: 0, today: TODAY90 });
+    expect(md.srcMode).toBe('daily');
+    expect(md.computed.MTD).toBe(30000);
+  });
+});

@@ -254,6 +254,18 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
             {targetHit && <Badge variant="outline" onClick={() => setCelebrate(true)} title="กดเพื่อฉลองอีกครั้ง" style={{ background: 'rgba(245,180,35,0.16)', color: 'var(--warn)', border: '1px solid rgba(245,180,35,0.4)', fontWeight: 700, whiteSpace: 'nowrap', cursor: 'pointer' }}>🎉 ทะลุเป้าแล้ว</Badge>}
           </div>
           <div className="num display">{B(C.MTD)}</div>
+          {/* PART 90: เตือนเมื่อยอดสรุปเดือน (กรอกมือ/snapshot ค้าง) ต่างจากผลรวมรายวัน > 5% — บอกว่าระบบใช้แหล่งไหน + ชี้ไปแก้ */}
+          {md.srcMismatch && (
+            <div className="mt-2 flex items-start gap-2 rounded-lg border p-2.5 text-[12px]" style={{ borderColor: 'rgba(245,180,35,0.4)', background: 'var(--warn-soft)' }}>
+              <span className="shrink-0 mt-0.5 [&_svg]:size-[15px]" style={{ color: 'var(--warn)' }}><Icon name="lightbulb" /></span>
+              <div className="min-w-0">
+                <b style={{ color: 'var(--warn)' }}>ยอดสรุปเดือนไม่ตรงผลรวมรายวัน</b> — {md.srcMode === 'daily'
+                  ? <>แสดง <b>ผลรวมรายวัน {B(md.dailySum)}</b> แล้ว (พบยอดสรุปเดือนค้าง {B(md.monthlyActual)} ต่างกัน)</>
+                  : <>แสดง <b>ยอดกรอกมือ {B(md.monthlyActual)}</b> (ผลรวมรายวัน {B(md.dailySum)})</>}
+                {' · '}สลับ/แก้แหล่งได้ที่หน้า <b>กรอกยอด</b>
+              </div>
+            </div>
+          )}
           {/* เดือนปัจจุบัน: เทียบ MTD กับ "วันที่เดียวกัน" ของเดือนก่อน — กันแดงหลอกตากลางเดือน */}
           {(() => {
             const isCurrent = md.isCurrent;
