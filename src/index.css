@@ -593,8 +593,8 @@ input, select, textarea { font-family: inherit; }
 @media (max-width: 560px) { .update-banner-sub { display: none; } }
 
 /* ===== ปฏิทินรายเดือน — กริดชิดกันเส้น 1px ขอบเหลี่ยม (แบบ Google Calendar) ===== */
-/* แถวแรก (หัววัน) auto · แถวสัปดาห์สูงคงที่ · เส้นตาราง = gap 1px บนพื้น --line */
-.cal-month-grid { display: grid; grid-template-rows: auto; grid-auto-rows: 152px; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+/* แถวแรก (หัววัน) auto · แถวสัปดาห์ยืดตามงาน (min 108px) — งานไม่โดนตัด + สัปดาห์ว่างไม่สูงเวอร์ */
+.cal-month-grid { display: grid; grid-template-rows: auto; grid-auto-rows: minmax(108px, auto); gap: 1px; background: var(--line); border: 1px solid var(--line); }
 .cal-head-row, .cal-week-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); }
 .cal-week-row { position: relative; }
 .cal-head-row > div { background: var(--surface-2); }

@@ -392,7 +392,11 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
           {show.map(t => {
             const c = DD.campaigns.find(x => x.id === t.camp);
             const col = colorForTask(t, colorSrc, '#888');
-            return <span key={t.id} title={t.title + (c ? ` · ${c.name}` : '')} style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 5px', borderRadius: 0, background: `color-mix(in srgb, ${col} 16%, transparent)`, color: `color-mix(in srgb, ${col} 72%, var(--ink))`, whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', lineHeight: 1.25, flexShrink: 0 }}>{t.title}</span>;
+            // งานวันเดียว = แถบทึบเหมือนงานช่วงวัน (หน้าตา+คลิกเปิดงานเหมือนกัน) — กด span แล้วเปิดงาน ไม่เผลอเลือกวัน
+            return <span key={t.id} role="button" tabIndex={0}
+              onClick={readOnly ? undefined : (e) => { e.stopPropagation(); window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] }); }}
+              title={t.title + (c ? ` · ${c.name}` : '')}
+              style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 6px', borderRadius: 0, background: col, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.6, flexShrink: 0, cursor: readOnly ? 'default' : 'pointer' }}>{t.title}</span>;
           })}
         </div>
         {/* มือถือ: โชว์เป็นจุดสีแทน title (แตะดูรายละเอียดข้างล่าง) — รวมงานช่วงวันด้วย */}

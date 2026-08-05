@@ -19,7 +19,7 @@ import { buildCrmMonth, isCrmOrder, crmCustomerKey, crmTargetProgress } from './
 import { isCancelled } from './lib/salePerfAgg.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchCrmTargets, fetchCrmNotes, saveCrmNote } from './lib/crmTargets.js';
-import { blankNoteData, normNoteData, isNoteDataEmpty, noteSummaryText, buildCrmDailyReport, totalCalls } from './lib/crmDailyNote.js';
+import { blankNoteData, normNoteData, isNoteDataEmpty, noteSummaryText, totalCalls } from './lib/crmDailyNote.js';
 import { useUser } from './userContext.jsx';
 import { isAdmin, myNamesOf } from './lib/roleAccess.js';
 import { Progress } from '@/components/ui/progress';
@@ -365,31 +365,31 @@ function CrmDayTile({ label, value, tone }) {
     </div>
   );
 }
-// ช่องตัวเลขฟอร์มบันทึกประจำวัน — 0 โชว์ว่าง (พิมพ์ทับง่าย) · ชิดขวา tabular
+// ช่องตัวเลขฟอร์มบันทึกประจำวัน — 0 โชว์ว่าง (พิมพ์ทับง่าย) · กึ่งกลาง tabular · พื้นขาวเด่นบนการ์ดสีหมวด
 function NoteNum({ label, value, onChange }) {
   return (
     <label className="flex flex-col gap-1 min-w-0">
       <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>{label}</span>
-      <Input type="number" inputMode="numeric" min={0} className="h-8 text-[13px] text-right tabular-nums"
-        value={value === 0 ? '' : value} placeholder="0" onChange={e => onChange(e.target.value)} />
+      <Input type="number" inputMode="numeric" min={0} className="h-9 text-[13px] text-center tabular-nums"
+        style={{ background: 'var(--surface-2)' }} value={value === 0 ? '' : value} placeholder="0" onChange={e => onChange(e.target.value)} />
     </label>
   );
 }
-// กลุ่มโทร (0DAY / 5DAY / Repurchase) — โทรทั้งหมด + รับสาย · ไม่รับคิดให้อัตโนมัติ
-function NoteCallGroup({ title, g, onChange }) {
+// กลุ่มโทร (0DAY / 5DAY / Repurchase) — การ์ดขาว: โทรทั้งหมด + รับสาย เคียงกัน · ไม่รับคิดอัตโนมัติ (แบบ A)
+function NoteCallGroup({ title, g, onChange, tone }) {
   const missed = Math.max(0, (Number(g.total) || 0) - (Number(g.answered) || 0));
   const cell = (key, lb) => (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11px] w-9 shrink-0" style={{ color: 'var(--ink-4)' }}>{lb}</span>
-      <Input type="number" inputMode="numeric" min={0} className="h-8 text-[13px] text-right tabular-nums"
-        value={g[key] === 0 ? '' : g[key]} placeholder="0" onChange={e => onChange(key, e.target.value)} />
-    </div>
+    <label className="flex flex-col gap-1 min-w-0">
+      <span className="text-[10.5px]" style={{ color: 'var(--ink-4)' }}>{lb}</span>
+      <Input type="number" inputMode="numeric" min={0} className="h-9 text-[13px] text-center tabular-nums"
+        style={{ background: 'var(--surface-2)' }} value={g[key] === 0 ? '' : g[key]} placeholder="0" onChange={e => onChange(key, e.target.value)} />
+    </label>
   );
   return (
-    <div className="rounded-lg p-2.5" style={{ border: '1px solid var(--line)' }}>
-      <div className="text-[12px] font-semibold mb-1.5" style={{ color: 'var(--ink-2)' }}>{title}</div>
-      <div className="flex flex-col gap-1.5">{cell('total', 'โทร')}{cell('answered', 'รับ')}</div>
-      <div className="text-[11px] mt-1.5" style={{ color: 'var(--ink-4)' }}>ไม่รับ <b style={{ color: 'var(--ink-2)' }}>{missed}</b> สาย</div>
+    <div className="rounded-lg p-2.5" style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+      <div className="text-[12px] font-semibold mb-2" style={{ color: tone }}>{title}</div>
+      <div className="grid grid-cols-2 gap-1.5">{cell('total', 'โทร')}{cell('answered', 'รับ')}</div>
+      <div className="text-[11px] mt-1.5 text-center" style={{ color: 'var(--ink-4)' }}>ไม่รับ <b style={{ color: 'var(--ink-2)' }}>{missed}</b> สาย</div>
     </div>
   );
 }
@@ -400,6 +400,7 @@ function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer
   const [notes, setNotes] = useState([]);     // บันทึกประจำวัน ของวันนั้น (ทุกคน)
   const [noteData, setNoteData] = useState(blankNoteData()); // ฟอร์มมีช่อง (PART 91)
   const [noteBusy, setNoteBusy] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false); // ย่อ/กางฟอร์มบันทึกประจำวัน (กดเพื่อเปิด · แบบ A)
   const loading = lineBy === null;
 
   // ออเดอร์ CRM (LINE/โทร) ของวันนั้น — เรียงยอดมาก→น้อย
@@ -477,7 +478,6 @@ function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer
   // โหลดค่าเข้าฟอร์มเมื่อดึงโน้ตใหม่/เปลี่ยนวัน (notes identity เปลี่ยนเฉพาะตอน refetch → ไม่ทับที่กำลังพิมพ์)
   useEffect(() => { setNoteData(savedData); }, [notes, seller, dateISO]); // eslint-disable-line react-hooks/exhaustive-deps
   const noteDirty = useMemo(() => JSON.stringify(normNoteData(noteData)) !== JSON.stringify(savedData), [noteData, savedData]);
-  const autoFor = () => ({ crmSales: line + phone, line, phone, orders: ords.length, qty, buyers, oldCust, newCust, repurchaseOrders, repurchaseBaht });
 
   const saveNote = async (sp) => {
     setNoteBusy(true);
@@ -494,11 +494,6 @@ function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer
     if (degraded) toast('บันทึกข้อความแล้ว แต่ช่องตัวเลขยังไม่ถูกเก็บ — ต้องรัน migration 20260805-crm-note-data.sql', 'warn');
     else toast('บันทึกแล้ว', 'success');
     setNotes(await fetchCrmNotes(dateISO));
-  };
-  const copyReport = async (sp) => {
-    const text = buildCrmDailyReport({ seller: sp, dateISO, auto: autoFor(), data: noteData });
-    try { await navigator.clipboard.writeText(text); toast('คัดลอกรายงานแล้ว — วางในไลน์ได้เลย', 'success'); }
-    catch { toast('คัดลอกไม่สำเร็จ — เบราว์เซอร์บล็อก คลิปบอร์ด', 'error'); }
   };
   // helpers อัปเดตฟอร์ม · setCall กัน "รับ > โทรทั้งหมด" (ให้ total ≥ answered เสมอ → รายงานไม่ขัดกัน)
   const setCall = (grp, key, v) => setNoteData(d => {
@@ -524,61 +519,72 @@ function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer
         <CrmDayTile label="ส่วนลดรวม" value={discTotal > 0 ? baht(discTotal) : '—'} tone={discTotal > 0 ? 'var(--bad)' : undefined} />
       </div>
 
-      {/* บันทึกประจำวัน CRM — ฟอร์มมีช่อง (PART 91) · อยู่ในรูปแคปด้วย */}
+      {/* บันทึกประจำวัน CRM — ฟอร์มมีช่อง แบบ A (การ์ดสีประจำหมวด · กดเพื่อเปิด) · อยู่ในรูปแคปด้วย */}
       {seller ? (
         (canEditNote(seller) || singleRow?.note) && (
-          <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
-            <div className="flex items-center gap-2 mb-2.5">
-              <span className="cap" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน — {seller}</span>
-              <span className="ml-auto text-[11px]" style={{ color: 'var(--ink-4)' }}>{dateISO}</span>
+          canEditNote(seller) ? (
+            <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--line)' }}>
+              {/* หัวกดเพื่อย่อ/กาง */}
+              <button type="button" onClick={() => setNoteOpen(o => !o)} className="w-full flex items-center gap-3 p-3 text-left" style={{ background: noteOpen ? 'var(--surface-2, transparent)' : 'transparent' }}>
+                <span className="shrink-0 grid place-items-center rounded-lg [&_svg]:size-[18px]" style={{ width: 34, height: 34, background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>บันทึกประจำวัน — {seller}</span>
+                  <span className="block text-[12px] truncate" style={{ color: 'var(--ink-4)' }}>{noteDirty ? 'มีการแก้ยังไม่บันทึก' : (isNoteDataEmpty(savedData) ? 'ยังไม่กรอก · กดเพื่อเปิดฟอร์ม' : `บันทึกแล้ว · ${noteSummaryText(savedData) || 'มีข้อมูล'}`)}</span>
+                </span>
+                <span className="shrink-0 transition-transform [&_svg]:size-[18px]" style={{ color: 'var(--ink-4)', transform: noteOpen ? 'rotate(-180deg)' : 'none' }}><Icon name="chevD" /></span>
+              </button>
+              {noteOpen && (
+                <div className="flex flex-col gap-3 p-3 pt-0">
+                  {/* การโทร — โซนฟ้า */}
+                  <div className="rounded-[10px] p-3" style={{ background: 'var(--accent-soft)', borderLeft: '3px solid var(--accent)' }}>
+                    <div className="text-[12px] font-semibold mb-2.5 [&_svg]:size-[15px] flex items-center gap-1.5" style={{ color: 'var(--accent-2)' }}><Icon name="phone" /> การโทร</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <NoteCallGroup title="0DAY" g={noteData.calls.d0} onChange={(k, v) => setCall('d0', k, v)} tone="var(--accent-2)" />
+                      <NoteCallGroup title="5DAY" g={noteData.calls.d5} onChange={(k, v) => setCall('d5', k, v)} tone="var(--accent-2)" />
+                      <NoteCallGroup title="Repurchase" g={noteData.calls.rep} onChange={(k, v) => setCall('rep', k, v)} tone="var(--accent-2)" />
+                    </div>
+                    <div className="text-[11px] mt-2" style={{ color: 'var(--accent-2)' }}>รวม <b>{totalCalls(noteData)}</b> สาย — คิดให้อัตโนมัติ</div>
+                  </div>
+                  {/* ผลการขาย — โซนเขียว */}
+                  <div className="rounded-[10px] p-3" style={{ background: 'var(--good-soft)', borderLeft: '3px solid var(--good)' }}>
+                    <div className="text-[12px] font-semibold mb-2.5 [&_svg]:size-[15px] flex items-center gap-1.5" style={{ color: 'var(--good)' }}><Icon name="chat" /> ผลการขาย</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <NoteNum label="อัพเซลล์ (ออเดอร์)" value={noteData.upsellOrders} onChange={v => setNum('upsellOrders', v)} />
+                      <NoteNum label="อัพเซลล์ (บาท)" value={noteData.upsellBaht} onChange={v => setNum('upsellBaht', v)} />
+                      <NoteNum label="ออเดอร์แถม" value={noteData.freebieOrders} onChange={v => setNum('freebieOrders', v)} />
+                      <NoteNum label="โปรวันเกิด" value={noteData.birthdayOrders} onChange={v => setNum('birthdayOrders', v)} />
+                    </div>
+                  </div>
+                  {/* เสียงลูกค้า — โซนเหลือง */}
+                  <div className="rounded-[10px] p-3" style={{ background: 'var(--warn-soft)', borderLeft: '3px solid var(--warn)' }}>
+                    <div className="text-[12px] font-semibold mb-2.5 [&_svg]:size-[15px] flex items-center gap-1.5" style={{ color: 'var(--warn)' }}><Icon name="chat" /> เสียงลูกค้า</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface-2)' }} value={noteData.ask} onChange={e => setTxt('ask', e.target.value)} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface-2)' }} value={noteData.praise} onChange={e => setTxt('praise', e.target.value)} placeholder="—" /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface-2)' }} value={noteData.complaint} onChange={e => setTxt('complaint', e.target.value)} placeholder="—" /></label>
+                    </div>
+                  </div>
+                  {/* หมายเหตุเพิ่มเติม (รับข้อความโน้ตเก่าก่อนมีฟอร์มมาไว้ที่นี่ด้วย) */}
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>หมายเหตุเพิ่มเติม (ถ้ามี)</span>
+                    <Textarea rows={2} className="text-[13px]" value={noteData.extra} onChange={e => setTxt('extra', e.target.value)} placeholder="เรื่องอื่นๆ ที่อยากบันทึกไว้" />
+                  </label>
+                  {/* ระบบเติมเอง (คิดสดจากออเดอร์จริง — เข้ารายงานอัตโนมัติ ไม่ต้องกรอก) */}
+                  <div className="rounded-[10px] px-3 py-2 text-[12px] leading-relaxed" style={{ background: 'var(--accent-soft)', color: 'var(--accent-2)' }}>
+                    <b>ระบบเติมให้เอง</b> (เข้ารายงานอัตโนมัติ): ยอด CRM {baht(line + phone)} (LINE {baht(line)} · โทร {baht(phone)}) · {N(ords.length)} ออเดอร์ · {N(qty)} ตัว · ปิด Repurchase {N(repurchaseOrders)} ({baht(repurchaseBaht)}) · ลูกค้าซื้อ {N(buyers)} คน (เก่า {N(oldCust)} · ใหม่ {N(newCust)})
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    <Button size="sm" disabled={noteBusy || !noteDirty} onClick={() => saveNote(seller)}><Icon name="check" /> บันทึก</Button>
+                  </div>
+                </div>
+              )}
             </div>
-            {canEditNote(seller) ? (
-              <div className="flex flex-col gap-3">
-                {/* การโทร 3 กลุ่ม */}
-                <div>
-                  <div className="cap mb-1.5" style={{ color: 'var(--ink-4)' }}><Icon name="phone" /> การโทร</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <NoteCallGroup title="0DAY" g={noteData.calls.d0} onChange={(k, v) => setCall('d0', k, v)} />
-                    <NoteCallGroup title="5DAY" g={noteData.calls.d5} onChange={(k, v) => setCall('d5', k, v)} />
-                    <NoteCallGroup title="Repurchase" g={noteData.calls.rep} onChange={(k, v) => setCall('rep', k, v)} />
-                  </div>
-                  <div className="text-[11px] mt-1.5" style={{ color: 'var(--ink-4)' }}>รวม <b style={{ color: 'var(--ink-2)' }}>{totalCalls(noteData)}</b> สาย — คิดให้อัตโนมัติ</div>
-                </div>
-                {/* ผลจากการโทร/แชท */}
-                <div>
-                  <div className="cap mb-1.5" style={{ color: 'var(--ink-4)' }}><Icon name="chat" /> ผลการขาย</div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    <NoteNum label="อัพเซลล์ (ออเดอร์)" value={noteData.upsellOrders} onChange={v => setNum('upsellOrders', v)} />
-                    <NoteNum label="อัพเซลล์ (บาท)" value={noteData.upsellBaht} onChange={v => setNum('upsellBaht', v)} />
-                    <NoteNum label="ออเดอร์แถม" value={noteData.freebieOrders} onChange={v => setNum('freebieOrders', v)} />
-                    <NoteNum label="โปรวันเกิด" value={noteData.birthdayOrders} onChange={v => setNum('birthdayOrders', v)} />
-                  </div>
-                </div>
-                {/* เสียงลูกค้า */}
-                <div>
-                  <div className="cap mb-1.5" style={{ color: 'var(--ink-4)' }}>เสียงลูกค้า</div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" value={noteData.ask} onChange={e => setTxt('ask', e.target.value)} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
-                    <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" value={noteData.praise} onChange={e => setTxt('praise', e.target.value)} placeholder="—" /></label>
-                    <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" value={noteData.complaint} onChange={e => setTxt('complaint', e.target.value)} placeholder="—" /></label>
-                  </div>
-                </div>
-                {/* หมายเหตุเพิ่มเติม (รับข้อความโน้ตเก่าก่อนมีฟอร์มมาไว้ที่นี่ด้วย) */}
-                <label className="flex flex-col gap-1">
-                  <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>หมายเหตุเพิ่มเติม (ถ้ามี)</span>
-                  <Textarea rows={2} className="text-[13px]" value={noteData.extra} onChange={e => setTxt('extra', e.target.value)} placeholder="เรื่องอื่นๆ ที่อยากบันทึกไว้" />
-                </label>
-                {/* ระบบเติมเอง (คิดสดจากออเดอร์จริง — เข้ารายงานอัตโนมัติ ไม่ต้องกรอก) */}
-                <div className="rounded-lg px-3 py-2 text-[12px] leading-relaxed" style={{ background: 'var(--accent-soft, var(--surface-2))', color: 'var(--accent)' }}>
-                  <b>ระบบเติมให้เอง</b> (เข้ารายงานอัตโนมัติ): ยอด CRM {baht(line + phone)} (LINE {baht(line)} · โทร {baht(phone)}) · {N(ords.length)} ออเดอร์ · {N(qty)} ตัว · ปิด Repurchase {N(repurchaseOrders)} ({baht(repurchaseBaht)}) · ลูกค้าซื้อ {N(buyers)} คน (เก่า {N(oldCust)} · ใหม่ {N(newCust)})
-                </div>
-                <div className="flex flex-wrap gap-2 justify-end">
-                  <Button variant="outline" size="sm" onClick={() => copyReport(seller)}><Icon name="chat" /> คัดลอกรายงานส่ง LINE</Button>
-                  <Button size="sm" disabled={noteBusy || !noteDirty} onClick={() => saveNote(seller)}><Icon name="check" /> บันทึก</Button>
-                </div>
-              </div>
-            ) : <div className="text-[13px]" style={{ color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{singleRow?.note}</div>}
-          </div>
+          ) : (
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
+              <div className="cap mb-1.5" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน — {seller}</div>
+              <div className="text-[13px]" style={{ color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{singleRow?.note}</div>
+            </div>
+          )
         )
       ) : notes.length > 0 && (
         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
