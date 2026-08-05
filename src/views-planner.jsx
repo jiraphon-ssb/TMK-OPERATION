@@ -5,7 +5,6 @@ import { supabase } from './lib/supabaseClient.js';
 import { versionedUpdate, promptConflictResolution } from './lib/optimisticUpdate.js';
 import { PRESETS, presetRange } from './lib/saleTime.js';
 import { logAudit } from './lib/audit.js';
-import { notify } from './lib/notify.js';
 import { getToday, parseTaskDate, todayISO, thaiDate, THAI_MONTHS as MONTHS_TH_SHORT, THAI_MONTHS_FULL as MONTHS_TH } from './lib/dateUtils.js';
 import { colorForTask, colorSourceOf } from './lib/taskColor.js';
 import { TaskCard, ChIcon, matchedChannelsFor, tokenizeCh, PriorityTag } from './taskCard.jsx';
@@ -472,7 +471,6 @@ function KanbanBoard({ tasks, setTasks, filtered, fProps, flow, readOnly }) {
       const stCol = columns.find(k => k.id === status) || {};
       const stLabel = stCol.label || status;
       logAudit({ action: 'move', entityType: 'task', entityName: task?.title || id, summary: `ย้ายงาน "${task?.title || ''}" → ${stLabel}`, flowId: task?.flow ?? '' });
-      notify({ recipients: task?.responsible || [], kind: 'status', severity: stCol.done ? 'success' : undefined, title: `งาน "${task?.title || ''}" → ${stLabel}`, flowId: task?.flow ?? '', taskId: id, entityType: 'task', action: 'move' });
       window.__refresh?.(['tmk_tasks']); // sync TMK.tasks (notif/profile/export) ไม่ต้องรอ realtime
     } catch (err) {
       setTasks(ts => ts.map(t => t.id === id ? { ...t, status: prev } : t));
@@ -661,13 +659,13 @@ function TaskListView({ filtered, fProps, flow, readOnly }) {
   const bulkStatus = async (status) => {
     const ids = selArr; if (!ids.length || !window.__canEdit) return;
     const stCol = cols.find(k => k.id === status) || {};
-    try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ status }).eq('id', id))); ids.forEach(id => { const t = filtered.find(x => x.id === id); logAudit({ action: 'move', entityType: 'task', entityName: t?.title || id, summary: `ย้ายงาน "${t?.title || ''}" → ${stCol.label || status}`, flowId: t?.flow ?? '' }); notify({ recipients: t?.responsible || [], kind: 'status', severity: stCol.done ? 'success' : undefined, title: `งาน "${t?.title || ''}" → ${stCol.label || status}`, flowId: t?.flow ?? '', taskId: id, entityType: 'task', action: 'move' }); }); window.__refresh?.(['tmk_tasks']); window.__toast?.(`เปลี่ยนสถานะ ${ids.length} งาน`, 'success'); clearSel(); }
+    try { await Promise.all(ids.map(id => supabase.from('tmk_tasks').update({ status }).eq('id', id))); ids.forEach(id => { const t = filtered.find(x => x.id === id); logAudit({ action: 'move', entityType: 'task', entityName: t?.title || id, summary: `ย้ายงาน "${t?.title || ''}" → ${stCol.label || status}`, flowId: t?.flow ?? '' }); }); window.__refresh?.(['tmk_tasks']); window.__toast?.(`เปลี่ยนสถานะ ${ids.length} งาน`, 'success'); clearSel(); }
     catch (e) { window.__toast?.('ไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
   };
   const bulkAssign = async (name) => {
     const ids = selArr; if (!ids.length || !window.__canEdit) return;
     try {
-      await Promise.all(ids.map(id => { const t = filtered.find(x => x.id === id); const cur = t?.responsible || []; if (cur.includes(name)) return Promise.resolve(); notify({ recipients: [name], kind: 'assign', title: `คุณได้รับมอบหมายงาน "${t?.title || ''}"`, flowId: t?.flow ?? '', taskId: id, entityType: 'task' }); return supabase.from('tmk_tasks').update({ responsible: [...cur, name].join(', ') }).eq('id', id); }));
+      await Promise.all(ids.map(id => { const t = filtered.find(x => x.id === id); const cur = t?.responsible || []; if (cur.includes(name)) return Promise.resolve(); return supabase.from('tmk_tasks').update({ responsible: [...cur, name].join(', ') }).eq('id', id); }));
       window.__refresh?.(['tmk_tasks']); window.__toast?.(`มอบหมาย "${name}" ให้ ${ids.length} งาน`, 'success'); clearSel();
     } catch { window.__toast?.('ไม่สำเร็จ', 'error'); }
   };

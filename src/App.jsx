@@ -27,7 +27,6 @@ const CatalogView  = lazy(() => import('./views-catalog.jsx').then(m => ({ defau
 const SettingsView = lazy(() => import('./views-settings.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
-const NotificationsCenter = lazy(() => import('./views-notifications.jsx').then(m => ({ default: m.NotificationsCenter })));
 const SaleDataHub = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SaleDataHub })));
 const SalePerfView = lazy(() => import('./salePerf.jsx').then(m => ({ default: m.SalePerfView })));
 const LogView = lazy(() => import('./views-log.jsx').then(m => ({ default: m.LogView })));
@@ -47,9 +46,6 @@ import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { pushNotify, emailOfName, notify, stableNotifId, emailsForAudience } from './lib/notify.js';
-import { initNotifStore, teardownNotifStore, prefOn as notifPrefOn } from './lib/notifStore.js';
-import { NotifBell, NotifNavBadge } from './notif-bell.jsx';
 import { parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
@@ -162,7 +158,7 @@ function useNav() {
     subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
   }));
 }
-const DEFAULT_SUB = { flows: 'overview', sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general', notifications: 'all' };
+const DEFAULT_SUB = { flows: 'overview', sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
 
 // รายการโครงการสำหรับ sidebar (งานทั่วไป + โครงการจริง · ไม่นับ config row/archived/private ของคนอื่น)
 function sidebarFlows() {
@@ -493,40 +489,7 @@ function AppInner() {
   // เลือกโครงการ + ไปบอร์ด (คลิกเดียว · setActiveFlow ทำให้ sidebar/breadcrumb/board re-render พร้อมกัน)
   const pickFlow = (f) => { setActiveFlow(f.id); go('flows', f.defaultView && f.defaultView !== 'settings' ? f.defaultView : 'kanban'); };
 
-  const myEmail = session?.user?.email || '';
 
-  // เปิด store แจ้งเตือน (list + prefs + realtime "ช่องเดียว") ครั้งเดียวต่ออีเมล — กระดิ่ง+ศูนย์ใช้ store นี้ร่วมกัน
-  useEffect(() => { if (myEmail) initNotifStore(myEmail); else teardownNotifStore(); }, [myEmail]);
-
-  // due-sweep (PART 34): บันทึก "ใกล้ครบ/เลยกำหนด" ลง Inbox ถาวร 1 ครั้ง/เซสชัน — เฉพาะงานที่ "ฉัน" ได้รับมอบหมาย
-  // เคารพ pref 'overdue' (ฝั่งผู้รับ) · stable id กันซ้ำข้ามวัน · งาน due ย้ายมาอยู่ Inbox แล้ว (เลิกซ้ำกับสัญญาณ)
-  const dueSweptRef = useRef(false);
-  useEffect(() => {
-    if (dueSweptRef.current || dataVersion < 1 || !myEmail) return;
-    if (!notifPrefOn('overdue')) return; // ปิดเตือนงาน → ไม่ต้องเขียน
-    const allTasks = TMK.tasks || [];
-    if (!allTasks.length) return;
-    dueSweptRef.current = true;
-    const today = todayISO();
-    // เสร็จแล้ว = ตามสถานะ "done" ของโฟลว์นั้น (custom statuses) ไม่ใช่ hardcode 'done'
-    const isDone = (t) => {
-      const flow = (TMK.flows || []).find(f => (f.scopeId ?? f.id) === (t.flow || ''));
-      const statuses = (flow?.statuses && flow.statuses.length) ? flow.statuses : null;
-      return statuses ? statuses.filter(s => s.done).some(s => s.id === t.status) : t.status === 'done';
-    };
-    allTasks.forEach(t => {
-      if (isDone(t)) return;
-      const dueISO = t.dateEnd || t.dateISO || '';
-      if (!dueISO) return;
-      const diff = Math.round((new Date(dueISO + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
-      const sev = diff < 0 ? 'overdue' : (diff >= 0 && diff <= (t.reminderDays || 1) ? 'due' : null);
-      if (!sev) return;
-      // เฉพาะงานที่ฉัน (ตามชื่อ/บทบาท/หน้าที่ที่ resolve เป็นอีเมล) ได้รับมอบหมาย
-      if (!emailsForAudience(t.responsible || []).includes(myEmail)) return;
-      const txt = sev === 'overdue' ? `เลยกำหนด ${-diff} วัน` : (diff === 0 ? 'ครบกำหนดวันนี้' : `ใกล้ครบ อีก ${diff} วัน`);
-      notify({ recipients: [myEmail], selfOk: true, actor: '', id: stableNotifId('due', t.id, dueISO), kind: sev, severity: sev === 'overdue' ? 'urgent' : 'warn', title: `${t.title} — ${txt}`, flowId: t.flow ?? '', taskId: t.id, entityType: 'task' });
-    });
-  }, [dataVersion, myEmail]);
 
   // lazy-load (PART 33): โหลดตาราง deferred (adCamps/colorMix/sizeMix/fbMetrics) ตอนกดเข้า section ที่ใช้ — Sales/แคตตาล็อก/ตั้งค่า(export+คุมแอด)
   useEffect(() => {
@@ -545,7 +508,6 @@ function AppInner() {
         {section === 'catalog' && sub === 'perf' ? <SalePerfView />
           : section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SaleDataHub />
           : section === 'sales' ? <EntryView sub={sub} />
-          : section === 'notifications' ? <NotificationsCenter />
           : section === 'logs' ? <LogView />
           : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
           : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
@@ -559,7 +521,7 @@ function AppInner() {
   const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
 
   // Special sections not in NAV (settings)
-  const SPECIAL_LABELS = { settings: 'ตั้งค่า', notifications: 'การแจ้งเตือน' };
+  const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
 
   const isMobile = useIsMobile();
@@ -647,13 +609,6 @@ function AppInner() {
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton isActive={section === 'notifications'} tooltip={t('navNotif')} onClick={() => go('notifications')}>
-                <Icon name="bell" />
-                <span>{t('navNotif')}</span>
-                <NotifNavBadge />
-              </SidebarMenuButton>
-            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton isActive={section === 'settings' && sub === 'updates'} className={isLocked('settings') ? 'opacity-50' : undefined} tooltip={isLocked('settings') ? 'ไม่มีสิทธิ์เข้าหน้านี้' : 'มีอะไรใหม่'} onClick={() => go('settings', 'updates')}>
                 <Icon name="sparkle" />
@@ -794,8 +749,6 @@ function AppInner() {
                   <span className="text-xs">⌘</span>K
                 </kbd>
               </Button>
-              
-              <NotifBell />
             </div>
           </header>
 
@@ -991,13 +944,6 @@ function AppInner() {
                 }
                 logAudit({ action: modal.data?.id ? 'update' : 'create', entityType: 'task', entityName: task.title, entityId: task.id,
                   summary: `${modal.data?.id ? 'แก้ไข' : 'สร้าง'}งาน "${task.title}"`, fields: _fields, changes: _changes, flowId: task.flow_id ?? task.flow ?? '' });
-                // แจ้งเตือนผู้ที่เพิ่งถูกมอบหมาย (assignee ใหม่ที่ไม่มีในงานเดิม)
-                const _oldResp = modal.data?.id ? (Array.isArray(modal.data.responsible) ? modal.data.responsible : String(modal.data.responsible || '').split(',').map(s => s.trim()).filter(Boolean)) : [];
-                const _newAssignees = (Array.isArray(task.responsible) ? task.responsible : []).filter(n => !_oldResp.includes(n));
-                if (_newAssignees.length) {
-                  const _ems = [...new Set(_newAssignees.map(emailOfName).filter(Boolean))];
-                  pushNotify(_ems.map(em => ({ user_email: em, kind: 'assign', title: `คุณได้รับมอบหมายงาน "${task.title}"`, flow_id: task.flow_id ?? task.flow ?? '', task_id: task.id })));
-                }
                 // Reload data so calendar/kanban show latest from Supabase
                 if (dataRefresh) await dataRefresh(['tmk_tasks']); else if (dataReload) await dataReload();
                 toast(t('toastSaved'), 'success');

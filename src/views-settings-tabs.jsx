@@ -10,7 +10,6 @@ import { useData, computeMonth } from './dataContext.jsx';
 import { MonthPicker } from './components/MonthPicker.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit, diffFields } from './lib/audit.js';
-import { useNotifications, prefOn as notifStorePrefOn, setPref as notifStoreSetPref } from './lib/notifStore.js';
 import { fetchTargets, saveTarget } from './lib/targets.js';
 import { fetchCrmTargets, saveCrmTarget } from './lib/crmTargets.js';
 import { APP_VERSION } from './changelog.js';
@@ -454,14 +453,6 @@ export function TargetsView() {
   );
 }
 
-// เปิด/ปิดแจ้งเตือน — เก็บลง DB ผ่าน store (sync ทุกเครื่อง) · ตรงกับ panel ในศูนย์แจ้งเตือน
-function NotifToggle({ storeKey, label }) {
-  const kind = storeKey.replace(/^tmk-notif-/, '');
-  const { prefs } = useNotifications(); // re-render เมื่อ pref เปลี่ยน
-  void prefs;
-  return <ShadcnSwitch checked={notifStorePrefOn(kind)} onCheckedChange={(v) => notifStoreSetPref(kind, v)} aria-label={label || 'เปิด/ปิดการแจ้งเตือน'} />;
-}
-
 // Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
 function exportAllCSV() {
   // CSV building (pure) → lib/csv.js · ที่นี่คง side-effect (download/audit/toast)
@@ -525,44 +516,6 @@ export function GeneralSettings({ dark, setDark }) {
         </CardContent>
       </Card>
 
-      {/* Notification settings */}
-      <Card>
-        <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Icon name="bell" className="size-5 text-muted-foreground" /> การแจ้งเตือน
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 divide-y divide-border/50">
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">แจ้งเตือนงาน &amp; สรุปเดือน</div>
-              <div className="text-sm text-muted-foreground mt-1">เตือนงานวันนี้/เกินกำหนด/ใกล้ถึง และเตือนสรุปยอดเดือนที่แล้ว</div>
-            </div>
-            <NotifToggle storeKey="tmk-notif-overdue" label="เปิด/ปิดแจ้งเตือนงาน" />
-          </div>
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">เตือนกรอกยอดขายวันนี้</div>
-              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อยังไม่ได้บันทึกยอดขายของวันนี้</div>
-            </div>
-            <NotifToggle storeKey="tmk-notif-daily" label="เปิด/ปิดเตือนกรอกยอดขาย" />
-          </div>
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">เตือนยอดขาย &amp; ค่าแอด</div>
-              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อ ACOS เกินเพดาน, ใช้งบแอดเกินที่ตั้ง, ยอดช้ากว่าแผน หรือ pace ลูกค้าใหม่ช้า</div>
-            </div>
-            <NotifToggle storeKey="tmk-notif-sales" label="เปิด/ปิดเตือนยอดขาย" />
-          </div>
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">เตือนออเดอร์ค้าง</div>
-              <div className="text-sm text-muted-foreground mt-1">เตือนเมื่อออเดอร์สถานะ "รอ/กำลังเตรียม" นานเกิน 2 วัน (กันลืมส่ง)</div>
-            </div>
-            <NotifToggle storeKey="tmk-notif-orders" label="เปิด/ปิดเตือนออเดอร์" />
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Data */}
       <Card>

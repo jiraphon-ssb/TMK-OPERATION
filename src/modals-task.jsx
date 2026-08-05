@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Toggle } from '@/components/ui/toggle';
 import { Checkbox } from '@/components/ui/checkbox';
 import { logAudit } from './lib/audit.js';
-import { pushNotify, emailOfName, notify, emailsForAudience } from './lib/notify.js';
 import { Modal, guardClose, uid, MD } from './modals-core.jsx';
 
 // การ์ดส่วนฟอร์ม (หัวไอคอน + กรอบขาว + shadow) — ให้ลุคเหมือน popup ออเดอร์ (FormSection) · PART 81.7
@@ -424,27 +423,6 @@ function TaskComments({ taskId, flow, onUnavailable }) {
     setList(p => [...p, { ...row, created_at: new Date().toISOString() }]);
     const _t = (MD.tasks || []).find(t => t.id === taskId);
     logAudit({ action: 'create', entityType: 'comment', entityName: _t?.title || 'งาน', summary: `${row.parent_id ? 'ตอบกลับ' : 'คอมเมนต์'}: "${text.slice(0, 60)}${text.length > 60 ? '…' : ''}"`, flowId: flow?.scopeId ?? flow?.id ?? '' });
-    // แจ้งเตือนคนที่ถูก @ ในคอมเมนต์ (เฉพาะที่เลือกจาก dropdown + ยังอยู่ในข้อความ "เป็นโทเคนเต็ม")
-    // ใช้ขอบเขตคำ — กันชื่อที่เป็น prefix ของอีกชื่อ (เช่น @Ann ไม่เด้งเมื่อพิมพ์ @Anna)
-    const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const mentionedNames = [...mentionedRef.current].filter(n => {
-      try { return new RegExp('@' + escRe(n) + '(?=\\s|$|[^\\p{L}\\p{N}_])', 'u').test(text); }
-      catch { return text.includes('@' + n); }
-    });
-    const _flowId = flow?.scopeId ?? flow?.id ?? '';
-    const mentionedEmails = new Set(mentionedNames.map(emailOfName).filter(Boolean));
-    if (mentionedNames.length) {
-      pushNotify([...mentionedEmails].map(em => ({ user_email: em, kind: 'mention', title: `ถูกกล่าวถึงใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flow_id: _flowId, task_id: taskId, entity_type: 'comment' })));
-    }
-    // ตอบกลับ → แจ้ง author ของคอมเมนต์แม่ (ถ้ายังไม่ถูก @)
-    if (replyTo?.author && !mentionedEmails.has(replyTo.author)) {
-      notify({ recipients: [replyTo.author], kind: 'reply', severity: 'info', title: `ตอบกลับคอมเมนต์ของคุณใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flowId: _flowId, taskId, entityType: 'comment' });
-    }
-    // คอมเมนต์ใหม่ → แจ้งผู้รับผิดชอบงาน (ไม่ซ้ำกับ @แท็ก/ผู้ที่ถูกตอบกลับ · notify ตัดตัวเองให้)
-    const respEmails = emailsForAudience(_t?.responsible || []).filter(e => !mentionedEmails.has(e) && e !== replyTo?.author);
-    if (respEmails.length) {
-      notify({ recipients: respEmails, kind: 'comment', severity: 'info', title: `คอมเมนต์ใหม่ใน "${_t?.title || 'งาน'}"`, body: text.slice(0, 120), flowId: _flowId, taskId, entityType: 'comment' });
-    }
     mentionedRef.current = new Set();
   };
   // รีแอกชัน emoji (toggle ของเรา) — เก็บใน reactions jsonb [{emoji,users[]}]

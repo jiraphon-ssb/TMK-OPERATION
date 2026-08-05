@@ -12,7 +12,6 @@ import { Icon, Avatar, ColorPicker, FlowIcon, IconPicker, readImageCompressed, u
 import { useData } from './dataContext.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
-import { notify } from './lib/notify.js';
 import { thaiDate, todayISO } from './lib/dateUtils.js';
 import { SearchInput } from '@/components/ui/search-input';
 import { PlannerView } from './views-planner.jsx';
@@ -460,7 +459,6 @@ function FlowSettingsPage({ flow, onAfter, onGone }) {
       logAudit({ action: 'update', entityType: 'flow', entityName: name.trim(), summary: `แก้ไขโครงการ "${name.trim()}"`, flowId: flow.scopeId ?? flow.id });
       // แจ้งสมาชิกที่ถูกเพิ่มใหม่เข้าโครงการ (diff เก่า/ใหม่)
       const _added = members.filter(m => !(flow.members || []).includes(m));
-      if (_added.length) notify({ recipients: _added, kind: 'flow_member', title: `คุณถูกเพิ่มเข้าโครงการ "${name.trim()}"`, flowId: flow.scopeId ?? flow.id, entityType: 'flow', action: 'update' });
       if (refresh) await refresh(['tmk_flows']); else if (reload) await reload();
       window.__toast?.('บันทึกโครงการเรียบร้อย', 'success');
     } catch (err) { window.__toast?.('บันทึกไม่สำเร็จ: ' + err.message, 'error'); } finally { setBusy(false); }

@@ -22,7 +22,7 @@ const T = {
     discardClose: 'ปิดโดยไม่บันทึก', goBack: 'กลับไปแก้ไข',
 
     // ---- Nav ----
-    navHome: 'หน้าหลัก', navNotif: 'การแจ้งเตือน', navSales: 'ยอดขาย', navPlanner: 'วางแผน', navFlows: 'โครงการ',
+    navHome: 'หน้าหลัก', navSales: 'ยอดขาย', navPlanner: 'วางแผน', navFlows: 'โครงการ',
     navCatalog: 'Sale', navSystem: 'ตั้งค่า', navLogs: 'บันทึกกิจกรรม', subFlowBoard: 'โครงการทั้งหมด', subFlowList: 'รายการงาน', subFlowHistory: 'ประวัติกิจกรรม', subMyTasks: 'งานของฉัน',
     subOverview: 'ภาพรวมยอดขาย', subChannels: 'ช่องทางการขาย',
     subAds: 'โฆษณา & แชท', subCustomers: 'ลูกค้า',
@@ -257,7 +257,7 @@ const T = {
     discardClose: 'Close without saving', goBack: 'Go back',
 
     // ---- Nav ----
-    navHome: 'Home', navNotif: 'Notifications', navSales: 'Sales', navPlanner: 'Planner', navFlows: 'Projects', subFlowBoard: 'All Projects', subFlowList: 'Task List', subFlowHistory: 'Activity', subMyTasks: 'My Tasks',
+    navHome: 'Home', navSales: 'Sales', navPlanner: 'Planner', navFlows: 'Projects', subFlowBoard: 'All Projects', subFlowList: 'Task List', subFlowHistory: 'Activity', subMyTasks: 'My Tasks',
     navCatalog: 'Sale', navSystem: 'Settings', navLogs: 'Activity Log', subOverview: 'Sales Overview', subChannels: 'Sales Channels',
     subAds: 'Ads & Chat', subCustomers: 'Customers',
     subDaily: 'Daily Entry', subMonthly: 'Daily & Monthly', subStatus: 'Entry Status', subDataHub: 'Sales & data',
