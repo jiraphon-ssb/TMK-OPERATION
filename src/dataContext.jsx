@@ -23,7 +23,11 @@ const DataContext = createContext();
 
 // Query map ต่อตาราง — แยกออกมาเพื่อใช้ซ้ำใน refreshTables (per-table refresh)
 // จุดเดียวเปลี่ยน → ทั้ง loadAllTables และ refreshTables เห็นพร้อมกัน
-const dailyFromDate = () => { const d = new Date(); d.setMonth(d.getMonth() - 13); return d.toISOString().slice(0, 10); };
+// หน้าต่างโหลดยอดรายวัน (เดือน) — PART 92: ขยาย 13→37 เดือน กันยอดเดือนเก่า "หาย" เมื่อหลุดหน้าต่าง
+// (tmk_daily_sales = 1 แถว/วัน แถวเล็ก ~1,100 แถว/3 ปี → egress แทบไม่กระทบ) · daily-first ยังคุมให้ใช้รายวันเสมอเมื่อมีข้อมูล
+// ปรับค่าเดียวนี้ถ้าต้องการนานกว่านี้ (เช่น 61 = 5 ปี) · เดือนที่เก่ากว่านี้ค่อย fallback tmk_monthly_history.actual
+const DAILY_WINDOW_MONTHS = 37;
+const dailyFromDate = () => { const d = new Date(); d.setMonth(d.getMonth() - DAILY_WINDOW_MONTHS); return d.toISOString().slice(0, 10); };
 const QUERIES = {
   settings:    () => supabase.from('tmk_settings').select('*').eq('id', 'main').maybeSingle(),
   channels:    () => supabase.from('tmk_channels').select('*').is('deleted_at', null).order('sort_order'),
@@ -36,7 +40,7 @@ const QUERIES = {
   roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
   staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
   duties:      () => supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
-  // จำกัด 13 เดือนล่าสุด — เดือนเก่ากว่านั้น computeMonth fallback ไป tmk_monthly_history.actual
+  // จำกัด DAILY_WINDOW_MONTHS เดือนล่าสุด — เดือนเก่ากว่านั้น computeMonth fallback ไป tmk_monthly_history.actual
   daily:       () => supabase.from('tmk_daily_sales').select('date,day_name,channels,ad_spend,avg_reply_minutes,note,deleted_at,shopee,tiktok,lazada,facebook,line_oa,crm').gte('date', dailyFromDate()).order('date'),
   adCamps:     () => supabase.from('tmk_ad_campaigns').select('*').is('deleted_at', null).order('start_date'),
   segments:    () => supabase.from('tmk_customer_segments').select('*').is('deleted_at', null).order('sort_order'),

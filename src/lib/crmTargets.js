@@ -42,23 +42,40 @@ export async function fetchCrmNotes(dateISO) {
   try {
     const { data, error } = await supabase
       .from('tmk_crm_notes')
-      .select('id,salesperson,date,note,updated_at')
+      .select('id,salesperson,date,note,data,updated_at')
       .eq('date', dateISO);
-    if (error) return [];
+    // คอลัมน์ data ยังไม่ migrate → fallback ดึงเฉพาะช่องเดิม (ฟอร์มมีช่องจะว่าง แต่ข้อความยังอ่านได้)
+    if (error) {
+      if (/column .*\bdata\b.* does not exist|schema cache/i.test(error.message || '')) {
+        const r2 = await supabase.from('tmk_crm_notes').select('id,salesperson,date,note,updated_at').eq('date', dateISO);
+        return r2.error ? [] : (r2.data || []);
+      }
+      return [];
+    }
     return data || [];
   } catch { return []; }
 }
 
-/** บันทึกโน้ตประจำวัน — โน้ตว่าง = ลบแถวทิ้ง (ตารางไม่รก) · คืน result ให้ caller toast */
-export async function saveCrmNote({ salesperson, date, note = '' }) {
+/** บันทึกโน้ตประจำวัน — ว่างทั้งข้อความ+ฟอร์ม = ลบแถวทิ้ง (ตารางไม่รก) · คืน result ให้ caller toast
+ *  data = ฟิลด์ฟอร์ม (jsonb) · note = ข้อความสรุป (คงไว้ให้ตารางรวมทุกคน/reader เก่าอ่านได้) */
+export async function saveCrmNote({ salesperson, date, note = '', data = null }) {
   const text = String(note || '').trim();
-  if (!text) {
+  const hasData = data && Object.keys(data).length > 0;
+  if (!text && !hasData) {
     const res = await supabase.from('tmk_crm_notes').delete().eq('id', crmNoteId(salesperson, date));
     if (!res.error) logAudit({ action: 'delete', entityType: 'crm_note', entityName: salesperson, summary: `ลบบันทึกประจำวัน CRM ${salesperson} วันที่ ${date}` });
     return res;
   }
   const row = { id: crmNoteId(salesperson, date), salesperson, date, note: text, updated_at: new Date().toISOString() };
-  const res = await supabase.from('tmk_crm_notes').upsert(row, { onConflict: 'id' });
+  if (hasData) row.data = data;
+  let res = await supabase.from('tmk_crm_notes').upsert(row, { onConflict: 'id' });
+  // คอลัมน์ data ยังไม่ migrate → ลองใหม่แบบไม่มี data (ข้อความยังบันทึกได้) · ตั้ง degraded ให้ caller เตือนว่าช่องตัวเลขยังไม่ถูกเก็บ
+  let degraded = false;
+  if (res.error && hasData && /column .*data.* does not exist|schema cache/i.test(res.error.message || '')) {
+    const { data: _drop, ...noData } = row;
+    res = await supabase.from('tmk_crm_notes').upsert(noData, { onConflict: 'id' });
+    if (!res.error) degraded = true;
+  }
   if (!res.error) logAudit({ action: 'update', entityType: 'crm_note', entityName: salesperson, summary: `บันทึกประจำวัน CRM ${salesperson} วันที่ ${date}`, fields: [{ label: 'โน้ต', value: text.slice(0, 200) }] });
-  return res;
+  return { ...res, degraded };
 }

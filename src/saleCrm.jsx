@@ -19,6 +19,7 @@ import { buildCrmMonth, isCrmOrder, crmCustomerKey, crmTargetProgress } from './
 import { isCancelled } from './lib/salePerfAgg.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchCrmTargets, fetchCrmNotes, saveCrmNote } from './lib/crmTargets.js';
+import { blankNoteData, normNoteData, isNoteDataEmpty, noteSummaryText, buildCrmDailyReport, totalCalls } from './lib/crmDailyNote.js';
 import { useUser } from './userContext.jsx';
 import { isAdmin, myNamesOf } from './lib/roleAccess.js';
 import { Progress } from '@/components/ui/progress';
@@ -364,12 +365,40 @@ function CrmDayTile({ label, value, tone }) {
     </div>
   );
 }
+// ช่องตัวเลขฟอร์มบันทึกประจำวัน — 0 โชว์ว่าง (พิมพ์ทับง่าย) · ชิดขวา tabular
+function NoteNum({ label, value, onChange }) {
+  return (
+    <label className="flex flex-col gap-1 min-w-0">
+      <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>{label}</span>
+      <Input type="number" inputMode="numeric" min={0} className="h-8 text-[13px] text-right tabular-nums"
+        value={value === 0 ? '' : value} placeholder="0" onChange={e => onChange(e.target.value)} />
+    </label>
+  );
+}
+// กลุ่มโทร (0DAY / 5DAY / Repurchase) — โทรทั้งหมด + รับสาย · ไม่รับคิดให้อัตโนมัติ
+function NoteCallGroup({ title, g, onChange }) {
+  const missed = Math.max(0, (Number(g.total) || 0) - (Number(g.answered) || 0));
+  const cell = (key, lb) => (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] w-9 shrink-0" style={{ color: 'var(--ink-4)' }}>{lb}</span>
+      <Input type="number" inputMode="numeric" min={0} className="h-8 text-[13px] text-right tabular-nums"
+        value={g[key] === 0 ? '' : g[key]} placeholder="0" onChange={e => onChange(key, e.target.value)} />
+    </div>
+  );
+  return (
+    <div className="rounded-lg p-2.5" style={{ border: '1px solid var(--line)' }}>
+      <div className="text-[12px] font-semibold mb-1.5" style={{ color: 'var(--ink-2)' }}>{title}</div>
+      <div className="flex flex-col gap-1.5">{cell('total', 'โทร')}{cell('answered', 'รับ')}</div>
+      <div className="text-[11px] mt-1.5" style={{ color: 'var(--ink-4)' }}>ไม่รับ <b style={{ color: 'var(--ink-2)' }}>{missed}</b> สาย</div>
+    </div>
+  );
+}
 // การ์ดออเดอร์ → ใช้ OrderCard กลาง (orderCard.jsx · PART 88) — ดีไซน์ Lemon: ส่วนลดที่หัว + สรุปเงินท้ายรายการ
-function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
+function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer }) {
   const [lineBy, setLineBy] = useState(null); // order_no → [{design,color,size,qty,line_sales}]
   const [finBy, setFinBy] = useState({});     // "source:order_no" → {subtotal,discount,shipping,vat}
   const [notes, setNotes] = useState([]);     // บันทึกประจำวัน ของวันนั้น (ทุกคน)
-  const [noteDraft, setNoteDraft] = useState('');
+  const [noteData, setNoteData] = useState(blankNoteData()); // ฟอร์มมีช่อง (PART 91)
   const [noteBusy, setNoteBusy] = useState(false);
   const loading = lineBy === null;
 
@@ -381,10 +410,25 @@ function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
   const qty = ords.reduce((x, o) => x + num(o.qty), 0);
   const buyers = new Set(ords.map(o => crmCustomerKey(o)).filter(Boolean)).size;
 
-  // lazy: รายการสินค้า (skus) + แยกราคา (attrs) + บันทึกประจำวัน — โหลดตอนเปิด popup เท่านั้น (ออเดอร์/วันไม่มาก · egress ต่ำ)
+  // ลูกค้าเก่า/ใหม่ + ปิดการขาย Repurchase — คิดสดจากวันซื้อครั้งแรกทั้งบริษัท (allOrders · เก่า=เคยซื้อก่อนวันนี้แม้กับเซลล์คนอื่น)
+  const { oldCust, newCust, repurchaseOrders, repurchaseBaht } = useMemo(() => {
+    const firstDate = {};
+    (allOrders || orders || []).forEach(o => {
+      if (isCancelled(o)) return;
+      const k = crmCustomerKey(o), dt = o.order_date || '';
+      if (!k || !dt) return;
+      if (!firstDate[k] || dt < firstDate[k]) firstDate[k] = dt;
+    });
+    const keys = [...new Set(ords.map(o => crmCustomerKey(o)).filter(Boolean))];
+    const nc = keys.filter(k => (firstDate[k] || dateISO) >= dateISO).length;
+    const rep = ords.filter(o => { const k = crmCustomerKey(o); return k && (firstDate[k] || dateISO) < dateISO; });
+    return { oldCust: keys.length - nc, newCust: nc, repurchaseOrders: rep.length, repurchaseBaht: rep.reduce((x, o) => x + num(o.sales), 0) };
+  }, [allOrders, orders, ords, dateISO]);
+
+  // lazy: รายการสินค้า (skus) + แยกราคา (attrs) — โหลดตอนเปิด popup เท่านั้น (ออเดอร์/วันไม่มาก · egress ต่ำ)
   useEffect(() => {
     let live = true;
-    setLineBy(null); setFinBy({}); setNotes([]);
+    setLineBy(null); setFinBy({});
     (async () => {
       const nos = [...new Set(ords.map(o => o.order_no).filter(x => x && !String(x).startsWith('(')))];
       const lb = new Map();
@@ -405,32 +449,67 @@ function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
         (aData || []).forEach(r => { const a = r.attrs || {}; fb[`${r.source || ''}:${r.order_no}`] = { subtotal: a.subtotal, discount: a.discount, shipping: a.shipping, vat: a.vat, promo: a.promo_code }; });
         if (live) setFinBy(fb);
       }
-      if (!live) return;
-      setLineBy(lb);
-      setNotes(await fetchCrmNotes(dateISO));
+      if (live) setLineBy(lb);
     })();
     return () => { live = false; };
   }, [dateISO, ords]);
+
+  // บันทึกประจำวัน — โหลดแยกจากออเดอร์ (คีย์ [dateISO] เท่านั้น) · กัน realtime ออเดอร์เข้ามาระหว่างกรอก → ฟอร์มรีเซ็ต/ที่พิมพ์หาย
+  useEffect(() => {
+    let live = true;
+    setNotes([]);
+    fetchCrmNotes(dateISO).then(n => { if (live) setNotes(n); });
+    return () => { live = false; };
+  }, [dateISO]);
 
   // ส่วนลดรวมของวัน (จาก attrs · ไม่มี = 0 ตามจริง — ใบเสร็จที่ไม่มีส่วนลดจะไม่เขียน attrs.discount)
   const discTotal = useMemo(() => ords.reduce((x, o) => x + (Number(finBy[`${o.source || ''}:${o.order_no}`]?.discount) || 0), 0), [ords, finBy]);
 
   // บันทึกประจำวัน — scope เดี่ยว = ของเซลล์คนนั้น · แก้ได้ถ้า admin หรือเป็นตัวเอง
   const canEditNote = (sp) => isAdmin(user) || myNamesOf(user).includes(sp);
-  const singleNote = seller ? (notes.find(n => n.salesperson === seller)?.note || '') : null;
-  useEffect(() => { setNoteDraft(singleNote || ''); }, [singleNote, dateISO]);
-  const saveNote = async (sp, text) => {
+  const singleRow = seller ? notes.find(n => n.salesperson === seller) : null;
+  // โหลดค่าเดิม · แถวเก่าก่อนมีฟอร์ม (มี note ข้อความ ไม่มี data) → ยกข้อความมาไว้ช่อง "หมายเหตุเพิ่มเติม" กันหาย
+  const savedData = useMemo(() => {
+    const d = normNoteData(singleRow?.data);
+    if (!singleRow?.data && singleRow?.note && !d.extra.trim()) d.extra = String(singleRow.note);
+    return d;
+  }, [singleRow]);
+  // โหลดค่าเข้าฟอร์มเมื่อดึงโน้ตใหม่/เปลี่ยนวัน (notes identity เปลี่ยนเฉพาะตอน refetch → ไม่ทับที่กำลังพิมพ์)
+  useEffect(() => { setNoteData(savedData); }, [notes, seller, dateISO]); // eslint-disable-line react-hooks/exhaustive-deps
+  const noteDirty = useMemo(() => JSON.stringify(normNoteData(noteData)) !== JSON.stringify(savedData), [noteData, savedData]);
+  const autoFor = () => ({ crmSales: line + phone, line, phone, orders: ords.length, qty, buyers, oldCust, newCust, repurchaseOrders, repurchaseBaht });
+
+  const saveNote = async (sp) => {
     setNoteBusy(true);
-    const { error } = await saveCrmNote({ salesperson: sp, date: dateISO, note: text });
+    const data = normNoteData(noteData);
+    const empty = isNoteDataEmpty(data);
+    const summary = empty ? '' : (noteSummaryText(data) || 'มีข้อมูลบันทึกประจำวัน');
+    const { error, degraded } = await saveCrmNote({ salesperson: sp, date: dateISO, note: summary, data: empty ? null : data });
     setNoteBusy(false);
     if (error) {
       const miss = /relation .* does not exist|tmk_crm_notes|schema cache/i.test(error.message || '');
       toast(miss ? 'ต้องรัน migration 20260731-crm-targets-notes.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ', 'error');
       return;
     }
-    toast('บันทึกแล้ว', 'success');
+    if (degraded) toast('บันทึกข้อความแล้ว แต่ช่องตัวเลขยังไม่ถูกเก็บ — ต้องรัน migration 20260805-crm-note-data.sql', 'warn');
+    else toast('บันทึกแล้ว', 'success');
     setNotes(await fetchCrmNotes(dateISO));
   };
+  const copyReport = async (sp) => {
+    const text = buildCrmDailyReport({ seller: sp, dateISO, auto: autoFor(), data: noteData });
+    try { await navigator.clipboard.writeText(text); toast('คัดลอกรายงานแล้ว — วางในไลน์ได้เลย', 'success'); }
+    catch { toast('คัดลอกไม่สำเร็จ — เบราว์เซอร์บล็อก คลิปบอร์ด', 'error'); }
+  };
+  // helpers อัปเดตฟอร์ม · setCall กัน "รับ > โทรทั้งหมด" (ให้ total ≥ answered เสมอ → รายงานไม่ขัดกัน)
+  const setCall = (grp, key, v) => setNoteData(d => {
+    const g = { ...d.calls[grp] };
+    g[key] = Math.max(0, Math.round(Number(v) || 0));
+    if (key === 'total' && g.answered > g.total) g.answered = g.total;   // ลดโทรรวม → รับตามลง
+    if (key === 'answered' && g.answered > g.total) g.total = g.answered; // รับเกินโทรรวม → ดันโทรรวมขึ้น
+    return { ...d, calls: { ...d.calls, [grp]: g } };
+  });
+  const setNum = (key, v) => setNoteData(d => ({ ...d, [key]: Math.max(0, Number(v) || 0) }));
+  const setTxt = (key, v) => setNoteData(d => ({ ...d, [key]: v }));
 
   return (
     <div className="flex flex-col gap-4">
@@ -445,24 +524,67 @@ function CrmDayDetail({ dateISO, orders, seller, user, onPickCustomer }) {
         <CrmDayTile label="ส่วนลดรวม" value={discTotal > 0 ? baht(discTotal) : '—'} tone={discTotal > 0 ? 'var(--bad)' : undefined} />
       </div>
 
-      {/* บันทึกประจำวัน CRM (อยู่ในรูปแคปด้วย) */}
+      {/* บันทึกประจำวัน CRM — ฟอร์มมีช่อง (PART 91) · อยู่ในรูปแคปด้วย */}
       {seller ? (
-        (canEditNote(seller) || singleNote) && (
+        (canEditNote(seller) || singleRow?.note) && (
           <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
-            <div className="cap mb-1.5" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน — {seller}</div>
+            <div className="flex items-center gap-2 mb-2.5">
+              <span className="cap" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน — {seller}</span>
+              <span className="ml-auto text-[11px]" style={{ color: 'var(--ink-4)' }}>{dateISO}</span>
+            </div>
             {canEditNote(seller) ? (
-              <div className="flex flex-col gap-2">
-                <Textarea rows={2} value={noteDraft} onChange={e => setNoteDraft(e.target.value)} placeholder="เช่น ลูกค้าสอบถามเสื้อสีเทา อสม. เข้ามาเยอะ" />
-                <Button size="sm" className="self-end" disabled={noteBusy || noteDraft === (singleNote || '')} onClick={() => saveNote(seller, noteDraft)}><Icon name="check" /> บันทึก</Button>
+              <div className="flex flex-col gap-3">
+                {/* การโทร 3 กลุ่ม */}
+                <div>
+                  <div className="cap mb-1.5" style={{ color: 'var(--ink-4)' }}><Icon name="phone" /> การโทร</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <NoteCallGroup title="0DAY" g={noteData.calls.d0} onChange={(k, v) => setCall('d0', k, v)} />
+                    <NoteCallGroup title="5DAY" g={noteData.calls.d5} onChange={(k, v) => setCall('d5', k, v)} />
+                    <NoteCallGroup title="Repurchase" g={noteData.calls.rep} onChange={(k, v) => setCall('rep', k, v)} />
+                  </div>
+                  <div className="text-[11px] mt-1.5" style={{ color: 'var(--ink-4)' }}>รวม <b style={{ color: 'var(--ink-2)' }}>{totalCalls(noteData)}</b> สาย — คิดให้อัตโนมัติ</div>
+                </div>
+                {/* ผลจากการโทร/แชท */}
+                <div>
+                  <div className="cap mb-1.5" style={{ color: 'var(--ink-4)' }}><Icon name="chat" /> ผลการขาย</div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <NoteNum label="อัพเซลล์ (ออเดอร์)" value={noteData.upsellOrders} onChange={v => setNum('upsellOrders', v)} />
+                    <NoteNum label="อัพเซลล์ (บาท)" value={noteData.upsellBaht} onChange={v => setNum('upsellBaht', v)} />
+                    <NoteNum label="ออเดอร์แถม" value={noteData.freebieOrders} onChange={v => setNum('freebieOrders', v)} />
+                    <NoteNum label="โปรวันเกิด" value={noteData.birthdayOrders} onChange={v => setNum('birthdayOrders', v)} />
+                  </div>
+                </div>
+                {/* เสียงลูกค้า */}
+                <div>
+                  <div className="cap mb-1.5" style={{ color: 'var(--ink-4)' }}>เสียงลูกค้า</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" value={noteData.ask} onChange={e => setTxt('ask', e.target.value)} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
+                    <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" value={noteData.praise} onChange={e => setTxt('praise', e.target.value)} placeholder="—" /></label>
+                    <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" value={noteData.complaint} onChange={e => setTxt('complaint', e.target.value)} placeholder="—" /></label>
+                  </div>
+                </div>
+                {/* หมายเหตุเพิ่มเติม (รับข้อความโน้ตเก่าก่อนมีฟอร์มมาไว้ที่นี่ด้วย) */}
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>หมายเหตุเพิ่มเติม (ถ้ามี)</span>
+                  <Textarea rows={2} className="text-[13px]" value={noteData.extra} onChange={e => setTxt('extra', e.target.value)} placeholder="เรื่องอื่นๆ ที่อยากบันทึกไว้" />
+                </label>
+                {/* ระบบเติมเอง (คิดสดจากออเดอร์จริง — เข้ารายงานอัตโนมัติ ไม่ต้องกรอก) */}
+                <div className="rounded-lg px-3 py-2 text-[12px] leading-relaxed" style={{ background: 'var(--accent-soft, var(--surface-2))', color: 'var(--accent)' }}>
+                  <b>ระบบเติมให้เอง</b> (เข้ารายงานอัตโนมัติ): ยอด CRM {baht(line + phone)} (LINE {baht(line)} · โทร {baht(phone)}) · {N(ords.length)} ออเดอร์ · {N(qty)} ตัว · ปิด Repurchase {N(repurchaseOrders)} ({baht(repurchaseBaht)}) · ลูกค้าซื้อ {N(buyers)} คน (เก่า {N(oldCust)} · ใหม่ {N(newCust)})
+                </div>
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <Button variant="outline" size="sm" onClick={() => copyReport(seller)}><Icon name="chat" /> คัดลอกรายงานส่ง LINE</Button>
+                  <Button size="sm" disabled={noteBusy || !noteDirty} onClick={() => saveNote(seller)}><Icon name="check" /> บันทึก</Button>
+                </div>
               </div>
-            ) : <div className="text-[13px]" style={{ color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{singleNote}</div>}
+            ) : <div className="text-[13px]" style={{ color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{singleRow?.note}</div>}
           </div>
         )
       ) : notes.length > 0 && (
         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--line)' }}>
           <div className="cap mb-1.5" style={{ fontWeight: 700, color: 'var(--ink-2)' }}>บันทึกประจำวัน</div>
           <div className="flex flex-col gap-1.5">
-            {notes.map(n => <div key={n.id} className="text-[13px]" style={{ color: 'var(--ink-2)' }}><b style={{ color: 'var(--ink)' }}>{n.salesperson}:</b> <span style={{ whiteSpace: 'pre-wrap' }}>{n.note}</span></div>)}
+            {notes.filter(n => (n.note || '').trim()).map(n => <div key={n.id} className="text-[13px]" style={{ color: 'var(--ink-2)' }}><b style={{ color: 'var(--ink)' }}>{n.salesperson}:</b> <span style={{ whiteSpace: 'pre-wrap' }}>{n.note}</span></div>)}
           </div>
         </div>
       )}
@@ -776,7 +898,7 @@ export function CrmView() {
           title={`ออเดอร์ CRM วันที่ ${Number(dayOpen.slice(8, 10))}`}
           sub={`${dayOpen}${effSeller ? ` · ${effSeller}` : ' · รวมทุกคน'}`}
           onClose={() => setDayOpen(null)}>
-          <CrmDayDetail dateISO={dayOpen} orders={dayOrders} seller={effSeller} user={user}
+          <CrmDayDetail dateISO={dayOpen} orders={dayOrders} allOrders={raw?.orders} seller={effSeller} user={user}
             onPickCustomer={(o) => { const c = (data || []).find(x => x.key === crmCustomerKey(o)); setDayOpen(null); if (c) setSel(c); }} />
         </SideSheet>
       )}
