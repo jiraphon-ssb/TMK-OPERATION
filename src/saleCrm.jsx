@@ -371,7 +371,7 @@ function NoteNum({ label, value, onChange }) {
     <label className="flex flex-col gap-1 min-w-0">
       <span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>{label}</span>
       <Input type="number" inputMode="numeric" min={0} className="h-9 text-[13px] text-center tabular-nums"
-        style={{ background: 'var(--surface-2)' }} value={value === 0 ? '' : value} placeholder="0" onChange={e => onChange(e.target.value)} />
+        style={{ background: 'var(--surface)' }} value={value === 0 ? '' : value} placeholder="0" onChange={e => onChange(e.target.value)} />
     </label>
   );
 }
@@ -382,11 +382,11 @@ function NoteCallGroup({ title, g, onChange, tone }) {
     <label className="flex flex-col gap-1 min-w-0">
       <span className="text-[10.5px]" style={{ color: 'var(--ink-4)' }}>{lb}</span>
       <Input type="number" inputMode="numeric" min={0} className="h-9 text-[13px] text-center tabular-nums"
-        style={{ background: 'var(--surface-2)' }} value={g[key] === 0 ? '' : g[key]} placeholder="0" onChange={e => onChange(key, e.target.value)} />
+        style={{ background: 'var(--surface)' }} value={g[key] === 0 ? '' : g[key]} placeholder="0" onChange={e => onChange(key, e.target.value)} />
     </label>
   );
   return (
-    <div className="rounded-lg p-2.5" style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+    <div className="rounded-lg p-2.5" style={{ background: 'var(--surface)', border: '1px solid var(--line)' }}>
       <div className="text-[12px] font-semibold mb-2" style={{ color: tone }}>{title}</div>
       <div className="grid grid-cols-2 gap-1.5">{cell('total', 'โทร')}{cell('answered', 'รับ')}</div>
       <div className="text-[11px] mt-1.5 text-center" style={{ color: 'var(--ink-4)' }}>ไม่รับ <b style={{ color: 'var(--ink-2)' }}>{missed}</b> สาย</div>
@@ -525,7 +525,7 @@ function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer
           canEditNote(seller) ? (
             <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--line)' }}>
               {/* หัวกดเพื่อย่อ/กาง */}
-              <button type="button" onClick={() => setNoteOpen(o => !o)} className="w-full flex items-center gap-3 p-3 text-left" style={{ background: noteOpen ? 'var(--surface-2, transparent)' : 'transparent' }}>
+              <button type="button" onClick={() => setNoteOpen(o => !o)} className="w-full flex items-center gap-3 p-3 text-left" style={{ background: 'transparent' }}>
                 <span className="shrink-0 grid place-items-center rounded-lg [&_svg]:size-[18px]" style={{ width: 34, height: 34, background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14px] font-semibold" style={{ color: 'var(--ink)' }}>บันทึกประจำวัน — {seller}</span>
@@ -559,9 +559,9 @@ function CrmDayDetail({ dateISO, orders, allOrders, seller, user, onPickCustomer
                   <div className="rounded-[10px] p-3" style={{ background: 'var(--warn-soft)', borderLeft: '3px solid var(--warn)' }}>
                     <div className="text-[12px] font-semibold mb-2.5 [&_svg]:size-[15px] flex items-center gap-1.5" style={{ color: 'var(--warn)' }}><Icon name="chat" /> เสียงลูกค้า</div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface-2)' }} value={noteData.ask} onChange={e => setTxt('ask', e.target.value)} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
-                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface-2)' }} value={noteData.praise} onChange={e => setTxt('praise', e.target.value)} placeholder="—" /></label>
-                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface-2)' }} value={noteData.complaint} onChange={e => setTxt('complaint', e.target.value)} placeholder="—" /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={noteData.ask} onChange={e => setTxt('ask', e.target.value)} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={noteData.praise} onChange={e => setTxt('praise', e.target.value)} placeholder="—" /></label>
+                      <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={noteData.complaint} onChange={e => setTxt('complaint', e.target.value)} placeholder="—" /></label>
                     </div>
                   </div>
                   {/* หมายเหตุเพิ่มเติม (รับข้อความโน้ตเก่าก่อนมีฟอร์มมาไว้ที่นี่ด้วย) */}

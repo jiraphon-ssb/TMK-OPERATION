@@ -250,22 +250,22 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
   const isCurrentMonth = ym.y === curY && ym.m === curM;
   const todayDay = isCurrentMonth ? T.day : -1;
 
-  // จับคู่งานกับวันของ "เดือนที่เลือก" (ym) — แยกงานวันเดียว (ชิปในช่อง) กับงานช่วงวัน เริ่ม–สิ้นสุด (แถบพาดข้ามวัน)
+  // จับคู่งานกับวันของ "เดือนที่เลือก" (ym) — ทุกงานเป็น "ชิปวันเดียว" ที่วันเริ่ม (ไม่พาดยาวข้ามวัน)
+  //   งานหลายวัน = โชว์ชิปที่วันเริ่ม + ลูกศร › (คลิกดูช่วงเต็มใน tooltip/แผงข้าง) · dayAll ยังคลุมทุกวันเพื่อแผงข้าง/ไอคอน/จุด
   const pad2 = (n) => String(n).padStart(2, '0');
   const mkIso = (d) => `${greg}-${pad2(ym.m + 1)}-${pad2(d)}`;
   const monthFirst = mkIso(1), monthLast = mkIso(daysInMonth);
-  const byDay = {};   // งานวันเดียว → ชิปในช่องวัน
-  const ranged = [];  // งานมีช่วงวัน → แถบพาดข้ามวัน (ds/de = วันในเดือนนี้หลัง clip ขอบเดือน)
+  const byDay = {};   // วันเริ่ม → [{ t, multi, contPrev, s, e }]
   const dayAll = {};  // ทุกงานที่คาบเกี่ยววันนั้น → แผงข้าง/ไอคอนช่องทาง/จุดมือถือ
   filtered.forEach(t => {
     const s = t.dateISO || parseTaskDate(t.date);
     if (!s) return;
     const e = (t.dateEnd && t.dateEnd > s) ? t.dateEnd : s;
     if (e < monthFirst || s > monthLast) return; // ไม่คาบเกี่ยวเดือนนี้
-    const ds = s <= monthFirst ? 1 : Number(s.slice(8));
+    const contPrev = s < monthFirst;             // เริ่มก่อนเดือนนี้ → โชว์ชิปที่วันที่ 1
+    const ds = contPrev ? 1 : Number(s.slice(8));
     const de = e >= monthLast ? daysInMonth : Number(e.slice(8));
-    if (e > s) ranged.push({ t, s, e, ds, de });
-    else (byDay[ds] = byDay[ds] || []).push(t);
+    (byDay[ds] = byDay[ds] || []).push({ t, multi: e > s, contPrev, s, e });
     for (let d = ds; d <= de; d++) (dayAll[d] = dayAll[d] || []).push(t);
   });
 
@@ -283,24 +283,6 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
   const weeks = [];
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
 
-  // ตัดแถบช่วงวันเป็น segment ต่อสัปดาห์ + จัดเลนแบบ greedy (ซ้อนไม่ทับกัน) — เกิน 4 เลนตัดทิ้ง (ยังเห็นในแผงวัน)
-  const weekSegs = weeks.map(week => {
-    const segs = [];
-    ranged.forEach(r => {
-      const cols = week.map((d, i) => ({ d, i })).filter(x => x.d && x.d >= r.ds && x.d <= r.de);
-      if (!cols.length) return;
-      const c0 = cols[0].i, c1 = cols[cols.length - 1].i;
-      segs.push({ ...r, c0, c1, contL: r.s < mkIso(cols[0].d), contR: r.e > mkIso(cols[cols.length - 1].d) });
-    });
-    segs.sort((a, b) => a.c0 - b.c0 || (b.c1 - b.c0) - (a.c1 - a.c0));
-    const laneEnd = [];
-    segs.forEach(sg => {
-      let ln = laneEnd.findIndex(end => sg.c0 > end);
-      if (ln === -1) { ln = laneEnd.length; laneEnd.push(sg.c1); } else laneEnd[ln] = sg.c1;
-      sg.lane = ln;
-    });
-    return segs.filter(sg => sg.lane < 4);
-  });
 
   const selTasks = dayAll[sel] || [];
 
@@ -348,13 +330,13 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
   };
 
   // เรนเดอร์เป็น "ฟังก์ชัน" (ไม่ใช่ <Component/>) — JSX inline reconcile ตาม key แทนที่จะ unmount/remount ทุกครั้งที่ตั้ง dropDay (กัน flicker + drag event หลุดตอนลาก)
-  const renderCell = (d, i, lanes) => {
+  const renderCell = (d, i) => {
     if (!d) return <div key={i} style={{ background: 'var(--surface-2)', opacity: .55 }}></div>;
-    const ts = byDay[d] || [];       // งานวันเดียว → ชิป
-    const all = dayAll[d] || [];     // รวมงานช่วงวันที่คาบเกี่ยว → ไอคอน/จุด
+    const ts = byDay[d] || [];       // งานที่ "เริ่ม" วันนี้ → ชิป [{ t, multi, contPrev, s, e }]
+    const all = dayAll[d] || [];     // รวมงานที่คาบเกี่ยววันนี้ → ไอคอน/จุด/แผงข้าง
     const isSel = d === sel, isToday = d === todayDay, isDrop = dragActive && dropDay === d;
-    const show = ts.slice(0, 3);
-    const more = ts.length - 3;
+    const show = ts.slice(0, 4);
+    const more = ts.length - 4;
     // ไอคอนแพลตฟอร์มของวันนี้ — แตกครบทุกช่องทางจากทุกงาน + dedup
     const seen = new Set(); const dayInfos = [];
     all.forEach(t => matchedChannelsFor(t.channel).forEach(({ info, label }) => {
@@ -386,17 +368,15 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
             </div>
           )}
         </div>
-        {/* กันที่ให้แถบช่วงวันที่ลอยทับ (เลนของสัปดาห์นี้) — ชิปงานวันเดียวเริ่มใต้แถบ */}
-        {lanes > 0 && <div className="cal-lane-spacer" style={{ '--lanes': lanes }} />}
-        <div className="cal-cell-titles" style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden', flex: 1, minHeight: 0 }}>
-          {show.map(t => {
+        <div className="cal-cell-titles" style={{ display: 'flex', flexDirection: 'column', gap: 3, overflow: 'hidden', flex: 1, minHeight: 0 }}>
+          {show.map(({ t, multi, contPrev, s, e }) => {
             const c = DD.campaigns.find(x => x.id === t.camp);
             const col = colorForTask(t, colorSrc, '#888');
-            // งานวันเดียว = แถบทึบเหมือนงานช่วงวัน (หน้าตา+คลิกเปิดงานเหมือนกัน) — กด span แล้วเปิดงาน ไม่เผลอเลือกวัน
+            // ชิปงานเดียว วันเริ่ม (ไม่พาดยาว) · หลายวัน = ลูกศร › ท้าย · ต่อจากเดือนก่อน = ‹ หน้า · กดเปิดงาน
             return <span key={t.id} role="button" tabIndex={0}
-              onClick={readOnly ? undefined : (e) => { e.stopPropagation(); window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] }); }}
-              title={t.title + (c ? ` · ${c.name}` : '')}
-              style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 6px', borderRadius: 0, background: col, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.6, flexShrink: 0, cursor: readOnly ? 'default' : 'pointer' }}>{t.title}</span>;
+              onClick={readOnly ? undefined : (ev) => { ev.stopPropagation(); window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] }); }}
+              title={t.title + (c ? ` · ${c.name}` : '') + (multi ? ` · ${thaiDate(s)} → ${thaiDate(e)}` : '')}
+              style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: col, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.7, flexShrink: 0, cursor: readOnly ? 'default' : 'pointer' }}>{contPrev ? '‹ ' : ''}{t.title}{multi ? ' ›' : ''}</span>;
           })}
         </div>
         {/* มือถือ: โชว์เป็นจุดสีแทน title (แตะดูรายละเอียดข้างล่าง) — รวมงานช่วงวันด้วย */}
@@ -429,38 +409,11 @@ function CalendarView({ filtered, fProps, flow, readOnly }) {
               <div className="cal-head-row">
                 {DAY_LABELS.map(dl => <div key={dl} className="cap" style={{ textAlign: 'center', padding: '6px 0', fontWeight: 'var(--fw-sem)' }}>{dl}</div>)}
               </div>
-              {weeks.map((week, w) => {
-                const segs = weekSegs[w];
-                const lanes = segs.length ? Math.max(...segs.map(s => s.lane)) + 1 : 0;
-                return (
-                  <div key={w} className="cal-week-row">
-                    {week.map((d, i) => renderCell(d, w * 7 + i, lanes))}
-                    {/* แถบงานช่วงวัน — พาดข้ามช่องต่อเนื่อง (ชนขอบ = ต่อจาก/ต่อไปสัปดาห์อื่น) คลิกเปิดงานได้ */}
-                    {segs.length > 0 && (
-                      <div className="cal-range-bars">
-                        {segs.map((sg, k) => {
-                          const col = colorForTask(sg.t, colorSrc);
-                          const insetL = sg.contL ? 0 : 4, insetR = sg.contR ? 0 : 4;
-                          return (
-                            <button key={sg.t.id + ':' + k} title={`${sg.t.title} · ${thaiDate(sg.s)} → ${thaiDate(sg.e)}`}
-                              onClick={() => window.__openModal('task', { ...sg.t, channel: Array.isArray(sg.t.channel) ? sg.t.channel : [sg.t.channel] })}
-                              style={{
-                                position: 'absolute', top: sg.lane * 20,
-                                left: `calc(${(sg.c0 / 7 * 100).toFixed(4)}% + ${insetL}px)`,
-                                width: `calc(${((sg.c1 - sg.c0 + 1) / 7 * 100).toFixed(4)}% - ${insetL + insetR}px)`,
-                                height: 18, background: col, color: '#fff',
-                                fontSize: 'var(--fs-micro)', fontWeight: 600, padding: '0 6px', textAlign: 'left',
-                                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                border: 'none', borderRadius: 0, cursor: 'pointer',
-                                pointerEvents: dragActive ? 'none' : 'auto',
-                              }}>{sg.t.title}</button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {weeks.map((week, w) => (
+                <div key={w} className="cal-week-row">
+                  {week.map((d, i) => renderCell(d, w * 7 + i))}
+                </div>
+              ))}
             </div>
           </div>
 
