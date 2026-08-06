@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { SideSheet } from './modals-core.jsx';
+import { VoiceFeed } from './saleWidgets.jsx';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
@@ -525,6 +526,8 @@ export function SalePerfView() {
                 </div>
               </div>
               <div className="rounded-xl border p-3"><LeadPanel title={canSeeAll ? 'คนทักทั้งทีม' : 'คนทักของฉัน'} total={teamView.leads} nw={teamView.newLeads} old={teamView.oldLeads} close={teamView.closeRate} /></div>
+              {/* เสียงลูกค้ารวมทั้งเดือน (จากหน้าคนทัก) — 2 กล่อง ถามหา/ติ + ฟีดรายวัน */}
+              <VoiceFeed funnel={funnelF} title="เสียงลูกค้าเดือนนี้" />
               <TrendCard rows={rowsView} dim={perf.dim} month={month} onOpenDay={setDayAll}
                 prevSeries={perfPrev ? Array.from({ length: perf.dim }, (_, i) => perfPrev.rows.reduce((a, r) => a + (r.daily[i]?.sales || 0), 0)) : null}
                 prevLabel={perfPrev ? monthLabel(prevMonthOf(month)) : null} />
@@ -641,24 +644,41 @@ function VoiceCard({ voice, seller }) {
 const pickVoice = (rows) => (rows || []).map(f => f.voice).find(v => v && (v.ask || v.praise || v.complaint)) || null;
 
 function DayDetail({ day, orders, skus, funnel, onPickCustomer }) {
-  const ords = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)
+  const [selSeller, setSelSeller] = useState(null);   // กรองรายเซลล์ (null = ทั้งวัน)
+  const allOrds = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
-  const dayFunnel = (funnel || []).filter(f => dayOf(f.date) === day);
+  // นับออเดอร์/ยอดต่อเซลล์ (มาก→น้อย) — ชิปกรอง "ของคนนี้วันนี้กี่ออเดอร์"
+  const bySeller = new Map();
+  allOrds.forEach(o => { const s = spOf(o); const g = bySeller.get(s) || { n: 0, sales: 0 }; g.n += 1; g.sales += Number(o.sales) || 0; bySeller.set(s, g); });
+  const sellerChips = [...bySeller.entries()].sort((a, b) => b[1].n - a[1].n);
+  const ords = selSeller ? allOrds.filter(o => spOf(o) === selSeller) : allOrds;
+  const dayFunnel = (funnel || []).filter(f => dayOf(f.date) === day && (!selSeller || String(f.salesperson || '').trim() === selSeller));
   const finBy = useOrderFinancials(ords); // ส่วนลด/ค่าส่ง/VAT — batch ตอน popup เปิด (PART 88)
   const skuBy = new Map();
   (skus || []).forEach(k => { const arr = skuBy.get(k.order_no) || []; arr.push(k); skuBy.set(k.order_no, arr); });
   const sales = ords.reduce((s, o) => s + (Number(o.sales) || 0), 0);
-  const sellers = new Set(ords.map(spOf));
-  const multiSeller = sellers.size > 1;
+  const multiSeller = !selSeller && sellerChips.length > 1;   // โชว์ชื่อเซลล์บนการ์ดเฉพาะตอนดูรวม
   // แยกช่องทาง (ออเดอร์/ยอด/%)
   const chMap = new Map();
   ords.forEach(o => { const c = o.channel || 'ไม่ระบุ'; const m = chMap.get(c) || { orders: 0, sales: 0 }; m.orders += 1; m.sales += Number(o.sales) || 0; chMap.set(c, m); });
   const chans = [...chMap.entries()].sort((a, b) => b[1].sales - a[1].sales);
+  const chip = (active) => ({ border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`, background: active ? 'var(--accent)' : 'var(--surface)', color: active ? '#fff' : 'var(--ink-2)' });
 
   return (
     <>
       <div className="flex flex-col gap-4">
-        {/* สรุปวัน — 10 ตัวชี้วัด */}
+        {/* กรองรายเซลล์ — ของใครวันนี้กี่ออเดอร์ */}
+        {sellerChips.length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={() => setSelSeller(null)} className="rounded-full px-3 py-1 text-xs font-medium transition-colors" style={chip(selSeller === null)}>ทั้งหมด <b>{allOrds.length}</b></button>
+            {sellerChips.map(([sp, g]) => (
+              <button key={sp} type="button" onClick={() => setSelSeller(sp === selSeller ? null : sp)} className="rounded-full pl-1 pr-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1.5" style={chip(selSeller === sp)}>
+                <PersonAvatar name={sp === NO_SELLER ? '?' : sp} size={18} /> {sp === NO_SELLER ? 'ไม่ระบุ' : sp} <b>{g.n}</b>
+              </button>
+            ))}
+          </div>
+        )}
+        {/* สรุปวัน — 10 ตัวชี้วัด (ตามเซลล์ที่เลือก) */}
         <DayTiles s={daySummary(ords, dayFunnel)} />
         {/* แยกช่องทาง */}
         {chans.length > 0 && (

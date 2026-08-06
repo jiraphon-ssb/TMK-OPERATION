@@ -337,3 +337,58 @@ export function DrawerGroup({ icon, title, children }) {
   );
 }
 
+
+/* ============================================================
+   เสียงลูกค้า (PART 94.1) — อ่านจาก tmk_sales_funnel.voice { ask, praise, complaint }
+   ============================================================ */
+// ดึงรายการเสียงลูกค้าจากแถว funnel → [{ date, seller, ask, praise, complaint }] ใหม่→เก่า (เฉพาะที่กรอก)
+export function funnelVoices(rows) {
+  return (rows || [])
+    .map(r => ({ date: r.date || '', seller: String(r.salesperson || '').trim(), ...(r.voice && typeof r.voice === 'object' ? r.voice : {}) }))
+    .filter(v => String(v.ask || '').trim() || String(v.praise || '').trim() || String(v.complaint || '').trim())
+    .map(v => ({ date: v.date, seller: v.seller, ask: String(v.ask || '').trim(), praise: String(v.praise || '').trim(), complaint: String(v.complaint || '').trim() }))
+    .sort((a, b) => (b.date.localeCompare(a.date)) || a.seller.localeCompare(b.seller));
+}
+const _fdate = (iso) => { const [y, m, d] = String(iso || '').split('-'); return y ? `${Number(d)}/${Number(m)}` : iso; };
+// กล่องรวมข้อความหมวดเดียว (ถามหา / ติ)
+function VoiceBox({ label, hint, tone, items }) {
+  return (
+    <div className="rounded-lg p-3" style={{ background: `color-mix(in srgb, ${tone} 8%, transparent)`, borderLeft: `3px solid ${tone}` }}>
+      <div className="text-[12px] font-semibold mb-2" style={{ color: tone }}>{label} <span className="text-[10.5px] font-normal opacity-80">· {hint} · {items.length}</span></div>
+      {items.length ? (
+        <div className="flex flex-col gap-1.5" style={{ maxHeight: 180, overflowY: 'auto' }}>
+          {items.map((v, i) => <div key={i} className="text-[13px]" style={{ color: 'var(--ink-2)' }}><span className="text-[10.5px] mr-1" style={{ color: 'var(--ink-4)' }}>{_fdate(v.date)} · {v.seller}</span>{v.text}</div>)}
+        </div>
+      ) : <div className="text-[12px]" style={{ color: 'var(--ink-4)' }}>—</div>}
+    </div>
+  );
+}
+// การ์ดฟีดรวม "เสียงลูกค้า" ทั้งเดือน — 2 กล่อง (ถามหา/ติ) + ฟีดรายวันครบทุกหมวด · null ถ้าไม่มี
+export function VoiceFeed({ funnel, title = 'เสียงลูกค้า', className = '' }) {
+  const list = funnelVoices(funnel);
+  if (!list.length) return null;
+  const asks = list.filter(v => v.ask).map(v => ({ date: v.date, seller: v.seller, text: v.ask }));
+  const complaints = list.filter(v => v.complaint).map(v => ({ date: v.date, seller: v.seller, text: v.complaint }));
+  return (
+    <div className={`rounded-xl border p-4 ${className}`} style={{ borderColor: 'var(--line)' }}>
+      <div className="text-sm font-semibold mb-3 flex items-center gap-2 [&_svg]:size-4" style={{ color: 'var(--ink)' }}><Icon name="chat" /> {title} <span className="text-[11px] font-normal text-muted-foreground">· {list.length} รายการ</span></div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <VoiceBox label="ลูกค้าถามหา" hint="ดีมานด์สินค้า" tone="var(--accent)" items={asks} />
+        <VoiceBox label="ลูกค้าติ" hint="ต้องแก้" tone="var(--bad)" items={complaints} />
+      </div>
+      <div className="text-[11px] font-medium text-muted-foreground mb-1.5">ทั้งหมด (ใหม่→เก่า)</div>
+      <div className="flex flex-col gap-2" style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {list.map((v, i) => (
+          <div key={i} className="rounded-lg border p-2.5" style={{ borderColor: 'var(--line)' }}>
+            <div className="text-[11px] mb-1" style={{ color: 'var(--ink-4)' }}>{_fdate(v.date)} · <b style={{ color: 'var(--ink-3)' }}>{v.seller}</b></div>
+            <div className="flex flex-col gap-0.5 text-[13px]" style={{ color: 'var(--ink-2)' }}>
+              {v.ask && <div><span className="text-[11px]" style={{ color: 'var(--accent)' }}>ถามหา: </span>{v.ask}</div>}
+              {v.praise && <div><span className="text-[11px]" style={{ color: 'var(--good)' }}>ชม: </span>{v.praise}</div>}
+              {v.complaint && <div><span className="text-[11px]" style={{ color: 'var(--bad)' }}>ติ: </span>{v.complaint}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

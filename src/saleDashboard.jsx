@@ -21,6 +21,7 @@ import { TH_PATHS } from './lib/thMapPaths.js';
 import { makeSkuResolver, loadResolverMaps } from './lib/designResolve.js';
 import { OrderCard, daySummary, DayTiles, useOrderFinancials, finOf } from './orderCard.jsx';
 import { CustomerDrawer, custFromOrders } from './customerDrawer.jsx';
+import { VoiceFeed } from './saleWidgets.jsx';
 import { fetchTargets, commissionFor } from './lib/targets.js';
 import { supabase } from './lib/supabaseClient.js';
 import { downloadCsv } from './lib/exportCsv.js';
@@ -1004,6 +1005,8 @@ export function SaleDashboard() {
               </Table></CardTable>
             </Card>
           </div>
+          {/* เสียงลูกค้าในช่วงที่เลือก (จากหน้าคนทัก) — 2 กล่อง ถามหา/ติ + ฟีดรายวัน */}
+          <VoiceFeed funnel={fr} title="เสียงลูกค้าในช่วงนี้" />
         </>);
       })()}
 

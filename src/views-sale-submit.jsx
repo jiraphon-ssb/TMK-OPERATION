@@ -619,7 +619,8 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
       const pf = funnelPlatforms(r); Object.entries(pf).forEach(([k, v]) => { byPlat[k] = (byPlat[k] || 0) + v; total += v; });
       const no = funnelNewOld(r); newT += no.new; oldT += no.old;
     });
-    return { total, byPlat, newT, oldT, people: (team || []).length };
+    const voice = (team || []).filter(r => r.voice && typeof r.voice === 'object' && (String(r.voice.ask || '').trim() || String(r.voice.praise || '').trim() || String(r.voice.complaint || '').trim())).length;
+    return { total, byPlat, newT, oldT, people: (team || []).length, voice };
   }, [team]);
   const platTot = (p) => nv(leads[p]?.new) + nv(leads[p]?.old);
   const totalLeads = FUNNEL_PLATFORMS.reduce((a, p) => a + platTot(p), 0);
@@ -690,14 +691,14 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
           <div className="flex items-center gap-3 min-w-0">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
             <div className="min-w-0">
-              <div className="text-[15px] font-semibold">{(isToday ? 'คนทักวันนี้' : `คนทัก ${fmtD(date)}`)}{isAdmin ? ' · ทีม' : ' · ของฉัน'}</div>
+              <div className="text-[15px] font-semibold">{(isToday ? 'คนทัก + เสียงลูกค้าวันนี้' : `คนทัก + เสียงลูกค้า ${fmtD(date)}`)}{isAdmin ? ' · ทีม' : ' · ของฉัน'}</div>
               {teamStat.total > 0
-                ? <div className="text-xs text-muted-foreground">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b>{isAdmin ? ` (${teamStat.people} คน)` : ''}</div>
+                ? <div className="text-xs text-muted-foreground flex items-center gap-x-1.5 flex-wrap">ทัก <b style={{ color: 'var(--ink)' }}>{N(teamStat.total)}</b> · ใหม่ <b style={{ color: 'var(--good)' }}>{N(teamStat.newT)}</b> · เก่า <b style={{ color: 'var(--ink-3)' }}>{N(teamStat.oldT)}</b>{isAdmin ? ` (${teamStat.people} คน)` : ''}{teamStat.voice > 0 && <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10.5px] font-medium [&_svg]:size-3 gap-0.5" style={{ background: 'var(--warn-soft)', color: 'var(--warn)' }}><Icon name="chat" /> เสียงลูกค้า {teamStat.voice}</span>}</div>
                 : <div className="text-xs text-muted-foreground">{isAdmin ? 'ยังไม่มีใครกรอก' : 'ยังไม่มีคนทักของคุณ'}{isToday ? 'วันนี้' : `วันที่ ${fmtD(date)}`}</div>}
             </div>
           </div>
           {canEdit
-            ? <Button size="sm" onClick={() => setOpen(true)}><Icon name="pencil" /> {isAdmin ? 'กรอก/แก้คนทัก' : 'กรอกคนทักของฉัน'}</Button>
+            ? <Button size="sm" onClick={() => setOpen(true)}><Icon name="pencil" /> {isAdmin ? 'กรอก/แก้' : 'กรอกของฉัน'}</Button>
             : <Badge variant="secondary" className="text-[11px]">ดูอย่างเดียว</Badge>}
         </div>
         {/* ทีมวันนี้ ต่อแพลตฟอร์ม — ทุกคนเห็น (สด · realtime) · จุดสีช่องทาง */}
@@ -710,7 +711,7 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
           </div>
         )}
       </Card>
-      {open && <SideSheet size="md" icon="users" title={`คนทัก${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ · ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า' : 'ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า ของคุณ'} onClose={() => setOpen(false)}
+      {open && <SideSheet size="md" icon="users" title={`คนทัก + เสียงลูกค้า${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ · ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า' : 'ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า ของคุณ'} onClose={() => setOpen(false)}
         footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
         <div className="field mb-3">
           <label>วันที่{!isToday && <span className="ml-1.5 text-[11px] rounded-full px-1.5 py-0.5 bg-amber-500/12 text-amber-600 dark:text-amber-400">ย้อนหลัง</span>}</label>
