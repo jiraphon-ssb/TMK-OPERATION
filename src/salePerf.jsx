@@ -7,7 +7,7 @@
    - เทียบเดือนก่อน (▲▼%) + Sparkline/Heatmap แนวโน้มรายวัน (Q&A เลือก)
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
    ============================================================ */
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Icon, N, useBeat, PersonAvatar, SourceBadge, InfoTip } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
@@ -37,6 +37,9 @@ import { OrderCard, daySummary, DayTiles, isCodOrder, useOrderFinancials, finOf 
 import { CustomerDrawer, custFromOrders } from './customerDrawer.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { ComboChart, DonutChart, HBars, Sparkline, channelColor } from './charts.jsx';
+// PART 96: ปุ่มลัด "คนทัก+เสียงลูกค้า" / "ส่งยอด" — lazy โหลดเฉพาะตอนเปิด popup (กันหน้านี้หนักขึ้น)
+const LeadsQuickSheet = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.LeadsQuickSheet })));
+const SubmitQuickSheet = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SubmitQuickSheet })));
 
 // เงินบาท — ใช้ตัวกลาง fmtBaht (decimal-aware · ไม่ตัดทศนิยมยอดขาย/AOV/คอม) · 0 → ฿0 (ไม่ใช่ '—')
 const fmtB = (n) => fmtBaht(Number(n) || 0);
@@ -241,6 +244,11 @@ export function SalePerfView() {
   const { user } = useUser();
   const canSeeAll = isAdmin(user);
   const mineSet = useMemo(() => new Set(myNamesOf(user)), [user]);
+  // PART 96: ปุ่มลัดคนทัก/ส่งยอด (popup) + เคารพสิทธิ์เดิม — ปุ่มส่งยอดซ่อนถ้าถูกล็อกหน้า "ส่งยอด/ข้อมูล" (catalog:data)
+  const [leadsOpen, setLeadsOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const canEdit = typeof window !== 'undefined' && window.__canEdit !== false;
+  const dataLocked = (typeof window !== 'undefined' ? (window.__lockedSections || []) : []).some(x => x === 'catalog' || x === 'catalog:data');
   const [month, setMonth] = useState(curMonth());
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevFull: null });
@@ -457,6 +465,12 @@ export function SalePerfView() {
                 <Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
               </Button>
             </CollapsibleTrigger>
+            {/* PART 96: ปุ่มลัด — กรอกคนทัก+เสียงลูกค้า / ส่งยอด (อัปโหลดใบเสร็จ) เด้ง popup ที่นี่เลย
+                admin มี SearchInput ml-auto ดันขวาให้แล้ว · non-admin ไม่มี → ใส่ ml-auto เอง */}
+            <div className={'flex items-center gap-2' + (canSeeAll ? '' : ' sm:ml-auto')}>
+              {canEdit && <Button size="sm" className="h-8 gap-1.5" onClick={() => setLeadsOpen(true)}><Icon name="chat" className="size-3.5" /> คนทัก</Button>}
+              {!dataLocked && <Button size="sm" className="h-8 gap-1.5" onClick={() => setSubmitOpen(true)}><Icon name="upload" className="size-3.5" /> ส่งยอด</Button>}
+            </div>
           </div>
           {nFilters > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap mt-2">
@@ -550,6 +564,10 @@ export function SalePerfView() {
 
       {/* ป๊อปอัพ drill รายวัน (เซลล์+วัน / ทั้งวัน) — เปิดเซลล์เป็นหน้าเต็มแทน popup แล้ว */}
       {drillSheets}
+
+      {/* PART 96: popup ปุ่มลัด — โหลด lazy เฉพาะตอนเปิด */}
+      {leadsOpen && <Suspense fallback={null}><LeadsQuickSheet onClose={() => setLeadsOpen(false)} /></Suspense>}
+      {submitOpen && <Suspense fallback={null}><SubmitQuickSheet onClose={() => setSubmitOpen(false)} /></Suspense>}
     </div>
   );
 }

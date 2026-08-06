@@ -10,8 +10,21 @@
 import { supabase } from '../lib/supabaseClient.js';
 import { rtDiag } from './diagnostics.js';
 
-// key → { channel, refs, handlers:Set }
+// key → { channel, refs, handlers:Set, errored, closing }
 const registry = new Map();
+
+/* ---- สถานะการเชื่อมต่อรวม (สำหรับ poll-while-down + indicator "กำลังเชื่อมต่อใหม่") ----
+   supabase-js ต่อ socket กลับเองอัตโนมัติ แต่ช่วงหลุด event ที่เกิดจะ "พลาด" ไป →
+   เมื่อ channel รีจอย (SUBSCRIBED หลัง errored) เรายิง {__resync} ให้ทุก handler refetch ชดเชย */
+let _down = false;
+const _connListeners = new Set();
+function _recomputeDown() {
+  let any = false;
+  for (const e of registry.values()) { if (e.errored) { any = true; break; } }
+  if (any !== _down) { _down = any; _connListeners.forEach((fn) => { try { fn(_down); } catch { /* ignore */ } }); }
+}
+export function isRealtimeDown() { return _down; }
+export function onConnectionChange(fn) { _connListeners.add(fn); return () => _connListeners.delete(fn); }
 
 /**
  * subscribe ผ่าน registry (dedup + refcount)
@@ -38,10 +51,26 @@ export function subscribeChanges({ key, bindings = [], onEvent }) {
         },
       );
     });
-    channel.subscribe();
-    rtDiag.channelOpen(key);
-    entry = { channel, refs: 0, handlers };
+    entry = { channel, refs: 0, handlers, errored: false, closing: false };
     registry.set(key, entry);
+    // status callback: ตรวจหลุด/ต่อกลับ → อัปเดตสถานะรวม + resync หลังรีจอย
+    channel.subscribe((status) => {
+      if (entry.closing) return; // ปิดเอง (removeChannel) → เมิน CLOSED กัน recompute หลังลบ
+      if (status === 'SUBSCRIBED') {
+        const wasErrored = entry.errored;
+        entry.errored = false;
+        rtDiag.channelOpen(key);
+        _recomputeDown();
+        if (wasErrored) {
+          // รีจอยหลังหลุด → refetch ชดเชย event ที่พลาดช่วง socket หลุด (กันข้อมูลค้างต้อง F5)
+          entry.handlers.forEach((h) => { try { h({ __resync: true }, null); } catch { /* ignore */ } });
+        }
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        entry.errored = true;
+        rtDiag.channelClose(key);
+        _recomputeDown();
+      }
+    });
   }
   entry.refs += 1;
   entry.handlers.add(onEvent);
@@ -52,9 +81,11 @@ export function subscribeChanges({ key, bindings = [], onEvent }) {
     entry.handlers.delete(onEvent);
     entry.refs -= 1;
     if (entry.refs <= 0) {
+      entry.closing = true; // กัน status callback (CLOSED) เข้ามา recompute หลังลบ (PART 46 pattern)
       registry.delete(key);
       rtDiag.channelClose(key);
       try { supabase.removeChannel(entry.channel); } catch { /* ignore */ }
+      _recomputeDown();
     }
   };
 }

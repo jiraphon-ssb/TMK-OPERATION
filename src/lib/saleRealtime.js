@@ -5,7 +5,7 @@
    แยกเป็น lib เล็ก — กัน perf-view ลากทั้ง views-sale-submit (pdf/HealthHub) เข้า chunk
    ============================================================ */
 import { useEffect, useRef } from 'react';
-import { subscribeChanges } from '../realtime/channelRegistry.js';
+import { subscribeChanges, isRealtimeDown, onConnectionChange } from '../realtime/channelRegistry.js';
 
 /* echo-skip: หลังเซฟเอง ผู้เขียนเรียก markSaleWrite(tables) → event echo ของตารางนั้นภายใน 900ms
    ถูกข้าม (เพราะผู้เขียน reload เองแล้ว) กันโหลดซ้ำ 2× · event ของคนอื่น (ไม่ถูก mark) ยังยิงปกติ.
@@ -30,8 +30,19 @@ export function useSaleRealtime(tables, onChange) {
     const unsub = subscribeChanges({
       key,
       bindings: tables.map(t => ({ table: t })),
-      onEvent: (_payload, table) => { if (isOwnEcho(table)) return; fire(); }, // ข้าม echo ของ own-write เดิม
+      // ข้าม echo ของ own-write เดิม · {__resync} (table=null) หลังรีจอย → ผ่าน (isOwnEcho(null)=false) → refetch
+      onEvent: (_payload, table) => { if (isOwnEcho(table)) return; fire(); },
     });
-    return () => { alive = false; clearTimeout(timer); unsub(); };
+    // PART 95: กันข้อมูลค้างต้อง F5 —
+    //  (1) กลับมาที่แท็บ → refetch (socket อาจถูกพักตอนอยู่พื้นหลัง)
+    const onVis = () => { if (typeof document !== 'undefined' && document.visibilityState === 'visible' && alive) fire(); };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
+    //  (2) poll สำรองเฉพาะช่วง realtime หลุด (เบา · หยุดเองเมื่อต่อกลับ · resync จะ refetch อีกทีตอนรีจอย)
+    let pollTimer = null;
+    const startPoll = () => { if (!pollTimer) pollTimer = setInterval(() => { if (alive && isRealtimeDown()) fire(); }, 30000); };
+    const stopPoll = () => { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } };
+    if (isRealtimeDown()) startPoll();
+    const unsubConn = onConnectionChange((down) => { if (down) startPoll(); else stopPoll(); });
+    return () => { alive = false; clearTimeout(timer); stopPoll(); unsubConn(); if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis); unsub(); };
   }, [tables.join(',')]); // eslint-disable-line
 }

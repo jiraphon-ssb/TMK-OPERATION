@@ -38,15 +38,20 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // แยก vendor หนักที่ import แบบ eager ออกจาก index → แคชนิ่งข้ามการแก้โค้ดแอป + index เล็กลง
+        // ใช้ advancedChunks (rolldown native) แทน manualChunks — คุมตำแหน่งโมดูล CJS (react/react-is/prop-types)
+        // ได้แม่นกว่า · manualChunks shim ดัน react-core ไปรวมใน vendor-charts (chunk ผู้ require CJS ตัวแรก=recharts)
+        // ทำให้ทุกหน้าต้องโหลด recharts 438KB ตั้งแต่แรกทั้งที่หน้าแรกไม่มีกราฟ
         // (xlsx/pdfjs เป็น dynamic import อยู่แล้ว → แยก chunk เอง ไม่ต้องแตะ)
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return
-          if (id.includes('recharts') || id.includes('victory-vendor') || /[\\/]d3-/.test(id)) return 'vendor-charts'
-          if (id.includes('@radix-ui')) return 'vendor-radix'
-          if (id.includes('@supabase')) return 'vendor-supabase'
-          if (id.includes('scheduler') || /[\\/]react-dom[\\/]/.test(id) || /[\\/]react[\\/]/.test(id)) return 'vendor-react'
-          if (id.includes('date-fns') || id.includes('react-day-picker')) return 'vendor-datefns'
-          if (id.includes('lucide-react')) return 'vendor-lucide'
+        advancedChunks: {
+          groups: [
+            // React core ต้องมาก่อน vendor-charts เพื่อกันไม่ให้ recharts ดูด react-core เข้าไป
+            { name: 'vendor-react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler|react-is|use-sync-external-store|object-assign|prop-types|clsx|tailwind-merge|class-variance-authority)[\\/]/ },
+            { name: 'vendor-charts', test: /[\\/]node_modules[\\/](recharts|victory-vendor|d3-[^\\/]+|internmap|lodash|react-smooth|fast-equals|decimal\.js-light|reduce-css-calc|tiny-invariant|eventemitter3)[\\/]/ },
+            { name: 'vendor-radix', test: /[\\/]node_modules[\\/]@radix-ui[\\/]/ },
+            { name: 'vendor-supabase', test: /[\\/]node_modules[\\/]@supabase[\\/]/ },
+            { name: 'vendor-datefns', test: /[\\/]node_modules[\\/](date-fns|react-day-picker)[\\/]/ },
+            { name: 'vendor-lucide', test: /[\\/]node_modules[\\/]lucide-react[\\/]/ },
+          ],
         },
       },
     },

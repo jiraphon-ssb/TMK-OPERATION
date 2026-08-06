@@ -178,7 +178,7 @@ function RowEditor({ row, onChange, showChannel = true }) {
 /* ============================================================
    หน้าใหญ่
    ============================================================ */
-export function SubmitSalesView() {
+export function SubmitSalesView({ hideFunnel = false } = {}) {
   const beat = useBeat(350);
   const { user } = useUser();
   const { staff } = useData();
@@ -359,8 +359,9 @@ export function SubmitSalesView() {
     <div className="content-inner rise flex flex-col gap-4">
       {missingTable && <MigrationNotice />}
 
-      {/* บน: ยอดของฉัน (ซ้าย กว้างกว่า) + คนทักวันนี้ (ขวา) — การ์ดสูงเท่ากัน (items-stretch default) */}
-      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      {/* บน: ยอดของฉัน (ซ้าย กว้างกว่า) + คนทักวันนี้ (ขวา) — การ์ดสูงเท่ากัน (items-stretch default)
+          hideFunnel (popup ส่งยอดในประสิทธิภาพเซล) → ซ่อนการ์ดคนทัก (มีปุ่มแยกแล้ว) · KPI เต็มความกว้าง */}
+      <div className={hideFunnel ? '' : 'grid gap-4 lg:grid-cols-[1.35fr_1fr]'}>
       {/* KPI ของฉันเดือนนี้ */}
       <Card className="p-4 flex flex-col justify-center">
         <div className="flex items-center justify-between flex-wrap gap-3">
@@ -389,7 +390,7 @@ export function SubmitSalesView() {
         </div>
       </Card>
       {/* คนทัก (funnel) — แต่ละคนกรอกของตัวเอง · แอดมินกรอก/แก้แทนได้ + ดูภาพรวมทีม */}
-      <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={canSeeTeam} canEdit={canEdit} myName={user?.name || ''} ordersToday={ordersToday} />
+      {!hideFunnel && <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={canSeeTeam} canEdit={canEdit} myName={user?.name || ''} ordersToday={ordersToday} />}
       </div>
 
       {/* ขั้น 1: เลือกไฟล์ */}
@@ -574,7 +575,7 @@ const emptyLeads = () => Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, { new:
 const emptyVoice = () => ({ ask: '', praise: '', complaint: '' });
 const normVoice = (v) => (v && typeof v === 'object') ? { ask: String(v.ask || ''), praise: String(v.praise || ''), complaint: String(v.complaint || '') } : emptyVoice();
 const voiceEmpty = (v) => !v.ask.trim() && !v.praise.trim() && !v.complaint.trim();
-function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName = '', ordersToday = {} }) {
+export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName = '', ordersToday = {} }) {
   const [date, setDate] = useState(todayISO());   // เลือกวันได้ — กรอก/ดูคนทักย้อนหลัง
   const isToday = date === todayISO();
   const [leads, setLeads] = useState(emptyLeads);
@@ -821,5 +822,54 @@ export function SaleDataHub() {
       <TabsContent value="import"><div className="content-inner rise" style={{ display: 'grid', gap: 14 }}><ImportExportHub /></div></TabsContent>
       <TabsContent value="quality"><HealthHub /></TabsContent>
     </Tabs>
+  );
+}
+
+/* ============================================================
+   PART 96 — เข้าถึง "คนทัก+เสียงลูกค้า" และ "ส่งยอด" จากที่อื่น (เช่น ปุ่ม popup ในประสิทธิภาพเซล)
+   โดยไม่ต้องเข้าหน้า Data Hub · เตรียมรับการรื้อหน้า Data Hub ในอนาคต
+   ============================================================ */
+// props ของ FunnelCard สำหรับใช้นอก SubmitSalesView — โหลดเบาๆ เอง (staff จาก context + ออเดอร์ยืนยันวันนี้ต่อคน)
+// ไม่ export (ใช้ภายในไฟล์นี้เท่านั้น) — กัน react-refresh/only-export-components (ไฟล์นี้ export แต่ component)
+function useFunnelCardProps() {
+  const { user } = useUser();
+  const { staff } = useData();
+  const canEdit = window.__canEdit !== false;
+  const canSeeTeam = isAdmin(user);
+  const [ordersToday, setOrdersToday] = useState({});
+  useEffect(() => {
+    const t = todayISO();
+    supabase.from('tmk_sale_receipts').select('salesperson,status,order_date').eq('order_date', t)
+      .then(({ data }) => {
+        const m = {};
+        (data || []).forEach(r => { if (r.status === 'confirmed' && r.salesperson) m[r.salesperson] = (m[r.salesperson] || 0) + 1; });
+        setOrdersToday(m);
+      }, () => {});
+  }, []);
+  const sellers = useMemo(() => {
+    const set = new Set();
+    (staff || []).forEach(s => { if (s?.name) set.add(s.name); });
+    Object.keys(ordersToday).forEach(n => set.add(n));
+    return [...set].sort();
+  }, [staff, ordersToday]);
+  return { sellers, createdBy: user?.email || '', isAdmin: canSeeTeam, canEdit, myName: user?.name || '', ordersToday };
+}
+
+// popup "คนทัก + เสียงลูกค้าวันนี้" (ลิ้นชักขวา) — hook โหลดเฉพาะตอน mount (เปิด popup) ไม่กินตอนไม่เปิด
+export function LeadsQuickSheet({ onClose }) {
+  const props = useFunnelCardProps();
+  return (
+    <SideSheet size="md" icon="chat" title="คนทัก + เสียงลูกค้าวันนี้" sub="กรอก/แก้ จำนวนคนทัก + เสียงลูกค้า (ถาม/ชม/ติ)" onClose={onClose}>
+      <FunnelCard {...props} />
+    </SideSheet>
+  );
+}
+
+// popup "ส่งยอด (อัปโหลดใบเสร็จ)" — ทั้ง SubmitSalesView แต่ซ่อนการ์ดคนทัก (มีปุ่มแยกแล้ว)
+export function SubmitQuickSheet({ onClose }) {
+  return (
+    <SideSheet size="xl" icon="upload" title="ส่งยอด (อัปโหลดใบเสร็จ)" sub="อ่านใบเสร็จ Shipnity PDF → ตรวจ → ยืนยันบันทึกยอด" onClose={onClose}>
+      <SubmitSalesView hideFunnel />
+    </SideSheet>
   );
 }

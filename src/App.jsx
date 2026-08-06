@@ -6,6 +6,7 @@ import { TMK } from './data.js';
 import { Icon, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
 import { ConfirmHost } from './ui-confirm.jsx';
 import { ConflictMergeHost } from './ui-conflict-merge.jsx';
+import { isRealtimeDown, onConnectionChange } from './realtime/channelRegistry.js';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -219,13 +220,35 @@ const ACCENTS = { '#4f46e5': '#4338ca', '#0a5aa0': '#033f78', '#b07d33': '#94661
 
 const accent = '#4f46e5'; // indigo-600 — แบรนด์ active/selected/icon
 
-// กันจอขาว: ถ้า render throw → แสดงหน้า error + ปุ่มล้างข้อมูลเข้าใหม่ (แทนจอว่างถาวร)
+// กันจอขาว: ถ้า render throw → แสดง error + ปุ่มลองใหม่ (แทนจอว่างถาวร)
+//  variant="section" (PART 95) = การ์ดเล็กในเนื้อหา → หน้าเดียวพัง ที่เหลือ (sidebar/เมนู) ยังใช้ได้
+//  resetKey เปลี่ยน (เช่น สลับหน้า) → เคลียร์ error อัตโนมัติ ให้ลองใหม่เอง
 class ErrorBoundary extends React.Component {
   constructor(p) { super(p); this.state = { err: null }; }
   static getDerivedStateFromError(err) { return { err }; }
-  componentDidCatch(err) { console.error('App crashed:', err); }
+  componentDidCatch(err) { console.error(this.props.scope ? `Section "${this.props.scope}" crashed:` : 'App crashed:', err); }
+  componentDidUpdate(prev) {
+    if (this.state.err && prev.resetKey !== this.props.resetKey) this.setState({ err: null });
+  }
   render() {
     if (this.state.err) {
+      if (this.props.variant === 'section') {
+        return (
+          <div className="grid place-items-center px-4 py-16">
+            <Card className="w-full max-w-[380px] p-6 text-center">
+              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full [&_svg]:size-5" style={{ background: 'var(--warn-soft, #fdf2d0)', color: 'var(--warn, #d99e16)' }}>
+                <Icon name="alertTriangle" />
+              </div>
+              <h2 className="mb-1.5 text-base font-bold" style={{ color: 'var(--ink)' }}>หน้านี้สะดุดชั่วคราว</h2>
+              <p className="mb-4 text-[13px] leading-relaxed" style={{ color: 'var(--ink-4)' }}>เมนูและหน้าอื่นยังใช้งานได้ตามปกติ — ลองเปิดหน้านี้ใหม่อีกครั้ง</p>
+              <div className="flex justify-center gap-2.5">
+                <Button variant="outline" size="sm" onClick={() => this.setState({ err: null })}>ลองใหม่</Button>
+                <Button size="sm" onClick={() => location.reload()}>รีเฟรชทั้งหน้า</Button>
+              </div>
+            </Card>
+          </div>
+        );
+      }
       return (
         <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: 'var(--bg, #f3f6fb)', color: 'var(--ink, #10203a)' }}>
           <Card className="w-full max-w-[420px] p-8 text-center">
@@ -246,6 +269,21 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+
+// PART 95: ป้ายเล็ก "กำลังเชื่อมต่อใหม่…" เมื่อ realtime ฝั่ง Sale หลุด (แทนค้างเงียบ)
+// โผล่เฉพาะตอนอยู่หน้าที่ subscribe แล้วสายหลุด · หายเองเมื่อต่อกลับ (ตอนนั้น resync จะ refetch ให้)
+function RealtimeStatus() {
+  const [down, setDown] = useState(isRealtimeDown());
+  useEffect(() => onConnectionChange(setDown), []);
+  if (!down) return null;
+  return (
+    <div className="fixed bottom-4 left-1/2 z-[70] -translate-x-1/2 rounded-full border px-3.5 py-1.5 text-[12px] font-medium shadow-md"
+      style={{ background: 'var(--warn-soft, #fdf2d0)', color: 'var(--warn, #b8860b)', borderColor: 'var(--warn, #d99e16)' }}>
+      <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full align-middle" style={{ background: 'var(--warn, #d99e16)' }} />
+      กำลังเชื่อมต่อใหม่…
+    </div>
+  );
+}
 
 export default function App() {
   // ลูกค้าเปิดลิงก์ ?track=<code> → หน้าติดตามสาธารณะ (ไม่ต้องล็อกอิน, ไม่โหลดข้อมูลร้าน)
@@ -498,11 +536,12 @@ function AppInner() {
   }, [section, dataVersion, dataEnsure]);
 
   const renderView = () => {
+    let view;
     // Home + Sales (views-1) ไม่ lazy เพราะเป็นหน้าแรกหลัง login — ต้องเร็ว
-    if (section === 'home') return <HomeView go={go} />;
-    if (section === 'sales' && !['daily','monthly','status'].includes(sub)) return <SalesView sub={sub} />;
-    // Heavy chunks — ห่อด้วย Suspense
-    return (
+    if (section === 'home') view = <HomeView go={go} />;
+    else if (section === 'sales' && !['daily','monthly','status'].includes(sub)) view = <SalesView sub={sub} />;
+    else view = (
+      // Heavy chunks — ห่อด้วย Suspense
       <Suspense fallback={<PageSkeleton />}>
         {/* sub submit/io = ลิงก์เก่า (ก่อนรวมเป็น Data Hub) → หน้าเดียวกัน */}
         {section === 'catalog' && sub === 'perf' ? <SalePerfView />
@@ -516,6 +555,9 @@ function AppInner() {
           : null}
       </Suspense>
     );
+    // PART 95: ล้อม ErrorBoundary รายหน้า → หน้าใด render พัง แสดงการ์ดเล็ก ที่เหลือ (sidebar/เมนู) ยังใช้ได้
+    // resetKey=section:sub → สลับหน้าแล้วเคลียร์ error เอง
+    return <ErrorBoundary variant="section" scope={section} resetKey={section + ':' + sub}>{view}</ErrorBoundary>;
   };
 
   const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
@@ -844,6 +886,9 @@ function AppInner() {
 
       {/* กล่องเลือกค่ารายช่องเมื่อ merge ชน (window.__resolveConflict) — Phase 3.5 */}
       <ConflictMergeHost />
+
+      {/* ป้ายสถานะ realtime หลุด (PART 95) */}
+      <RealtimeStatus />
 
       {authed && modal && (
         <Suspense fallback={null}>{

@@ -78,7 +78,13 @@ async function loadAllTables() {
   const tables = Object.fromEntries(mainKeys.map(k => [k, QUERIES[k]()]));
 
   const keys = Object.keys(tables);
-  const results = await Promise.all(Object.values(tables));
+  // ยิงทุกตารางพร้อมกัน + customerTotals/commentCounts (optional) ในชุดเดียว
+  // เดิม await ต่อคิว 2 ตัวหลัง batch → เพิ่ม 2 round-trip serial ตอนเปิดแอป · รวมเป็นขนานตัดเวลา time-to-data
+  const [results, ctRes, ccRes] = await Promise.all([
+    Promise.all(Object.values(tables)),
+    QUERIES.customerTotals(),
+    QUERIES.commentCounts(),
+  ]);
 
   // ตรวจ errors — log ตารางไหนล้ม (อาจจะยังไม่ได้ run migration / สิทธิ์ RLS)
   const result = {};
@@ -96,13 +102,10 @@ async function loadAllTables() {
   });
   if (failed.length) result.__errors = failed; // ส่งต่อให้ load() แจ้งผู้ใช้ (กันตารางพังดูเหมือน "ไม่มีข้อมูล")
 
-  // ยอดสะสมต่อลูกค้าจาก view (รวมทุกออเดอร์ ไม่ติด limit 500) — optional
+  // ยอดสะสมต่อลูกค้าจาก view (รวมทุกออเดอร์ ไม่ติด limit) — optional · ยิงขนานมาแล้วข้างบน
   // ถ้ายัง migration ไม่รันก็เงียบ (ไม่เข้า __errors) และ mapToTMK fallback ไปรวมจาก orders ที่โหลดมา
-  const ctRes = await QUERIES.customerTotals();
   if (!ctRes.error && Array.isArray(ctRes.data)) result.customerTotals = ctRes.data;
-
   // จำนวนคอมเมนต์ต่อ task (ป้าย 💬 บนการ์ด) — optional · ก่อนรัน migration view = เงียบ
-  const ccRes = await QUERIES.commentCounts();
   if (!ccRes.error && Array.isArray(ccRes.data)) result.commentCounts = ccRes.data;
 
   return result;

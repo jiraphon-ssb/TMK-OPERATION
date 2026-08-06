@@ -15,6 +15,18 @@ window.addEventListener('vite:preloadError', (e) => {
 // เคลียร์ flag เมื่อโหลดหน้าสำเร็จ → ถ้ามี deploy รอบถัดไปในแท็บเดิม ยัง recover (reload) ได้ ไม่ค้าง
 window.addEventListener('load', () => { try { sessionStorage.removeItem('tmk-chunk-reloaded'); } catch { /* ignore */ } });
 
+// PART 95: ดัก error แบบ async (promise rejection / error นอก React render) ที่เดิมเงียบหมด
+// → log ไว้ (throttle กัน spam) เพื่อให้ debug ได้ · ไม่ reload/รบกวนผู้ใช้ · ErrorBoundary จัดการ render error แยก
+let _lastGlobalLog = 0;
+const logGlobal = (label, detail) => {
+  const now = Date.now();
+  if (now - _lastGlobalLog < 1000) return; // throttle: อย่างมาก 1 log/วินาที
+  _lastGlobalLog = now;
+  console.error(`[global] ${label}:`, detail);
+};
+window.addEventListener('unhandledrejection', (e) => { logGlobal('unhandled promise rejection', e.reason); });
+window.addEventListener('error', (e) => { if (e?.message) logGlobal('uncaught error', e.error || e.message); });
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
