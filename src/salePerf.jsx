@@ -623,6 +623,23 @@ function SpDetail({ sp, onDay, cmp }) {
 
 /* ---- ป๊อปอัพ "ทั้งวัน" (คลิกจากกราฟรายวัน) — ออเดอร์ทุกใบของวันนั้นในขอบเขตที่กรอง ----
    สรุปวัน (10 ตัวชี้วัด: ยอดรวม/โอน/COD/ออเดอร์/ตัว/ลูกค้าใหม่/คนทัก/%ปิด/Basket/AVG) + แยกช่องทาง + การ์ดออเดอร์รายตัว */
+// การ์ดโชว์ "เสียงลูกค้า" (อ่านอย่างเดียว · จาก tmk_sales_funnel.voice) — โทนเหลืองเข้าชุดกับฟอร์มกรอกในหน้าคนทัก
+function VoiceCard({ voice, seller }) {
+  const v = voice || {};
+  const rows = [['ถามหา', v.ask], ['ชม', v.praise], ['ติ', v.complaint]].filter(([, t]) => String(t || '').trim());
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-lg p-3" style={{ background: 'var(--warn-soft)', borderLeft: '3px solid var(--warn)' }}>
+      <div className="text-[12px] font-semibold mb-2 flex items-center gap-1.5 [&_svg]:size-[15px]" style={{ color: 'var(--warn)' }}><Icon name="chat" /> เสียงลูกค้า{seller ? ` — ${seller}` : ''}</div>
+      <div className="flex flex-col gap-1.5 text-[13px]">
+        {rows.map(([lb, t]) => <div key={lb}><span className="text-[11px] font-medium" style={{ color: 'var(--ink-4)' }}>{lb}: </span><span style={{ color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{String(t).trim()}</span></div>)}
+      </div>
+    </div>
+  );
+}
+// รวม voice จากแถว funnel (เผื่อมีหลายแถว/เซลล์) → object เดียว
+const pickVoice = (rows) => (rows || []).map(f => f.voice).find(v => v && (v.ask || v.praise || v.complaint)) || null;
+
 function DayDetail({ day, orders, skus, funnel, onPickCustomer }) {
   const ords = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)
     .sort((a, b) => (Number(b.sales) || 0) - (Number(a.sales) || 0));
@@ -657,6 +674,11 @@ function DayDetail({ day, orders, skus, funnel, onPickCustomer }) {
             </div>
           </div>
         )}
+        {/* เสียงลูกค้า แยกตามเซลล์ (จากหน้าคนทัก · โชว์เฉพาะที่กรอกไว้) */}
+        {(() => {
+          const vs = (dayFunnel || []).map(f => ({ seller: String(f.salesperson || '').trim(), v: f.voice })).filter(x => x.v && (x.v.ask || x.v.praise || x.v.complaint));
+          return vs.length ? <div className="flex flex-col gap-2">{vs.map((x, i) => <VoiceCard key={x.seller + i} voice={x.v} seller={x.seller} />)}</div> : null;
+        })()}
         {/* ออเดอร์รายตัว */}
         <div>
           <div className="text-sm font-semibold mb-1.5">ออเดอร์วันนี้ ({ords.length})</div>
@@ -697,6 +719,8 @@ function DaySellerDetail({ name, day, orders, skus, funnel, target, onOpenMonth,
         {/* สรุปวัน — 10 ตัวชี้วัด (ชุดเดียวกับป๊อปอัพทั้งวัน) */}
         <DayTiles s={daySummary(ords, dayFunnel)} />
         <LeadPanel title="คนทักวันนี้ (แยกใหม่/เก่า)" total={leadTot} nw={leadNO.new} old={leadNO.old} close={ords.length && leadTot ? ords.length / leadTot * 100 : null} />
+        {/* เสียงลูกค้า — จากหน้าคนทัก (ถ้าเซลล์กรอกไว้วันนี้) */}
+        <VoiceCard voice={pickVoice(dayFunnel)} />
         {/* คอมของวัน (ประมาณ) — คิดจากยอดวันนี้ × เรต · หมายเหตุ: คอมจริงคิดจากยอดรวมทั้งเดือน */}
         {target && (
           <div className="rounded-lg border p-3 text-sm flex items-center gap-3 flex-wrap" style={{ background: 'color-mix(in srgb, var(--accent) 5%, transparent)' }}>

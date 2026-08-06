@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -569,10 +570,15 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel }) {
    ============================================================ */
 const FUNNEL_PLATFORMS = ['Facebook', 'LINE', 'Instagram', 'TikTok', 'Phone', 'อื่นๆ'];
 const emptyLeads = () => Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, { new: '', old: '' }]));
+// เสียงลูกค้า (แยกอิสระต่อ วัน+เซลล์ · เก็บใน tmk_sales_funnel.voice jsonb)
+const emptyVoice = () => ({ ask: '', praise: '', complaint: '' });
+const normVoice = (v) => (v && typeof v === 'object') ? { ask: String(v.ask || ''), praise: String(v.praise || ''), complaint: String(v.complaint || '') } : emptyVoice();
+const voiceEmpty = (v) => !v.ask.trim() && !v.praise.trim() && !v.complaint.trim();
 function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName = '', ordersToday = {} }) {
   const [date, setDate] = useState(todayISO());   // เลือกวันได้ — กรอก/ดูคนทักย้อนหลัง
   const isToday = date === todayISO();
   const [leads, setLeads] = useState(emptyLeads);
+  const [voice, setVoice] = useState(emptyVoice);   // เสียงลูกค้า ถาม/ชม/ติ (ต่อ วัน+เซลล์)
   const [busy, setBusy] = useState(false);
   const [exists, setExists] = useState(false);
   const [open, setOpen] = useState(false);
@@ -589,9 +595,9 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
     }));
   };
   const loadSeller = useCallback(async (name) => {
-    if (!name) { setLeads(emptyLeads()); setExists(false); return; }
+    if (!name) { setLeads(emptyLeads()); setVoice(emptyVoice()); setExists(false); return; }
     const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('id', `${date}:${name}`).maybeSingle();
-    if (data) { setLeads(fillFromRow(data)); setExists(true); } else { setLeads(emptyLeads()); setExists(false); }
+    if (data) { setLeads(fillFromRow(data)); setVoice(normVoice(data.voice)); setExists(true); } else { setLeads(emptyLeads()); setVoice(emptyVoice()); setExists(false); }
   }, [date]);
   const loadTeam = useCallback(async () => {
     // admin เห็นทั้งทีม · non-admin เห็นเฉพาะคนทักของตัวเอง (กรองที่ query = ไม่โหลดของคนอื่นมาเลย)
@@ -631,19 +637,31 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
     setBusy(true);
     const leadsJson = {};
     FUNNEL_PLATFORMS.forEach(p => { const nw = nv(leads[p]?.new), od = nv(leads[p]?.old); if (nw + od > 0) leadsJson[p] = { new: nw, old: od }; });
+    const vClean = normVoice(voice);
     const row = {
       id: `${date}:${selSeller}`, date, salesperson: selSeller, leads: leadsJson,
       // back-compat: คอลัมน์เก่าเก็บใหม่/เก่าของ FB/LINE ตรงความหมาย — แถวเก่า/กราฟเก่ายังอ่านได้
       leads_fb_new: nv(leads.Facebook?.new), leads_fb_old: nv(leads.Facebook?.old),
       leads_line_new: nv(leads.LINE?.new), leads_line_old: nv(leads.LINE?.old),
+      voice: voiceEmpty(vClean) ? null : vClean,   // เสียงลูกค้า ถาม/ชม/ติ (แยกอิสระหน้านี้)
       note: '', created_by: createdBy, updated_at: new Date().toISOString(),
     };
-    let { error } = await supabase.from('tmk_sales_funnel').upsert(row, { onConflict: 'id' });
-    if (error && /leads/.test(error.message || '') && !/does not exist.*tmk_sales_funnel|tmk_sales_funnel.*does not exist/.test(error.message || '')) {
-      // ยังไม่รัน migration 20260705 (คอลัมน์ leads ไม่มี) → เก็บเฉพาะคอลัมน์เก่า FB/LINE
-      const { leads: _l, ...legacy } = row;
-      ({ error } = await supabase.from('tmk_sales_funnel').upsert(legacy, { onConflict: 'id' }));
-      if (!error) toast('บันทึกได้เฉพาะ FB/LINE — รัน migration 20260705-funnel-leads.sql เพื่อเก็บทุกแพลตฟอร์ม', 'warn');
+    // upsert + fallback คอลัมน์ leads ยังไม่ migrate (20260705) → เก็บเฉพาะ FB/LINE
+    const upsertFunnel = async (r) => {
+      let e = (await supabase.from('tmk_sales_funnel').upsert(r, { onConflict: 'id' })).error;
+      if (e && /leads/.test(e.message || '') && !/does not exist.*tmk_sales_funnel|tmk_sales_funnel.*does not exist/.test(e.message || '')) {
+        const { leads: _l, ...legacy } = r;
+        e = (await supabase.from('tmk_sales_funnel').upsert(legacy, { onConflict: 'id' })).error;
+        if (!e) toast('บันทึกได้เฉพาะ FB/LINE — รัน migration 20260705-funnel-leads.sql เพื่อเก็บทุกแพลตฟอร์ม', 'warn');
+      }
+      return e;
+    };
+    let error = await upsertFunnel(row);
+    // คอลัมน์ voice ยังไม่ migrate → ลองใหม่แบบไม่มี voice (คนทักยังบันทึกได้ · เตือนให้รัน migration)
+    if (error && /voice/.test(error.message || '') && /column|schema cache/i.test(error.message || '')) {
+      const { voice: _v, ...noVoice } = row;
+      error = await upsertFunnel(noVoice);
+      if (!error && !voiceEmpty(vClean)) toast('คนทักบันทึกแล้ว แต่เสียงลูกค้ายังไม่ถูกเก็บ — ต้องรัน migration 20260806-funnel-voice.sql', 'warn');
     }
     setBusy(false);
     if (error) { toast(/funnel|does not exist/.test(error.message) ? 'ต้องรัน migration tmk_sales_funnel ก่อน' : 'บันทึกไม่สำเร็จ', 'error'); return; }
@@ -692,7 +710,7 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
           </div>
         )}
       </Card>
-      {open && <SideSheet size="md" icon="users" title={`คนทัก${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ แล้วใส่จำนวนคนทัก แยกใหม่/เก่า ต่อช่องทาง' : 'ใส่จำนวนคนทักของคุณ แยกใหม่/เก่า ต่อช่องทาง'} onClose={() => setOpen(false)}
+      {open && <SideSheet size="md" icon="users" title={`คนทัก${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ · ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า' : 'ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า ของคุณ'} onClose={() => setOpen(false)}
         footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
         <div className="field mb-3">
           <label>วันที่{!isToday && <span className="ml-1.5 text-[11px] rounded-full px-1.5 py-0.5 bg-amber-500/12 text-amber-600 dark:text-amber-400">ย้อนหลัง</span>}</label>
@@ -763,6 +781,15 @@ function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName =
               </div>
             </div>
           ))}
+        </div>
+        {/* เสียงลูกค้า (ต่อ วัน+เซลล์ที่เลือก) — ถาม/ชม/ติ */}
+        <div className="rounded-xl border p-3 mb-4" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)', borderLeft: '3px solid var(--warn)' }}>
+          <div className="text-[12px] font-semibold mb-2.5 flex items-center gap-1.5 [&_svg]:size-[15px]" style={{ color: 'var(--warn)' }}><Icon name="chat" /> เสียงลูกค้า{isAdmin && selSeller ? ` — ${selSeller}` : ''}</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.ask} onChange={e => setVoice(v => ({ ...v, ask: e.target.value }))} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
+            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.praise} onChange={e => setVoice(v => ({ ...v, praise: e.target.value }))} placeholder="—" /></label>
+            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.complaint} onChange={e => setVoice(v => ({ ...v, complaint: e.target.value }))} placeholder="—" /></label>
+          </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
           {[['ทักรวม', N(totalLeads), ''], ['ใหม่', N(totalNew), 'var(--good)'], ['เก่า', N(totalOld), 'var(--ink-3)'], ['ปิดได้', ordersCount == null ? '—' : N(ordersCount), 'var(--accent)'], ['%ปิด', close == null ? '—' : close + '%', closeTone]].map(([lb, val, c]) => (
