@@ -881,5 +881,25 @@
         "amount": 279
       }
     ]
+  },
+  "9.pdf": {
+    "_note": "ใบเสร็จ 2 หน้า หัวใบ+เลขที่เอกสารพิมพ์ซ้ำหน้า 2 (รายการหน้า1 · ยอด/หมายเหตุหน้า2) — ต้องได้ 1 ใบ",
+    "order_no": "SL520",
+    "order_date": "2026-08-06",
+    "order_time": "16:28",
+    "customer_name": "ภิรมย์ขวัญ ศิริสุวรรณ",
+    "customer_social": "Piromkhwan Sirisuwan",
+    "customer_phone": "0994615195",
+    "province": "ยะลา",
+    "channel": "Facebook",
+    "payment": "โอน",
+    "total": 14040,
+    "lines": 15,
+    "note": "DFT LOT13-14",
+    "l0": {
+      "code": "C04-BK-XS",
+      "qty": 1,
+      "amount": 210
+    }
   }
 }

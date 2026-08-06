@@ -670,6 +670,25 @@ function parsePage(rows, pageNo, pageW) {
   };
 }
 
+/* เติมข้อมูล "หน้าต่อ" เข้าใบหลัก (prev) — ใช้ทั้งหน้าที่ไม่มีเลขที่เอกสาร และหน้าหัวซ้ำ (เลขเดียวกัน)
+   รวมรายการที่ล้นหน้า + สรุปยอด/หมายเหตุ/การชำระ/ขนส่ง (พิมพ์หน้าสุดท้าย) · ไม่แตะ ลูกค้า/วันที่ (ยึดหน้าแรก) */
+function mergeContinuation(prev, parsed) {
+  if (parsed.lines?.length) prev.lines = [...prev.lines, ...parsed.lines];
+  // ยอดรวมจริงมักพิมพ์หน้าสุดท้าย → เติมเมื่อใบหลักยังไม่มี (warning 'ยอดรวม') หรือ total หน้าหลังใหญ่กว่า (grand total > subtotal หน้าแรก)
+  if (parsed.total != null && (prev.warnings.includes('ยอดรวม') || parsed.total > (prev.total || 0))) {
+    prev.total = parsed.total;
+    prev.warnings = prev.warnings.filter(w => w !== 'ยอดรวม');
+  }
+  if (parsed.subtotal != null && prev.subtotal == null) prev.subtotal = parsed.subtotal;
+  if (parsed.discount && !prev.discount) prev.discount = parsed.discount;
+  if (parsed.shipping && !prev.shipping) prev.shipping = parsed.shipping;
+  if (parsed.vat && !prev.vat) prev.vat = parsed.vat;
+  if (parsed.note && !prev.note) prev.note = parsed.note;
+  if (parsed.payment_method && !prev.payment_method) prev.payment_method = parsed.payment_method;
+  if (parsed.carrier && !prev.carrier) prev.carrier = parsed.carrier;
+  if (parsed.promo_code && !prev.promo_code) prev.promo_code = parsed.promo_code;
+}
+
 /* ============================================================
    public API
    ============================================================ */
@@ -697,26 +716,12 @@ export async function parseReceiptPdf(file) {
       const isReceiptPage = findLabel(rows, L.title) || findLabel(rows, L.docNo);
       if (!isReceiptPage && !receipts.length) continue; // หน้าที่ไม่ใช่ใบเสร็จ (ก่อนเจอใบแรก) → ข้าม
       const parsed = parsePage(rows, p, pageW);
-      if (parsed.continuation) {
-        // หน้าต่อของใบยาว — รายการเพิ่ม + "สรุปยอด/หมายเหตุ/การชำระ" มักพิมพ์อยู่หน้าสุดท้าย → เติมเข้าใบหลัก (ห้ามหาย)
-        const prev = receipts[receipts.length - 1];
-        if (prev) {
-          if (parsed.lines.length) prev.lines = [...prev.lines, ...parsed.lines];
-          // ยอดรวมจริงมักพิมพ์หน้าสุดท้าย → เติมเมื่อใบหลักยังไม่มี (warning 'ยอดรวม')
-          // หรือเมื่อ total หน้า continuation ใหญ่กว่า (grand total ท้ายใบ > subtotal หน้าแรก) กันยอดหน้าแรกทับ
-          if (parsed.total != null && (prev.warnings.includes('ยอดรวม') || parsed.total > (prev.total || 0))) {
-            prev.total = parsed.total;
-            prev.warnings = prev.warnings.filter(w => w !== 'ยอดรวม');
-          }
-          if (parsed.subtotal != null && prev.subtotal == null) prev.subtotal = parsed.subtotal;
-          if (parsed.discount && !prev.discount) prev.discount = parsed.discount;
-          if (parsed.shipping && !prev.shipping) prev.shipping = parsed.shipping;
-          if (parsed.vat && !prev.vat) prev.vat = parsed.vat;
-          if (parsed.note && !prev.note) prev.note = parsed.note;
-          if (parsed.payment_method && !prev.payment_method) prev.payment_method = parsed.payment_method;
-          if (parsed.carrier && !prev.carrier) prev.carrier = parsed.carrier;
-          if (parsed.promo_code && !prev.promo_code) prev.promo_code = parsed.promo_code;
-        }
+      const prev = receipts[receipts.length - 1];
+      // "หน้าต่อ" ของใบยาว เมื่อ (ก) หน้านั้นไม่มีเลขที่เอกสาร  หรือ (ข) มีเลขแต่ "ซ้ำ" กับใบล่าสุด
+      //   — Shipnity บางใบพิมพ์หัวใบ (รวมเลขที่เอกสาร) ซ้ำตอนล้นหน้า → ต้อง merge ไม่ใช่แยกใบใหม่
+      //   ลูกค้า/วันที่/ช่องทาง ยึดหน้าแรก · ยอด/หมายเหตุ/การชำระ/ขนส่ง เอาจากหน้าสุดท้าย (merge เติมเมื่อว่าง/ยอดใหญ่กว่า)
+      if (prev && (parsed.continuation || (parsed.order_no && parsed.order_no === prev.order_no))) {
+        mergeContinuation(prev, parsed);
         continue;
       }
       receipts.push(parsed);
