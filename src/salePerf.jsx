@@ -462,7 +462,8 @@ export function SalePerfView() {
             {!canSeeAll && <Badge variant="outline" className="gap-1 text-[11px] text-muted-foreground"><Icon name="user" className="size-3" />เฉพาะของฉัน</Badge>}
             {loading && perf.rows.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />กำลังอัปเดต…</span>}
             <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setCycleOpen(true)} title="ค่าคอมตามรอบตัดจริง (เช่น 26 ก.ค. – 25 ส.ค.)"><Icon name="wallet" className="size-3.5" /> ค่าคอมรอบตัด</Button>
+            {/* ทางเข้า "เงินของเซลล์" — เน้นสี accent ให้เด่นกว่าปุ่มอื่นในแถบ (เซลล์กดบ่อยสุด) */}
+            <Button size="sm" className="h-8 gap-1.5 shadow-sm" onClick={() => setCycleOpen(true)} title="ค่าคอมตามรอบตัดจริง (เช่น 26 ก.ค. – 25 ส.ค.)"><Icon name="wallet" className="size-3.5" /> ค่าคอมรอบตัด</Button>
             {canSeeAll && <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />}
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className={'h-8 gap-1.5' + (nFilters ? ' border-[var(--accent)] text-[var(--accent-2)]' : '')}>
@@ -604,22 +605,40 @@ function SpDetail({ sp, onDay, cmp }) {
         </div>
         <div className="text-xs text-muted-foreground -mt-1.5">ขายจริง {N(sp.daysActive)} วัน</div>
         <LeadPanel title="คนทัก" total={sp.leads} nw={sp.newOld?.new || 0} old={sp.newOld?.old || 0} close={sp.closeRate} />
-        {/* เป้า — แถบกะทัดรัด (ต่อจาก KPI ทันที) */}
-        {sp.target > 0 ? (
-          <div className="rounded-lg border p-3">
-            <div className="flex items-center justify-between gap-x-3 gap-y-0.5 flex-wrap text-sm mb-2">
-              <span>เป้าเดือนนี้ <b>{fmtB(sp.target)}</b> · ทำได้ <b>{fmtB(sp.sales)}</b> <span className="font-semibold" style={{ color: sp.sales >= sp.target ? 'var(--good)' : 'var(--accent-2)' }}>({Math.round(sp.pctTarget)}%)</span></span>
-              <span className="text-muted-foreground">คาดสิ้นเดือน {fmtB(sp.projected)}{sp.comm ? ` · คอม ${fmtB(sp.comm)}` : ''}</span>
-            </div>
-            <Progress value={Math.min(100, sp.pctTarget)} className="h-2" indicatorColor={sp.sales >= sp.target ? 'var(--good)' : 'var(--accent)'} />
+        {/* เงิน: คอม (เด่น) + เป้า — การ์ดเดียว 2 ฝั่ง · คอมคือสิ่งที่เซลล์อยากเห็นที่สุด → ตัวใหญ่ พื้นสี */}
+        {(sp.comm > 0 || sp.target > 0) && (
+          <div className="rounded-xl border overflow-hidden grid sm:grid-cols-2">
+            {sp.comm > 0 && (
+              <div className="flex items-center gap-3 p-4" style={{ background: 'var(--accent-soft)' }}>
+                <span className="grid size-11 shrink-0 place-items-center rounded-xl" style={{ background: 'var(--surface)' }}>
+                  <Icon name="wallet" className="size-5" style={{ color: 'var(--accent)' }} />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium text-muted-foreground">คอมเดือนนี้</div>
+                  <div className="num text-[26px] font-extrabold leading-none tracking-tight" style={{ color: 'var(--accent-2)' }}>{fmtB(sp.comm)}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {sp.tgt && Array.isArray(sp.tgt.tiers) && sp.tgt.tiers.length ? 'ขั้นบันได' : `เรต ${Number(sp.tgt?.commission_rate) || 0}%`} × ยอด {fmtB(sp.sales)}
+                  </div>
+                </div>
+              </div>
+            )}
+            {sp.target > 0 && (
+              <div className={'p-4 flex flex-col justify-center gap-2' + (sp.comm > 0 ? ' border-t sm:border-t-0 sm:border-l' : '')}>
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="text-muted-foreground">เป้าเดือนนี้</span>
+                  <span><b className="num">{fmtB(sp.sales)}</b> <span className="text-muted-foreground">/ {fmtB(sp.target)}</span></span>
+                </div>
+                <Progress value={Math.min(100, sp.pctTarget)} className="h-2" indicatorColor={sp.sales >= sp.target ? 'var(--good)' : 'var(--accent)'} />
+                <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                  <span className="font-semibold" style={{ color: sp.sales >= sp.target ? 'var(--good)' : 'var(--accent-2)' }}>
+                    {Math.round(sp.pctTarget)}% ของเป้า{sp.sales >= sp.target ? ' · ถึงแล้ว 🎉' : ''}
+                  </span>
+                  <span>คาดสิ้นเดือน {fmtB(sp.projected)}</span>
+                </div>
+              </div>
+            )}
           </div>
-        ) : sp.comm > 0 ? (
-          /* ไม่มีเป้ายอด แต่มี % คอม → คอม = ยอดขายทั้งเดือน × เรต */
-          <div className="rounded-lg border p-3 text-sm flex items-center gap-x-3 gap-y-0.5 flex-wrap">
-            <span>คอมเดือนนี้ <b className="text-[var(--accent-2)]">{fmtB(sp.comm)}</b></span>
-            <span className="text-muted-foreground">· {sp.tgt && Array.isArray(sp.tgt.tiers) && sp.tgt.tiers.length ? 'ขั้นบันได' : `เรต ${Number(sp.tgt?.commission_rate) || 0}%`} จากยอด {fmtB(sp.sales)}</span>
-          </div>
-        ) : null}
+        )}
         <div>
           <div className="text-sm font-semibold mb-1">ยอด &amp; คนทัก รายวัน <span className="text-xs font-normal text-muted-foreground">— คลิกวันเพื่อดูออเดอร์</span></div>
           <ComboChart labels={labels} bars={sp.daily.map(d => d.sales)} line={sp.daily.map(d => d.leads)} barLabel="ยอดขาย" lineLabel="คนทัก" barFmt={fmtB} height={200} onDayClick={onDay ? (i) => { const d = sp.daily[i]; if (d) onDay(d.day); } : undefined} />

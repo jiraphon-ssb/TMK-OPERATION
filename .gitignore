@@ -29,3 +29,4 @@ dist-ssr
 
 # Local Codex CLI config (ไม่ commit)
 .codex/
+dist-edge/
