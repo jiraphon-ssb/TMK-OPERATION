@@ -142,9 +142,9 @@ function mutateTMK(mapped) {
   applyMapped(TMK, mapped);
 }
 
-// หมายเหตุ (P3-6c): บันทึก snapshot มูลค่า/จำนวนคลังรวมของวันนี้ ย้ายไป server cron แล้ว
-// → supabase/functions/inventory-snapshot + migration 20260811-inventory-snapshot-cron.sql
-// (เดิมเขียนฝั่ง client ทุกครั้งที่ non-viewer โหลดแอป — เลิกทำที่นี่)
+// หมายเหตุ: บันทึก snapshot มูลค่า/จำนวนคลังรวมรายวัน — เลิกใช้ถาวรแล้ว (2026-08-15)
+// เดิมเขียนฝั่ง client ทุกครั้งที่โหลดแอป → ย้ายไป server cron (P3-6c) → ล่าสุดยกเลิกทั้งหมด
+// (หน้าคลัง/สต็อกถูกลบตั้งแต่ PART 35 · ไม่มีใครอ่านตาราง tmk_inventory_snapshots แล้ว)
 
 export function DataProvider({ children }) {
   const [loading, setLoading] = useState(true);

@@ -44,7 +44,7 @@
 
 | # | เรื่อง | ต้องทำอะไร |
 |---|---|---|
-| O1 | **ช่วงว่าง snapshot คลัง** — client เลิกเขียนแล้ว แต่ edge fn `inventory-snapshot` + cron ยังไม่ deploy → วันที่คั่นกลางไม่มีแถว | หายเองหลังคุณ deploy edge + รัน cron migration |
+| O1 | ~~ช่วงว่าง snapshot คลัง~~ | **ยกเลิกแล้ว (15 ส.ค. 69)** — user ไม่เอา inventory-snapshot · ลบ edge fn + migration ทิ้ง (หน้าคลังถูกลบตั้งแต่ PART 35 ไม่มีใครใช้) |
 | O2 | **RLS §4 (จำกัดการอ่านออเดอร์ต่อเซลล์)** ผมคอมเมนต์ปิดไว้ | เปิดก็ต่อเมื่ออยากให้ non-admin เห็น "รายงานขาย" เป็นยอดตัวเอง (ไม่ใช่ยอดทีม) = การตัดสินใจธุรกิจ |
 
 ---
@@ -63,11 +63,11 @@
 ## 5. 📋 สิ่งที่ต้อง "คุณ" ลงมือ (ไม่ใช่โค้ด)
 
 1. **Commit** ~110 ไฟล์ (ยังไม่มี baseline) — ผมเตรียม message ให้เมื่อสั่ง · จะกัน `.claude/launch.json` + `daily-sale-report/index.ts` ออก
-2. **Deploy edge (ผ่าน Dashboard):** `daily-sale-report` (ใช้ `_shared` แล้ว) · `line-broadcast` (fail-closed) · `inventory-snapshot` (ใหม่ + set `CRON_SECRET`)
+2. **Deploy edge (ผ่าน Dashboard):** `daily-sale-report` (ใช้ `_shared` แล้ว) · `line-broadcast` (fail-closed) · ~~`inventory-snapshot`~~ (ยกเลิก — ลบทิ้งแล้ว)
 3. **รัน migration ใน SQL Editor:**
    - `20260811-rls-tier3b-owner-scope.sql` (ลบ=admin + owner-read)
    - `20260811-migrations-tracking.sql` (ตารางจด migration)
-   - `20260811-inventory-snapshot-cron.sql` (แก้ `__PROJECT_REF__`/`__CRON_SECRET__` ก่อน)
+   - ~~`20260811-inventory-snapshot-cron.sql`~~ (ยกเลิก — ลบไฟล์ทิ้งแล้ว ไม่ต้องรัน)
 
 ---
 
