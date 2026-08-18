@@ -27,6 +27,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { MultiSelect, DateRangePicker, _pageList } from './saleWidgets.jsx';
 import { OrderDrawer } from './orderDrawer.jsx';
+import { canEdit as appCanEdit, toast, confirm, userName, userEmail } from './lib/appBus.js';
 
 
 function OrdersSkeleton() {
@@ -126,7 +127,7 @@ function MpOrdersView() {
   const [page, setPage] = useState(1);
   const [selSet, setSelSet] = useState(() => new Set()); // เลือกหลายออเดอร์ (order_no) สำหรับ action รวดเร็ว
   const [bulkBusy, setBulkBusy] = useState(false);
-  const canEdit = window.__canEdit !== false;
+  const canEdit = appCanEdit();
   const [density] = usePersistedState('tmk-orders-density', 'cozy');
   const [hiddenCols, setHiddenCols] = usePersistedState('tmk-orders-hiddenCols', []);
   const colVisible = useMemo(() => new Set(ORDERS_COLS.map(c => c.key).filter(k => !hiddenCols.includes(k))), [hiddenCols]);
@@ -182,7 +183,7 @@ function MpOrdersView() {
   const isRcpt = (o) => (o.source || '') === 'shipnity';
   const toggleSel = (no) => setSelSet(s => { const n = new Set(s); n.has(no) ? n.delete(no) : n.add(no); return n; });
   const runBulk = async (kind) => {
-    if (!canEdit) { window.__toast?.('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!canEdit) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
     const rows = (ordersM || []).filter(o => selSet.has(o.order_no) &&
       (kind === 'cancel' ? o.status !== 'cancelled' : kind === 'restore' ? o.status === 'cancelled' : true));
     if (!rows.length) return;
@@ -191,13 +192,17 @@ function MpOrdersView() {
       restore: { title: `นำ ${rows.length} ออเดอร์กลับมา`, body: 'ยอดจะกลับเข้ารายงานทันที', confirmText: 'นำกลับมา' },
       remove: { title: `ลบ ${rows.length} ออเดอร์ถาวร`, body: 'รายการสินค้า/ใบเสร็จจะถูกลบด้วย — ย้อนกลับไม่ได้', danger: true, confirmText: 'ลบถาวร' },
     }[kind];
-    if (!await window.__confirm?.(meta)) return;
+    if (!await confirm(meta)) return;
     setBulkBusy(true);
-    const by = window.__userName || window.__userEmail || '';
+    const by = userName() || userEmail() || '';
     // จัดกลุ่มตาม source (batch/RPC ทีเดียวต่อกลุ่ม แทน loop ทีละแถว)
-    const bySource = (rs) => { const m = new Map(); rs.forEach(o => { const s = o.source || ''; (m.get(s) || m.set(s, []).get(s)).push(o); }); return m; };
+    // ⚠️ ตารางร่วม: แถวที่ไม่มี source ห้ามเหมารวมเป็นกลุ่ม '' — กลุ่ม '' ทำให้ deleteOrders ลบข้ามช่องทาง
+    //    และ .eq('source','') ก็ไม่แมตช์แถวที่เป็น NULL → อัปเดตเงียบ 0 แถว · คัดออกแล้วนับเป็น fail ให้ผู้ใช้เห็น
+    const noSrc = rows.filter(o => !o.source);
+    const bySource = (rs) => { const m = new Map(); rs.filter(o => o.source).forEach(o => { const s = o.source; (m.get(s) || m.set(s, []).get(s)).push(o); }); return m; };
     const nosOf = (rs) => rs.map(o => o.order_no);
-    let fail = 0;
+    let fail = noSrc.length; // แถวไม่มี source = ทำไม่ได้ (ข้ามอย่างปลอดภัย ไม่เดาช่องทาง)
+    if (noSrc.length) console.warn('[orders] ข้ามแถวที่ไม่มี source:', noSrc.map(o => o.order_no));
     try {
       if (kind === 'remove') {
         for (const [src, g] of bySource(rows)) await deleteOrders(nosOf(g), { source: src, overrideIds: g.map(orderOvKey) });
@@ -213,11 +218,11 @@ function MpOrdersView() {
         for (const [src, g] of bySource(other)) { const { error } = await supabase.from('tmk_mp_orders').update({ status: 'active', updated_at: new Date().toISOString() }).in('order_no', nosOf(g)).eq('source', src); if (error) throw error; }
         logAudit({ action: 'update', entityType: 'order', entityName: `${rows.length} ออเดอร์`, summary: `นำ ${rows.length} ออเดอร์กลับมา` });
       }
-    } catch (e) { fail = fail || rows.length; window.__toast?.('ทำรายการไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+    } catch (e) { fail = fail || rows.length; toast('ทำรายการไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
     setBulkBusy(false);
     setSelSet(new Set());
     const okN = rows.length - fail;
-    if (okN > 0) window.__toast?.(`${meta.confirmText} ${okN} ออเดอร์${fail ? ` · ล้มเหลว ${fail}` : ''}`, fail ? 'warn' : 'success');
+    if (okN > 0) toast(`${meta.confirmText} ${okN} ออเดอร์${fail ? ` · ล้มเหลว ${fail}` : ''}`, fail ? 'warn' : 'success');
     invalidateSaleCache('tmk_mp_orders'); invalidateSaleCache('tmk_mp_skus');
     reloadAll();
   };
@@ -225,6 +230,7 @@ function MpOrdersView() {
   // resolver จาก map สด — เปลี่ยน catalog/alias/override แล้ว recompute (ไม่ต้อง reimport)
   const resolver = useMemo(() => makeSkuResolver(resolverMaps || {}), [resolverMaps]);
   // ออเดอร์ที่ merge override ระดับออเดอร์ทับค่า frozen (job_type/ลูกค้า/เซลล์/ยอด ที่แก้ในเว็บ) — helper กลาง saleOverrides
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- ต้องคง memo: merge override ทั้งลิสต์ออเดอร์ (หลักพันแถว) + identity ที่เสถียรคือ input ของ filtered/useTableSort ข้างล่าง ถ้าเปลี่ยนทุก render ตารางจะ re-sort กระตุก
   const ordersM = useMemo(() => mergeOrderOverrides(orders, orderOv), [orders, orderOv]);
   // SKU แยกตามออเดอร์ — resolve ชื่อลาย/รหัสสด + derive สี/ไซซ์ตอน override (helper กลาง) แล้ว group ตามออเดอร์
   const skusByOrder = useMemo(() => {
@@ -268,6 +274,7 @@ function MpOrdersView() {
   const { sorted, sortKey, sortDir, toggleSort } = useTableSort(filtered, { key: 'date', dir: 'desc', accessors: ORDERS_SORT });
 
   // แบ่งหน้า — รีเซ็ตกลับหน้า 1 เมื่อเปลี่ยนช่วงวันที่/ตัวกรอง/คำค้น/การเรียง
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- รีเซ็ตหน้า/การเลือกเมื่อเงื่อนไขเปลี่ยน (page/selSet เป็น state ที่ผู้ใช้แก้เองได้ จึง derive ตอน render ไม่ได้) — รื้อเสี่ยงเลือกข้ามหน้าผิดแถว
   useEffect(() => { setPage(1); setSelSet(new Set()); }, [range.from, range.to, jobF, channelF, sellerF, statusF, payF, q, sortKey, sortDir]);
   const totalPages = Math.max(1, Math.ceil(sorted.length / PER_PAGE));
   const pageClamped = Math.min(page, totalPages);
@@ -319,7 +326,7 @@ function MpOrdersView() {
             <div className="ml-auto flex items-center gap-2">
               <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[220px]" />
               <ColumnToggle columns={ORDERS_COLS} visible={colVisible} onToggle={toggleCol} />
-              <Button size="sm" className="shrink-0 gap-1.5" disabled={window.__canEdit === false} onClick={() => setAddOpen(true)}><Icon name="plus" /> เพิ่มออเดอร์</Button>
+              <Button size="sm" className="shrink-0 gap-1.5" disabled={!appCanEdit()} onClick={() => setAddOpen(true)}><Icon name="plus" /> เพิ่มออเดอร์</Button>
             </div>
           </div>
           {activeChips.length > 0 && (

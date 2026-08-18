@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { TMK } from './data.js';
+import { toast } from './lib/appBus.js';
 import { fmtBaht } from './lib/money.js';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -309,6 +310,7 @@ export function ColorPicker({ value, onChange, presets = DEFAULT_SWATCHES, size 
   const sw = size === 'sm' ? 'size-6' : 'size-7';
   const [hex, setHex] = useState(v);
   const [recent, setRecent] = useState(loadRecentColors);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- sync ช่อง hex ตาม prop value ที่เปลี่ยนจากภายนอก (รื้อเป็น derived state เสี่ยงกว่าประโยชน์)
   useEffect(() => { setHex(v); }, [v]);
   const recordRecent = (c) => {
     if (!/^#[0-9a-fA-F]{6}$/.test(c)) return;
@@ -321,7 +323,7 @@ export function ColorPicker({ value, onChange, presets = DEFAULT_SWATCHES, size 
     setHex(s);
     if (/^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/.test(s)) { onChange(s); if (s.length === 7) recordRecent(s); }
   };
-  const copyHex = async () => { try { await navigator.clipboard.writeText(v); window.__toast?.('คัดลอกโค้ดสีแล้ว', 'success'); } catch { /* ignore */ } };
+  const copyHex = async () => { try { await navigator.clipboard.writeText(v); toast('คัดลอกโค้ดสีแล้ว', 'success'); } catch { /* ignore */ } };
   const isOn = (c) => (v || '').toLowerCase() === c.toLowerCase();
   const recentShown = recent.filter(c => !presets.some(p => p.toLowerCase() === c.toLowerCase()));
   return (
@@ -557,24 +559,8 @@ export function Bars({ data, h = 150, color = 'var(--accent)', labelKey = 'm', v
 /* (เดิมมี PageLoading แบบวงกลมหมุน — เลิกใช้แล้ว เปลี่ยนเป็น Skeleton ทุกหน้า) */
 
 
-/* ---- จอ splash โหลดแรก: เริ่มจับเวลาตอน "armed" (login เสร็จ) แสดงจนกว่าจะ "done"
-   และอย่างน้อย minMs — รับประกันเห็นจอโหลด 5-6 วิ แม้ข้อมูลจะมาไว (cache อุ่น)
-   armed = ผ่าน login แล้ว · done = โหลดข้อมูลหลักครั้งแรกเสร็จ/พลาด */
-export function useMinSplash(armed, done, minMs = 5500) {
-  const startRef = useRef(null);
-  const [, tick] = useState(0);
-  if (armed && startRef.current == null) startRef.current = Date.now();
-  useEffect(() => {
-    if (startRef.current == null || !done) return;
-    const left = minMs - (Date.now() - startRef.current);
-    if (left <= 0) return;
-    const t = setTimeout(() => tick(x => x + 1), left);
-    return () => clearTimeout(t);
-  }, [armed, done, minMs]);
-  if (startRef.current == null) return false;            // ยังไม่ arm (ยังไม่ login) → ไม่โชว์
-  if (!done) return true;                                 // ข้อมูลยังไม่พร้อม → โชว์
-  return Date.now() - startRef.current < minMs;           // พร้อมแล้วแต่ยังไม่ครบเวลาขั้นต่ำ
-}
+/* ---- ถอด useMinSplash ออกแล้ว — เดิมบังคับให้เห็นจอโหลดขั้นต่ำ 5.5 วิ แม้ข้อมูลจะมาใน <1 วิ
+   ตอนนี้ App.jsx โชว์จอโหลด "เท่าที่โหลดจริง" ---- */
 
 /* ---- คุมจังหวะ skeleton: โผล่หลัง active ค้างเกิน delayMs (กันกระพริบตอน cache มาไว)
    + เมื่อโผล่แล้วอยู่อย่างน้อย minMs (กัน skeleton วาบหายเร็วเกินจนตาไม่ทัน) ---- */
@@ -596,21 +582,9 @@ export function useDelayedFlag(active, delayMs = 120, minMs = 300) {
   return on;
 }
 
-/* ---- จังหวะ skeleton สั้นๆ ตอนเข้าหน้า (สำหรับหน้าที่ข้อมูลพร้อมอยู่แล้ว = ไม่มีโหลดจริง)
-   เพื่อความสม่ำเสมอกับหน้า Sale — โชว์ ~350ms ตอน mount แล้วเข้าเนื้อหา ---- */
-export function useBeat(ms = 350) {
-  const [on, setOn] = useState(true);
-  useEffect(() => { const t = setTimeout(() => setOn(false), ms); return () => clearTimeout(t); }, []);
-  return on;
-}
-
-/* ---- เหมือน useBeat แต่ re-fire ทุกครั้งที่ dep เปลี่ยน (สลับหน้าย่อยในเซกชันเดียว) โดยไม่ remount ตัว dispatcher
-   → leaf view mount ครั้งเดียวต่อ sub (ไม่เพิ่ม fetch/egress) ---- */
-export function useBeatOn(dep, ms = 320) {
-  const [on, setOn] = useState(true);
-  useEffect(() => { setOn(true); const t = setTimeout(() => setOn(false), ms); return () => clearTimeout(t); }, [dep, ms]);
-  return on;
-}
+/* ---- ถอด useBeat/useBeatOn ออกแล้ว — เดิมโชว์ skeleton "หลอก" 320-350ms ทุกครั้งที่เข้าหน้า/สลับหน้าย่อย
+   ทั้งที่ข้อมูลอยู่ใน TMK singleton แล้ว = ไม่มีการโหลดจริง → รู้สึกว่า "เหมือนรีโหลดใหม่ทุกครั้ง"
+   มาตรฐานเดียวของแอป = useDelayedFlag: โชว์ skeleton เฉพาะตอนโหลดจริงเกิน 120ms ---- */
 
 /* ---- การ์ดกริดจำลอง (overview โครงการ / รายการการ์ด) ---- */
 export function CardGridSkeleton({ cards = 6, header = true }) {
@@ -637,10 +611,19 @@ export function CardGridSkeleton({ cards = 6, header = true }) {
 /* ---- ฉลองทะลุเป้ายอดขาย (อลังการสุด · ยอดวิ่งนับ · ไม่พึ่ง dep · CSS confetti + portal) ---- */
 const CONFETTI_COLORS = ['#f5a623', '#ffd86b', '#4f46e5', '#16a34a', '#ec4899', '#06b6d4', '#ef4444', '#8b5cf6'];
 const CELEBRATE_HEADLINES = ['🎉 ทะลุเป้าแล้ว!', '🔥 ทุบเป้ากระจุย!', '🏆 ปังไม่ไหวแล้ว!', '🚀 พุ่งทะลุเป้า!', '🥳 โหดมากกก!'];
+/* สุ่มครั้งเดียวตอน mount ผ่าน useState lazy init (เดิมสุ่มในเนื้อ render) */
+const pickHeadline = () => CELEBRATE_HEADLINES[Math.floor(Math.random() * CELEBRATE_HEADLINES.length)];
+const makeConfetti = () => Array.from({ length: 130 }, (_, i) => ({
+  left: Math.random() * 100,
+  dur: 2.6 + Math.random() * 2.6,
+  delay: (i % 2 ? 0 : 1.2) + Math.random() * 0.9,
+  size: 7 + Math.random() * 10,
+}));
 export function CelebrationOverlay({ amount = 0, target = 0, onClose }) {
   const reduce = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const shown = useCountUp(amount, 1700); // ยอดวิ่งนับช้าๆ ให้เห็นพุ่งเข้าหาเป้า
-  const headline = useRef(CELEBRATE_HEADLINES[Math.floor(Math.random() * CELEBRATE_HEADLINES.length)]).current;
+  const [headline] = useState(pickHeadline);
+  const [confetti] = useState(makeConfetti); // ตำแหน่ง/จังหวะเศษกระดาษ คงที่ตลอดอายุ overlay
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
   const close = useCallback(() => {
@@ -660,14 +643,13 @@ export function CelebrationOverlay({ amount = 0, target = 0, onClose }) {
   const fillPct = target > 0 ? Math.min((shown / target) * 100, 100) : 100;
   const livePct = target > 0 ? (shown / target) * 100 : 100;
   const crossed = target > 0 && shown >= target;
-  const pieces = reduce ? [] : Array.from({ length: 130 });
+  const pieces = reduce ? [] : confetti;
   return createPortal(
     <div className={'celebrate-overlay' + (closing ? ' celebrate-out' : '')} role="dialog" aria-modal="true" aria-label="ฉลองทะลุเป้ายอดขาย" onClick={close}>
       <div className="celebrate-confetti" aria-hidden="true">
-        {pieces.map((_, i) => {
-          const left = Math.random() * 100, dur = 2.6 + Math.random() * 2.6, delay = (i % 2 ? 0 : 1.2) + Math.random() * 0.9, size = 7 + Math.random() * 10;
-          return <span key={i} style={{ left: left + '%', width: size, height: size * 0.6, background: CONFETTI_COLORS[i % CONFETTI_COLORS.length], animationDuration: dur + 's', animationDelay: delay + 's', borderRadius: i % 3 === 0 ? '50%' : '2px' }} />;
-        })}
+        {pieces.map((p, i) => (
+          <span key={i} style={{ left: p.left + '%', width: p.size, height: p.size * 0.6, background: CONFETTI_COLORS[i % CONFETTI_COLORS.length], animationDuration: p.dur + 's', animationDelay: p.delay + 's', borderRadius: i % 3 === 0 ? '50%' : '2px' }} />
+        ))}
       </div>
       <div className={'celebrate-card' + (crossed ? ' celebrate-card-crossed' : '')} onClick={e => e.stopPropagation()}>
         <div className="celebrate-glow" aria-hidden="true" />

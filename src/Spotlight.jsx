@@ -1,6 +1,7 @@
 /* Spotlight (⌘K command palette) — แยกจาก App god-file (PART 84 REFACTOR-1) */
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { TMK } from './data.js';
+import { ROW_LIMITS } from './dataContext.jsx';
 import { Icon, B, Bk, N } from './components.jsx';
 
 /* ---- Spotlight Search ---- */
@@ -109,6 +110,12 @@ export function Spotlight({ onClose, onGo }) {
           {ql && results.length === 0 && (
             <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--ink-3)' }}>
               <div style={{ fontSize: 'var(--fs-sm)' }}>ไม่พบผลลัพธ์สำหรับ "{q}"</div>
+              {/* บอกขอบเขตการค้นหาให้ชัด — ออเดอร์/ลูกค้าถูกตัดที่ N รายล่าสุด
+                  ผู้ใช้ค้นของเก่าไม่เจอแล้วนึกว่า "ระบบไม่มีข้อมูล" = เสียความเชื่อมั่น */}
+              <div className="cap" style={{ marginTop: 8, lineHeight: 1.7 }}>
+                ค้นหาด่วนครอบคลุมออเดอร์ {ROW_LIMITS.orders} รายล่าสุด และลูกค้า {ROW_LIMITS.customers} รายล่าสุด
+                <br />ถ้าเป็นข้อมูลเก่ากว่านั้น ให้ค้นในหน้าออเดอร์ หรือหน้าลูกค้าโดยตรง
+              </div>
             </div>
           )}
           {Object.entries(grouped).map(([cat, items]) => (

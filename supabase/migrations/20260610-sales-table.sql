@@ -20,7 +20,7 @@ create table if not exists public.tmk_sales (
 );
 create index if not exists tmk_sales_date_idx on public.tmk_sales(sale_date);
 grant select, insert, update, delete on public.tmk_sales to anon, authenticated;
-alter table public.tmk_sales disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sales disable row level security;
 -- realtime (ไม่บังคับ — รายงานโหลดเองตอนเปิด)
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tmk_sales') then

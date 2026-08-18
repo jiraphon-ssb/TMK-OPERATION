@@ -9,9 +9,10 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { TMK } from './data.js';
 import { supabase, isSupabaseConfigured } from './lib/supabaseClient.js';
+import { toast } from './lib/appBus.js';
 import { getToday } from './lib/dateUtils.js';
 import { computeMonthPure } from './lib/computeMonthPure.js';
-import { mapToTMK } from './lib/mapToTMK.js';
+import { mapToTMK, clearMapMemo } from './lib/mapToTMK.js';
 import { applyMapped } from './lib/applyTMK.js';
 import { rtDiag } from './realtime/diagnostics.js';
 
@@ -27,6 +28,9 @@ const DataContext = createContext();
 // (tmk_daily_sales = 1 แถว/วัน แถวเล็ก ~1,100 แถว/3 ปี → egress แทบไม่กระทบ) · daily-first ยังคุมให้ใช้รายวันเสมอเมื่อมีข้อมูล
 // ปรับค่าเดียวนี้ถ้าต้องการนานกว่านี้ (เช่น 61 = 5 ปี) · เดือนที่เก่ากว่านี้ค่อย fallback tmk_monthly_history.actual
 const DAILY_WINDOW_MONTHS = 37;
+// เพดานแถวของตารางที่โหลด "เฉพาะล่าสุด" — export ให้ view เอาไปขึ้นป้ายบอกขอบเขตข้อมูล
+// เดิมตัดเงียบ ผู้ใช้ค้นของเก่าไม่เจอแล้วนึกว่าระบบไม่มีข้อมูล = เสียความเชื่อมั่นในตัวเลข
+export const ROW_LIMITS = { customers: 150, orders: 200, audit: 200 };
 const dailyFromDate = () => { const d = new Date(); d.setMonth(d.getMonth() - DAILY_WINDOW_MONTHS); return d.toISOString().slice(0, 10); };
 const QUERIES = {
   settings:    () => supabase.from('tmk_settings').select('*').eq('id', 'main').maybeSingle(),
@@ -36,7 +40,7 @@ const QUERIES = {
   brands:      () => supabase.from('tmk_brands').select('*').is('deleted_at', null).order('sort_order'),
   flows:       () => supabase.from('tmk_flows').select('*').is('deleted_at', null).order('sort_order'),
   products:    () => supabase.from('tmk_products').select('id,name,price,actual_units,stock_on_hand,reorder_point,strategy,image_url,category,supplier,sku,barcode,lots,reservations').is('deleted_at', null).order('created_at'),
-  audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at,flow_id,entity_type,entity_id,severity').order('created_at', { ascending: false }).limit(200),
+  audit:       () => supabase.from('tmk_audit_logs').select('id,user_email,action,details,created_at,flow_id,entity_type,entity_id,severity').order('created_at', { ascending: false }).limit(ROW_LIMITS.audit),
   roles:       () => supabase.from('tmk_user_roles').select('*').is('deleted_at', null),
   staff:       () => supabase.from('tmk_staff').select('*').is('deleted_at', null).order('joined_at'),
   duties:      () => supabase.from('tmk_duties').select('*').is('deleted_at', null).order('sort_order'),
@@ -48,9 +52,9 @@ const QUERIES = {
   monthly:     () => supabase.from('tmk_monthly_history').select('*').order('year').order('month'),
   colorMix:    () => supabase.from('tmk_color_mix').select('*').order('sort_order'),
   sizeMix:     () => supabase.from('tmk_size_mix').select('*').order('sort_order'),
-  // จำกัด 300 รายล่าสุด — ค้นหาฝั่ง server ในหน้า CustomersView ครอบคลุมลูกค้านอกชุดนี้
-  customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(150),
-  orders:      () => supabase.from('tmk_orders').select('id,code,customer_id,customer_name,items,subtotal,discount,total,status,channel,tracking_no,carrier,note,status_log,created_at').order('created_at', { ascending: false }).limit(200),
+  // จำกัด ROW_LIMITS.customers รายล่าสุด (คอมเมนต์เดิมเขียน 300 ไม่ตรงโค้ด) — ค้นหาฝั่ง server ในหน้า CustomersView ครอบคลุมลูกค้านอกชุดนี้
+  customers:   () => supabase.from('tmk_customers').select('*').order('created_at', { ascending: false }).limit(ROW_LIMITS.customers),
+  orders:      () => supabase.from('tmk_orders').select('id,code,customer_id,customer_name,items,subtotal,discount,total,status,channel,tracking_no,carrier,note,status_log,created_at').order('created_at', { ascending: false }).limit(ROW_LIMITS.orders),
   customerTotals: () => supabase.from('tmk_customer_totals').select('customer_id,order_count,total_spent'),
   commentCounts: () => supabase.from('tmk_task_comment_counts').select('task_id,comment_count'),
 };
@@ -138,22 +142,9 @@ function mutateTMK(mapped) {
   applyMapped(TMK, mapped);
 }
 
-// บันทึก snapshot มูลค่า/จำนวนคลังรวมของวันนี้ (1 แถว/วัน) → กราฟแนวโน้มในรายงาน
-// เขียนเฉพาะเมื่อค่าเปลี่ยน (กันเขียนซ้ำตอน re-render/อ่านเฉยๆ) · fire-and-forget · ตารางไม่มีก็เงียบ
-let _lastSnap = { day: null, value: null };
-function recordInventorySnapshot() {
-  try {
-    const products = TMK.products || [];
-    if (!products.length) return;
-    const units = products.reduce((a, p) => a + (p.onHand || 0), 0);
-    const value = Math.round(products.reduce((a, p) => a + (p.stockValue || 0), 0));
-    const d = new Date();
-    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    if (_lastSnap.day === day && _lastSnap.value === value) return;
-    _lastSnap = { day, value };
-    supabase.from('tmk_inventory_snapshots').upsert({ id: day, date: day, units, value, updated_at: new Date().toISOString() }).then(() => {}, () => {});
-  } catch { /* non-fatal */ }
-}
+// หมายเหตุ (P3-6c): บันทึก snapshot มูลค่า/จำนวนคลังรวมของวันนี้ ย้ายไป server cron แล้ว
+// → supabase/functions/inventory-snapshot + migration 20260811-inventory-snapshot-cron.sql
+// (เดิมเขียนฝั่ง client ทุกครั้งที่ non-viewer โหลดแอป — เลิกทำที่นี่)
 
 export function DataProvider({ children }) {
   const [loading, setLoading] = useState(true);
@@ -166,6 +157,7 @@ export function DataProvider({ children }) {
   const lastRefreshAtRef = useRef({});         // เวลาที่ตารางถูก refresh จาก "การเซฟของเครื่องนี้" — ให้ realtime ข้าม echo ตัวเอง
   const rawRef = useRef(null); // baseline ของทุกตาราง — ใช้สำหรับ per-table refresh (ไม่ต้องโหลดใหม่ทั้งชุด)
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- ต้องคง useCallback: load/refreshTables อ้างอิงกันเป็นวง (load ระบายคิวผ่าน refreshTablesRef) และเป็น deps ของ effect realtime + ค่าใน context · identity เปลี่ยน = ต่อ WS ใหม่/รีโหลดทั้งแอป
   const load = useCallback(async () => {
     if (!isSupabaseConfigured) {
       setLoading(false);
@@ -181,10 +173,9 @@ export function DataProvider({ children }) {
       rawRef.current = raw; // เก็บ baseline สำหรับ refreshTables (per-table refresh ที่จะใช้แทน full reload)
       const mapped = mapToTMK(raw);
       mutateTMK(mapped);
-      if (window.__canEdit !== false) recordInventorySnapshot(); // บันทึกมูลค่าคลังของวันนี้ (ถ้าเปลี่ยน) — ข้ามถ้าเป็น viewer (กัน viewer เขียน DB)
       setError(null);
       setVersion(v => v + 1);
-      if (raw.__errors?.length) window.__toast?.(`บางตารางโหลดไม่สำเร็จ: ${raw.__errors.join(', ')} — อาจต้องรัน migration หรือสิทธิ์ไม่พอ`, 'warn');
+      if (raw.__errors?.length) toast(`บางตารางโหลดไม่สำเร็จ: ${raw.__errors.join(', ')} — อาจต้องรัน migration หรือสิทธิ์ไม่พอ`, 'warn');
       console.log('✅ Loaded from Supabase:', {
         channels: TMK.channels.length,
         campaigns: TMK.campaigns.length,
@@ -208,6 +199,7 @@ export function DataProvider({ children }) {
   // Per-table refresh — ตารางไหนเปลี่ยน fetch ใหม่เฉพาะตารางนั้น แล้วยัดกลับเข้า raw cache + map ใหม่ + bump version
   // ลด bandwidth/render churn เมื่อใครเซฟอะไรก็ตาม (ไม่ต้องดาวน์โหลด 20 ตารางใหม่ทุกครั้ง)
   // — ไม่มี baseline หรือ list มี customers/orders ที่ตัวรวม view ต้องอัปเดต → fallback ไป full load
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- เหตุผลเดียวกับ load ด้านบน (identity ต้องคงที่ · เป็น dep ของ effect realtime และค่าใน context)
   const refreshTables = useCallback(async (tableNames, opts = {}) => {
     const keys = [...new Set((tableNames || []).map(t => TABLE_KEY[t]).filter(k => k && QUERIES[k]))];
     const needCounts = (tableNames || []).includes('tmk_task_comments'); // คอมเมนต์เปลี่ยน → รีเฟรชจำนวน 💬 บนการ์ด
@@ -242,8 +234,39 @@ export function DataProvider({ children }) {
       if (pendingRef.current && mountedRef.current) { pendingRef.current = false; pendingTablesRef.current.clear(); load(); } // มี full reload ค้าง → โหลดเต็ม (ครอบทุกตาราง)
       else if (pendingTablesRef.current.size && mountedRef.current) { const ts = [...pendingTablesRef.current]; pendingTablesRef.current.clear(); refreshTables(ts, { fromRealtime: true }); } // per-table ค้าง → ระบายเฉพาะตารางนั้น (เดิม fallback เป็น full load 20 ตาราง)
     }
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization -- dep [load] ต้องคงไว้ตามเดิม (refreshTables เรียก load() เป็น fallback) · compiler มองว่า load ถูก "mutate" เพราะ refreshTablesRef ผูกวงกลับไปหา load — ไม่ใช่การแก้ค่าจริง
   }, [load]);
-  const refreshTablesRef = useRef(null); refreshTablesRef.current = refreshTables; // ให้ load() (นิยามก่อนหน้า) เรียกระบายคิว per-table ได้
+  // ให้ load() (นิยามก่อนหน้า) เรียกระบายคิว per-table ได้ — เขียน ref ใน effect (ไม่เขียนตอน render)
+  // effect นี้อยู่เหนือ effect โหลดข้อมูล → รันก่อนตอน mount ค่า ref จึงพร้อมก่อน load() ถูกเรียก
+  const refreshTablesRef = useRef(null);
+  useEffect(() => { refreshTablesRef.current = refreshTables; }, [refreshTables]);
+
+  /* Optimistic patch — ยัดแถวที่เพิ่งเซฟเข้า cache "ทันที" โดยไม่รอ network รอบสอง
+     เดิม: กดบันทึก → upsert → refresh (ดึงตารางใหม่ทั้งตาราง) → ค่อยเห็นผล = มีช่วง 200-400ms
+     ที่หน้าจอยังเป็นค่าเก่าทั้งที่ toast ขึ้น "สำเร็จ" แล้ว → ผู้ใช้ไม่แน่ใจว่าติดจริงไหม
+     ตอนนี้: เห็นผลทันที แล้ว refresh ตามมา reconcile (ลำดับแถว/derived view) ให้ถูกต้อง
+     → ถ้า patch วางลำดับไม่ตรง query ก็อยู่แค่ชั่วครู่ เดี๋ยว refresh ทับให้เอง (ไม่ค้างผิด) */
+  const patchRows = useCallback((tableName, rows) => {
+    const key = TABLE_KEY[tableName];
+    if (!key || !rawRef.current || !Array.isArray(rows) || !rows.length) return;
+    const cur = rawRef.current[key];
+    if (!Array.isArray(cur)) return;
+    const idx = new Map(cur.map((r, i) => [String(r?.id), i]));
+    const next = cur.slice();
+    let touched = false;
+    for (const r of rows) {
+      const id = r?.id == null ? '' : String(r.id);
+      if (!id) continue;                       // แถวไม่มี id → ข้าม (ปล่อยให้ refresh จัดการ)
+      const i = idx.get(id);
+      if (i != null) next[i] = { ...next[i], ...r };  // merge — คงคอลัมน์ที่ select ไม่ได้ดึงมา
+      else next.unshift(r);                    // แถวใหม่ → บนสุด (ตารางส่วนใหญ่เรียง created_at desc)
+      touched = true;
+    }
+    if (!touched) return;
+    rawRef.current[key] = next;                // reference ใหม่ → memoSection map เฉพาะส่วนนี้
+    mutateTMK(mapToTMK(rawRef.current));
+    setVersion(v => v + 1);
+  }, []);
 
   // โหลดตาราง deferred ตอนกดเข้า section ที่ใช้ (ครั้งเดียว/แคช) → ลด egress ตอนเปิดแอป
   const deferredLoadedRef = useRef(new Set());
@@ -280,7 +303,7 @@ export function DataProvider({ children }) {
         if (data?.session) load();
         const res = supabase.auth.onAuthStateChange((event) => {
           if (!mountedRef.current) return;
-          if (event === 'SIGNED_OUT') rawRef.current = null;
+          if (event === 'SIGNED_OUT') { rawRef.current = null; clearMapMemo(); } // ล้างแคช map ด้วย — กันข้อมูล user เดิมค้างข้ามคน
           if (event === 'SIGNED_IN' && !rawRef.current) load();
         });
         authSub = res?.data?.subscription || null;
@@ -381,7 +404,7 @@ export function DataProvider({ children }) {
   }, [load, refreshTables]);
 
   return (
-    <DataContext.Provider value={{ loading, error, version, reload: load, refresh: refreshTables, ensureLoaded }}>
+    <DataContext.Provider value={{ loading, error, version, reload: load, refresh: refreshTables, ensureLoaded, patchRows }}>
       {children}
     </DataContext.Provider>
   );

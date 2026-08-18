@@ -16,7 +16,7 @@ import { N, Icon, Skel, PersonAvatar } from './components.jsx';
 import { channelColor } from './charts.jsx';
 import { fmtBaht } from './lib/money.js';
 import { funnelTotal } from './lib/saleData.js';
-import { isLeadChannel } from './lib/saleFields.js';
+import { isChatOrder } from './lib/saleFields.js';
 import { loadResolverMaps, makeSkuResolver } from './lib/designResolve.js';
 import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { OVERRIDES_SEL } from './lib/saleData.js';
@@ -38,24 +38,27 @@ export function payLabel(o) {
 
 /* ---- สรุปเงินท้ายรายการ (สไตล์ Lemon Squeezy — แถวแบน ไม่มีกล่อง) ----
    ราคาเสื้อ → −ส่วนลด (+ชิปโค้ดโปรโมชัน) → +ค่าส่ง → +VAT → ยอดขาย · ซ่อนเองถ้าไม่มี breakdown */
+// แถวเดียวในสรุปเงิน — ประกาศระดับโมดูล (เดิมนิยามในตัว component → remount ทุก render)
+function MoneyRow({ label, val, sign = '', tone, extra }) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-[12px]">
+      <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-4)' }}>{label}{extra}</span>
+      <span className="num" style={{ color: tone || 'var(--ink-3)' }}>{sign}{B(val)}</span>
+    </div>
+  );
+}
 export function MoneySummaryRows({ fin, total }) {
   const d = num(fin?.discount), s = num(fin?.shipping), v = num(fin?.vat);
   const tot = num(total);
   const sub = fin?.subtotal != null && fin.subtotal !== '' ? Number(fin.subtotal) : null;
   const hasBreak = d || s || v || (sub != null && Math.abs(sub - tot) > 0.01);
   if (!hasBreak) return null;
-  const Row = ({ label, val, sign = '', tone, extra }) => (
-    <div className="flex items-center justify-between gap-2 text-[12px]">
-      <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-4)' }}>{label}{extra}</span>
-      <span className="num" style={{ color: tone || 'var(--ink-3)' }}>{sign}{B(val)}</span>
-    </div>
-  );
   return (
     <div className="flex flex-col gap-1 border-t px-3 py-2" style={{ borderColor: 'var(--line)' }}>
-      {sub != null && <Row label="ราคาเสื้อ" val={sub} />}
-      {d ? <Row label="ส่วนลด" val={d} sign="−" tone="var(--bad)" extra={fin?.promo ? <Badge variant="secondary" className="rounded px-1.5 py-0 text-[10px] font-medium">{fin.promo}</Badge> : null} /> : null}
-      {s ? <Row label="ค่าส่ง" val={s} sign="+" /> : null}
-      {v ? <Row label="VAT" val={v} sign="+" /> : null}
+      {sub != null && <MoneyRow label="ราคาเสื้อ" val={sub} />}
+      {d ? <MoneyRow label="ส่วนลด" val={d} sign="−" tone="var(--bad)" extra={fin?.promo ? <Badge variant="secondary" className="rounded px-1.5 py-0 text-[10px] font-medium">{fin.promo}</Badge> : null} /> : null}
+      {s ? <MoneyRow label="ค่าส่ง" val={s} sign="+" /> : null}
+      {v ? <MoneyRow label="VAT" val={v} sign="+" /> : null}
       <div className="mt-0.5 flex items-center justify-between border-t pt-1.5 text-[13px]" style={{ borderColor: 'var(--line)' }}>
         <span className="font-semibold" style={{ color: 'var(--ink)' }}>ยอดขาย</span>
         <span className="num font-bold" style={{ color: 'var(--ink)' }}>{B(tot)}</span>
@@ -74,6 +77,7 @@ export function useOrderFinancials(ords) {
   const nosKey = useMemo(() => [...new Set((ords || []).map(o => o.order_no).filter(x => x && !String(x).startsWith('(')))].sort().join(','), [ords]);
   useEffect(() => {
     let live = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ล้างค่าเก่าก่อนโหลดชุดใหม่ (async fetch) กันโชว์ส่วนลด/ค่าส่งของออเดอร์ชุดก่อน
     setFinBy({});
     (async () => {
       const nos = nosKey ? nosKey.split(',') : [];
@@ -222,7 +226,7 @@ export function daySummary(ords, dayFunnel) {
   const newC = ords.filter(o => o.customer_type === 'ลูกค้าใหม่').length;
   const leads = (dayFunnel || []).reduce((s, f) => s + funnelTotal(f), 0);
   const orders = ords.length;
-  const chatOrders = ords.filter(o => isLeadChannel(o.channel)).length;   // %ปิด = ออเดอร์ช่องแชท ÷ คนทัก
+  const chatOrders = ords.filter(isChatOrder).length;   // %ปิด = ออเดอร์ช่องแชท ÷ คนทัก (isChatOrder ตัด import มาร์เก็ตเพลสที่ channel เป็น TikTok ออกด้วย)
   return { sales, qty, transfer, cod, newC, leads, orders, chatOrders, other: Math.max(0, sales - transfer - cod),
     close: leads > 0 ? Math.round(chatOrders / leads * 100) : null, aov: orders ? sales / orders : 0, avgQty: orders ? qty / orders : 0 };
 }

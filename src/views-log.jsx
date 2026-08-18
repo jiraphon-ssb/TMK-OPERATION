@@ -8,7 +8,7 @@
    - detail drawer (raw JSON/machine data) · CSV export ตาม filter · live-tail toggle
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Icon, N, Avatar, useBeatOn, PageSkeleton, SkelTable } from './components.jsx';
+import { Icon, N, Avatar, SkelTable } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { rtDiag } from './realtime/diagnostics.js';
 import { useData } from './dataContext.jsx';
@@ -22,6 +22,8 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
 import { DatePicker } from '@/components/ui/date-picker';
+import { toast } from './lib/appBus.js';
+import { MultiSelect } from './components/MultiSelect.jsx'; // แหล่งเดียวของทั้งแอป (เดิมมีสำเนา 6 ชุด)
 
 const DD = TMK;
 
@@ -53,26 +55,6 @@ const SEV_META = {
   urgent: { l: 'สำคัญ',   c: 'var(--bad)' },
 };
 
-/* ---- MultiSelect (สำเนาแพทเทิร์นเดียวกับ salePerf) ---- */
-function MultiSelect({ label, options, value, onChange, render }) {
-  const toggle = (v) => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
-  const n = value.length;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal gap-1' + (n ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
-          {label}{n > 0 && <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[11px]">{n}</Badge>}<Icon name="down" className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" sideOffset={6} className="max-h-72 w-56 overflow-auto">
-        <DropdownMenuLabel className="flex items-center justify-between py-1"><span>{label}</span>{n > 0 && <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={e => { e.preventDefault(); onChange([]); }}>ล้าง</button>}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {options.length === 0 && <div className="px-2 py-2 text-[13px] text-[var(--ink-4)]">ไม่มีข้อมูล</div>}
-        {options.map(o => <DropdownMenuCheckboxItem key={o.value} checked={value.includes(o.value)} onSelect={e => { e.preventDefault(); toggle(o.value); }}>{render ? render(o) : o.label}</DropdownMenuCheckboxItem>)}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 /* ---- helpers ---- */
 const PAGE = 50;
@@ -114,7 +96,6 @@ function dayLabel(ts) {
 /* ==================================================================== */
 export function LogView() {
   const { version } = useData() || {};
-  const loadingBeat = useBeatOn('logs');
 
   // ---- filters ----
   const [users, setUsers] = useState([]);          // user_email[]
@@ -127,7 +108,8 @@ export function LogView() {
   const [search, setSearch] = useState('');
   const [searchQ, setSearchQ] = useState('');
   const [page, setPage] = useState(0);
-  const pageRef = useRef(0); pageRef.current = page;   // realtime prepend เฉพาะหน้าแรก (newest)
+  const pageRef = useRef(0);   // realtime prepend เฉพาะหน้าแรก (newest)
+  useEffect(() => { pageRef.current = page; }, [page]);   // sync ref หลัง commit (อ่านใน callback realtime เท่านั้น)
 
   // ---- data ----
   const [rows, setRows] = useState([]);
@@ -146,9 +128,11 @@ export function LogView() {
     const seen = new Map();
     (DD.staff || []).forEach(s => { if (s.email) seen.set(s.email, s.name || s.email); });
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- DD เป็น singleton module-level (ไม่ใช่ reactive) · version = สัญญาณให้คำนวณใหม่หลังโหลดข้อมูล ห้ามตัดทิ้ง
   }, [version]);
   const entityOpts = useMemo(() => ENTITY_KEYS.map(k => ({ value: k, label: ENTITY_TH[k] || k })), []);
   const sevOpts = useMemo(() => Object.entries(SEV_META).map(([value, m]) => ({ value, label: m.l })), []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- DD เป็น singleton module-level (ไม่ใช่ reactive) · version = สัญญาณให้คำนวณใหม่หลังโหลดข้อมูล ห้ามตัดทิ้ง
   const flows = useMemo(() => (DD.flows || []).filter(f => f.id !== '__general__'), [version]);
 
   // สร้าง query ตาม filter (ใช้ทั้งดึงข้อมูล + count)
@@ -184,7 +168,8 @@ export function LogView() {
       setRows((data || []).map(mapRow)); setTotal(count || 0); setLoading(false);
     })();
     return () => { cancel = true; };
-  }, [applyFilters]);
+    // colsOk อยู่ใน deps ของ applyFilters อยู่แล้ว → ใส่เพิ่มไม่ทำให้ยิงซ้ำ
+  }, [applyFilters, colsOk]);
 
   // สถิติ (วันนี้ + นับต่อกลุ่ม action) — เคารพ filter อื่น ยกเว้น action-group เอง
   useEffect(() => {
@@ -216,7 +201,8 @@ export function LogView() {
     if (searchQ.trim() && !JSON.stringify(m.raw?.details || '').includes(searchQ.trim())) return false;
     return true;
   }, [users, actionG, entities, severities, flowId, searchQ, colsOk]);
-  const passRef = useRef(passesFilter); passRef.current = passesFilter;
+  const passRef = useRef(passesFilter);
+  useEffect(() => { passRef.current = passesFilter; }, [passesFilter]);   // sync ref หลัง commit (อ่านใน callback realtime เท่านั้น)
 
   useEffect(() => {
     const ch = supabase.channel('audit-live-' + Math.random().toString(36).slice(2))
@@ -258,8 +244,8 @@ export function LogView() {
         { key: 'summary', label: 'รายละเอียด' },
         { key: 'flowId', label: 'โครงการ', map: r => (DD.flows || []).find(f => f.id === r.flowId)?.name || (r.flowId === '' ? 'งานทั่วไป' : '') },
       ]);
-      window.__toast?.(truncated ? `ส่งออก ${N(all.length)} รายการ (ครบสูงสุด — กรองช่วงให้แคบลงเพื่อครบทั้งหมด)` : `ส่งออก ${N(all.length)} รายการ`, 'success');
-    } catch (e) { window.__toast?.('ส่งออกไม่สำเร็จ: ' + (e?.message || ''), 'warn'); }
+      toast(truncated ? `ส่งออก ${N(all.length)} รายการ (ครบสูงสุด — กรองช่วงให้แคบลงเพื่อครบทั้งหมด)` : `ส่งออก ${N(all.length)} รายการ`, 'success');
+    } catch (e) { toast('ส่งออกไม่สำเร็จ: ' + (e?.message || ''), 'warn'); }
     setExporting(false);
   };
 
@@ -281,7 +267,7 @@ export function LogView() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE));
   const nameOf = (email) => (DD.staff.find(s => s.email === email || s.name === email)?.name) || (email || '').split('@')[0] || 'system';
 
-  if (loadingBeat) return <PageSkeleton />;
+  // ข้อมูลอยู่ใน TMK singleton แล้ว = ไม่มีการโหลดจริง → render ทันที (เดิมมี skeleton หลอก 320-350ms)
 
   return (
     <div className="flex flex-col gap-4 max-w-6xl mx-auto w-full">
@@ -448,7 +434,7 @@ function LogDetail({ a, nameOf }) {
   const s = DD.staff.find(x => x.email === a.user || x.name === a.user) || { color: 'var(--ink-3)' };
   const fl = a.flowId == null ? null : (a.flowId === '' ? { name: 'งานทั่วไป', color: '#64748b' } : (DD.flows || []).find(f => f.id === a.flowId));
   const rawJson = (() => { try { return JSON.stringify(JSON.parse(a.raw.details), null, 2); } catch { return String(a.raw.details || ''); } })();
-  const copy = (txt) => { navigator.clipboard?.writeText(txt).then(() => window.__toast?.('คัดลอกแล้ว', 'success')); };
+  const copy = (txt) => { navigator.clipboard?.writeText(txt).then(() => toast('คัดลอกแล้ว', 'success')); };
   return (
     <>
       <SheetHeader>

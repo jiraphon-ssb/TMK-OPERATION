@@ -20,4 +20,4 @@ create index if not exists tmk_sales_funnel_date_idx on public.tmk_sales_funnel(
 create index if not exists tmk_sales_funnel_sp_idx   on public.tmk_sales_funnel(salesperson);
 
 grant select, insert, update, delete on public.tmk_sales_funnel to anon, authenticated;
-alter table public.tmk_sales_funnel disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sales_funnel disable row level security;

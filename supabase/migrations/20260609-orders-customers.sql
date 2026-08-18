@@ -48,8 +48,8 @@ create index if not exists tmk_orders_cust_idx   on public.tmk_orders(customer_i
 -- สิทธิ์ + ปิด RLS (ให้เหมือนตารางอื่นในแอป)
 grant select, insert, update, delete on public.tmk_customers to anon, authenticated;
 grant select, insert, update, delete on public.tmk_orders    to anon, authenticated;
-alter table public.tmk_customers disable row level security;
-alter table public.tmk_orders    disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_customers disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_orders    disable row level security;
 
 -- updated_at trigger (ใช้ฟังก์ชันเดิม)
 do $$ begin

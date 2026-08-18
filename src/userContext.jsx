@@ -48,6 +48,7 @@ export function UserProvider({ children, version }) {
       // หน้าใหญ่ที่ถูกล็อก (deny-list) — admin ไม่โดนล็อกเสมอ บังคับที่นี่ไม่ว่าค่าใน DB จะเป็นอะไร
       lockedSections: resolvedRole === 'admin' ? [] : (role?.lockedSections || []),
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- version = สัญญาณว่าข้อมูล TMK (staff/roles) ถูก mutate ใหม่ · ต้องคงไว้เพื่อคำนวณสิทธิ์/ล็อกหน้าใหม่ (TMK เป็น global ที่ React มองไม่เห็น)
   }, [authEmail, version]);
 
   return (

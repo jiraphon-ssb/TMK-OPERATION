@@ -19,7 +19,7 @@
 do $$ begin
   if exists (select 1 from information_schema.tables where table_schema='public' and table_name='tmk_presence') then
     grant select, insert, update, delete on public.tmk_presence to anon, authenticated;
-    alter table public.tmk_presence disable row level security;
+    -- [audit P3-4: กันรันซ้ำแล้ว RLS ปิดเงียบ] alter table public.tmk_presence disable row level security;
   else
     raise notice 'tmk_presence ยังไม่มี — รัน 20260613-presence.sql ก่อน';
   end if;

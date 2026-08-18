@@ -17,4 +17,4 @@ create table if not exists public.tmk_mp_aliases (
 create index if not exists tmk_mp_aliases_kind_idx on public.tmk_mp_aliases(kind);
 
 grant select, insert, update, delete on public.tmk_mp_aliases to anon, authenticated;
-alter table public.tmk_mp_aliases disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_mp_aliases disable row level security;

@@ -67,5 +67,5 @@ create index if not exists tmk_mp_skus_channel_idx on public.tmk_mp_skus(channel
 -- ---- สิทธิ์ + ปิด RLS (เหมือน sibling ทุกตาราง — UI-gate) ----
 grant select, insert, update, delete on public.tmk_mp_orders to anon, authenticated;
 grant select, insert, update, delete on public.tmk_mp_skus   to anon, authenticated;
-alter table public.tmk_mp_orders disable row level security;
-alter table public.tmk_mp_skus   disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_mp_orders disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_mp_skus   disable row level security;

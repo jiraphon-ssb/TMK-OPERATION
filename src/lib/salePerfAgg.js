@@ -6,7 +6,7 @@
    ============================================================ */
 import { funnelTotal, funnelBreakdown, funnelNewOld } from './saleData.js';
 import { commissionFor } from './targets.js';
-import { isLeadChannel } from './saleFields.js';
+import { isChatOrder } from './saleFields.js';
 
 export const NO_SELLER = 'ไม่ระบุเซลล์';
 export const curMonth = () => new Date().toISOString().slice(0, 7);
@@ -39,12 +39,15 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
     onToSp.set(o.order_no, name);
     const amt = Number(o.sales) || 0, q = Number(o.qty) || 0;
     s.sales += amt; s.orders += 1; s.qty += q;
-    if (isLeadChannel(o.channel)) s.chatOrders += 1;   // %ปิด = ออเดอร์ช่องแชท ÷ คนทัก (ตัดมาร์เก็ตเพลสที่ไม่มีการทัก)
+    // %ปิด = ออเดอร์ช่องแชท ÷ คนทัก — isChatOrder เช็คทั้ง channel และ source='shipnity'
+    // (เดิมเช็คแค่ channel → TikTok Shop จาก import (source='tiktok' · เซลล์ '(TikTok)') หลุดเข้าตัวตั้ง → %ปิดทีมสูงเกินจริง)
+    if (isChatOrder(o)) s.chatOrders += 1;
     if (o.customer_type === 'ลูกค้าใหม่') s.newC += 1;
     if (o.channel) {
       s.channels[o.channel] = (s.channels[o.channel] || 0) + amt;
-      const cs = s.chStats[o.channel] || (s.chStats[o.channel] = { orders: 0, sales: 0 });
+      const cs = s.chStats[o.channel] || (s.chStats[o.channel] = { orders: 0, sales: 0, chat: 0 });
       cs.orders += 1; cs.sales += amt;
+      if (isChatOrder(o)) cs.chat += 1;   // ตัวตั้งของ %ปิดต่อช่องทาง (ต้องนิยามเดียวกับ chatOrders รวม)
     }
     const d = dayOf(o.order_date); if (d >= 1 && d <= dim) { s.daily[d - 1].sales += amt; s.daily[d - 1].orders += 1; }
   });
@@ -60,7 +63,10 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
     const name = (f.salesperson && String(f.salesperson).trim()); if (!name) return;
     const s = ensure(name); const tot = funnelTotal(f);
     s.leads += tot;
-    const bd = funnelBreakdown(f); Object.entries(bd).forEach(([plat, v]) => { s.leadsByPlat[plat] = (s.leadsByPlat[plat] || 0) + ((Number(v.new) || 0) + (Number(v.old) || 0) + (Number(v.unknown) || 0)); });
+    // 'อื่นๆ' ในฟอร์มคนทัก = ช่องทางที่ระบุไม่ได้ ฝั่งออเดอร์ค่าเดียวกันชื่อ 'Direct' (fallback ของ normChannel)
+    // เดิมสองชื่อไม่ join กัน → ตาราง %ปิดรายช่องทางโชว์ 2 แถวพัง (Direct มีออเดอร์แต่ leads=0 · อื่นๆ มี leads แต่ 0%)
+    // รวมเป็น 'Direct' เฉพาะตอน aggregate — "ไม่แตะ" ค่าที่เซฟใน jsonb (ฟอร์ม/ข้อมูลเก่ายังเป็น 'อื่นๆ' เหมือนเดิม)
+    const bd = funnelBreakdown(f); Object.entries(bd).forEach(([plat, v]) => { const key = plat === 'อื่นๆ' ? 'Direct' : plat; s.leadsByPlat[key] = (s.leadsByPlat[key] || 0) + ((Number(v.new) || 0) + (Number(v.old) || 0) + (Number(v.unknown) || 0)); });
     const no = funnelNewOld(f); s.newOld.new += Number(no.new) || 0; s.newOld.old += Number(no.old) || 0;
     const d = dayOf(f.date); if (d >= 1 && d <= dim) s.daily[d - 1].leads += tot;
   });
@@ -80,8 +86,11 @@ export function buildPerf(month, orders, skus, funnel, receipts, targets, prevOr
     const projected = isCur && daysPassed > 0 ? s.sales / daysPassed * dim : s.sales;
     // %ปิดต่อช่องทาง — จับคู่ leads(แพลตฟอร์ม) กับ orders(channel) ชื่อเดียวกัน (มาร์เก็ตเพลส/POS ไม่มีคนทัก → closeRate null)
     const channelClose = Object.keys({ ...s.chStats, ...s.leadsByPlat }).map(ch => {
-      const orders = s.chStats[ch]?.orders || 0, csales = s.chStats[ch]?.sales || 0, leads = s.leadsByPlat[ch] || 0;
-      return { ch, orders, sales: csales, leads, closeRate: leads > 0 ? orders / leads * 100 : null };
+      // "ปิด" = ออเดอร์ช่องแชทของช่องทางนั้น (นิยามเดียวกับ chatOrders รวม — เดิมใช้ orders ทั้งหมด
+      // ทำให้แถวมาร์เก็ตเพลสที่มีคนทัก เช่น TikTok โชว์ %ปิดสูงเกินจริง และไม่ตรงกับตัวเลขรวมบนจอเดียวกัน)
+      const orders = s.chStats[ch]?.chat || 0, csales = s.chStats[ch]?.sales || 0, leads = s.leadsByPlat[ch] || 0;
+      // over = ปิดมากกว่าคนทัก → %ปิด > 100% เป็นไปไม่ได้ = คนทักกรอกไม่ครบ (อย่าโชว์ % มั่ว)
+      return { ch, orders, sales: csales, leads, closeRate: leads > 0 ? orders / leads * 100 : null, over: leads > 0 && orders > leads };
     }).sort((a, b) => (b.leads + b.orders) - (a.leads + a.orders));
     const pace = target > 0 ? (s.sales >= target ? 'over' : projected >= target ? 'ontrack' : 'risk') : null;
     const daysActive = s.daily.filter(d => d.sales > 0).length;

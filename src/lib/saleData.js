@@ -7,6 +7,8 @@
 import { supabase } from './supabaseClient.js';
 import { markSaleWrite } from './saleRealtime.js';
 import { rtDiag } from '../realtime/diagnostics.js';
+// resolveJobType = สูตร canonical ร่วมกับ edge (daily-sale-report) → import จาก _shared แหล่งเดียว (P2-4)
+import { resolveJobType } from '../../supabase/functions/_shared/saleFormulas.js';
 
 // คอลัมน์ที่ระบบใช้จริง (ตัด attrs/jsonb/คอลัมน์ที่ไม่ได้โชว์ออก)
 export const ORDERS_SEL = 'order_no,marketplace_id,source,channel,salesperson,province,payment_type,customer_type,qty,qty_band,sales,mkt_commission,cod_amount,job_type,note,order_date,order_month,status,customer_code,customer_name,customer_social,customer_phone,cust_total_spent,row_version';
@@ -31,13 +33,8 @@ export const isDftNote = (note) => DFT_RE.test(String(note || ''));
 //  (2) หมายเหตุมี "DFT" → DFT (promote · ครอบใบเก่า/parser จับ note ไม่ติด)
 //  (3) หมายเหตุไม่มี "DFT" แต่ค่าเก็บเป็น DFT → กลับเป็น ปลีก (demote · ลบ DFT ในหมายเหตุ = ไม่ DFT)
 //  OEM ไม่แตะ · ใช้ทั้ง normOrderRows (raw) และ "หลัง merge override"
-export function resolveJobType(jobType, note) {
-  const jt = jobType === 'ส่ง' ? 'ปลีก' : (jobType || 'ปลีก');
-  const hasDft = DFT_RE.test(String(note || ''));
-  if (jt === 'ปลีก' && hasDft) return 'DFT';
-  if (jt === 'DFT' && !hasDft) return 'ปลีก';
-  return jt;
-}
+//  นิยามอยู่ที่ _shared/saleFormulas.js (แหล่งเดียวร่วมกับ edge) → re-export ต่อ (P2-4)
+export { resolveJobType };
 // choke point เดียวของทุกหน้า Sale (orders/dashboard/perf โหลดผ่านที่นี่หมด)
 function normOrderRows(rows, table) {
   if (table !== 'tmk_mp_orders' || !Array.isArray(rows)) return rows;
@@ -184,8 +181,12 @@ export function funnelPlatforms(r) {
 }
 export function funnelNewOld(r) {
   const bd = funnelBreakdown(r);
-  let nw = 0, od = 0;
-  for (const v of Object.values(bd)) { nw += Number(v.new) || 0; od += Number(v.old) || 0; }
-  return { new: nw, old: od };
+  let nw = 0, od = 0, unk = 0;
+  for (const v of Object.values(bd)) {
+    nw += Number(v.new) || 0;
+    od += Number(v.old) || 0;
+    unk += Number(v.unknown) || 0;   // รูปแบบ ข (เลขแบน) — นับด้วย ให้ new+old+unknown = funnelTotal เสมอ
+  }
+  return { new: nw, old: od, unknown: unk };
 }
 export const funnelTotal = (r) => Object.values(funnelPlatforms(r)).reduce((a, v) => a + v, 0);

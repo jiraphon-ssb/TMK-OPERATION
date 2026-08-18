@@ -15,12 +15,18 @@ export const THAI_MONTHS_FULL = ['มกราคม','กุมภาพัน�
 export const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
 /**
- * Parse Thai date "18 มิ.ย." → ISO "2026-06-18"
+ * Parse Thai date "18 มิ.ย." → ISO "YYYY-06-18"
+ *
+ * ⚠️ เดิม default เป็น `year = 2026` ตายตัว และมี call site ~10 จุดที่ไม่ส่ง year
+ *    → งานเก่าที่มีแต่วันที่ไทย (ไม่มี dateISO) ได้ปี 2026 เสมอ · ปี 2026 บังเอิญถูก
+ *    แต่ตั้งแต่ ม.ค. 2027 จะผิดทันที (นับเลยกำหนด/เรียงวันที่/ตำแหน่งในปฏิทินเพี้ยน)
+ *    default = ปีปัจจุบัน ตรงกับความหมายที่ผู้ใช้เห็นบนจอมากที่สุด (ผู้เรียกที่รู้ปีแน่นอนส่ง year เองได้)
+ *
  * @param {string} s — Thai date or already ISO
- * @param {number} year — default 2026 (Gregorian)
+ * @param {number} year — Gregorian year (default = ปีปัจจุบัน)
  * @returns {string|null} ISO YYYY-MM-DD or null if can't parse
  */
-export function parseTaskDate(s, year = 2026) {
+export function parseTaskDate(s, year = new Date().getFullYear()) {
   if (!s) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // already ISO
   const m = String(s).match(/^(\d+)\s+(.+)$/);

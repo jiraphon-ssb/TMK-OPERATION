@@ -1,22 +1,18 @@
 /* ============================================================
    TMK Operation — App shell, navigation, routing
    ============================================================ */
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, lazy, Suspense } from 'react';
 import { TMK } from './data.js';
-import { Icon, PageSkeleton, useMinSplash, FlowIcon } from './components.jsx';
+import { Icon, PageSkeleton, FlowIcon } from './components.jsx';
 import { ConfirmHost } from './ui-confirm.jsx';
 import { ConflictMergeHost } from './ui-conflict-merge.jsx';
-import { isRealtimeDown, onConnectionChange } from './realtime/channelRegistry.js';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuGroup } from '@/components/ui/dropdown-menu';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Loader2 } from 'lucide-react';
 import tmkLogo from './assets/tmk-logo.png';
 import { HomeView, SalesView } from './views-1.jsx';
 import { Spotlight } from './Spotlight.jsx';
@@ -28,10 +24,9 @@ const CatalogView  = lazy(() => import('./views-catalog.jsx').then(m => ({ defau
 const SettingsView = lazy(() => import('./views-settings.jsx').then(m => ({ default: m.SettingsView })));
 const EntryView    = lazy(() => import('./views-entry.jsx').then(m => ({ default: m.EntryView })));
 const FlowsView    = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.FlowsView })));
-const SaleDataHub = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SaleDataHub })));
 const SalePerfView = lazy(() => import('./salePerf.jsx').then(m => ({ default: m.SalePerfView })));
 const LogView = lazy(() => import('./views-log.jsx').then(m => ({ default: m.LogView })));
-const PublicFlowShare = lazy(() => import('./views-flows.jsx').then(m => ({ default: m.PublicFlowShare })));
+const PublicFlowShare = lazy(() => import('./flowPublicShare.jsx').then(m => ({ default: m.PublicFlowShare })));
 // dialogs — lazy per split file (PART 79 · ดึงออกจาก index · LoginScreen คง eager = auth gate)
 const RecordSalesModal     = lazy(() => import('./modals-sale.jsx').then(m => ({ default: m.RecordSalesModal })));
 const HistoricalEntryModal = lazy(() => import('./modals-sale.jsx').then(m => ({ default: m.HistoricalEntryModal })));
@@ -42,248 +37,86 @@ const CampaignModal        = lazy(() => import('./modals-ads.jsx').then(m => ({ 
 const MonthlyTargetModal   = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.MonthlyTargetModal })));
 const AdCampaignModal      = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.AdCampaignModal })));
 const CustomerSegmentModal = lazy(() => import('./modals-ads.jsx').then(m => ({ default: m.CustomerSegmentModal })));
+
+/* ---- Prefetch chunk ตอนเบราว์เซอร์ว่าง ---------------------------------------
+   เดิม chunk ของแต่ละเมนูดาวน์โหลด "ตอนกดครั้งแรก" เท่านั้น
+   → กด Sale > รายงานขาย ครั้งแรกต้องรอ views-catalog ~290KB + vendor-charts ~430KB
+     (สถานะนั้นคือ Suspense fallback = สิ่งที่ผู้ใช้เห็นว่า "โหลดอีกแล้ว")
+   วิธีที่ถูกคือทำให้ "ไม่ต้องรอ" ไม่ใช่ซ่อน skeleton — โหลดล่วงหน้าตอนว่าง
+   ใช้ import() ตัวเดียวกับ lazy() ด้านบน → Vite ชี้ chunk เดิม กดแล้วขึ้นทันที (ไม่เพิ่มขนาด bundle) */
+const PREFETCH_CHUNKS = [
+  () => import('./views-flows.jsx'),
+  () => import('./views-planner.jsx'),
+  () => import('./modals-task.jsx'),
+  () => import('./views-catalog.jsx'),
+  () => import('./views-entry.jsx'),
+  () => import('./modals-sale.jsx'),
+  () => import('./salePerf.jsx'),
+  () => import('./views-sale-submit.jsx'),
+  () => import('./views-settings.jsx'),
+];
+let _prefetched = false;
+function prefetchIdle() {
+  if (_prefetched) return;
+  _prefetched = true;
+  const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 300));
+  let i = 0;
+  const next = () => {
+    if (i >= PREFETCH_CHUNKS.length) return;
+    const load = PREFETCH_CHUNKS[i++];
+    load().then(next, next); // เสร็จ (หรือพลาด) แล้วค่อยคิวตัวถัดไป ไม่ยิงพร้อมกันแย่ง bandwidth
+  };
+  idle(next);
+}
 import { LoginScreen } from './LoginScreen.jsx';
 import { LangProvider, useLang } from './i18n.jsx';
 import { ToastProvider, useToast } from './toast.jsx';
 import { supabase } from './lib/supabaseClient.js';
+import { registerServices, setAppState, openModal } from './lib/appBus.js';
 import { logAudit } from './lib/audit.js';
 import { parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { DataProvider, useData } from './dataContext.jsx';
 import { UserProvider, useUser } from './userContext.jsx';
-import { UpdateBanner, useUnseenVersion } from './WhatsNew.jsx';
+import { UpdateBanner, useUnseenVersion, WhatsNewPage } from './WhatsNew.jsx';
+// ชิ้นส่วน shell + นิยามเมนู — แยกไฟล์ (ยกทั้งดุ้น ไม่แก้เนื้อใน)
+import { LoadingScreen, DataErrorScreen, SyncIndicator, ErrorBoundary, RealtimeStatus } from './appShellParts.jsx';
+import { NAV_DEF, useNav, DEFAULT_SUB, sidebarFlows, FlowsRows, NavTiles } from './appNav.jsx';
 
-function LoadingScreen() {
-  const tips = [
-    'กำลังเชื่อมต่อฐานข้อมูล TMK…',
-    'กำลังดึงยอดขายและข้อมูลรายวัน…',
-    'กำลังเตรียมแดชบอร์ด…',
-  ];
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setI(v => (v + 1) % tips.length), 1400);
-    return () => clearInterval(id);
-  }, []);
-  
-  return (
-    <div className="flex h-screen w-full flex-col items-center justify-center bg-background text-foreground">
-      <div className="flex flex-col items-center space-y-6">
-        <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-muted/30 shadow-sm border">
-          <img src={tmkLogo} alt="TMK" className="h-10 w-10 object-contain" />
-        </div>
-        
-        <div className="flex flex-col items-center space-y-2 text-center">
-          <div className="flex items-center space-x-2 text-lg font-semibold tracking-tight">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <span>กำลังโหลดข้อมูล</span>
-          </div>
-          <p className="text-sm text-muted-foreground min-h-[20px] animate-pulse">
-            {tips[i]}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---- Error screen (โหลดครั้งแรกล้มเหลว) ---- */
-function DataErrorScreen({ error, onRetry }) {
-  const [busy, setBusy] = useState(false);
-  const retry = async () => { setBusy(true); try { await onRetry?.(); } finally { setBusy(false); } };
-  return (
-    <div className="tmk-splash">
-      <div className="splash-logo" style={{ animation: 'none' }}><img src={tmkLogo} alt="TMK" /></div>
-      <div style={{ textAlign: 'center', maxWidth: 360, padding: '0 20px' }}>
-        <div style={{ width: 48, height: 48, borderRadius: 14, background: 'var(--bad-soft, rgba(255,90,90,0.14))', color: 'var(--bad, #ff5a5a)', display: 'grid', placeItems: 'center', margin: '0 auto 14px', fontSize: 26, fontWeight: 800 }}>
-          !
-        </div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>โหลดข้อมูลไม่สำเร็จ</div>
-        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.7 }}>
-          เชื่อมต่อฐานข้อมูลไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง
-        </div>
-        {error && <div style={{ fontSize: 11, color: 'var(--ink-4)', marginTop: 8, wordBreak: 'break-word' }}>{String(error)}</div>}
-        <Button onClick={retry} disabled={busy} style={{ marginTop: 18 }}>
-          {busy ? 'กำลังลองใหม่…' : 'ลองใหม่อีกครั้ง'}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/* ---- Sync chip (ซิงค์ realtime หลังโหลดครั้งแรก) ---- */
-function SyncIndicator() {
-  return (
-    <>
-      <div className="tmk-syncbar" aria-hidden="true"></div>
-      <div className="tmk-syncchip-wrap"><div className="tmk-syncchip"><span className="sync-dot"></span>กำลังซิงค์ข้อมูล…</div></div>
-    </>
-  );
-}
-
-
-const NAV_DEF = [
-  { id: 'home', labelKey: 'navHome', icon: 'home' },
-  { id: 'sales', labelKey: 'navSales', icon: 'sales', subs: [
-    { id: 'overview', labelKey: 'subOverview', icon: 'sales' },
-    { id: 'channels', labelKey: 'subChannels', icon: 'layers' },
-    { id: 'ads', labelKey: 'subAds', icon: 'zap' },
-    { id: 'customers', labelKey: 'subCustomers', icon: 'users' },
-    { id: 'monthly', labelKey: 'subMonthly', icon: 'pencil' },
-  ]},
-  // โครงการ (วางแผนงาน) — อยู่ใต้ยอดขาย
-  { id: 'flows', labelKey: 'navFlows', icon: 'grid', subs: [
-    { id: 'overview', labelKey: 'subFlowBoard', icon: 'grid' },
-    { id: 'mytasks', labelKey: 'subMyTasks', icon: 'user' },
-    { id: 'calendar', labelKey: 'subCalendar', icon: 'calendarDays' },
-    { id: 'kanban', labelKey: 'subKanban', icon: 'listChecks' },
-    { id: 'timeline', labelKey: 'subTimeline', icon: 'route' },
-    { id: 'list', labelKey: 'subFlowList', icon: 'menu' },
-    { id: 'history', labelKey: 'subFlowHistory', icon: 'clock' },
-  ]},
-  { id: 'catalog', labelKey: 'navCatalog', icon: 'sales', subs: [
-    // เรียงตาม workflow: ดูข้อมูล (รายงาน→ออเดอร์→ลูกค้า) → กรอกข้อมูล (ส่งยอด→บันทึกขาย) → ฐานข้อมูล (แคตตาล็อก)
-    { id: 'report', labelKey: 'subReport', icon: 'sales' },
-    { id: 'perf', labelKey: 'subPerf', icon: 'flame' },
-    { id: 'orders', labelKey: 'subOrders', icon: 'listChecks' },
-    { id: 'crm', labelKey: 'subCrm', icon: 'users' },
-    { id: 'data', labelKey: 'subDataHub', icon: 'checkCheck' },
-    { id: 'shirts', labelKey: 'subShirts', icon: 'bag' },
-  ]},
-  // บันทึกกิจกรรม / Log — คุมสิทธิ์รายคนผ่าน locked_sections (LockPicker) เหมือนหน้าอื่น (default เข้าได้ · admin ล็อกรายคน)
-  { id: 'logs', labelKey: 'navLogs', icon: 'clock' },
-];
-// Resolve labels from i18n at render time
-function useNav() {
-  const { t } = useLang();
-  return NAV_DEF.map(n => ({
-    ...n, label: t(n.labelKey), badge: n.badgeKey ? t(n.badgeKey) : undefined,
-    subs: n.subs?.map(s => ({ ...s, label: t(s.labelKey) })),
-  }));
-}
-const DEFAULT_SUB = { flows: 'overview', sales: 'overview', planner: 'calendar', catalog: 'report', settings: 'general' };
-
-// รายการโครงการสำหรับ sidebar (งานทั่วไป + โครงการจริง · ไม่นับ config row/archived/private ของคนอื่น)
-function sidebarFlows() {
-  const me = window.__userEmail || '';
-  const r = (TMK.flows || []).find(f => f.id === '__general__');
-  const general = { id: '__general__', name: r?.name || 'งานทั่วไป', icon: r?.icon || '📋', defaultView: r?.defaultView || 'kanban', isGeneral: true };
-  const real = (TMK.flows || []).filter(f => f.id !== '__general__' && !f.archived && (f.visibility !== 'private' || f.owner === me))
-    .map(f => ({ id: f.id, name: f.name, icon: f.icon || '📋', defaultView: f.defaultView || 'kanban' }));
-  return [general, ...real];
-}
-// เมนู "โครงการ" ใน sidebar — โชว์โครงการเป็นรายการ (แบบ Projects ของ Oripio)
-function FlowsNav({ n, section, sub, go, activeFlow, pickFlow }) {
-  const flows = sidebarFlows();
-  const onBoard = section === 'flows' && sub !== 'overview' && sub !== 'mytasks';
-  return (
-    <Collapsible asChild defaultOpen={section === 'flows'} className="group/collapsible">
-      <SidebarMenuItem>
-        <CollapsibleTrigger asChild>
-          <SidebarMenuButton tooltip={n.label} isActive={section === 'flows' && sub === 'overview'} onClick={() => go('flows', 'overview')}>
-            <Icon name={n.icon} /><span>{n.label}</span>
-            <span className="ml-auto inline-flex shrink-0 items-center justify-center transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"><Icon name="chevR" /></span>
-          </SidebarMenuButton>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <SidebarMenuSub>
-            <SidebarMenuSubItem>
-              <SidebarMenuSubButton asChild isActive={section === 'flows' && sub === 'overview'}>
-                <button onClick={() => go('flows', 'overview')}><Icon name="grid" className="size-3.5" /><span>ภาพรวมโครงการ</span></button>
-              </SidebarMenuSubButton>
-            </SidebarMenuSubItem>
-            <SidebarMenuSubItem>
-              <SidebarMenuSubButton asChild isActive={section === 'flows' && sub === 'mytasks'}>
-                <button onClick={() => go('flows', 'mytasks')}><Icon name="user" className="size-3.5" /><span>งานของฉัน</span></button>
-              </SidebarMenuSubButton>
-            </SidebarMenuSubItem>
-            {flows.map(f => (
-              <SidebarMenuSubItem key={f.id}>
-                <SidebarMenuSubButton asChild isActive={onBoard && activeFlow === f.id}>
-                  <button onClick={() => pickFlow(f)}>
-                    <FlowIcon icon={f.icon} className="size-4 shrink-0" />
-                    <span className="truncate">{f.name}</span>
-                  </button>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
-            <SidebarMenuSubItem>
-              <SidebarMenuSubButton asChild>
-                <button onClick={() => { if (window.__createFlow) window.__createFlow(); else go('flows', 'overview'); }}><Icon name="plus" className="size-3.5" /><span>สร้างโครงการ</span></button>
-              </SidebarMenuSubButton>
-            </SidebarMenuSubItem>
-          </SidebarMenuSub>
-        </CollapsibleContent>
-      </SidebarMenuItem>
-    </Collapsible>
-  );
-}
 const ACCENTS = { '#4f46e5': '#4338ca', '#0a5aa0': '#033f78', '#b07d33': '#946614', '#1f8a5b': '#176c47', '#b8543a': '#97432d' };
 
 const accent = '#4f46e5'; // indigo-600 — แบรนด์ active/selected/icon
 
-// กันจอขาว: ถ้า render throw → แสดง error + ปุ่มลองใหม่ (แทนจอว่างถาวร)
-//  variant="section" (PART 95) = การ์ดเล็กในเนื้อหา → หน้าเดียวพัง ที่เหลือ (sidebar/เมนู) ยังใช้ได้
-//  resetKey เปลี่ยน (เช่น สลับหน้า) → เคลียร์ error อัตโนมัติ ให้ลองใหม่เอง
-class ErrorBoundary extends React.Component {
-  constructor(p) { super(p); this.state = { err: null }; }
-  static getDerivedStateFromError(err) { return { err }; }
-  componentDidCatch(err) { console.error(this.props.scope ? `Section "${this.props.scope}" crashed:` : 'App crashed:', err); }
-  componentDidUpdate(prev) {
-    if (this.state.err && prev.resetKey !== this.props.resetKey) this.setState({ err: null });
-  }
-  render() {
-    if (this.state.err) {
-      if (this.props.variant === 'section') {
-        return (
-          <div className="grid place-items-center px-4 py-16">
-            <Card className="w-full max-w-[380px] p-6 text-center">
-              <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full [&_svg]:size-5" style={{ background: 'var(--warn-soft, #fdf2d0)', color: 'var(--warn, #d99e16)' }}>
-                <Icon name="alertTriangle" />
-              </div>
-              <h2 className="mb-1.5 text-base font-bold" style={{ color: 'var(--ink)' }}>หน้านี้สะดุดชั่วคราว</h2>
-              <p className="mb-4 text-[13px] leading-relaxed" style={{ color: 'var(--ink-4)' }}>เมนูและหน้าอื่นยังใช้งานได้ตามปกติ — ลองเปิดหน้านี้ใหม่อีกครั้ง</p>
-              <div className="flex justify-center gap-2.5">
-                <Button variant="outline" size="sm" onClick={() => this.setState({ err: null })}>ลองใหม่</Button>
-                <Button size="sm" onClick={() => location.reload()}>รีเฟรชทั้งหน้า</Button>
-              </div>
-            </Card>
-          </div>
-        );
-      }
-      return (
-        <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, background: 'var(--bg, #f3f6fb)', color: 'var(--ink, #10203a)' }}>
-          <Card className="w-full max-w-[420px] p-8 text-center">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full [&_svg]:size-7" style={{ background: 'var(--warn-soft, #fdf2d0)', color: 'var(--warn, #d99e16)' }}>
-              <Icon name="alertTriangle" />
-            </div>
-            <h2 className="mb-2 text-lg font-bold" style={{ color: 'var(--ink)' }}>เกิดข้อผิดพลาด</h2>
-            <p className="mb-6 text-[13px] leading-relaxed" style={{ color: 'var(--ink-4)' }}>ระบบสะดุดชั่วคราว — ลองรีเฟรช หรือล้างข้อมูลเข้าสู่ระบบแล้วเริ่มใหม่</p>
-            <div className="flex justify-center gap-2.5">
-              <Button variant="outline" onClick={() => location.reload()}>รีเฟรช</Button>
-              <Button onClick={() => { try { localStorage.removeItem('tmk-user'); } catch { /* ignore */ } location.reload(); }}>ล้างข้อมูล &amp; เข้าใหม่</Button>
-            </div>
-          </Card>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
-
-// PART 95: ป้ายเล็ก "กำลังเชื่อมต่อใหม่…" เมื่อ realtime ฝั่ง Sale หลุด (แทนค้างเงียบ)
-// โผล่เฉพาะตอนอยู่หน้าที่ subscribe แล้วสายหลุด · หายเองเมื่อต่อกลับ (ตอนนั้น resync จะ refetch ให้)
-function RealtimeStatus() {
-  const [down, setDown] = useState(isRealtimeDown());
-  useEffect(() => onConnectionChange(setDown), []);
-  if (!down) return null;
-  return (
-    <div className="fixed bottom-4 left-1/2 z-[70] -translate-x-1/2 rounded-full border px-3.5 py-1.5 text-[12px] font-medium shadow-md"
-      style={{ background: 'var(--warn-soft, #fdf2d0)', color: 'var(--warn, #b8860b)', borderColor: 'var(--warn, #d99e16)' }}>
-      <span className="mr-1.5 inline-block h-2 w-2 animate-pulse rounded-full align-middle" style={{ background: 'var(--warn, #d99e16)' }} />
-      กำลังเชื่อมต่อใหม่…
-    </div>
+/* ---- เนื้อหาของ section ปัจจุบัน — memo ไว้ ----------------------------------
+   เดิม renderView() ถูกเรียกอยู่ใน Shell() → ทุกครั้งที่ state ของ shell ขยับ
+   (เปิด/ปิด drawer, เมนูมือถือ, Spotlight, hover) เนื้อหาทั้งหน้าถูก render ใหม่ตามไปด้วย
+   ทั้งที่ section/sub/ข้อมูล ไม่ได้เปลี่ยนเลย
+   แยกเป็น component ระดับโมดูล + memo → เนื้อหาวาดใหม่เฉพาะตอน props ที่มันใช้จริงเปลี่ยน
+   (go ส่งเป็น goStable ที่ identity คงที่ ไม่งั้น memo ไม่มีผล) */
+const SectionContent = memo(function SectionContent({ section, sub, go, tasks, setTasks, activeFlow, dark, setDark }) {
+  let view;
+  // Home + Sales (views-1) ไม่ lazy เพราะเป็นหน้าแรกหลัง login — ต้องเร็ว
+  if (section === 'home') view = <HomeView go={go} />;
+  else if (section === 'whatsnew') view = <WhatsNewPage />;   // หน้า "มีอะไรใหม่" — ทุกคนเข้าได้ (ไม่ผูก settings)
+  else if (section === 'sales' && !['daily', 'monthly', 'status'].includes(sub)) view = <SalesView sub={sub} />;
+  else view = (
+    // Heavy chunks — ห่อด้วย Suspense
+    <Suspense fallback={<PageSkeleton />}>
+      {/* PART 102: ลบหน้า "ส่งยอด & ข้อมูล" — ลิงก์เก่า (data/submit/io/entry) เด้งไปประสิทธิภาพเซล (มีปุ่มส่งยอด/คนทักในนั้น) */}
+      {section === 'catalog' && (sub === 'perf' || sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SalePerfView />
+        : section === 'sales' ? <EntryView sub={sub} />
+        : section === 'logs' ? <LogView />
+        : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
+        : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
+        : section === 'catalog' ? <CatalogView sub={sub} />
+        : section === 'settings' ? <SettingsView sub={sub} dark={dark} setDark={setDark} />
+        : null}
+    </Suspense>
   );
-}
+  // PART 95: ล้อม ErrorBoundary รายหน้า → หน้าใด render พัง แสดงการ์ดเล็ก ที่เหลือ (sidebar/เมนู) ยังใช้ได้
+  // resetKey=section:sub → สลับหน้าแล้วเคลียร์ error เอง
+  return <ErrorBoundary variant="section" scope={section} resetKey={section + ':' + sub}>{view}</ErrorBoundary>;
+});
 
 export default function App() {
   // ลูกค้าเปิดลิงก์ ?track=<code> → หน้าติดตามสาธารณะ (ไม่ต้องล็อกอิน, ไม่โหลดข้อมูลร้าน)
@@ -301,7 +134,7 @@ export default function App() {
     return (
       <ErrorBoundary>
         <LangProvider><ToastProvider>
-          <Suspense fallback={<div className="min-h-screen grid place-items-center text-muted-foreground text-sm">กำลังโหลด…</div>}>
+          <Suspense fallback={<PageSkeleton />}>
             <PublicFlowShare token={shareToken} />
           </Suspense>
         </ToastProvider></LangProvider>
@@ -333,7 +166,7 @@ function AppShellWithUser() {
 function AppInner() {
   const { t } = useLang();
   const { toast } = useToast();
-  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload, refresh: dataRefresh, ensureLoaded: dataEnsure } = useData();
+  const { loading: dataLoading, error: dataError, version: dataVersion, reload: dataReload, refresh: dataRefresh, ensureLoaded: dataEnsure, patchRows: dataPatch } = useData();
   const { user: currentUserCtx } = useUser() || {};
   // version bumps when Supabase data arrives → force re-render of all views
   const NAV = useNav();
@@ -347,6 +180,7 @@ function AppInner() {
   const [authReady, setAuthReady] = useState(false); // เช็ค session แรกเสร็จหรือยัง (กันจอ login กระพริบตอน restore)
   const authed = !!session;
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- bootstrap auth: ไม่มี Supabase = ปลดล็อกหน้าจอทันที (ทางเดียวกับ getSession ที่เป็น async) การรื้อเป็น derived state เสี่ยงจอ login กระพริบ
     if (!supabase) { setAuthReady(true); return; } // ยังไม่ตั้งค่า Supabase → ข้าม (กัน crash, DataProvider แจ้ง error เอง)
     let alive = true;
     supabase.auth.getSession().then(({ data }) => { if (alive) { setSession(data.session); setAuthReady(true); } });
@@ -371,9 +205,10 @@ function AppInner() {
   });
   // โครงการที่เปิดอยู่ — single source of truth ที่ App (ไม่พึ่ง window.__activeFlow ที่ lag) → sidebar/breadcrumb/board อัปเดตพร้อมกันคลิกเดียว
   const [activeFlow, setActiveFlow] = useState(() => { try { return localStorage.getItem('tmk-flow') || '__general__'; } catch { return '__general__'; } });
-  useEffect(() => { try { localStorage.setItem('tmk-flow', activeFlow); } catch { /* ignore */ } if (typeof window !== 'undefined') window.__activeFlow = activeFlow; }, [activeFlow]);
-  useEffect(() => { if (typeof window !== 'undefined') window.__setFlow = (id) => setActiveFlow(id || '__general__'); }, []);
+  useEffect(() => { try { localStorage.setItem('tmk-flow', activeFlow); } catch { /* ignore */ } setAppState({ activeFlow }); }, [activeFlow]);
+  useEffect(() => { registerServices({ setFlow: (id) => setActiveFlow(id || '__general__') }); }, []);
   // โครงการที่เปิดอยู่หาย (ถูกลบ/archive/ซ่อน) → กลับ "งานทั่วไป"
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- sync จาก external store (TMK.flows mutate นอก React) เมื่อ dataVersion ขยับ · คำนวณตอน render ไม่ได้เพราะต้องอ่าน global ที่เพิ่งถูก mutate
   useEffect(() => { if (activeFlow !== '__general__' && !sidebarFlows().find(f => f.id === activeFlow)) setActiveFlow('__general__'); }, [activeFlow, dataVersion]);
   const [tasks, setTasks] = useState(TMK.tasks);
   // Sync local tasks state เมื่อ Supabase data update (version bump)
@@ -411,25 +246,35 @@ function AppInner() {
   // สิทธิ์แก้ไข: 'viewer' = ดูอย่างเดียว (เจ้าของ/แอดมิน/ผู้แก้ไข = แก้ได้) — default viewer ถ้าไม่อยู่ในระบบ
   const canEdit = (currentUserCtx?.role || 'viewer') !== 'viewer';
   const canEditRef = useRef(canEdit);
-  canEditRef.current = canEdit;
-  if (typeof window !== 'undefined') {
-    window.__canEdit = canEdit; // ให้ view อื่น (kanban drag, settings) เช็คได้
-    window.__isAdmin = currentUserCtx?.role === 'admin'; // จัดการผู้ใช้/สิทธิ์ = admin เท่านั้น
-    window.__userEmail = currentUserCtx?.email || ''; // ผู้ทำรายการ (created_by/by) ในระบบคลัง/CRM
-    window.__lockedSections = currentUserCtx?.lockedSections || []; // หน้าใหญ่ที่ถูกล็อกของ user นี้ (admin = [] เสมอ)
-  }
+  // อัปเดตใน effect (ไม่เขียน ref ตอน render) — อ่านเฉพาะตอน event (openModal) จึงทันเสมอ
+  useEffect(() => { canEditRef.current = canEdit; }, [canEdit]);
 
+  // สถานะสิทธิ์ → appBus (window.__* = facade มิเรอร์ให้อัตโนมัติ · ไม่เขียน window ตอน render)
   useEffect(() => {
-    window.__openModal = (type, data) => {
-      if (!canEditRef.current) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — แก้ไขข้อมูลไม่ได้ (ติดต่อแอดมินเพื่อขอสิทธิ์)', 'warn'); return; }
-      setModal({ type, data });
-    };
-    window.__toast = toast;
-    window.__reload = dataReload; // full reload (ใช้เฉพาะที่จำเป็นจริง — retry/มาแก้ทั้งระบบ)
-    window.__refresh = (tables) => (dataRefresh ? dataRefresh(tables) : dataReload?.()); // per-table refresh — ลด egress: หลังบันทึกดึงเฉพาะตารางที่เปลี่ยน
-    window.__ensureLoaded = (keys) => dataEnsure?.(keys); // โหลดตาราง deferred (Sales/Settings) ตอนกดเข้า section
-    window.__goSection = (sec, s) => go(sec, s);
-  }, [toast]);
+    setAppState({
+      canEdit,
+      isAdmin: currentUserCtx?.role === 'admin', // จัดการผู้ใช้/สิทธิ์ = admin เท่านั้น
+      userEmail: currentUserCtx?.email || '',      // ผู้ทำรายการ (created_by/by)
+      lockedSections: currentUserCtx?.lockedSections || [], // หน้าใหญ่ที่ถูกล็อก (admin = [] เสมอ)
+    });
+  }, [canEdit, currentUserCtx?.role, currentUserCtx?.email, currentUserCtx?.lockedSections]);
+
+  // บริการ app-level → appBus (openModal/toast/reload/refresh/ensureLoaded/goSection)
+  useEffect(() => {
+    registerServices({
+      openModal: (type, data) => {
+        if (!canEditRef.current) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — แก้ไขข้อมูลไม่ได้ (ติดต่อแอดมินเพื่อขอสิทธิ์)', 'warn'); return; }
+        setModal({ type, data });
+      },
+      toast,
+      reload: dataReload, // full reload (ใช้เฉพาะที่จำเป็นจริง)
+      refresh: (tables) => (dataRefresh ? dataRefresh(tables) : dataReload?.()), // per-table refresh ลด egress
+      patchRows: (table, rows) => dataPatch?.(table, rows), // optimistic: เห็นผลทันทีที่กดเซฟ
+      ensureLoaded: (keys) => dataEnsure?.(keys), // โหลดตาราง deferred ตอนกดเข้า section
+      goSection: (sec, s) => goRef.current(sec, s), // ref → go ล่าสุดเสมอ (กัน stale closure สิทธิ์)
+    });
+    // deps: ทุกตัวเป็น useCallback ที่ identity คงที่จาก DataProvider → effect รันครั้งเดียวเหมือนเดิม (registerServices merge = idempotent)
+  }, [toast, dataReload, dataRefresh, dataEnsure, dataPatch]);
 
   // กันล้อเมาส์เปลี่ยนค่า input[type=number] เงียบๆ ตอน scroll ฟอร์มกรอกยอด/สินค้า
   // (Chrome/Firefox: focus ค้าง + scroll → ค่าเพิ่ม/ลด → ยอดเพี้ยนถูกเซฟจริงได้)
@@ -447,7 +292,8 @@ function AppInner() {
   // การ์ด "ทีมวันนี้" หน้าหลักอ่าน tmk_presence ทุก 30 วิ → online = last_seen ภายใน ~2.5 นาที
   // page/name อ่านผ่าน ref → effect ไม่ rerun ทุกครั้งที่เปลี่ยนหน้า (ไม่ทิ้ง/ตั้ง interval ใหม่)
   const presenceMetaRef = useRef({ page: section, name: currentUserCtx?.name || '' });
-  presenceMetaRef.current = { page: section, name: currentUserCtx?.name || '' };
+  // เขียนใน effect (ไม่เขียน ref ตอน render) — effect นี้อยู่เหนือ heartbeat จึงอัปเดตก่อน beat() รอบแรกเสมอ
+  useEffect(() => { presenceMetaRef.current = { page: section, name: currentUserCtx?.name || '' }; }, [section, currentUserCtx?.name]);
   useEffect(() => {
     const email = session?.user?.email;
     if (!email) return;
@@ -518,12 +364,22 @@ function AppInner() {
     setDrawer(false); setMenu(false);
     if (contentRef.current) contentRef.current.scrollTop = 0;
   };
+  const goRef = useRef(go);
+  // ตัวอ้างอิง go ที่ identity คงที่ — ส่งให้ <SectionContent> ที่ memo ไว้
+  // (go ตัวจริงถูกสร้างใหม่ทุก render ถ้าส่งตรงๆ memo จะไม่มีผลเลย)
+  const goStable = useCallback((sec, s) => goRef.current(sec, s), []);
+  // ให้ window.__goSection ใช้ go ล่าสุด (deps ครบ: isLocked/subMap/lockedSections)
+  // เขียนใน effect ทุกรอบ render (ไม่เขียน ref ตอน render) — goRef ถูกอ่านเฉพาะตอน event เท่านั้น
+  // eslint-disable-next-line react-hooks/immutability -- pattern "เก็บ callback ล่าสุดใส่ ref": compiler เตือนเพราะ goRef ถูกอ่านใน effect registerServices ด้านบน แต่การอ่านนั้นเกิดตอนผู้ใช้กด (goSection) ไม่ใช่ตอน effect รัน · ย้าย effect ไปไว้ก่อนหน้าไม่ได้เพราะ go() นิยามที่นี่
+  useEffect(() => { goRef.current = go; });
   // section/หน้าย่อยปัจจุบันโดนล็อก (restore จาก localStorage / โดนล็อกสดผ่าน realtime) → เด้งออก
   // ก่อน roles โหลด lockedSections = [] จึงไม่ redirect มั่ว
+  /* eslint-disable react-hooks/set-state-in-effect -- เด้งออกจากหน้าที่ถูกล็อก (สิทธิ์มาทีหลัง/ถูกล็อกสดผ่าน realtime) เป็น guard ด้านความปลอดภัย ต้องทำหลัง render · รื้อเป็น derived state เสี่ยงหลุดหน้าที่ไม่มีสิทธิ์ */
   useEffect(() => {
     if (isLocked(section)) { setSection('home'); return; }
     if (sub && isLocked(section, sub)) { const alt = firstAllowedSub(section); alt ? setSubMap(m => ({ ...m, [section]: alt })) : setSection('home'); }
   }, [currentUserCtx?.lockedSections, section, sub]); // eslint-disable-line react-hooks/exhaustive-deps
+  /* eslint-enable react-hooks/set-state-in-effect */
   // เลือกโครงการ + ไปบอร์ด (คลิกเดียว · setActiveFlow ทำให้ sidebar/breadcrumb/board re-render พร้อมกัน)
   const pickFlow = (f) => { setActiveFlow(f.id); go('flows', f.defaultView && f.defaultView !== 'settings' ? f.defaultView : 'kanban'); };
 
@@ -535,35 +391,13 @@ function AppInner() {
     if (section === 'sales' || section === 'catalog' || section === 'settings') dataEnsure?.(['adCamps', 'colorMix', 'sizeMix', 'fbMetrics']);
   }, [section, dataVersion, dataEnsure]);
 
-  const renderView = () => {
-    let view;
-    // Home + Sales (views-1) ไม่ lazy เพราะเป็นหน้าแรกหลัง login — ต้องเร็ว
-    if (section === 'home') view = <HomeView go={go} />;
-    else if (section === 'sales' && !['daily','monthly','status'].includes(sub)) view = <SalesView sub={sub} />;
-    else view = (
-      // Heavy chunks — ห่อด้วย Suspense
-      <Suspense fallback={<PageSkeleton />}>
-        {/* sub submit/io = ลิงก์เก่า (ก่อนรวมเป็น Data Hub) → หน้าเดียวกัน */}
-        {section === 'catalog' && sub === 'perf' ? <SalePerfView />
-          : section === 'catalog' && (sub === 'data' || sub === 'submit' || sub === 'io' || sub === 'entry') ? <SaleDataHub />
-          : section === 'sales' ? <EntryView sub={sub} />
-          : section === 'logs' ? <LogView />
-          : section === 'flows' ? <FlowsView sub={sub} tasks={tasks} setTasks={setTasks} activeFlow={activeFlow} />
-          : section === 'planner' ? <PlannerView sub={sub} tasks={tasks} setTasks={setTasks} />
-          : section === 'catalog' ? <CatalogView sub={sub} />
-          : section === 'settings' ? <SettingsView sub={sub} dark={dark} setDark={setDark} />
-          : null}
-      </Suspense>
-    );
-    // PART 95: ล้อม ErrorBoundary รายหน้า → หน้าใด render พัง แสดงการ์ดเล็ก ที่เหลือ (sidebar/เมนู) ยังใช้ได้
-    // resetKey=section:sub → สลับหน้าแล้วเคลียร์ error เอง
-    return <ErrorBoundary variant="section" scope={section} resetKey={section + ':' + sub}>{view}</ErrorBoundary>;
-  };
+  // Prefetch chunk ของเมนูอื่นตอนว่าง — เริ่มหลังข้อมูลชุดแรกมาแล้ว (ไม่แย่ง bandwidth กับ query ตอนเปิดแอป)
+  useEffect(() => { if (dataVersion >= 1) prefetchIdle(); }, [dataVersion]);
 
-  const counts = { kanban: tasks.filter(x => x.status !== 'done').length };
+
 
   // Special sections not in NAV (settings)
-  const SPECIAL_LABELS = { settings: 'ตั้งค่า' };
+  const SPECIAL_LABELS = { settings: 'ตั้งค่า', whatsnew: 'มีอะไรใหม่' };
   const subLabel = nav?.subs?.find(s => s.id === sub)?.label || SPECIAL_LABELS[section];
 
   const isMobile = useIsMobile();
@@ -588,76 +422,91 @@ function AppInner() {
           </SidebarMenu>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup label="เมนู">
+          {/* PART 100: sidebar ใหม่ — การ์ดไฮไลต์ + หน้าหลัก + ทางลัดส่วนตัว + กลุ่มแถวแบน (ไม่มี accordion) */}
+          {/* การ์ด "มีอะไรใหม่" — โผล่เฉพาะยังไม่อ่านเวอร์ชันล่าสุด (แบบการ์ดแจ้งเตือน ref ภาพมือถือ) */}
+          {unseenVersion && (
+            <div className="px-2 pt-2 group-data-[collapsible=icon]:hidden">
+              <button type="button" onClick={() => go('whatsnew')}
+                className="w-full flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors hover:bg-[var(--sidebar-accent)]"
+                style={{ background: 'var(--accent-soft, rgba(99,102,241,.06))' }}>
+                <span className="relative grid size-8 shrink-0 place-items-center rounded-full border bg-background">
+                  <Icon name="sparkle" className="size-4" style={{ color: 'var(--accent)' }} />
+                  <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[13px] font-semibold leading-tight">มีอะไรใหม่</span>
+                  <span className="block text-[11px] text-muted-foreground">อัปเดตล่าสุด — กดดูเลย</span>
+                </span>
+                <Icon name="chevR" className="size-4 text-muted-foreground shrink-0" />
+              </button>
+            </div>
+          )}
+
+          {/* หน้าหลัก (แถวบนสุด — tile เป็นของ custom เพิ่มเอง) */}
+          <SidebarGroup>
             <SidebarMenu>
-              {NAV.map(n => (
-                // หน้าโดนล็อก → เมนูแบน จาง + กุญแจ (ข้าม Collapsible/FlowsNav กัน subs กาง) · คลิกผ่าน go() ให้ toast
-                isLocked(n.id) ? (
-                  <SidebarMenuItem key={n.id}>
-                    <SidebarMenuButton className="opacity-50" tooltip="ไม่มีสิทธิ์เข้าหน้านี้" onClick={() => go(n.id)}>
-                      <Icon name={n.icon} />
-                      <span>{n.label}</span>
-                      <Icon name="lock" className="ml-auto size-3.5" />
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ) : n.id === 'flows' ? (
-                  <FlowsNav key={n.id} n={n} section={section} sub={sub} go={go} activeFlow={activeFlow} pickFlow={pickFlow} />
-                ) : n.subs ? (
-                  <Collapsible
-                    key={n.id}
-                    asChild
-                    defaultOpen={section === n.id}
-                    className="group/collapsible"
-                  >
-                    <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton tooltip={n.label} isActive={section === n.id && !sub} onClick={() => go(n.id)}>
-                          <Icon name={n.icon} />
-                          <span>{n.label}</span>
-                          {n.badge && <span className="ml-2 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 whitespace-nowrap">{n.badge}</span>}
-                          <span className="ml-auto inline-flex shrink-0 items-center justify-center transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90"><Icon name="chevR" /></span>
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {n.subs.map(s => { const subLocked = isLocked(n.id, s.id); return (
-                            <SidebarMenuSubItem key={s.id}>
-                              <SidebarMenuSubButton asChild isActive={section === n.id && sub === s.id} className={subLocked ? 'opacity-50' : undefined}>
-                                <button onClick={() => go(n.id, s.id)}>
-                                  <span>{s.label}</span>
-                                  {subLocked ? <Icon name="lock" className="ml-auto size-3 shrink-0" />
-                                    : counts[s.id] != null && counts[s.id] > 0 ? (
-                                      <span className="ml-auto bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full">{counts[s.id]}</span>
-                                    ) : null}
-                                </button>
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ); })}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={section === 'home'} onClick={() => go('home')} tooltip="หน้าหลัก">
+                  <Icon name="home" /><span>หน้าหลัก</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+
+          {/* ทางลัดส่วนตัว — เลือกเองสูงสุด 4 (เฉพาะหน้าที่มีสิทธิ์ · เริ่มต้นว่าง) */}
+          <NavTiles go={go} section={section} sub={sub} isLocked={isLocked} />
+
+          {/* กลุ่มเมนูแบน: ยอดขาย → โครงการ → Sale (เรียงตาม NAV เดิม) — เห็นทุกหน้าใน 1 คลิก */}
+          {NAV.filter(n => n.id !== 'home' && n.id !== 'logs').map(n => (
+            <SidebarGroup key={n.id}>
+              <SidebarGroupLabel>{n.label}</SidebarGroupLabel>
+              <SidebarMenu>
+                {n.id === 'flows' ? (
+                  <FlowsRows section={section} sub={sub} go={go} activeFlow={activeFlow} pickFlow={pickFlow} isLocked={isLocked} />
+                ) : (n.subs || []).map(s => {
+                  const L = isLocked(n.id, s.id);
+                  return (
+                    <SidebarMenuItem key={s.id}>
+                      <SidebarMenuButton isActive={section === n.id && sub === s.id} className={L ? 'opacity-50' : undefined}
+                        tooltip={L ? 'ไม่มีสิทธิ์เข้าหน้านี้' : s.label} onClick={() => go(n.id, s.id)}>
+                        <Icon name={s.icon} /><span>{s.label}</span>
+                        {L && <Icon name="lock" className="ml-auto size-3.5" />}
+                      </SidebarMenuButton>
                     </SidebarMenuItem>
-                  </Collapsible>
-                ) : (
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroup>
+          ))}
+
+          {/* ระบบ — บันทึกกิจกรรม (admin คุมสิทธิ์รายคน) + มีอะไรใหม่ (ทุกคนเข้าได้เสมอ ไม่มีล็อก) */}
+          <SidebarGroup>
+            <SidebarGroupLabel>ระบบ</SidebarGroupLabel>
+            <SidebarMenu>
+              {NAV.filter(n => !n.subs && n.id !== 'home').map(n => {
+                const L = isLocked(n.id);
+                return (
                   <SidebarMenuItem key={n.id}>
-                    <SidebarMenuButton isActive={section === n.id} onClick={() => go(n.id)} tooltip={n.label}>
-                      <Icon name={n.icon} />
-                      <span>{n.label}</span>
+                    <SidebarMenuButton isActive={section === n.id} className={L ? 'opacity-50' : undefined}
+                      tooltip={L ? 'ไม่มีสิทธิ์เข้าหน้านี้' : n.label} onClick={() => go(n.id)}>
+                      <Icon name={n.icon} /><span>{n.label}</span>
+                      {L && <Icon name="lock" className="ml-auto size-3.5" />}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
-                )
-              ))}
+                );
+              })}
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={section === 'whatsnew'} tooltip="มีอะไรใหม่" onClick={() => go('whatsnew')}>
+                  <Icon name="sparkle" /><span>มีอะไรใหม่</span>
+                  {unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton isActive={section === 'settings' && sub === 'updates'} className={isLocked('settings') ? 'opacity-50' : undefined} tooltip={isLocked('settings') ? 'ไม่มีสิทธิ์เข้าหน้านี้' : 'มีอะไรใหม่'} onClick={() => go('settings', 'updates')}>
-                <Icon name="sparkle" />
-                <span>มีอะไรใหม่</span>
-                {isLocked('settings') ? <Icon name="lock" className="ml-auto size-3.5" /> : unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+            {/* "มีอะไรใหม่" ย้ายไป: การ์ดไฮไลต์บน SidebarContent (ตอนมีของใหม่) + เมนูผู้ใช้ (ถาวร) */}
             <SidebarMenuItem>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -699,6 +548,11 @@ function AppInner() {
                     <DropdownMenuItem onClick={() => go('settings', 'general')} className="cursor-pointer">
                       <Icon name="system" className="size-4 mr-2 text-muted-foreground" />
                       ตั้งค่า
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => go('whatsnew')} className="cursor-pointer">
+                      <Icon name="sparkle" className="size-4 mr-2 text-muted-foreground" />
+                      มีอะไรใหม่
+                      {unseenVersion && <span className="ml-auto inline-block size-2 rounded-full" style={{ background: 'var(--bad, #ef4444)' }} aria-label="มีเวอร์ชันใหม่" />}
                     </DropdownMenuItem>
                   </DropdownMenuGroup>
                   <DropdownMenuSeparator />
@@ -797,7 +651,11 @@ function AppInner() {
           <div className={'content' + (section === 'catalog' ? ' sale-section' : '')} ref={contentRef}>
             {/* คอลัมน์เนื้อหากลางเดียว (max 1280 · จัดกึ่งกลาง) — ทุกหน้าอยู่ตรงกลางเท่ากันไม่ว่าจะพับ sidebar หรือไม่ */}
             <div className="content-inner">
-              {renderView()}
+              <SectionContent
+                section={section} sub={sub} go={goStable}
+                tasks={tasks} setTasks={setTasks} activeFlow={activeFlow}
+                dark={dark} setDark={setDark}
+              />
             </div>
           </div>
         </div>
@@ -853,11 +711,11 @@ function AppInner() {
       {canEdit && <button className="fab mobile-only" title="เพิ่มรายการ" onClick={() => {
         if (section === 'catalog') {
           const m = { orders: 'order' }[sub] || 'product';
-          window.__openModal(m); return;
+          openModal(m); return;
         }
-        if (section === 'sales') { window.__openModal('record', { date: todayISO() }); return; }
+        if (section === 'sales') { openModal('record', { date: todayISO() }); return; }
         if (isLocked('flows')) { go('flows', 'kanban'); return; } // go() toast เอง — กัน modal เด้งทั้งที่เข้าหน้าไม่ได้
-        go('flows', 'kanban'); setTimeout(() => window.__openModal('task'), 100);
+        go('flows', 'kanban'); setTimeout(() => openModal('task'), 100);
       }}><Icon name="plus" /></button>}
     </SidebarProvider>
   );
@@ -865,7 +723,9 @@ function AppInner() {
   // สถานะโหลดข้อมูล: version===0 = ยังไม่เคยโหลดสำเร็จ (ครั้งแรก)
   const firstError = authed && dataVersion === 0 && !!dataError;
   // จอโหลดแรก: arm ตอน login เสร็จ, done เมื่อโหลดข้อมูลครั้งแรกเสร็จ/พลาด, ค้างขั้นต่ำ ~5.5 วิ
-  const firstLoading = useMinSplash(authed, dataVersion >= 1 || firstError, 5500);
+  // โชว์จอโหลด "เท่าที่โหลดจริง" — ข้อมูลมาเมื่อไหร่เข้าแอปทันที
+  // (เดิม useMinSplash บังคับค้างขั้นต่ำ 5.5 วิ แม้ข้อมูลมาใน <1 วิ)
+  const firstLoading = authed && !(dataVersion >= 1 || firstError);
   const showShell = authed && !firstError && !firstLoading;
   const syncing = authed && dataVersion >= 1 && dataLoading; // realtime reload หลังโหลดครั้งแรก
 
@@ -875,6 +735,7 @@ function AppInner() {
       {authReady && !authed && <LoginScreen onLogin={handleLogin} />}
       {firstLoading && !firstError && <LoadingScreen />}
       {firstError && <DataErrorScreen error={dataError} onRetry={dataReload} />}
+      {/* eslint-disable-next-line react-hooks/refs -- Shell() เรียกเป็นฟังก์ชัน (inline render) โดยตั้งใจ · เปลี่ยนเป็น <Shell/> จะเป็น component ชนิดใหม่ทุก render = remount ทั้ง sidebar/เนื้อหา · ref ที่ compiler ไล่เจอคือ contentRef ใน go() ซึ่งแตะเฉพาะตอนคลิกเมนู ไม่ได้อ่านตอน render */}
       {showShell && Shell()}
       {syncing && <SyncIndicator />}
 

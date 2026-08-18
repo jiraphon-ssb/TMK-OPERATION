@@ -25,4 +25,4 @@ create index if not exists tmk_shirt_catalog_type_idx   on public.tmk_shirt_cata
 create index if not exists tmk_shirt_catalog_status_idx on public.tmk_shirt_catalog(status);
 
 grant select, insert, update, delete on public.tmk_shirt_catalog to anon, authenticated;
-alter table public.tmk_shirt_catalog disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_shirt_catalog disable row level security;

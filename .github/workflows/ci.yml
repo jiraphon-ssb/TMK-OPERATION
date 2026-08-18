@@ -1,0 +1,34 @@
+name: CI
+
+# รันทุก push และทุก PR เข้า main — กัน test พัง / build พังหลุดเข้า main โดยไม่มีใครรู้
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Test (vitest)
+        run: npm test
+
+      - name: Build (vite)
+        run: npm run build
+
+      # lint = gate จริง (0 errors 0 warnings ตั้งแต่ 11 ส.ค. 2569) — warning ใหม่จะบล็อก PR ทันที
+      # ถ้าเจอกฎที่ "ตั้งใจฝ่าฝืน" ให้ใส่ eslint-disable-next-line + คอมเมนต์เหตุผล ไม่ใช่ปิดกฎทั้งไฟล์
+      - name: Lint (0 warnings)
+        run: npm run lint -- --max-warnings=0

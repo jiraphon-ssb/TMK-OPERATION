@@ -89,57 +89,70 @@ export function useUnseenVersion() {
   return unseen;
 }
 
-// หน้าเต็ม changelog (ใน Settings > มีอะไรใหม่) — timeline ทุกเวอร์ชัน + mark seen ตอนเปิด
+// หน้าเต็ม "มีอะไรใหม่" (section whatsnew · ทุกคนเข้าได้) — timeline release-notes + mark seen ตอนเปิด
+// PART 101: รื้อ UI ใหม่ — เส้น timeline + จุดไล่รุ่น · รุ่นล่าสุดขอบ accent · แถวฟีเจอร์เป็น icon chip · คอลัมน์อ่านกลางหน้า
 export function WhatsNewPage() {
   useEffect(() => { markVersionSeen(); }, []);
   if (!CHANGELOG.length) return null;
   return (
-    <div style={{ display: 'grid', gap: 14, maxWidth: 760 }}>
-      <div>
-        <div className="row" style={{ gap: 9, alignItems: 'center' }}>
-          <span className="grid size-9 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent)] flex-none"><Icon name="sparkle" /></span>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700 }}>มีอะไรใหม่</h2>
-            <div className="cap" style={{ color: 'var(--ink-4)' }}>ประวัติการอัปเดตทั้งหมด · เวอร์ชันปัจจุบัน v{APP_VERSION}</div>
-          </div>
+    <div className="content-inner mx-auto w-full max-w-[880px] pb-6">
+      {/* หัวหน้า — สเกลเดียวกับหัวหน้าอื่นทั้งแอป (text-base ไม่โด่ง) */}
+      <div className="flex items-center gap-2.5 mb-4">
+        <span className="grid size-8 place-items-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] flex-none"><Icon name="sparkle" className="size-4" /></span>
+        <div className="min-w-0">
+          <h1 className="m-0 text-base font-semibold leading-tight">มีอะไรใหม่</h1>
+          <div className="text-xs text-muted-foreground">ประวัติการอัปเดตของระบบ TMK</div>
+        </div>
+        <Badge variant="outline" className="ml-auto rounded-full font-medium text-[11px] shrink-0" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>v{APP_VERSION} ล่าสุด</Badge>
+      </div>
+
+      {/* timeline */}
+      <div className="relative">
+        {/* เส้นแนวตั้ง */}
+        <span className="absolute left-[13px] top-2 bottom-2 w-px" style={{ background: 'var(--line)' }} aria-hidden="true" />
+        <div className="flex flex-col gap-4">
+          {CHANGELOG.map((u, i) => {
+            const m = TYPE_META[u.type] || TYPE_META.fix;
+            const items = u.items || [];
+            const isLatest = i === 0;
+            return (
+              <div key={u.ver + '-' + i} className="relative pl-9">
+                {/* จุด timeline */}
+                <span className="absolute left-[3px] top-1 grid size-[21px] place-items-center rounded-full border-2 bg-background z-[1]"
+                  style={{ borderColor: isLatest ? 'var(--accent)' : 'var(--line)' }}>
+                  <span className="size-2 rounded-full" style={{ background: isLatest ? 'var(--accent)' : 'var(--ink-4)' }} />
+                </span>
+                {/* การ์ดรุ่น */}
+                <Card className={'p-3.5 sm:p-4 transition-colors ' + (isLatest ? '' : 'bg-card/60')}
+                  style={isLatest ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent-soft)' } : undefined}>
+                  <div className="flex items-center gap-2 flex-wrap" style={{ marginBottom: items.length ? 10 : 0 }}>
+                    <span className="text-[13px] font-bold num">v{u.ver}</span>
+                    <Badge className="rounded-full font-medium border-transparent text-[10.5px] px-2 py-0" style={{ background: m.c, color: '#fff' }}>{m.l}</Badge>
+                    {isLatest && <Badge variant="secondary" className="rounded-full text-[10.5px] px-2 py-0">ใหม่</Badge>}
+                    <span className="text-[11px] text-muted-foreground ml-auto">{u.date}</span>
+                  </div>
+                  {items.length > 0 && (
+                    <div className="flex flex-col gap-2.5">
+                      {items.map((it, j) => {
+                        const obj = it && typeof it === 'object';
+                        const text = obj ? it.text : it;
+                        return (
+                          <div key={j} className="flex items-start gap-2.5">
+                            <span className="grid place-items-center rounded-md flex-none mt-px" style={{ width: 21, height: 21, background: `color-mix(in srgb, ${m.c} 13%, transparent)`, color: m.c }}>
+                              <Icon name={obj && it.icon ? it.icon : 'checkCheck'} className="size-3.5" />
+                            </span>
+                            <span className="text-[13px] leading-relaxed">{text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            );
+          })}
         </div>
       </div>
-      {CHANGELOG.map((u, i) => {
-        const m = TYPE_META[u.type] || TYPE_META.fix;
-        const items = u.items || [];
-        const isLatest = i === 0;
-        return (
-          <Card key={u.ver + '-' + i} className="p-[18px]" style={isLatest ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent-soft)' } : undefined}>
-            <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: items.length ? 12 : 0 }}>
-              <span style={{ fontWeight: 800, fontSize: 16 }}>เวอร์ชัน {u.ver}</span>
-              <Badge variant="outline" className="rounded-full font-semibold" style={{ background: m.c, color: '#fff', borderColor: 'transparent' }}>{m.l}</Badge>
-              {isLatest && <Badge variant="secondary" className="rounded-full">ล่าสุด</Badge>}
-              <span className="cap" style={{ color: 'var(--ink-4)', marginLeft: 'auto' }}>{u.date}</span>
-            </div>
-            {items.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {items.map((it, j) => {
-                  // item รองรับ 2 แบบ: string (แบบเก่า มี emoji นำ) หรือ { icon, text } (แบบใหม่ ใช้ไอคอน)
-                  const obj = it && typeof it === 'object';
-                  const text = obj ? it.text : it;
-                  return (
-                    <div key={j} className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
-                      {obj && it.icon ? (
-                        <span className="grid place-items-center rounded-md flex-none" style={{ width: 22, height: 22, marginTop: 1, background: `color-mix(in srgb, ${m.c} 14%, transparent)`, color: m.c }}>
-                          <Icon name={it.icon} className="size-3.5" />
-                        </span>
-                      ) : (
-                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: m.c, marginTop: 6, flexShrink: 0 }} />
-                      )}
-                      <span className="sm" style={{ lineHeight: 1.55 }}>{text}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        );
-      })}
     </div>
   );
 }

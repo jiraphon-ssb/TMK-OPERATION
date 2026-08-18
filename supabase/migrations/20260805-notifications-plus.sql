@@ -25,7 +25,7 @@ create table if not exists public.tmk_notifications (
   created_at timestamptz not null default now()
 );
 grant select, insert, update, delete on public.tmk_notifications to anon, authenticated;
-alter table public.tmk_notifications disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_notifications disable row level security;
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tmk_notifications') then
     alter publication supabase_realtime add table public.tmk_notifications;

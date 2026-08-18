@@ -5,6 +5,7 @@
    - "โหลดล่าสุด" → resolve(null) = ทิ้งที่แก้ · "บันทึกตามที่เลือก" → resolve(picks)
    ============================================================ */
 import { useState, useRef, useEffect } from 'react';
+import { registerServices } from './lib/appBus.js';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -25,12 +26,12 @@ export function ConflictMergeHost() {
   const resolver = useRef(null);
 
   useEffect(() => {
-    window.__resolveConflict = ({ entity, conflicts } = {}) => new Promise((resolve) => {
+    registerServices({ resolveConflict: ({ entity, conflicts } = {}) => new Promise((resolve) => {
       resolver.current = resolve;
       setPicks(Object.fromEntries((conflicts || []).map(c => [c.field, 'mine']))); // default = ของเรา
       setState({ entity: entity || 'ข้อมูลนี้', conflicts: conflicts || [] });
-    });
-    return () => { if (window.__resolveConflict) delete window.__resolveConflict; };
+    }) });
+    return () => registerServices({ resolveConflict: undefined });
   }, []);
 
   const finish = (val) => { setState(null); const r = resolver.current; resolver.current = null; r?.(val); };

@@ -27,6 +27,17 @@ const logGlobal = (label, detail) => {
 window.addEventListener('unhandledrejection', (e) => { logGlobal('unhandled promise rejection', e.reason); });
 window.addEventListener('error', (e) => { if (e?.message) logGlobal('uncaught error', e.error || e.message); });
 
+// PWA: ลงทะเบียน service worker (offline shell) — เฉพาะ production build เท่านั้น
+// dev ไม่ลง (กัน SW ไปแคช HMR/โมดูลสด แล้ว dev ค้าง) · เช็ค support ก่อน · รอ load event กันแย่ง bandwidth ตอนเปิดแอป
+// logic update: ไม่ reload อัตโนมัติ/ไม่เด้ง prompt รบกวน user — SW ใหม่ skipWaiting เองแล้วมีผลรอบเปิดหน้าถัดไป
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.error('[sw] register failed:', err);
+    });
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />

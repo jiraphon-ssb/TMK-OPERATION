@@ -55,6 +55,23 @@ function mapRolesAndStaff(userRoles, staff) {
   };
 }
 
+/* ── memo ต่อ "ส่วน" ด้วย reference ของ input ──────────────────────────────────
+   เดิม: เซฟ 1 ครั้ง → refreshTables ดึงตารางเดียว แต่ mapToTMK map ใหม่ "ทุกตาราง"
+   (map/filter/reduce ~54 จุด) → เสีย CPU ตอนเซฟ = หน้าสะดุด ทั้งที่ตารางอื่นไม่ได้เปลี่ยน
+   refreshTables แทนค่าเฉพาะ rawRef.current[key] ที่ดึงใหม่ → ตารางอื่นยังเป็น reference เดิม
+   → เทียบ === แล้วข้าม map ซ้ำได้ · ปลอดภัยเพราะ applyMapped() อ่านค่าออก (push ทีละตัว) ไม่ยึด reference
+   ส่วนที่พึ่งพากันเป็นลูกโซ่ (daily → MTD → monthly → computed) ไม่แตะ คำนวณใหม่ทุกครั้ง */
+const _sectionMemo = new Map();
+function memoSection(key, deps, compute) {
+  const prev = _sectionMemo.get(key);
+  if (prev && prev.deps.length === deps.length && prev.deps.every((d, i) => d === deps[i])) return prev.val;
+  const val = compute();
+  _sectionMemo.set(key, { deps, val });
+  return val;
+}
+// ล้างแคช (เรียกตอน logout — กันข้อมูล user เดิมค้างข้ามคน · และในเทสต์)
+export function clearMapMemo() { _sectionMemo.clear(); }
+
 // แปลง raw Supabase data → TMK structure
 export function mapToTMK(raw) {
   const today = getToday(); // วันที่จริงของเครื่อง = source of truth ของ "วันนี้"
@@ -119,7 +136,7 @@ export function mapToTMK(raw) {
   })).sort((a, b) => { const sa = a.sortOrder || 0, sb = b.sortOrder || 0; if (sa !== sb) return sa - sb; const ia = _CH_ORDER.indexOf(a.id), ib = _CH_ORDER.indexOf(b.id); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); }); // sort_order เป็นหลัก (reorder ▲▼/ลากได้จริง) → _CH_ORDER เป็น fallback ตอน tie
 
   // Campaigns
-  const campaigns = (raw.campaigns || []).map(c => ({
+  const campaigns = memoSection('campaigns', [raw.campaigns, raw.tasks], () => (raw.campaigns || []).map(c => ({
     id: c.id,
     name: c.name,
     color: c.color,
@@ -129,12 +146,12 @@ export function mapToTMK(raw) {
     status: c.status || 'upcoming',
     channels: c.channels || [],
     tasks: (raw.tasks || []).filter(t => t.camp === c.id).length,
-  }));
+  })));
 
   // Tasks
   const _ccByTask = {}; // จำนวนคอมเมนต์ต่อ task (จาก view) → ป้าย 💬 บนการ์ด
   (raw.commentCounts || []).forEach(c => { if (c.task_id) _ccByTask[c.task_id] = Number(c.comment_count || 0); });
-  const tasks = (raw.tasks || []).map(t => ({
+  const tasks = memoSection('tasks', [raw.tasks, raw.commentCounts], () => (raw.tasks || []).map(t => ({
     id: t.id,
     title: t.title,
     detail: t.detail || '',
@@ -154,16 +171,16 @@ export function mapToTMK(raw) {
     sortOrder: Number(t.sort_order || 0),         // ลำดับการ์ดในคอลัมน์ (migration 20260730)
     commentCount: _ccByTask[t.id] || 0,           // จำนวนคอมเมนต์ (view · migration 20260801)
     rowVersion: t.row_version,                    // optimistic concurrency (migration 20260716 · undefined ก่อน migrate → guard ข้าม)
-  }));
+  })));
 
   // Brands (ป้าย/จัดกลุ่มโครงการ) — เลียนแบบ channels (camelCase + sort)
-  const brands = (raw.brands || []).map(b => ({
+  const brands = memoSection('brands', [raw.brands], () => (raw.brands || []).map(b => ({
     id: b.id, name: b.name, color: b.color || '#6b5ce0',
     logoUrl: b.logo_url || '', tagline: b.tagline || '', sortOrder: b.sort_order || 0,
-  })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
 
   // Flows (board วางแผนงานหลายอัน) — parse jsonb/array columns
-  const flows = (raw.flows || []).map(f => ({
+  const flows = memoSection('flows', [raw.flows], () => (raw.flows || []).map(f => ({
     id: f.id, name: f.name, color: f.color || '#6b5ce0', icon: f.icon || '',
     description: f.description || '', brandId: f.brand_id || '',
     brandIds: Array.isArray(f.brand_ids) && f.brand_ids.length ? f.brand_ids : (f.brand_id ? [f.brand_id] : []),
@@ -176,10 +193,10 @@ export function mapToTMK(raw) {
     coverUrl: f.cover_url || '',                       // รูปปกการ์ด (graceful ถ้าคอลัมน์ยังไม่มี)
     shareToken: f.share_token || '', shareEnabled: !!f.share_enabled,  // แชร์ลิงก์อ่านอย่างเดียว
     sortOrder: f.sort_order || 0,
-  })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  })).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
 
   // Products
-  const products = (raw.products || []).map((p, i) => {
+  const products = memoSection('products', [raw.products], () => (raw.products || []).map((p, i) => {
     // ล็อต (batch) = ตาราง ไซส์ × สี: [{ id, lotNo, date, cost, note, sizes, colors, grid }]
     // มีล็อต → สต็อก = ผลรวมทุกช่อง grid ทุกล็อต (helper รองรับ legacy lot ที่มี qty เดี่ยวด้วย)
     const lots = Array.isArray(p.lots) ? p.lots : [];
@@ -231,7 +248,7 @@ export function mapToTMK(raw) {
       available,                        // พร้อมขาย = onHand − reservedTotal
       oldestLotDate,                    // วันที่ล็อตเก่าสุด (อายุสต็อก)
     };
-  });
+  }));
 
   // dailyAll — ทุกแถว daily ทุกเดือน + รายละเอียดต่อช่องทาง (สำหรับ dashboard รายเดือน)
   const _chIds = (raw.channels || []).map(c => c.id);
@@ -336,7 +353,7 @@ export function mapToTMK(raw) {
   // FB message trend ย้ายไปคำนวณใน computeMonth (ตามเดือนที่เลือก) — global ตัวนี้ไม่ใช้แล้ว
 
   // Audit log
-  const audit = (raw.audit || []).map(a => {
+  const audit = memoSection('audit', [raw.audit], () => (raw.audit || []).map(a => {
     let details = {};
     try { details = typeof a.details === 'string' ? JSON.parse(a.details) : (a.details || {}); }
     catch { /* ignore */ }
@@ -360,16 +377,16 @@ export function mapToTMK(raw) {
       data: details.data || null, // ข้อมูลโครงสร้าง (machine-readable) — สำหรับรายงาน/กู้คืน
       flowId: a.flow_id || details.flowId || '', // ผูกโครงการ (คอลัมน์ flow_id ใหม่ · fallback details · graceful)
     };
-  });
+  }));
 
   // Duties (หน้าที่)
-  const duties = (raw.duties || []).map(d => ({
+  const duties = memoSection('duties', [raw.duties], () => (raw.duties || []).map(d => ({
     id: d.id,
     name: d.name,
     color: d.color || '#3b82f6',
     description: d.description || '',
     sortOrder: d.sort_order || 0,
-  }));
+  })));
   const dutyById = Object.fromEntries(duties.map(d => [d.id, d]));
 
   // Roles + Staff — link duty via duty_id
@@ -430,7 +447,7 @@ export function mapToTMK(raw) {
   }
 
   // ออเดอร์ + ลูกค้า (Phase 1)
-  const orders = (raw.orders || []).map(o => {
+  const orders = memoSection('orders', [raw.orders], () => (raw.orders || []).map(o => {
     const items = Array.isArray(o.items) ? o.items : [];
     return {
       id: o.id, code: o.code, customerId: o.customer_id || '', customerName: o.customer_name || '',
@@ -439,17 +456,19 @@ export function mapToTMK(raw) {
       note: o.note || '', statusLog: Array.isArray(o.status_log) ? o.status_log : [],
       createdAt: o.created_at, qty: items.reduce((a, it) => a + (Number(it.qty) || 0), 0),
     };
-  });
+  }));
   // ยอดสะสมต่อลูกค้า: ใช้ view (รวมทุกออเดอร์) ก่อน — ไม่มี view (ยังไม่รัน migration) ค่อย fallback รวมจาก orders ที่โหลดมา (อาจต่ำกว่าจริงถ้าเกิน 500)
+  const customers = memoSection('customers', [raw.customers, raw.orders, raw.customerTotals], () => {
   const _ordByCust = {};
   orders.forEach(o => { if (!o.customerId) return; const c = _ordByCust[o.customerId] || (_ordByCust[o.customerId] = { count: 0, spent: 0 }); c.count++; if (o.status !== 'cancelled') c.spent += o.total; });
   const _ctByCust = {};
   (raw.customerTotals || []).forEach(t => { if (t.customer_id) _ctByCust[t.customer_id] = { count: Number(t.order_count || 0), spent: Number(t.total_spent || 0) }; });
   const _custTotal = (id) => _ctByCust[id] || _ordByCust[id] || { count: 0, spent: 0 };
-  const customers = (raw.customers || []).map(c => ({
+  return (raw.customers || []).map(c => ({
     id: c.id, code: c.code || '', name: c.name || '', phone: c.phone || '', line: c.line || '', address: c.address || '', note: c.note || '',
     createdAt: c.created_at, orderCount: _custTotal(c.id).count, totalSpent: _custTotal(c.id).spent,
   }));
+  });
 
   return {
     consts: { TARGET, DAY, DAYS, ACOS_CEIL, AD_BUDGET, current_month: currentMonth, current_year: currentYear },

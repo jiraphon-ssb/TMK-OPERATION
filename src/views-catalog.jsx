@@ -11,6 +11,6 @@ export function CatalogView({ sub }) {
   if (sub === 'orders') return <OrdersHub />;
   if (sub === 'shirts') return <ShirtCatalogView />;
   if (sub === 'crm') return <CrmView />;
-  return <ReportHub />; // เน้น sale — sub 'entry' (บันทึกขาย) ยุบเข้า SaleDataHub (route ที่ App.jsx)
+  return <ReportHub />; // เน้น sale — sub เก่า (entry/data/submit/io) redirect ไปประสิทธิภาพเซล (route ที่ App.jsx · PART 102)
 }
 

@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { logAudit } from './lib/audit.js';
 import { mutateProductReservations } from './modals-stock.js';
 import { Modal, toast, nn, guardClose, uid, MD } from './modals-core.jsx';
+import { ROW_LIMITS } from './dataContext.jsx';
+import { refresh, confirm } from './lib/appBus.js';
 
 function genOrderCode() {
   const d = new Date();
@@ -121,7 +123,7 @@ export async function advanceOrderStatus(order, newStatus, by = '') {
       if (error) throw error;
     }
     logAudit({ action: 'order', entityType: 'order', entityName: order.code, summary: `ออเดอร์ ${order.code} → ${orderStatusMeta(newStatus).label}` });
-    window.__refresh?.(['tmk_orders', 'tmk_products']);
+    refresh(['tmk_orders', 'tmk_products']);
     toast(`อัปเดตเป็น "${orderStatusMeta(newStatus).label}"`, 'success');
     return true;
   } catch (err) { toast('เปลี่ยนสถานะไม่สำเร็จ: ' + err.message, 'error'); return false; }
@@ -214,7 +216,7 @@ export function OrderModal({ data, onClose }) {
         throw error;
       }
       logAudit({ action: 'order', entityType: 'order', entityName: code, summary: `${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์ ${code} (${custName}) ${totalQty} ตัว`, fields: [{ label: 'ลูกค้า', value: custName }, { label: 'ยอดรวม', value: B(tot) }, { label: 'สถานะ', value: orderStatusMeta(status).label }] });
-      window.__refresh?.(['tmk_orders', 'tmk_customers', 'tmk_products']);
+      refresh(['tmk_orders', 'tmk_customers', 'tmk_products']);
       toast(`${data ? 'แก้ไข' : 'สร้าง'}ออเดอร์สำเร็จ`, 'success');
       onClose();
     } catch (err) {
@@ -224,7 +226,7 @@ export function OrderModal({ data, onClose }) {
   };
 
   const isShipped = data?.status === 'shipped';
-  const footer = (<>{data?.id && !isShipped && <Button variant="outline" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await window.__confirm?.({ title: 'ยกเลิกออเดอร์', body: 'ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)', danger: true, confirmText: 'ยกเลิก' })) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</Button>}<Button variant="outline" onClick={() => guardClose(touched, onClose)}>ปิด</Button>{!isShipped && <Button disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</Button>}</>);
+  const footer = (<>{data?.id && !isShipped && <Button variant="outline" style={{ color: 'var(--bad)', marginRight: 'auto' }} disabled={busy} onClick={async () => { if (await confirm({ title: 'ยกเลิกออเดอร์', body: 'ยกเลิกออเดอร์นี้? (จะปล่อยจองสต็อกคืน)', danger: true, confirmText: 'ยกเลิก' })) { await advanceOrderStatus(data, 'cancelled'); onClose(); } }}><Icon name="x" /> ยกเลิกออเดอร์</Button>}<Button variant="outline" onClick={() => guardClose(touched, onClose)}>ปิด</Button>{!isShipped && <Button disabled={busy || !total && !totalQty} onClick={handleSave}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : (data ? 'บันทึก' : 'สร้างออเดอร์')}</Button>}</>);
 
   return (
     <Modal wide icon="listChecks" title={data ? `ออเดอร์ ${data.code}` : 'สร้างออเดอร์'} sub={data ? orderStatusMeta(data.status).label : 'เลือกลูกค้า + สินค้า → จองสต็อกอัตโนมัติ'} onClose={onClose} footer={footer} confirmOnClose={touched}>
@@ -250,6 +252,12 @@ export function OrderModal({ data, onClose }) {
                 <Select value={custId || undefined} onValueChange={v => _t(setCustId)(v)}>
                   <SelectTrigger style={{ flex: 1 }}><SelectValue placeholder="— เลือกลูกค้า —" /></SelectTrigger>
                   <SelectContent>
+                    {/* รายการนี้คือลูกค้า N รายล่าสุดเท่านั้น — ไม่เจอชื่อยังกด "ลูกค้าใหม่" ได้ (ระบบเช็คเบอร์ซ้ำตอนบันทึกอยู่แล้ว) */}
+                    {customers.length >= ROW_LIMITS.customers && (
+                      <div className="cap" style={{ padding: '6px 8px', borderBottom: '1px solid var(--line)' }}>
+                        แสดงลูกค้า {ROW_LIMITS.customers} รายล่าสุด — ไม่เจอชื่อให้กด "ลูกค้าใหม่"
+                      </div>
+                    )}
                     {customers.map(c => <SelectItem key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ''}</SelectItem>)}
                   </SelectContent>
                 </Select>

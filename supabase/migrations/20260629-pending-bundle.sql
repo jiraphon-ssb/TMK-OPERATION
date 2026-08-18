@@ -33,8 +33,8 @@ create index if not exists tmk_sku_ov_ord_idx   on public.tmk_sku_overrides(orde
 
 grant select, insert, update, delete on public.tmk_order_overrides to anon, authenticated;
 grant select, insert, update, delete on public.tmk_sku_overrides   to anon, authenticated;
-alter table public.tmk_order_overrides disable row level security;
-alter table public.tmk_sku_overrides   disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_order_overrides disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sku_overrides   disable row level security;
 
 -- ── 2) กลุ่มเสื้อ (shirt_class) — จาก 20260628-shirt-class.sql ─────────────────
 alter table public.tmk_shirt_catalog

@@ -9,7 +9,11 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { logAudit } from './lib/audit.js';
 import { computeMonth } from './dataContext.jsx';
-import { Modal, toast, nn, money, bahtStr, DISCARD_MSG, guardClose, MD } from './modals-core.jsx';
+import { Modal, toast, nn, money, bahtStr, confirmDiscard, guardClose, MD } from './modals-core.jsx';
+import { refresh, confirm } from './lib/appBus.js';
+
+// map ช่องทาง → คอลัมน์เดิมใน tmk_daily_sales (ค่าคงที่ · ยกออกนอก component กัน identity เปลี่ยนทุก render)
+const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
 
 export function RecordSalesModal({ data, onClose }) {
   const { t } = useLang();
@@ -26,7 +30,6 @@ export function RecordSalesModal({ data, onClose }) {
   const beforeRef = useRef(null); // ค่าเดิมจาก DB ตอนเปิด (snapshot) → ทำ log ก่อน→หลัง + เก็บค่าที่ถูกลบ
 
   // โหลดข้อมูลเดิมของวันที่เลือก (แก้เดือน/วันเก่าได้); ถ้าไม่มี = ว่าง
-  const colMap = { shopee: 'shopee', tiktok: 'tiktok', lazada: 'lazada', facebook: 'facebook', line: 'line_oa', crm: 'crm' };
   const numStr = (v) => (v != null && v !== '' && !isNaN(Number(v))) ? String(v) : ''; // โชว์ค่าจริงรวม 0 (กัน 0→ช่องว่าง)
   useEffect(() => {
     let cancel = false;
@@ -84,7 +87,14 @@ export function RecordSalesModal({ data, onClose }) {
     const _avg = _days.length ? _days.reduce((a, b) => a + b, 0) / _days.length : 0;
     if (_avg > 0 && _tot > _avg * 3) {
       const x = (_tot / _avg).toFixed(1);
-      if (!window.confirm(`⚠️ ยอดวันนี้ ${bahtStr(_tot)} สูงกว่าค่าเฉลี่ยรายวัน ${x} เท่า (เฉลี่ย ${bahtStr(_avg)})\nตรวจสอบว่าพิมพ์ถูกหรือไม่ — ยืนยันบันทึก?`)) return;
+      // ยืนยันตัวเลขเงินด้วยกล่องของแอป — จุดนี้ผู้ใช้กำลังตัดสินใจเรื่องยอดเงิน
+      // กล่องเบราว์เซอร์ที่ขึ้นชื่อโดเมนกำกับทำให้รู้สึกว่า "ไม่ใช่ระบบเรา" = เสียความเชื่อมั่นตรงจุดสำคัญที่สุด
+      const ok = await confirm({
+        title: 'ยอดสูงกว่าปกติ — ยืนยันบันทึก?',
+        body: `ยอดวันนี้ ${bahtStr(_tot)} สูงกว่าค่าเฉลี่ยรายวัน ${x} เท่า (เฉลี่ย ${bahtStr(_avg)})\nกรุณาตรวจสอบว่าพิมพ์ถูกต้องหรือไม่`,
+        confirmText: 'ยืนยันบันทึก', cancelText: 'กลับไปตรวจสอบ',
+      });
+      if (!ok) return;
     }
     setSaving(true);
     try {
@@ -131,7 +141,7 @@ export function RecordSalesModal({ data, onClose }) {
           const curSavedAt = (_cur && !_cur.deleted_at) ? (_cur.updated_at || null) : null;
           if (curSavedAt !== baseSavedAt) {
             toast('มีการบันทึกยอดวันนี้จากอุปกรณ์อื่น — ปิดแล้วเปิดใหม่เพื่อดึงค่าล่าสุด (กันเขียนทับ)', 'warn');
-            window.__refresh?.(['tmk_daily_sales']);
+            refresh(['tmk_daily_sales']);
             setSaving(false);
             return;
           }
@@ -202,7 +212,7 @@ export function RecordSalesModal({ data, onClose }) {
         changes: auditChanges,
         data: { date, day_name, channels, totals: { rev: totRev, ord: totOrd, ad: totAd, inq: totInq, newC: totNew, oldC: totOld }, avg_reply_minutes: nz(chatTime), note: note || '' },
       });
-      window.__refresh?.(['tmk_daily_sales']);
+      refresh(['tmk_daily_sales']);
       toast(t('toastSaved'), 'success');
       onClose();
     } catch (err) {
@@ -212,6 +222,7 @@ export function RecordSalesModal({ data, onClose }) {
   };
 
   // ค่าคงที่ + ยอดของ "เดือนของวันที่เลือก" (ไม่ใช่ค่า global ที่ค้างจาก import)
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- computeMonth อ่าน TMK singleton (compiler มองว่าไม่ pure จึงรักษา memo ไม่ได้) · ต้องคง memo ไว้ เพราะคำนวณทั้งเดือนใหม่ทุก keystroke จะหน่วง
   const sel = useMemo(() => {
     const [yy, mm] = String(date).split('-').map(Number);
     return computeMonth((mm || 1) - 1, (yy || 2026) + 543);
@@ -249,10 +260,11 @@ export function RecordSalesModal({ data, onClose }) {
     // บันทึกได้เมื่อมี metric ใดก็ได้ (ไม่ใช่แค่ยอดขาย) — กันวันที่มีแค่ค่าแอด/ออเดอร์/ลูกค้าใหม่กรอกไม่ได้
     const ok = tRev > 0 || tAd > 0 || tOrd > 0 || tNewC > 0 || tOldC > 0;
     return { tRev, tOrd, tAd, aov, acos, newMtd, pPct, rr, vsAvg, tips, ok, tNewC, tOldC };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- MTD/M_TARGET/M_DAY/M_DAYS/M_ACOS/_otherDays derive จาก sel ล้วน (อยู่ใน deps แล้ว) · _otherDays เป็น array สร้างใหม่ทุก render ถ้าใส่จะ recompute รัวทุก keystroke
   }, [rows, sel]);
 
   const handleDelete = async () => {
-    if (!await window.__confirm?.({ title: "ลบยอดขาย", body: `ลบข้อมูลยอดขายวันที่ ${date}? จะย้ายไปถังขยะ กู้คืนได้ภายหลัง`, danger: true, confirmText: "ลบ" })) return;
+    if (!await confirm({ title: "ลบยอดขาย", body: `ลบข้อมูลยอดขายวันที่ ${date}? จะย้ายไปถังขยะ กู้คืนได้ภายหลัง`, danger: true, confirmText: "ลบ" })) return;
     setSaving(true);
     try {
       const { error } = await supabase.from('tmk_daily_sales').update({ deleted_at: new Date().toISOString() }).eq('id', 'd-' + date);
@@ -277,14 +289,14 @@ export function RecordSalesModal({ data, onClose }) {
       if (_nz(chatTime)) delFields.push({ label: 'เวลาตอบแชท', value: `${chatTime} นาที` });
       if (note) delFields.push({ label: 'โน้ต', value: note });
       logAudit({ action: 'delete', entityType: 'daily', entityName: date, summary: `ลบยอดขายรายวันวันที่ ${date} (รวม ${bahtStr(_totRev)})`, fields: delFields, data: { date, channels: beforeRef.current?.channels || null, note: note || '', chatTime: _nz(chatTime) } });
-      window.__refresh?.(['tmk_daily_sales']);
+      refresh(['tmk_daily_sales']);
       toast('ย้ายข้อมูลรายวันไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
         onClick: async () => {
           try {
             const { error: e2 } = await supabase.from('tmk_daily_sales').update({ deleted_at: null }).eq('id', 'd-' + date);
             if (e2) throw e2;
-            window.__refresh?.(['tmk_daily_sales']);
+            refresh(['tmk_daily_sales']);
             toast('กู้คืนข้อมูลรายวันแล้ว', 'success');
           } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
         },
@@ -343,7 +355,7 @@ export function RecordSalesModal({ data, onClose }) {
           <div className="row" style={{ gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="field" style={{ maxWidth: 220, margin: 0 }}>
               <label>วันที่</label>
-              <DatePicker value={date} max={todayISO()} clearable={false} onChange={(v) => { if (touched && !window.confirm(DISCARD_MSG)) return; setDate(v); }} />
+              <DatePicker value={date} max={todayISO()} clearable={false} onChange={async (v) => { if (touched && !(await confirmDiscard())) return; setDate(v); }} />
             </div>
             <Button variant="outline" size="sm" type="button" onClick={copyYesterday} title="ดึงยอดของเมื่อวานมาเป็นจุดเริ่ม">
               <Icon name="refresh" /> คัดลอกเมื่อวาน
@@ -557,7 +569,7 @@ export function HistoricalEntryModal({ onClose, data }) {
         fields: histFields,
         data: { year, months: dbRows.map(rr => ({ month: rr.month, actual: rr.actual, orders: rr.orders, ad_spend: rr.ad_spend, new_cust: rr.new_cust, messages: rr.messages, entryMode: rr.meta?.entryMode || 'daily' })) },
       });
-      window.__refresh?.(['tmk_monthly_history']);
+      refresh(['tmk_monthly_history']);
       toast('บันทึกข้อมูลย้อนหลังเรียบร้อย', 'success');
       onClose();
     } catch (err) {

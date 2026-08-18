@@ -20,4 +20,4 @@ create table if not exists public.tmk_monthly_rollup (
 );
 
 grant select, insert, update, delete on public.tmk_monthly_rollup to anon, authenticated;
-alter table public.tmk_monthly_rollup disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_monthly_rollup disable row level security;

@@ -124,6 +124,6 @@ begin
     'tmk_mp_returns','tmk_mp_settlements','tmk_oem_jobs','tmk_oem_lines','tmk_mp_size_curve','tmk_mp_alerts'
   ] loop
     execute format('grant select, insert, update, delete on public.%I to anon, authenticated', t);
-    execute format('alter table public.%I disable row level security', t);
+    -- [audit P3-4: กันรันซ้ำแล้ว RLS ปิดเงียบ] execute format('alter table public.%I disable row level security', t);
   end loop;
 end $$;

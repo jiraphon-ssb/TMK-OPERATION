@@ -16,10 +16,12 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Checkbox as ShadcnCheckbox } from '@/components/ui/checkbox';
+import { userEmail, openModal } from './lib/appBus.js';
+import { EmptyState } from './components/EmptyState.jsx';
 
 /* ============================================================
    งานของฉัน (My Tasks) — ครบวงจร: KPI + ค้นหา/กรอง/เรียง/จัดกลุ่ม
-   - จับคู่ตัวตน: window.__userEmail → ชื่อ/บทบาทใน TMK.roles + TMK.staff (+ dutyName)
+   - จับคู่ตัวตน: userEmail() → ชื่อ/บทบาทใน TMK.roles + TMK.staff (+ dutyName)
    - reuse <TaskCard showFlow> · realtime ผ่าน useData().version
    ============================================================ */
 const MT_PRIO = [{ id: 'high', name: 'สูง', color: '#cf4d5c' }, { id: 'medium', name: 'กลาง', color: '#c08a3e' }, { id: 'low', name: 'ต่ำ', color: '#64748b' }];
@@ -51,9 +53,19 @@ function MtFilter({ label, icon, options, value, onChange }) {
   );
 }
 
+// การ์ด KPI เล็ก — ประกาศระดับโมดูล (เดิมนิยามในตัว MyTasksView → remount ทุก render)
+function Kpi({ label, value, color }) {
+  return (
+    <div className="rounded-lg border bg-card px-3 py-2.5 min-w-0">
+      <div className="text-xl font-bold tabular-nums" style={{ color }}>{value}</div>
+      <div className="text-[11px] text-muted-foreground truncate">{label}</div>
+    </div>
+  );
+}
+
 export function MyTasksView() {
   const { version } = useData() || {}; // realtime/refresh bump → recompute (กัน list ค้างตอนมีงานใหม่มอบหมายเข้ามา)
-  const me = window.__userEmail || '';
+  const me = userEmail();
   const low = (x) => String(x || '').toLowerCase();
   const myNames = useMemo(() => {
     const s = new Set();
@@ -85,6 +97,7 @@ export function MyTasksView() {
 
   // option lists (data-driven จาก mine)
   const flowOpts = useMemo(() => { const m = new Map(); mine.forEach(t => { const fl = flowOf(t); const id = t.flow || '__general__'; if (!m.has(id)) m.set(id, { id, name: fl?.name || 'งานทั่วไป', color: fl?.color || 'var(--ink-3)' }); }); return [...m.values()]; }, [mine]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- statusMeta เป็นฟังก์ชันที่สร้างใหม่ทุก render (อ่าน TMK ตรงๆ) ใส่เป็น dep จะคำนวณใหม่ทุกครั้ง = memo ไร้ผล
   const statusOpts = useMemo(() => { const m = new Map(); mine.forEach(t => { const s = statusMeta(t); if (!m.has(s.id)) m.set(s.id, { id: s.id, name: s.label, color: s.color }); }); return [...m.values()]; }, [mine]);
   const tagOpts = useMemo(() => { const s = new Set(); mine.forEach(t => (t.tags || []).forEach(x => s.add(x))); return [...s].map(x => ({ id: x, name: x })); }, [mine]);
   const chanOpts = useMemo(() => { const s = new Set(); mine.forEach(t => chanList(t).forEach(x => s.add(x))); return [...s].map(x => ({ id: x, name: x })); }, [mine]);
@@ -150,16 +163,9 @@ export function MyTasksView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown, groupBy, sortBy]);
 
-  const openTask = (t) => window.__openModal?.('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] });
+  const openTask = (t) => openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] });
   const anyFilter = fFlow.length || fStatus.length || fPrio.length || fTag.length || fChan.length || fDue !== 'all' || query;
   const clearAll = () => { setFFlow([]); setFStatus([]); setFPrio([]); setFTag([]); setFChan([]); setFDue('all'); setQuery(''); };
-
-  const Kpi = ({ label, value, color }) => (
-    <div className="rounded-lg border bg-card px-3 py-2.5 min-w-0">
-      <div className="text-xl font-bold tabular-nums" style={{ color }}>{value}</div>
-      <div className="text-[11px] text-muted-foreground truncate">{label}</div>
-    </div>
-  );
 
   return (
     <div className="flex flex-col gap-4 max-w-6xl mx-auto w-full">
@@ -178,10 +184,7 @@ export function MyTasksView() {
           <p className="text-xs opacity-70 mt-1">เพิ่มชื่อ/อีเมลของคุณที่ ตั้งค่า → สิทธิ์ผู้ใช้ เพื่อให้ระบบดึงงานของคุณ</p>
         </div>
       ) : mine.length === 0 ? (
-        <div className="border-2 border-dashed rounded-xl py-16 text-center text-muted-foreground">
-          <Icon name="check" className="size-8 mx-auto opacity-30 mb-2" />
-          <p className="text-sm">ยังไม่มีงานที่มอบหมายให้คุณ</p>
-        </div>
+        <EmptyState icon="check" title="ยังไม่มีงานที่มอบหมายให้คุณ" hint="งานที่หัวหน้าหรือเพื่อนร่วมทีมมอบหมายให้ จะมาแสดงที่นี่" />
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">

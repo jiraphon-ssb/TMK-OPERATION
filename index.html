@@ -14,10 +14,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="TMK" />
     <title>TMK Operation</title>
-    <!-- Google Fonts: IBM Plex Sans Thai & IBM Plex Mono -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- ฟอนต์ self-host (IBM Plex Sans Thai + Mono · subset latin/latin-ext/thai) — ไม่พึ่ง Google CDN, first paint เร็ว, ไม่ล่มตามคนอื่น -->
+    <link rel="preload" href="/fonts/ibm-plex-sans-thai-400-thai.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/ibm-plex-sans-thai-400-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/fonts/tmk-fonts.css">
   </head>
   <body>
     <div id="root"></div>

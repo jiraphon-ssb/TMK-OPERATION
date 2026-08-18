@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Toggle } from '@/components/ui/toggle';
 import { logAudit } from './lib/audit.js';
 import { Modal, toast, nn, guardClose, uid, deleteRow, MD } from './modals-core.jsx';
+import { refresh } from './lib/appBus.js';
 
 const newLot = (proto) => ({
   id: uid('lot'), lotNo: '', date: '', cost: proto?.cost ?? '', note: '',
@@ -347,7 +348,7 @@ async function saveProductRow(row, isUpdate, audit, lockUpdatedAt) {
         if (!error && (!res.data || res.data.length === 0)) {
           // 0 แถว = มีเครื่องอื่นแก้สินค้านี้ (ขาย/รับ/ปรับ) หลังเราเปิดฟอร์ม → ไม่เขียนทับ
           toast('มีการแก้ไขสินค้านี้จากที่อื่น (เช่น ขาย/รับของ/ปรับสต็อก) — ปิดแล้วเปิดใหม่เพื่อดึงค่าล่าสุด แล้วบันทึกอีกครั้ง', 'warn');
-          window.__refresh?.(['tmk_products']);
+          refresh(['tmk_products']);
           return false;
         }
       } else {
@@ -362,7 +363,7 @@ async function saveProductRow(row, isUpdate, audit, lockUpdatedAt) {
     }
     if (dropped.length) toast(`บันทึกแล้ว แต่บางช่อง (${dropped.join(', ')}) ยังไม่ถูกเก็บ — ต้องรัน SQL migration ก่อน`, 'warn');
     if (audit) logAudit(audit);
-    window.__refresh?.(['tmk_products']);
+    refresh(['tmk_products']);
     toast('บันทึกสินค้าสำเร็จ', 'success');
     return true;
   } catch (err) {

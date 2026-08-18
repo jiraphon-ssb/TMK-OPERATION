@@ -15,10 +15,10 @@ import { RECEIPT_PAYMENTS } from './lib/saleFields.js';
 import { buildLineSku, lineDisplayName } from './components/ProductPicker.jsx';
 import { Button } from '@/components/ui/button';
 import { OrderForm, blankLine, lineAmount, sumLines } from './orderForm.jsx';
+import { toast } from './lib/appBus.js';
 
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const toast = (m, k) => window.__toast?.(m, k);
 const N = (n) => Number(n) || 0;
 
 export function ManualSaleSheet({ user, onClose, onSaved }) {

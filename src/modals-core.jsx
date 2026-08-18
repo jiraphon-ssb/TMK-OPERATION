@@ -10,9 +10,10 @@ import { logAudit } from './lib/audit.js';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import * as RDialog from '@radix-ui/react-dialog';
+import { toast as busToast, confirm, refresh, patchRows } from './lib/appBus.js';
 
 // Toast helper
-export const toast = (m, k = 'success', duration, action) => window.__toast?.(m, k, duration, action);
+export const toast = (m, k = 'success', duration, action) => busToast(m, k, duration, action);
 
 // แปลงเลข + กันค่าติดลบ + clamp เพดาน 1e12 (กันเลขมหาศาล 1e308 ทำลายกราฟ/ยอดรวม)
 export const nn = (v) => Math.max(0, Math.min(Number(v) || 0, 1e12));
@@ -22,8 +23,15 @@ export const money = (v) => Math.min(1e12, Math.max(0, Math.round((Number(v) || 
 export const bahtStr = (v) => '฿' + (Number(v) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // เตือนทิ้งข้อมูลก่อนปิด (ใช้ร่วมกับ Modal + ปุ่มยกเลิก ให้สม่ำเสมอ)
-export const DISCARD_MSG = 'ปิดหน้านี้? ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
-export const guardClose = (touched, onClose) => { if (touched && !window.confirm(DISCARD_MSG)) return; onClose(); };
+export const DISCARD_MSG = 'ข้อมูลที่ยังไม่ได้บันทึกจะหายไป';
+// ใช้ AlertDialog ของแอป (ConfirmHost ผ่าน appBus) แทน window.confirm ของเบราว์เซอร์
+// เดิม: กล่องเทาไม่มีธีม + ขึ้นชื่อโดเมนกำกับ (ดูเหมือนไม่ใช่ระบบเรา) + บล็อก event loop ทั้งเส้น
+export const confirmDiscard = () => confirm({
+  title: 'ปิดหน้านี้?', body: DISCARD_MSG, danger: true,
+  confirmText: 'ปิดโดยไม่บันทึก', cancelText: 'กลับไปแก้ต่อ',
+});
+// async — call site ทั้งหมดเรียกแบบ fire-and-forget (onClick) จึงไม่ต้องแก้ฝั่งเรียก
+export const guardClose = async (touched, onClose) => { if (touched && !(await confirmDiscard())) return; onClose(); };
 
 // ID ที่ไม่ชนกัน (กันกดบันทึกซ้ำ/หลายคนพร้อมกัน → ข้อมูลซ้ำหรือทับกัน)
 export const uid = (prefix) => prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -31,10 +39,13 @@ export const uid = (prefix) => prefix + Date.now().toString(36) + Math.random().
 // Generic save wrapper — ส่ง audit (optional) เพื่อบันทึกประวัติการใช้งานเมื่อสำเร็จ
 export async function saveRow(table, row, label = 'บันทึก', audit = null) {
   try {
-    const { error } = await supabase.from(table).upsert(row);
+    // .select() → ได้แถวที่ DB เขียนจริงกลับมา (รวม default/trigger ที่ฝั่ง client ไม่รู้)
+    const { data, error } = await supabase.from(table).upsert(row).select();
     if (error) throw error;
     if (audit) logAudit(audit);
-    window.__refresh?.([table]); // รีโหลดทันที (กันหน้าค้างถ้า realtime ช้า)
+    // เห็นผลทันทีโดยไม่รอ network รอบสอง — เดิมมีช่วง 200-400ms ที่ toast ขึ้น "สำเร็จ" แล้วแต่จอยังเป็นค่าเก่า
+    patchRows(table, data && data.length ? data : [row]);
+    refresh([table]); // ตามมา reconcile ลำดับแถว/derived view ให้ตรง query จริง (กันหน้าค้างถ้า realtime ช้าด้วย)
     toast(label + 'สำเร็จ', 'success');
     return true;
   } catch (err) {
@@ -46,7 +57,7 @@ export async function saveRow(table, row, label = 'บันทึก', audit = 
 
 // Generic soft-delete (ย้ายไปถังขยะ — กู้คืนได้) สำหรับโมดัลที่แก้ไขอยู่
 export async function deleteRow(table, id, label, audit = null) {
-  if (!await window.__confirm?.({ title: `ลบ${label}`, body: "จะย้ายไปถังขยะ (กู้คืนได้ภายหลัง)", danger: true, confirmText: "ลบ" })) return false;
+  if (!await confirm({ title: `ลบ${label}`, body: "จะย้ายไปถังขยะ (กู้คืนได้ภายหลัง)", danger: true, confirmText: "ลบ" })) return false;
   try {
     const { error } = await supabase.from(table).update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) {
@@ -54,14 +65,14 @@ export async function deleteRow(table, id, label, audit = null) {
       throw error;
     }
     if (audit) logAudit(audit);
-    window.__refresh?.([table]);
+    refresh([table]);
     toast(`ย้าย${label}ไปถังขยะแล้ว`, 'success', 6000, {
       label: 'เลิกทำ',
       onClick: async () => {
         try {
           const { error: e2 } = await supabase.from(table).update({ deleted_at: null }).eq('id', id);
           if (e2) throw e2;
-          window.__refresh?.([table]);
+          refresh([table]);
           toast(`กู้คืน${label}แล้ว`, 'success');
         } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
       },
@@ -76,13 +87,24 @@ export const MD = TMK;
 function useAnimatedClose(onClose, confirmOnClose, delay = 200) {
   const [open, setOpen] = useState(true);
   const closing = useRef(false);
-  const onOpenChange = (o) => {
-    if (o) return;
-    if (confirmOnClose && !window.confirm(DISCARD_MSG)) return;
+  const asking = useRef(false);
+  const doClose = () => {
     if (closing.current) return;
     closing.current = true;
     setOpen(false);
     setTimeout(() => onClose && onClose(), delay);
+  };
+  const onOpenChange = (o) => {
+    if (o) return;
+    if (closing.current) return;
+    // ยืนยันก่อนปิดแบบ async — คง open=true ไว้ก่อน (เราคุม open เอง) แล้วค่อยปิดเมื่อผู้ใช้ยืนยัน
+    if (confirmOnClose) {
+      if (asking.current) return;      // กันเปิดกล่องซ้อน (กด ESC/คลิกนอกรัวๆ)
+      asking.current = true;
+      confirmDiscard().then((ok) => { asking.current = false; if (ok) doClose(); });
+      return;
+    }
+    doClose();
   };
   return { open, onOpenChange };
 }

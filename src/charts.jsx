@@ -314,11 +314,12 @@ export function StackedBars({ labels, datasets, height = 230, fmt, ariaLabel = '
 export function ParetoChart({ items, valKey = 'sales', height = 230, fmt, ariaLabel = 'กราฟพาเรโต' }) {
   const it = items || [];
   const total = it.reduce((a, x) => a + (x[valKey] || 0), 0);
+  const chartData = [];
   let cum = 0;
-  const chartData = it.map(x => {
+  for (const x of it) {
     cum += (x[valKey] || 0);
-    return { key: x.key, value: x[valKey] || 0, cumPct: total ? Math.round(cum / total * 100) : 0 };
-  });
+    chartData.push({ key: x.key, value: x[valKey] || 0, cumPct: total ? Math.round(cum / total * 100) : 0 });
+  }
   const parFmt = { value: fmt || B, cumPct: v => `สะสม ${v}%` };
   return (
     <ChartContainer config={mkCfg([['value', 'ยอดขาย'], ['cumPct', 'สะสม %']])} className={CC_CLS} style={{ height }}>

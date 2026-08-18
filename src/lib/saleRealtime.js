@@ -20,7 +20,9 @@ const isOwnEcho = (table) => { const ts = _writeTs.get(String(table)); return ts
 
 export function useSaleRealtime(tables, onChange) {
   const cbRef = useRef(onChange);
-  cbRef.current = onChange;
+  // เก็บ callback ล่าสุดใส่ ref ใน effect (ห้ามเขียน ref ตอน render) — effect นี้ประกาศก่อน effect subscribe
+  // จึงรันก่อนเสมอ · ตัว fire() อ่าน cbRef.current ตอนถูกเรียก (ใน setTimeout) → ได้ callback ล่าสุดเหมือนเดิม
+  useEffect(() => { cbRef.current = onChange; });
   useEffect(() => {
     let timer = null, alive = true;
     const fire = () => { clearTimeout(timer); timer = setTimeout(() => { if (alive) cbRef.current?.(); }, 400); };

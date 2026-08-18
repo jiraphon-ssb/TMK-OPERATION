@@ -41,8 +41,8 @@ grant select, insert, update, delete on
   public.tmk_brands, public.tmk_flows
   to anon, authenticated;
 
-alter table public.tmk_brands disable row level security;
-alter table public.tmk_flows  disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_brands disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_flows  disable row level security;
 
 
 -- ========== 20260712-task-tags.sql ==========
@@ -159,7 +159,7 @@ create table if not exists public.tmk_task_comments (
 create index if not exists idx_task_comments_task on public.tmk_task_comments(task_id, created_at);
 
 grant select, insert, update, delete on public.tmk_task_comments to anon, authenticated;
-alter table public.tmk_task_comments disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_task_comments disable row level security;
 
 -- realtime (ให้คอมเมนต์โผล่สดข้ามอุปกรณ์) · idempotent
 do $$ begin
@@ -207,7 +207,7 @@ create table if not exists public.tmk_notifications (
 create index if not exists idx_notif_user on public.tmk_notifications(user_email, read, created_at desc);
 
 grant select, insert, update, delete on public.tmk_notifications to anon, authenticated;
-alter table public.tmk_notifications disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_notifications disable row level security;
 
 -- realtime (เด้งเตือนสดไม่ต้องรีเฟรช)
 do $$ begin

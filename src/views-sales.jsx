@@ -5,7 +5,7 @@
    ============================================================ */
 import { useState, useMemo, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, Skel, useBeat, CelebrationOverlay, SourceBadge } from './components.jsx';
+import { B, Bk, Bc, P, N, Icon, paceStatus, useCountUp, Ring, Bars, InfoTip, roasColor, acosColor, targetColor, CelebrationOverlay, SourceBadge } from './components.jsx';
 import { getToday, THAI_MONTHS, todayISO } from './lib/dateUtils.js';
 import { computeMonth, adCampaignInMonth, useData } from './dataContext.jsx';
 import { Card, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,28 +13,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell } from '@/components/ui/table';
 import { CardTable } from './components/DataTableParts.jsx';
+import { openModal, goSection } from './lib/appBus.js';
+import { chipVar } from './lib/salesViewsUi.js';
 
-const chipVar = (cls) => ({ 'chip-good': 'success', 'chip-warn': 'warning', 'chip-bad': 'danger', 'chip-accent': 'accent' }[cls] || 'secondary');
 const D = TMK;
 function getAdCampaigns() { return TMK.adCampaigns || []; }
 function getSegments() { return TMK.segments || []; }
 
-function SalesSkeleton() {
-  const bar = (i) => `${30 + ((i * 43) % 62)}%`;
-  return (
-    <div className="content-inner rise">
-      <div className="row" style={{ gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
-        {Array.from({ length: 4 }).map((_, i) => <Card key={i} className="p-[22px]" style={{ flex: '1 1 200px' }}><Skel w="55%" h={10} /><Skel w="72%" h={26} style={{ marginTop: 11 }} /><Skel w="45%" h={9} style={{ marginTop: 11 }} /></Card>)}
-      </div>
-      <Card className="p-[22px]" style={{ minHeight: 300 }}>
-        <Skel w={170} h={14} style={{ marginBottom: 20 }} />
-        <div className="row" style={{ alignItems: 'flex-end', gap: 7, height: 220 }}>
-          {Array.from({ length: 16 }).map((_, i) => <div key={i} style={{ flex: 1, display: 'flex', alignItems: 'flex-end', height: '100%' }}><Skel w="100%" h={bar(i)} r={4} /></div>)}
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 
 function SalesDateBar({ month, year, onPrev, onNext, onPick, goToday, isCurrentMonth }) {
@@ -170,10 +155,11 @@ export function SalesView({ sub }) {
   const dateProps = { month, year, onPrev: prev, onNext: next, onPick, goToday, isCurrentMonth };
   const { version } = useData() || {};
   // ข้อมูลของ "เดือนที่เลือก" — memo (คำนวณใหม่เมื่อเปลี่ยนเดือน/ปี หรือข้อมูลรีโหลด) กันคำนวณซ้ำทุก render
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- version = cache-bust จำเป็น: computeMonth อ่าน TMK singleton (linter มองไม่เห็น) ถ้าตัดออก ข้อมูลจะค้างหลังรีโหลด/realtime
   const md = useMemo(() => computeMonth(month, year), [month, year, version]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- เหตุผลเดียวกับ md: version บังคับคำนวณเดือนก่อนใหม่เมื่อข้อมูลเปลี่ยน
   const prevMd = useMemo(() => computeMonth(month === 0 ? 11 : month - 1, month === 0 ? year - 1 : year), [month, year, version]);
-  const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
-  if (beat) return <SalesSkeleton />;
+  // ข้อมูลอยู่ใน TMK singleton แล้ว = ไม่มีการโหลดจริง → render ทันที (เดิมมี skeleton หลอก 320-350ms)
 
   if (sub === 'channels') return <SalesChannels dateProps={dateProps} prevMonthName={prevMonthName} md={md} prevMd={prevMd} />;
   if (sub === 'ads') return <SalesAds dateProps={dateProps} prevMonthName={prevMonthName} md={md} />;
@@ -214,6 +200,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
   useEffect(() => {
     if (!targetHit) return;
     let done = false; try { done = localStorage.getItem(celebKey) === '1'; } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ฉลองครั้งเดียวต่อเดือน: ต้องอ่าน/เขียน localStorage (external system) ก่อนตัดสินใจ → derive ตอน render ไม่ได้
     if (!done) { try { localStorage.setItem(celebKey, '1'); } catch { /* ignore */ } setCelebrate(true); }
   }, [targetHit, celebKey]);
   const st = paceStatus(C.PACE_PCT);
@@ -240,7 +227,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
       alerts.push({ c: 'var(--warn)', t: `ยอดช้ากว่าแผน (${P(C.PACE_PCT, 0)})`, d: `ต้องทำวันละ ${B(perDay)} · เหลือ ${consts.DAYS - consts.DAY} วัน` });
     }
     const _td = getToday();
-    if (!(md.dailyMonth || []).some(dd => dd.d === _td.day)) alerts.push({ c: 'var(--accent)', t: 'ยังไม่กรอกยอดขายวันนี้', d: '', act: () => window.__openModal && window.__openModal('record', { date: todayISO() }) });
+    if (!(md.dailyMonth || []).some(dd => dd.d === _td.day)) alerts.push({ c: 'var(--accent)', t: 'ยังไม่กรอกยอดขายวันนี้', d: '', act: () => openModal('record', { date: todayISO() }) });
   }
   return (
     <div className="content-inner rise">
@@ -287,7 +274,7 @@ function SalesOverview({ dateProps, prevMonthName, md, prevMd }) {
                 <div className="cap">{x[0]}</div>
                 <div className="num h3" style={{ color: x[2] || 'var(--ink)' }}>{x[1]}</div>
                 {/* YoY ยังไม่มีปีก่อน → ลิงก์กรอกย้อนหลัง (แทน "—" ตายๆ) */}
-                {x[3] && <button type="button" onClick={() => window.__openModal?.('historical')} className="cap" style={{ background: 'none', border: 'none', padding: 0, marginTop: 1, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} title="กรอกยอดปีก่อนเพื่อเทียบ YoY">＋ กรอกปีก่อน</button>}
+                {x[3] && <button type="button" onClick={() => openModal('historical')} className="cap" style={{ background: 'none', border: 'none', padding: 0, marginTop: 1, color: 'var(--accent)', cursor: 'pointer', font: 'inherit' }} title="กรอกยอดปีก่อนเพื่อเทียบ YoY">＋ กรอกปีก่อน</button>}
               </div>
             ))}
           </div>
@@ -446,7 +433,7 @@ function YoYChart({ data: dataProp, year }) {
     return (
       <div style={{ height: 150, display: 'grid', placeItems: 'center', alignContent: 'center', gap: 10, color: 'var(--ink-4)' }} className="cap">
         <span>ยังไม่มีข้อมูลเปรียบเทียบรายปี</span>
-        <Button variant="outline" size="sm" onClick={() => window.__openModal && window.__openModal('historical')}>+ เพิ่มข้อมูลปีก่อน (กรอกย้อนหลัง)</Button>
+        <Button variant="outline" size="sm" onClick={() => openModal('historical')}>+ เพิ่มข้อมูลปีก่อน (กรอกย้อนหลัง)</Button>
       </div>
     );
   }
@@ -630,7 +617,7 @@ function SalesAds({ dateProps, md }) {
           <div>
             <div className="cap">{'งบทั้งหมด'}</div>
             <div className="num h1">{totalBudget > 0 ? Bk(totalBudget) : '— ยังไม่ตั้งงบ'}</div>
-            {totalBudget <= 0 && <button type="button" className="cap" onClick={() => window.__goSection?.('sales', 'monthly')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', font: 'inherit' }}>ตั้งงบต่อช่อง →</button>}
+            {totalBudget <= 0 && <button type="button" className="cap" onClick={() => goSection('sales', 'monthly')} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', font: 'inherit' }}>ตั้งงบต่อช่อง →</button>}
           </div>
           <div>
             <div className="cap">{'ใช้ไปแล้ว'}</div>
@@ -790,7 +777,7 @@ function SalesAds({ dateProps, md }) {
         {getAdCampaigns().filter(c => adCampaignInMonth(c, dateProps.month, dateProps.year)).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '14px 0' }}>
             <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีแคมเปญแอดในเดือนนี้</div>
-            <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="plus" /> สร้างแคมเปญแอด</Button>
+            <Button variant="outline" size="sm" onClick={() => goSection('sales', 'monthly')}><Icon name="plus" /> สร้างแคมเปญแอด</Button>
           </div>
         ) : (
         <CardTable><Table>
@@ -946,7 +933,7 @@ function SalesCustomers({ dateProps, md }) {
           if (!wk.length) return (
             <div style={{ textAlign: 'center', padding: 30 }}>
               <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีข้อมูลลูกค้ารายสัปดาห์</div>
-              <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="pencil" /> กรอกลูกค้าใหม่/เก่า</Button>
+              <Button variant="outline" size="sm" onClick={() => goSection('sales', 'monthly')}><Icon name="pencil" /> กรอกลูกค้าใหม่/เก่า</Button>
             </div>
           );
           const rets = wk.map(w => w.returningPct);
@@ -1027,7 +1014,7 @@ function SalesCustomers({ dateProps, md }) {
         {getSegments().length === 0 ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div className="cap" style={{ color: 'var(--ink-4)', marginBottom: 8 }}>ยังไม่มีกลุ่มลูกค้า</div>
-            <Button variant="outline" size="sm" onClick={() => window.__goSection?.('sales', 'monthly')}><Icon name="users" /> ตั้งกลุ่มลูกค้า</Button>
+            <Button variant="outline" size="sm" onClick={() => goSection('sales', 'monthly')}><Icon name="users" /> ตั้งกลุ่มลูกค้า</Button>
           </div>
         ) : (
           <div className="grid g4">

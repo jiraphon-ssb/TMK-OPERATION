@@ -26,6 +26,7 @@ export default function PdfViewer({ url }) {
     let cancel = false;
     const wrap = wrapRef.current;
     if (wrap) wrap.innerHTML = '';
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- รีเซ็ตเป็น loading เมื่อ url เปลี่ยน ก่อน fetch+render async ในบล็อกเดียวกัน (คู่กับ setState('done'/'error') หลัง await)
     setState('loading');
     (async () => {
       try {

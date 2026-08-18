@@ -32,11 +32,16 @@ Deno.serve(async (req) => {
     );
     const { data: { user } } = await sb.auth.getUser();
     if (!user) return json({ error: 'unauthorized' }, 401);
-    // เช็ค role admin/editor (graceful — ถ้าตารางไม่มีก็ปล่อยผ่าน เหมือน ai-extract)
+    // เช็ค role admin/editor — fail-CLOSED: ไม่มี role / เกิด error = ปฏิเสธ (เหมือน ai-extract)
+    // (broadcast LINE ออกกลุ่มลูกค้าจริง — ต้องกันคนที่ไม่มีสิทธิ์เด็ดขาด ไม่ปล่อยผ่าน)
+    let role: { role?: string } | null = null;
     try {
-      const { data: role } = await sb.from('tmk_user_roles').select('role').eq('email', user.email).maybeSingle();
-      if (role && !['admin', 'editor'].includes(role.role)) return json({ error: 'สิทธิ์ไม่พอ (เฉพาะแอดมิน/ผู้แก้ไข)' }, 403);
-    } catch { /* ไม่มีตาราง role → ปล่อยผ่าน */ }
+      const res = await sb.from('tmk_user_roles').select('role').eq('email', user.email).is('deleted_at', null).maybeSingle();
+      role = res.data;
+    } catch { role = null; }
+    if (!role || !['admin', 'editor'].includes(role.role ?? '')) {
+      return json({ error: 'สิทธิ์ไม่พอ (เฉพาะแอดมิน/ผู้แก้ไข)' }, 403);
+    }
 
     const { message, to } = await req.json();
     if (!message || !String(message).trim()) return json({ error: 'ข้อความว่าง' }, 400);

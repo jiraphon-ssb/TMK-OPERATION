@@ -53,4 +53,4 @@ end $$;
 create index if not exists idx_targets_month on public.tmk_targets(month);
 
 grant select, insert, update, delete on public.tmk_targets to anon, authenticated;
-alter table public.tmk_targets disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_targets disable row level security;

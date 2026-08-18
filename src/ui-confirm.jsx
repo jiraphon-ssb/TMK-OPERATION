@@ -4,6 +4,7 @@
    - graceful: ถ้ายังไม่ mount โค้ดเก่า fallback ไป confirm() ปกติ
    ============================================================ */
 import { useState, useRef, useEffect } from 'react';
+import { registerServices } from './lib/appBus.js';
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -14,8 +15,8 @@ export function ConfirmHost() {
   const resolver = useRef(null);
 
   useEffect(() => {
-    window.__confirm = (o = {}) => new Promise((resolve) => { resolver.current = resolve; setOpts(o); });
-    return () => { if (window.__confirm) delete window.__confirm; };
+    registerServices({ confirm: (o = {}) => new Promise((resolve) => { resolver.current = resolve; setOpts(o); }) });
+    return () => registerServices({ confirm: undefined });
   }, []);
 
   const close = (val) => { setOpts(null); const r = resolver.current; resolver.current = null; r?.(val); };

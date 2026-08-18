@@ -17,7 +17,7 @@ create table if not exists public.tmk_notifications (
 create index if not exists idx_notif_user on public.tmk_notifications(user_email, read, created_at desc);
 
 grant select, insert, update, delete on public.tmk_notifications to anon, authenticated;
-alter table public.tmk_notifications disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_notifications disable row level security;
 
 -- realtime (เด้งเตือนสดไม่ต้องรีเฟรช)
 do $$ begin

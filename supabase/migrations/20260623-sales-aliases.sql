@@ -11,4 +11,4 @@ create table if not exists public.tmk_sales_aliases (
   updated_at   timestamptz default now()
 );
 grant select, insert, update, delete on public.tmk_sales_aliases to anon, authenticated;
-alter table public.tmk_sales_aliases disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sales_aliases disable row level security;

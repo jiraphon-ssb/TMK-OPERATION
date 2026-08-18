@@ -18,6 +18,7 @@ import { voidReceipt, restoreReceipt, uploadReceiptFile, canEditReceipt } from '
 import { PAYMENT_TYPES } from './lib/saleFields.js';
 import { logAudit, diffFields } from './lib/audit.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { toast, confirm, userName, userEmail, isAdmin, canEdit as appCanEdit } from './lib/appBus.js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DrawerField, DrawerGroup, MoneyCard, ReceiptPdfModal, _pageList } from './saleWidgets.jsx';
@@ -53,6 +54,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   // B2 กันส่วนลด/ค่าส่ง/VAT หาย: ถ้ากด "แก้ไข" ก่อน attrs โหลดเสร็จ (ช่องเงินยังว่าง) — พอ attrs มา เติมช่องที่ยังว่างให้
   useEffect(() => {
     if (fin == null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- เติมช่องเงินจาก attrs ที่โหลด async มาทีหลัง (เฉพาะช่องที่ยังว่าง · ไม่ทับที่ผู้ใช้พิมพ์) — รื้อเป็น derive ตอน render เสี่ยงส่วนลด/ค่าส่ง/VAT เพี้ยน
     setEdit(prev => {
       if (!prev) return prev;
       let changed = false; const next = { ...prev };
@@ -68,6 +70,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   const [pdfOpen, setPdfOpen] = useState(false);          // popup ฝัง PDF ใบเสร็จ
   const attachRef = useRef(null);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- รีเซ็ตสถานะโหลดใบเสร็จเมื่อสลับออเดอร์ (undefined=โหลด → null=ไม่มี) ก่อน fetch async ในบล็อกเดียวกัน
     if (!isReceipt) { setRec(null); return; }
     let cancel = false;
     (async () => {
@@ -80,7 +83,6 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
     return () => { cancel = true; };
   }, [o.order_no, isReceipt]);
   const ovId = `${o.source || ''}:${o.order_no}`;
-  const toast = (m, t) => window.__toast && window.__toast(m, t);
   // แนบ/เปลี่ยนไฟล์ใบเสร็จจากหน้าออเดอร์ (เหมือนหน้าส่งยอด) — อัปเดต file_url ที่ tmk_sale_receipts
   const attachReceiptToOrder = async (file) => {
     if (!file || !rec) return;
@@ -121,7 +123,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   // บันทึก: อัปเดตตรงที่ tmk_mp_orders (มีผลทุกรายงานทันที) + override field ที่รองรับ (ประกันข้าม reimport)
   // + ใบเสร็จ: sync แถว tmk_sale_receipts ให้ feed ส่งยอดตรงกัน
   const saveOrder = async () => {
-    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!appCanEdit()) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
     setBusy(true);
     try {
       const now = new Date().toISOString();
@@ -284,11 +286,11 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   };
   // ยกเลิกออเดอร์ — ใบเสร็จ: void ผ่านระบบใบเสร็จ (ยอดหาย+ส่งใหม่ได้) · มาร์เก็ตเพลส: mark cancelled
   const cancelOrder = async () => {
-    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
-    if (!await window.__confirm?.({ title: 'ยกเลิกออเดอร์', body: `ยกเลิก ${o.order_no}?\nยอดจะถูกตัดออกจากรายงานทันที${isReceipt ? ' (ส่งใบเสร็จซ้ำได้)' : ''}`, danger: true, confirmText: 'ยกเลิกออเดอร์' })) return;
+    if (!appCanEdit()) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await confirm({ title: 'ยกเลิกออเดอร์', body: `ยกเลิก ${o.order_no}?\nยอดจะถูกตัดออกจากรายงานทันที${isReceipt ? ' (ส่งใบเสร็จซ้ำได้)' : ''}`, danger: true, confirmText: 'ยกเลิกออเดอร์' })) return;
     setBusy(true);
     try {
-      if (isReceipt) await voidReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '', reason: 'ยกเลิกจากหน้าออเดอร์' });
+      if (isReceipt) await voidReceipt({ order_no: o.order_no }, { by: userName() || userEmail() || '', reason: 'ยกเลิกจากหน้าออเดอร์' });
       else {
         // Phase 3.2 (OCC §9): guard ด้วย row_version — คนอื่นแก้ออเดอร์นี้ก่อน = conflict (ไม่ทับสถานะเงียบ)
         const match = { order_no: o.order_no, source: o.source || '' };
@@ -310,11 +312,11 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   };
   // นำกลับมา — ใบเสร็จ: un-void + สร้าง sku คืนจาก payload · มาร์เก็ตเพลส: mark active
   const restoreOrder = async () => {
-    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
-    if (!await window.__confirm?.({ title: 'นำออเดอร์กลับมา', body: `นำ ${o.order_no} กลับมาใช้งาน?\nยอดจะกลับเข้ารายงานทันที`, confirmText: 'นำกลับมา' })) return;
+    if (!appCanEdit()) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await confirm({ title: 'นำออเดอร์กลับมา', body: `นำ ${o.order_no} กลับมาใช้งาน?\nยอดจะกลับเข้ารายงานทันที`, confirmText: 'นำกลับมา' })) return;
     setBusy(true);
     try {
-      if (isReceipt) await restoreReceipt({ order_no: o.order_no }, { by: window.__userName || window.__userEmail || '' });
+      if (isReceipt) await restoreReceipt({ order_no: o.order_no }, { by: userName() || userEmail() || '' });
       else {
         // Phase 3.2 (OCC §9): guard ด้วย row_version
         const match = { order_no: o.order_no, source: o.source || '' };
@@ -336,8 +338,8 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
   };
   // ลบถาวร — เอาออกทุกตาราง (ออเดอร์ + รายการสินค้า + override + ใบเสร็จ) ย้อนกลับไม่ได้
   const deleteOrder = async () => {
-    if (window.__canEdit === false) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
-    if (!await window.__confirm?.({ title: 'ลบออเดอร์ถาวร', body: `ลบ ${o.order_no} ออกจากระบบถาวร?\nรายการสินค้า${isReceipt ? ' + ใบเสร็จ' : ''} จะถูกลบด้วย — ย้อนกลับไม่ได้`, danger: true, confirmText: 'ลบถาวร' })) return;
+    if (!appCanEdit()) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
+    if (!await confirm({ title: 'ลบออเดอร์ถาวร', body: `ลบ ${o.order_no} ออกจากระบบถาวร?\nรายการสินค้า${isReceipt ? ' + ใบเสร็จ' : ''} จะถูกลบด้วย — ย้อนกลับไม่ได้`, danger: true, confirmText: 'ลบถาวร' })) return;
     setBusy(true);
     try {
       await supabase.from('tmk_mp_skus').delete().eq('source', o.source || '').eq('order_no', o.order_no);
@@ -444,7 +446,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
             <b style={{ color: rec.file_url ? 'var(--good)' : 'var(--ink-4)' }}>{rec.file_url ? 'แนบแล้ว' : 'ยังไม่แนบ'}</b>
           </span>
           {rec.file_url && <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setPdfOpen(true)}><Icon name="external" className="size-3.5" /> เปิดไฟล์</Button>}
-          {rec.status !== 'void' && canEditReceipt(rec, { email: window.__userEmail, isAdmin: window.__isAdmin === true }) && (
+          {rec.status !== 'void' && canEditReceipt(rec, { email: userEmail(), isAdmin: isAdmin() }) && (
             <>
               <input ref={attachRef} type="file" accept="application/pdf" hidden onChange={e => { attachReceiptToOrder(e.target.files?.[0]); e.target.value = ''; }} />
               <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={attaching} onClick={() => attachRef.current?.click()}>
@@ -454,7 +456,7 @@ export function OrderDrawer({ order: o, sk, buildDesigns, sellerOptions = [], on
           )}
         </>)}
         <span className="ml-auto flex items-center gap-1.5 flex-wrap">
-          {!isCancelled && window.__canEdit !== false && <Button size="sm" className="h-8 gap-1.5" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>}
+          {!isCancelled && appCanEdit() && <Button size="sm" className="h-8 gap-1.5" onClick={startEdit} disabled={busy}><Icon name="pencil" /> แก้ไข</Button>}
           {isCancelled
             ? <Button variant="outline" size="sm" className="h-8 gap-1.5" style={{ color: 'var(--good)' }} onClick={restoreOrder} disabled={busy}><Icon name="refresh" /> นำกลับมา</Button>
             : <Button variant="ghost" size="sm" className="h-8 gap-1.5" style={{ color: 'var(--warn)' }} onClick={cancelOrder} disabled={busy}>ยกเลิก</Button>}

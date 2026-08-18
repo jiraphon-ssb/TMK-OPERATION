@@ -5,17 +5,18 @@
    ============================================================ */
 import React from 'react';
 import { TMK } from './data.js';
-import { Icon } from './components.jsx';
+import { Icon, Skel } from './components.jsx';
 import { Modal } from './modals-core.jsx';
 import { CUSTOMER_TYPES } from './lib/saleFields.js';
 import { csvEsc } from './lib/csv.js';
+import { canEdit, isAdmin, toast } from './lib/appBus.js';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from '@/components/ui/command';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { th } from 'date-fns/locale';
+export { MultiSelect } from './components/MultiSelect.jsx'; // แหล่งเดียวของทั้งแอป (เดิมมีสำเนา 6 ชุด)
 
 export const DD = TMK;
 
@@ -23,8 +24,8 @@ export const DD = TMK;
 export const onCardKey = (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); e.currentTarget.click(); } }; // เฉพาะตอนโฟกัสที่การ์ดเอง ไม่ใช่ control ลูก (select/ปุ่ม) → กัน Space/Enter ของ select เด้งเปิด modal
 
 // guard สิทธิ์ (ฝั่ง client) — กัน viewer แก้ผ่านหน้าตั้งค่า + จัดการผู้ใช้/สิทธิ์เฉพาะ admin
-export const guardEdit = () => { if (!window.__canEdit) { window.__toast?.('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
-export const guardAdmin = () => { if (!window.__isAdmin) { window.__toast?.('เฉพาะแอดมินจัดการผู้ใช้และสิทธิ์ได้', 'warn'); return false; } return true; };
+export const guardEdit = () => { if (!canEdit()) { toast('สิทธิ์ "ดูอย่างเดียว" — แก้ไขไม่ได้ (ติดต่อแอดมิน)', 'warn'); return false; } return true; };
+export const guardAdmin = () => { if (!isAdmin()) { toast('เฉพาะแอดมินจัดการผู้ใช้และสิทธิ์ได้', 'warn'); return false; } return true; };
 
 /* ---- FormSection — กล่องส่วนฟอร์ม (หัวไอคอน + กรอบอ่อน) — มาตรฐานเดียวทั้ง 3 ฟอร์มขาย (PART 81.5)
    เดิมอยู่ใน ManualSaleSheet ไฟล์เดียว → ยกมากลางให้ ตรวจก่อนบันทึก + แก้ออเดอร์ ใช้ร่วม ---- */
@@ -53,25 +54,28 @@ export function Field({ label, children, className = '' }) {
 /* ---- PriceBreakdown — แยก "ราคาเสื้อ / ส่วนลด / ค่าส่ง / VAT → ยอดขาย" (PART 81.6) ----
    ใช้ร่วมทุก popup: ใบเสร็จ + ออเดอร์ + ตรวจก่อนบันทึก · โชว์เฉพาะเมื่อมี break จริง (ไม่งั้นซ่อน) */
 const _fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+// แถวเดียวใน PriceBreakdown — ประกาศระดับโมดูล (เดิมนิยามในตัว component → remount ทุก render)
+function PbRow({ label, val, sign = '', strong }) {
+  return (
+    <div className="flex items-center justify-between text-[13px]">
+      <span className={strong ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
+      <span className={'tabular-nums ' + (strong ? 'font-bold' : 'text-muted-foreground')}>{sign}{_fmtB(val)}</span>
+    </div>
+  );
+}
 export function PriceBreakdown({ subtotal, discount, shipping, vat, total, className = '' }) {
   const d = Number(discount) || 0, s = Number(shipping) || 0, v = Number(vat) || 0;
   const tot = Number(total) || 0;
   const sub = subtotal != null && subtotal !== '' ? Number(subtotal) : null;
   const hasBreak = d || s || v || (sub != null && Math.abs(sub - tot) > 0.01);
   if (!hasBreak) return null;
-  const Row = ({ label, val, sign = '', strong }) => (
-    <div className="flex items-center justify-between text-[13px]">
-      <span className={strong ? 'font-semibold' : 'text-muted-foreground'}>{label}</span>
-      <span className={'tabular-nums ' + (strong ? 'font-bold' : 'text-muted-foreground')}>{sign}{_fmtB(val)}</span>
-    </div>
-  );
   return (
     <div className={'rounded-lg border p-2.5 flex flex-col gap-1 ' + className} style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
-      {sub != null && <Row label="ราคาเสื้อ" val={sub} />}
-      {d ? <Row label="ส่วนลด" val={d} sign="−" /> : null}
-      {s ? <Row label="ค่าส่ง" val={s} sign="+" /> : null}
-      {v ? <Row label="VAT" val={v} sign="+" /> : null}
-      <div className="mt-0.5 border-t pt-1" style={{ borderColor: 'var(--line)' }}><Row label="ยอดขาย" val={tot} strong /></div>
+      {sub != null && <PbRow label="ราคาเสื้อ" val={sub} />}
+      {d ? <PbRow label="ส่วนลด" val={d} sign="−" /> : null}
+      {s ? <PbRow label="ค่าส่ง" val={s} sign="+" /> : null}
+      {v ? <PbRow label="VAT" val={v} sign="+" /> : null}
+      <div className="mt-0.5 border-t pt-1" style={{ borderColor: 'var(--line)' }}><PbRow label="ยอดขาย" val={tot} strong /></div>
     </div>
   );
 }
@@ -110,7 +114,7 @@ export function ReceiptPdfModal({ url, title = 'ไฟล์ใบเสร็�
     <Modal xl icon="external" title={title} sub="ดูไฟล์ใบเสร็จ (PDF)" onClose={onClose}
       footer={<><Button asChild variant="outline" size="sm"><a href={url} target="_blank" rel="noreferrer"><Icon name="external" /> เปิดแท็บใหม่</a></Button><Button size="sm" onClick={onClose}>ปิด</Button></>}>
       <div className="overflow-y-auto rounded-lg border p-2" style={{ maxHeight: '74vh', borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
-        <React.Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">กำลังโหลด…</div>}>
+        <React.Suspense fallback={<Skel w="100%" h={420} r={8} />}>
           <PdfViewer url={url} />
         </React.Suspense>
       </div>
@@ -292,35 +296,6 @@ export const _fmtRange = (from, to) => {
   return `${_fmtTh(from)} – ${_fmtTh(to)}`;
 };
 
-// ---------- multiselect dropdown (checkbox) — แบบเดียวกับหน้ารายงานขาย ----------
-export function MultiSelect({ label, options, value, onChange }) {
-  const toggle = (v) => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
-  const n = value.length;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className={'rounded-full font-medium' + (n ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
-          {label}
-          {n > 0 && <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[11px]">{n}</Badge>}
-          <Icon name="down" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-auto">
-        <DropdownMenuLabel className="flex items-center justify-between py-1">
-          <span>{label}</span>
-          {n > 0 && <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={(e) => { e.preventDefault(); onChange([]); }}>ล้าง</button>}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {options.length === 0 && <div className="px-2 py-2 text-[13px] text-[var(--ink-4)]">ไม่มีข้อมูล</div>}
-        {options.map(o => (
-          <DropdownMenuCheckboxItem key={o} checked={value.includes(o)} onSelect={(e) => { e.preventDefault(); toggle(o); }}>
-            <span className="min-w-0 flex-1 truncate">{o || '(ไม่ระบุ)'}</span>
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 export function DrawerField({ label, children, full }) {
   return <div style={full ? { gridColumn: '1 / -1' } : undefined}><span className="cap">{label}</span><b>{children}</b></div>;

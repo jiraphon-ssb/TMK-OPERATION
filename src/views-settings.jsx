@@ -1,18 +1,18 @@
-import { Icon, PageSkeleton, useBeat } from './components.jsx';
-import { WhatsNewPage } from './WhatsNew.jsx';
+import { Icon } from './components.jsx';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CampaignsView, TargetsView, GeneralSettings, BrandsView, ChannelsView, DutiesView, RolesView, TrashView } from './views-settings-tabs.jsx';
+import { HealthHub } from './views-health.jsx'; // PART 102: "คุณภาพข้อมูล" ย้ายมาจากหน้า Data Hub (ที่ลบไปแล้ว)
+import { isAdmin, canEdit, goSection } from './lib/appBus.js';
 /* ====================  SETTINGS (replaces System)  ==================== */
 // wrapper บางๆ (hook เดียว) → โชว์ skeleton ตอนเข้า/สลับแท็บ โดยไม่ชน hook-order ของ body
 export function SettingsView(props) {
   // skeleton ครั้งเดียวตอนเข้า (ไม่ remount ตอนสลับแท็บ → ฟอร์มไม่รีเซ็ต)
-  const beat = useBeat();
-  if (beat) return <PageSkeleton />;
+  // ข้อมูลอยู่ใน TMK singleton แล้ว = ไม่มีการโหลดจริง → render ทันที (เดิมมี skeleton หลอก 320-350ms)
   return <SettingsBody {...props} />;
 }
 function SettingsBody({ sub, dark, setDark }) {
-  const _isAdmin = window.__isAdmin === true;
-  const _canEdit = window.__canEdit !== false;
+  const _isAdmin = isAdmin();
+  const _canEdit = canEdit();
   const TABS = [
     { id: 'general', label: 'ทั่วไป', icon: 'system' },
     { id: 'channels', label: 'ช่องทาง', icon: 'layers' },
@@ -22,12 +22,13 @@ function SettingsBody({ sub, dark, setDark }) {
     { id: 'targets', label: 'เป้า & คอม', icon: 'target' },
     { id: 'roles', label: 'สิทธิ์ผู้ใช้', icon: 'users' },
     // 'audit' (ประวัติการใช้งาน) รวมเข้า section "บันทึกกิจกรรม" (LogView · admin-only · PART 54) แล้ว
+    { id: 'quality', label: 'คุณภาพข้อมูล', icon: 'search' }, // PART 102: ย้ายมาจากหน้า "ส่งยอด & ข้อมูล" (ลบแล้ว)
     { id: 'trash', label: 'ถังขยะ', icon: 'trash' },
-    { id: 'updates', label: 'มีอะไรใหม่', icon: 'sparkle' },
-  ].filter(t => (t.id === 'roles' ? _isAdmin : (t.id === 'trash' || t.id === 'targets') ? _canEdit : true)); // สิทธิ์ผู้ใช้=admin, ถังขยะ/เป้า=ผู้แก้ไขขึ้นไป
+    // 'updates' (มีอะไรใหม่) แยกเป็น section 'whatsnew' ของตัวเองแล้ว (ทุกคนเข้าได้ · PART 101)
+  ].filter(t => (t.id === 'roles' ? _isAdmin : (t.id === 'trash' || t.id === 'targets' || t.id === 'quality') ? _canEdit : true)); // สิทธิ์ผู้ใช้=admin, ถังขยะ/เป้า/คุณภาพข้อมูล=ผู้แก้ไขขึ้นไป
   // ใช้ sub prop โดยตรง — ถ้า sub ไม่ถูกต้อง fallback เป็น 'general' (กันหน้าว่าง)
   const active = TABS.some(t => t.id === sub) ? sub : 'general';
-  const setActive = (id) => window.__goSection?.('settings', id);
+  const setActive = (id) => goSection('settings', id);
 
   return (
     <div className="p-4 md:p-8 max-w-[1200px] mx-auto w-full rise">
@@ -75,11 +76,11 @@ function SettingsBody({ sub, dark, setDark }) {
         <TabsContent value="roles" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           {_isAdmin && <RolesView />}
         </TabsContent>
+        <TabsContent value="quality" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+          {_canEdit && <HealthHub />}
+        </TabsContent>
         <TabsContent value="trash" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
           {_canEdit && <TrashView />}
-        </TabsContent>
-        <TabsContent value="updates" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
-          <WhatsNewPage />
         </TabsContent>
         </div>
       </Tabs>

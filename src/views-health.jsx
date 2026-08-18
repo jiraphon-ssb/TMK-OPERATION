@@ -10,12 +10,14 @@ import { supabase } from './lib/supabaseClient.js';
 import { clearSaleCache } from './lib/saleData.js';
 import { useSaleRealtime } from './lib/saleRealtime.js';
 import { logAudit } from './lib/audit.js';
+import { toast } from './lib/appBus.js';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { SearchInput } from '@/components/ui/search-input';
+import { EmptyState } from './components/EmptyState.jsx';
 
 async function fetchAllRows(table, select, { eq, order, asc = true, pageSize = 1000 } = {}) {
   const out = []; let from = 0;
@@ -50,7 +52,7 @@ const HealthStat = ({ label, value, tone }) => (
 );
 
 // Combobox เลือกชื่อลายมาตรฐาน (shadcn Popover + Command/cmdk) — เลื่อนได้แม้อยู่ใน SideSheet
-export function HealthHub() { // แท็บ "คุณภาพข้อมูล" ใน SaleDataHub (views-sale-submit.jsx) — การ์ดนำเข้าแยกไปแท็บของตัวเองแล้ว
+export function HealthHub() { // แท็บ "คุณภาพข้อมูล" ในหน้าตั้งค่า (PART 102 · ย้ายมาจากหน้า Data Hub ที่ลบแล้ว)
   const [skus, setSkus] = useState(null);
   const [aliases, setAliases] = useState([]);
   const [noTable, setNoTable] = useState(false);
@@ -71,6 +73,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     if (a.error) { setNoTable(true); setAliases([]); } else { setNoTable(false); setAliases(a.data || []); }
     return s.data;
   };
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดข้อมูล async ตอน mount (load() เป็น async · setState เกิดหลัง await) = pattern ปกติ
   useEffect(() => { load(); }, []);
   useSaleRealtime(['tmk_mp_skus', 'tmk_mp_aliases'], load); // นำเข้า/จับคู่ใหม่ที่ไหน คุณภาพข้อมูลเห็นสด
 
@@ -97,27 +100,27 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     const row = { id, kind: form.kind, term, code: (form.code || '').trim(), design: (form.design || '').trim(), updated_at: new Date().toISOString() };
     const { error } = await supabase.from('tmk_mp_aliases').upsert(row, { onConflict: 'id' });
     setBusy(false);
-    if (error) { window.__toast && window.__toast(noTable ? 'ต้องรัน migration tmk_mp_aliases ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
+    if (error) { toast(noTable ? 'ต้องรัน migration tmk_mp_aliases ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error'); return; }
     logAudit({ action: 'create', entityType: 'product', entityName: 'alias', summary: `ตั้ง alias ${form.kind} "${term}"${row.code ? ' → ' + row.code : ''}` });
     setForm(null); const fresh = await load();
     // auto-scan ให้เห็นผลกับออเดอร์เก่าทันที (ไม่ต้องกด "ตรวจการจับคู่ใหม่" เอง · ไม่ต้องรอรอบนำเข้าถัดไป)
     const M = buildMatchers(GOLDEN_CATALOG_GRID, [row, ...aliases.filter(a => a.id !== row.id)]);
     const plan = planRematch(fresh || [], M);
-    if (plan.changes.length) { setRematch(plan); window.__toast && window.__toast(`ตั้ง alias แล้ว — พบ ${plan.changes.length} กลุ่มที่อัปเดตได้ กด "ใช้การจับคู่ใหม่" เพื่อแก้ออเดอร์เก่า`, 'success'); }
-    else window.__toast && window.__toast('ตั้ง alias แล้ว (ยังไม่พบแถวเก่าที่ตรง)', 'success');
+    if (plan.changes.length) { setRematch(plan); toast(`ตั้ง alias แล้ว — พบ ${plan.changes.length} กลุ่มที่อัปเดตได้ กด "ใช้การจับคู่ใหม่" เพื่อแก้ออเดอร์เก่า`, 'success'); }
+    else toast('ตั้ง alias แล้ว (ยังไม่พบแถวเก่าที่ตรง)', 'success');
   };
   const delAlias = async (a) => {
     const { error } = await supabase.from('tmk_mp_aliases').delete().eq('id', a.id);
-    if (error) { window.__toast && window.__toast('ลบไม่สำเร็จ', 'error'); return; }
+    if (error) { toast('ลบไม่สำเร็จ', 'error'); return; }
     load();
     // เลิกทำ = เขียน alias กลับ (มีข้อมูลแถวครบ)
     const undo = async () => {
       const { id, kind, term, code, design } = a;
       const { error: e2 } = await supabase.from('tmk_mp_aliases').upsert({ id, kind, term, code: code || '', design: design || '', updated_at: new Date().toISOString() }, { onConflict: 'id' });
-      window.__toast && window.__toast(e2 ? 'กู้คืนไม่สำเร็จ' : 'กู้คืน alias แล้ว', e2 ? 'error' : 'success');
+      toast(e2 ? 'กู้คืนไม่สำเร็จ' : 'กู้คืน alias แล้ว', e2 ? 'error' : 'success');
       load();
     };
-    window.__toast && window.__toast(`ลบ alias "${a.term}" แล้ว`, 'success', 6000, { label: 'เลิกทำ', onClick: undo });
+    toast(`ลบ alias "${a.term}" แล้ว`, 'success', 6000, { label: 'เลิกทำ', onClick: undo });
   };
 
   // 2C — จับคู่ลายใหม่บนข้อมูลเดิม (ไม่ต้อง reimport): รัน buildMatchers ตาม alias/แคตตาล็อกปัจจุบัน
@@ -125,7 +128,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     const M = buildMatchers(GOLDEN_CATALOG_GRID, aliases);
     const plan = planRematch(skus || [], M);
     setRematch(plan);
-    if (!plan.changes.length) window.__toast && window.__toast('ข้อมูลจับคู่เป็นปัจจุบันแล้ว — ไม่มีอะไรต้องอัปเดต', 'success');
+    if (!plan.changes.length) toast('ข้อมูลจับคู่เป็นปัจจุบันแล้ว — ไม่มีอะไรต้องอัปเดต', 'success');
   };
   const applyRematch = async () => {
     if (!rematch || !rematch.changes.length) return;
@@ -153,7 +156,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
     const total = rematch.filled + rematch.fixed;
     logAudit({ action: 'update', entityType: 'product', entityName: 're-match', summary: `จับคู่ลายใหม่ ${total} แถว (เติม ${rematch.filled} · แก้ ${rematch.fixed})` });
     clearSaleCache();
-    window.__toast && window.__toast(fail ? `อัปเดต ${ok} กลุ่มสำเร็จ · ${fail} กลุ่มล้มเหลว` : `อัปเดตการจับคู่สำเร็จ ${ok} กลุ่ม (${total} แถว)`, fail ? 'warn' : 'success');
+    toast(fail ? `อัปเดต ${ok} กลุ่มสำเร็จ · ${fail} กลุ่มล้มเหลว` : `อัปเดตการจับคู่สำเร็จ ${ok} กลุ่ม (${total} แถว)`, fail ? 'warn' : 'success');
     // converge: โหลดสด แล้วสแกนซ้ำจากข้อมูลใหม่ — เหลือเฉพาะที่ยังไม่ตรงจริง (ไม่ "ขึ้นซ้ำ" ทั้งชุดเดิม)
     const fresh = await load();
     const M2 = buildMatchers(GOLDEN_CATALOG_GRID, aliases);
@@ -231,7 +234,7 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
         {issues.length === 0
           ? <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--good)', fontSize: 13 }}><Icon name="check" /> ข้อมูลสะอาด — ทุกแถวจับคู่ลายได้ ไม่มีลาย/สีแปลกใหม่</div>
           : shownIssues.length === 0
-            ? <div style={{ padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบรายการที่ตรงกับ "{issueQ}"</div>
+            ? <EmptyState size="inline" mode="filtered" className="px-4" title={`ไม่พบรายการที่ตรงกับ "${issueQ}"`} />
             : <CardTable style={{ maxHeight: 440, overflow: 'auto' }}><Table>
               <TableHeader><TableRow>
                 <TableHead>ปัญหา</TableHead><TableHead>รายการ</TableHead>
@@ -267,8 +270,8 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
           const shownAliases = aliasQ.trim()
             ? aliases.filter(a => `${a.term} ${a.design || ''} ${a.code || ''}`.toLowerCase().includes(aliasQ.trim().toLowerCase()))
             : aliases;
-          if (aliases.length === 0) return <div className="row" style={{ gap: 8, padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}><Icon name="sparkle" /> ยังไม่มี alias — กด "ผูกลาย/เพิ่มสี" จากตารางต้องตรวจ หรือเพิ่มเอง</div>;
-          if (shownAliases.length === 0) return <div style={{ padding: '16px', color: 'var(--ink-4)', fontSize: 13 }}>ไม่พบ alias ที่ตรงกับ "{aliasQ}"</div>;
+          if (aliases.length === 0) return <EmptyState size="inline" icon="sparkle" className="px-4" title="ยังไม่มี alias" hint='กด "ผูกลาย/เพิ่มสี" จากตารางต้องตรวจ หรือเพิ่มเอง' />;
+          if (shownAliases.length === 0) return <EmptyState size="inline" mode="filtered" className="px-4" title={`ไม่พบ alias ที่ตรงกับ "${aliasQ}"`} />;
           return <CardTable style={{ maxHeight: 360, overflow: 'auto' }}><Table>
             <TableHeader><TableRow><TableHead>ชนิด</TableHead><TableHead>คำในไฟล์</TableHead><TableHead>แมปเป็น</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>{shownAliases.map(a => (
@@ -308,6 +311,6 @@ export function HealthHub() { // แท็บ "คุณภาพข้อมู
   );
 }
 
-// หมายเหตุ: "ศูนย์ข้อมูล" (io) ย้ายไปรวมกับส่งยอดเป็น SaleDataHub 3 แท็บ ใน views-sale-submit.jsx
+// หมายเหตุ: หน้า "ส่งยอด & ข้อมูล" ถูกลบแล้ว (PART 102) — HealthHub อยู่ในตั้งค่า · ส่งยอดอยู่ในปุ่มลอยหน้าประสิทธิภาพเซล
 // (HealthHub ด้านบน export ให้แท็บ "คุณภาพข้อมูล" ใช้)
 

@@ -34,41 +34,7 @@ function parseCSV(text, delim) {
   if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
   return rows.filter(r => r.some(c => String(c).trim() !== ''));
 }
-// คำที่ถือว่า "ว่าง" + ทำความสะอาดเซลล์ (NFC, ตัด zero-width/ช่องว่าง)
-const NULL_TOKENS = new Set(['-', '–', '—', 'n/a', '#n/a', 'na', 'null', 'none', 'nil', 'ไม่มี', 'ไม่ระบุ']);
-function cleanCell(v, collapseNull = true) {
-  let s = String(v ?? '');
-  if (s.normalize) s = s.normalize('NFC');
-  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim(); // ตัด zero-width + ยุบช่องว่าง
-  return (collapseNull && NULL_TOKENS.has(s.toLowerCase())) ? '' : s; // ชื่อ/รหัส/บาร์โค้ดไม่ยุบ placeholder (อาจเป็นค่าจริง)
-}
-// แตกหัวคอลัมน์เป็น "คำ" (token) เพื่อจับคู่แบบทั้งคำ ไม่ใช่ substring มั่ว
-const tokenize = (h) => String(h || '').toLowerCase().split(/[\s_\-/.,()[\]]+/).filter(Boolean);
 
-/* ====== Import: ฟิลด์เป้าหมาย + ตัวช่วยทำความสะอาดข้อมูล (เผื่ออนาคต) ====== */
-// ฟิลด์ที่นำเข้าได้ + ชื่อคอลัมน์ที่ยอมรับ (auto-map) — เพิ่มฟิลด์ใหม่ที่นี่ได้ในอนาคต
-const IMPORT_FIELDS = [
-  { key: 'name', label: 'ชื่อสินค้า', required: true, aliases: ['product_name', 'name', 'ชื่อสินค้า', 'ชื่อ', 'สินค้า', 'title', 'item', 'รายการ'] },
-  { key: 'price', label: 'ราคา', num: true, aliases: ['price', 'ราคา', 'ราคาขาย', 'sell_price', 'unit_price', 'sellprice', 'ราคา/ตัว'] },
-  { key: 'category', label: 'หมวด', aliases: ['type', 'category', 'หมวด', 'หมวดหมู่', 'ประเภท', 'cat', 'กลุ่ม'] },
-  { key: 'sku', label: 'รหัส/SKU', code: true, aliases: ['product_code', 'sku', 'รหัสสินค้า', 'รหัส', 'code', 'item_code', 'รหัสสินค้า'] },
-  { key: 'barcode', label: 'บาร์โค้ด', code: true, aliases: ['barcode', 'บาร์โค้ด', 'ean', 'upc', 'gtin', 'บาร์โคด'] },
-  { key: 'design', label: 'ลาย', aliases: ['design_key', 'design', 'ลาย', 'pattern', 'ลายผ้า', 'แบบ', 'รุ่น'] },
-  { key: 'supplier', label: 'ผู้ผลิต', aliases: ['supplier', 'ผู้ผลิต', 'ซัพพลายเออร์', 'vendor', 'โรงงาน', 'แหล่งซื้อ'] },
-  { key: 'cost', label: 'ต้นทุน', num: true, aliases: ['cost', 'ต้นทุน', 'ทุน', 'cost_price', 'ต้นทุน/ตัว', 'ราคาทุน'] },
-];
-const THAI_DIGITS = { '๐': '0', '๑': '1', '๒': '2', '๓': '3', '๔': '4', '๕': '5', '๖': '6', '๗': '7', '๘': '8', '๙': '9' };
-// แปลงเลขไทย + ตัดสัญลักษณ์เงิน/คอมมา → ตัวเลข (รองรับ "฿1,234.50", "๑๒๓", "1.234,50" แบบยุโรปไม่รองรับ—ใช้จุดทศนิยม)
-function parseNum(v) {
-  if (typeof v === 'number') return isFinite(v) ? v : 0;
-  let s = String(v ?? '').trim();
-  if (!s) return 0;
-  s = s.replace(/[๐-๙]/g, d => THAI_DIGITS[d] || d);
-  s = s.replace(/[, \s\u00A0฿$€£]/g, '');     // ตัดคอมมา/ช่องว่าง/สัญลักษณ์เงิน
-  s = s.replace(/[^0-9.eE+\-]/g, '');   // เหลือตัวเลข จุด ลบ + เลขยกกำลัง
-  const n = parseFloat(s);
-  return isFinite(n) ? n : 0;
-}
 // อ่านข้อความ CSV แบบรู้ encoding: ลอง UTF-8 ก่อน ถ้าเจอตัวอักษรเสีย (�) ลอง windows-874 (TIS-620 ภาษาไทย)
 function smartDecodeCSV(buf) {
   const u8 = new TextDecoder('utf-8').decode(buf);
@@ -81,28 +47,7 @@ function smartDecodeCSV(buf) {
   } catch { /* เบราว์เซอร์ไม่รองรับ windows-874 */ }
   return { text: u8, encoding: 'utf-8', mojibake: bad };
 }
-// หาแถวหัวคอลัมน์ (กันไฟล์ที่มีแถวว่าง/ชื่อรายงานนำหน้า) — แถวแรกที่มี ≥2 ช่องไม่ว่าง
-function detectHeader(grid) {
-  const lim = Math.min(grid.length, 12);
-  for (let i = 0; i < lim; i++) {
-    const filled = (grid[i] || []).filter(c => String(c ?? '').trim() !== '').length;
-    if (filled >= 2) return i;
-  }
-  return 0;
-}
 
-const IMPORT_STATUS = {
-  new:    { label: 'ใหม่',       cls: 'chip-good' },
-  update: { label: 'อัปเดต',     cls: 'chip-accent' },
-  dup:    { label: 'ซ้ำ (ข้าม)', cls: 'chip-warn' },
-  error:  { label: 'ผิดพลาด',    cls: 'chip-bad' },
-};
-const csvCell = (v) => { const s = String(v ?? ''); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-function downloadTextFile(filename, text) {
-  const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' }); // BOM → Excel เปิดไทยถูก
-  const url = URL.createObjectURL(blob); const a = document.createElement('a');
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-}
 
 /* ---------- รายงานรวมข้ามช่อง: นำเข้าไฟล์ขาย (Shipnity base + Shopee/TikTok เสริม + catalog) ---------- */
 // เลิกใช้ไฟล์ Shipnity แล้ว (ยอด Shipnity เข้าทางหน้า "ส่งยอดใบเสร็จ") — import เหลือมาร์เก็ตเพลสล้วน

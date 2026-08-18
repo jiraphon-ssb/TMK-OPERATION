@@ -24,4 +24,4 @@ create table if not exists public.tmk_inventory_snapshots (
 
 -- สิทธิ์เหมือนตารางอื่นในแอป (anon ใช้งานได้ + ปิด RLS)
 grant select, insert, update, delete on public.tmk_inventory_snapshots to anon, authenticated;
-alter table public.tmk_inventory_snapshots disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_inventory_snapshots disable row level security;

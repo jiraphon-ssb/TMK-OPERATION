@@ -700,8 +700,8 @@ export async function parseReceiptPdf(file) {
     doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
   } catch (e) {
     const nm = e?.name || '';
-    if (/password/i.test(nm + (e?.message || ''))) throw new Error('ไฟล์ล็อครหัสผ่าน — ปลดล็อคก่อนอัปโหลด');
-    if (/invalid|corrupt/i.test(nm + (e?.message || ''))) throw new Error('ไฟล์ไม่ใช่ PDF ที่ถูกต้อง/ไฟล์เสีย');
+    if (/password/i.test(nm + (e?.message || ''))) throw new Error('ไฟล์ล็อครหัสผ่าน — ปลดล็อคก่อนอัปโหลด', { cause: e });
+    if (/invalid|corrupt/i.test(nm + (e?.message || ''))) throw new Error('ไฟล์ไม่ใช่ PDF ที่ถูกต้อง/ไฟล์เสีย', { cause: e });
     throw e;
   }
   const receipts = [];

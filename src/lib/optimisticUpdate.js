@@ -9,6 +9,8 @@
    - **ยังไม่ wire write path** — เป็น foundation ให้ Phase 3.1 ค่อยผูกทีละจุด (มี test ก่อน)
    ============================================================ */
 
+import { resolveConflict, confirm as appConfirm } from './appBus.js';
+
 const COL_MISSING = /(row_version|42703|column .* does not exist)/i;
 
 /**
@@ -112,7 +114,7 @@ export async function mergeVersionedUpdate({ supabase, table, match, base, patch
   const { autoPatch, conflicts } = computeFieldMerge({ base, mine: patch, theirs, changedFields: Object.keys(patch) });
   const finalPatch = { ...autoPatch };
   if (conflicts.length) {
-    const ask = resolve || (typeof window !== 'undefined' ? window.__resolveConflict : null);
+    const ask = resolve || resolveConflict;
     const picks = ask ? await ask({ entity: entity || 'ข้อมูลนี้', conflicts }) : null;
     if (!picks) return { ok: false, reloaded: true }; // user เลือกโหลดล่าสุด / ไม่มี host
     for (const c of conflicts) finalPatch[c.field] = picks[c.field] === 'theirs' ? c.theirs : c.mine;
@@ -155,7 +157,7 @@ export function fieldLabelTH(f) { return FIELD_TH[f] || f; }
  * @returns {Promise<'reload'|'overwrite'>}
  */
 export async function promptConflictResolution({ entity = 'ข้อมูลนี้', changedFields, confirm } = {}) {
-  const ask = confirm || (typeof window !== 'undefined' ? window.__confirm : null);
+  const ask = confirm || appConfirm;
   if (!ask) return 'reload'; // ไม่มีกล่องยืนยัน → เลือกทางปลอดภัย (ไม่ทับ)
   const cls = classifyConflict(changedFields);
   const warn = cls.hasCritical

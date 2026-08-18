@@ -4,27 +4,25 @@
    SettingsBody (views-settings.jsx) เป็น orchestrator เรียก sub-view เหล่านี้ · behavior-preserving file-split
    ============================================================ */
 import React, { useState, useEffect, useMemo } from 'react';
-import { TMK } from './data.js';
 import { Icon } from './components.jsx';
-import { useData, computeMonth } from './dataContext.jsx';
+import { useData } from './dataContext.jsx';
 import { MonthPicker } from './components/MonthPicker.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit, diffFields } from './lib/audit.js';
 import { fetchTargets, saveTarget } from './lib/targets.js';
+import { normCutoffDay, DEFAULT_CUTOFF_DAY } from './lib/commissionCycle.js';
 import { fetchCrmTargets, saveCrmTarget } from './lib/crmTargets.js';
 import { APP_VERSION } from './changelog.js';
-import { getToday, todayISO, THAI_MONTHS as MONTHS_TH_SHORT } from './lib/dateUtils.js';
+import { todayISO } from './lib/dateUtils.js';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch as ShadcnSwitch } from '@/components/ui/switch';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { DD, guardEdit, guardAdmin } from './saleWidgets.jsx';
-import { buildAllCsv, buildMonthlyReportCsv } from './lib/csv.js';
+import { toast, confirm, openModal } from './lib/appBus.js';
 
 export function CampaignsView() {
   const { reload, refresh } = useData() || {};
@@ -42,7 +40,7 @@ export function CampaignsView() {
     const msg = linkedTasks > 0
       ? `แคมเปญ "${c.name}" มี ${linkedTasks} งานผูกอยู่ — ลบจะปลด link ไปไม่มีแคมเปญ ยืนยัน?`
       : `ลบแคมเปญ "${c.name}"?`;
-    if (!await window.__confirm?.({ title: 'ลบแคมเปญ', body: msg, danger: true, confirmText: 'ลบ' })) return;
+    if (!await confirm({ title: 'ลบแคมเปญ', body: msg, danger: true, confirmText: 'ลบ' })) return;
     setBusy(true);
     try {
       // ปลด link tasks (set camp = NULL) ก่อน
@@ -54,18 +52,18 @@ export function CampaignsView() {
       if (error) throw error;
       logAudit({ action: 'delete', entityType: 'campaign', entityName: c.name, summary: `ลบแคมเปญ "${c.name}"` });
       if (refresh) await refresh(['tmk_campaigns', 'tmk_tasks']); else if (reload) await reload();
-      if (window.__toast) window.__toast('ย้ายแคมเปญไปถังขยะแล้ว', 'success', 6000, {
+      toast('ย้ายแคมเปญไปถังขยะแล้ว', 'success', 6000, {
         label: 'เลิกทำ',
         onClick: async () => {
           try {
             await supabase.from('tmk_campaigns').update({ deleted_at: null }).eq('id', c.id);
             if (refresh) await refresh(['tmk_campaigns']); else if (reload) await reload();
-            window.__toast?.('กู้คืนแคมเปญแล้ว', 'success');
-          } catch (e) { window.__toast?.('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
+            toast('กู้คืนแคมเปญแล้ว', 'success');
+          } catch (e) { toast('กู้คืนไม่สำเร็จ: ' + (e?.message || ''), 'error'); }
         },
       });
     } catch (err) {
-      if (window.__toast) window.__toast('ลบไม่สำเร็จ: ' + err.message, 'error');
+      toast('ลบไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
   };
 
@@ -92,12 +90,12 @@ export function CampaignsView() {
       if (failed) {
         // ถ้า column sort_order ไม่มี → แจ้ง user ให้รัน migration
         if (/sort_order/i.test(failed.error.message)) {
-          if (window.__toast) window.__toast('ต้อง alter table เพิ่ม sort_order ก่อน — รัน SQL migration ใหม่', 'warn');
+          toast('ต้อง alter table เพิ่ม sort_order ก่อน — รัน SQL migration ใหม่', 'warn');
         } else throw failed.error;
-      } else if (window.__toast) window.__toast('เรียงลำดับใหม่เรียบร้อย', 'success');
+      } else toast('เรียงลำดับใหม่เรียบร้อย', 'success');
       if (refresh) await refresh(['tmk_campaigns']); else if (reload) await reload();
     } catch (err) {
-      if (window.__toast) window.__toast('เลื่อนไม่สำเร็จ: ' + err.message, 'error');
+      toast('เลื่อนไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
   };
 
@@ -107,7 +105,7 @@ export function CampaignsView() {
         <div className="text-sm text-muted-foreground font-medium">
           {campaigns.length} แคมเปญ · เรียงลำดับได้ (ลากบนคอม / ปุ่ม ▲▼ บนมือถือ)
         </div>
-        <Button onClick={() => window.__openModal('campaign')}>
+        <Button onClick={() => openModal('campaign')}>
           <Icon name="plus" className="size-4 mr-2" /> สร้างแคมเปญ
         </Button>
       </div>
@@ -181,7 +179,7 @@ export function CampaignsView() {
                       <button className="text-muted-foreground disabled:opacity-30 p-0.5 text-[10px] leading-none" disabled={idx === 0 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx - 1].id)}>▲</button>
                       <button className="text-muted-foreground disabled:opacity-30 p-0.5 text-[10px] leading-none" disabled={idx === campaigns.length - 1 || busy} onClick={() => reorderCampaign(c.id, campaigns[idx + 1].id)}>▼</button>
                     </div>
-                    <h3 className="font-bold text-[15px] leading-snug line-clamp-2 hover:underline cursor-pointer min-w-0 flex-1" title={c.name} onClick={() => window.__openModal('campaign', { ...c, channels: c.channels || [] })}>
+                    <h3 className="font-bold text-[15px] leading-snug line-clamp-2 hover:underline cursor-pointer min-w-0 flex-1" title={c.name} onClick={() => openModal('campaign', { ...c, channels: c.channels || [] })}>
                       {c.name}
                     </h3>
                   </div>
@@ -218,7 +216,7 @@ export function CampaignsView() {
                         })}
                   </div>
                   <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); window.__openModal('campaign', { ...c, channels: c.channels || [] }); }} title="แก้ไขแคมเปญ">
+                    <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); openModal('campaign', { ...c, channels: c.channels || [] }); }} title="แก้ไขแคมเปญ">
                       <Icon name="pencil" className="size-3.5" />
                     </Button>
                     <Button variant="ghost" size="icon" className="size-7 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); deleteCampaign(c); }} disabled={busy} title="ลบแคมเปญ">
@@ -240,7 +238,6 @@ export function CampaignsView() {
 // graceful: ตาราง tmk_targets ยังไม่ migrate → Save แจ้งให้รัน migration (ไม่พัง)
 export function TargetsView() {
   const thisMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
-  const money = (n) => (Number(n) || 0).toLocaleString('th-TH');
   const numOf = (r, f) => Number((r || {})[f]) || 0;
 
   const [month, setMonth] = useState(thisMonth);
@@ -254,6 +251,32 @@ export function TargetsView() {
   const [savingKey, setSavingKey] = useState(null);
   const [savingAll, setSavingAll] = useState(false);
   const [addName, setAddName] = useState('');
+  // วันตัดรอบค่าคอม (ค่าเดียวทั้งทีม · ใช้ใน popup "ค่าคอมรอบตัด") — null = คอลัมน์ยังไม่ migrate
+  const [cutoffDay, setCutoffDay] = useState(DEFAULT_CUTOFF_DAY);
+  const [cutoffReady, setCutoffReady] = useState(false);
+
+  // โหลดค่า setting วันตัด async ครั้งเดียวตอน mount
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('tmk_settings').select('commission_cutoff_day').eq('id', 'main').maybeSingle();
+        if (!live) return;
+        if (!error) { setCutoffDay(normCutoffDay(data?.commission_cutoff_day)); setCutoffReady(true); }
+      } catch { /* คอลัมน์ยังไม่ migrate → โชว์ default อ่านอย่างเดียว */ }
+    })();
+    return () => { live = false; };
+  }, []);
+
+  const saveCutoffDay = async (v) => {
+    const day = normCutoffDay(v);
+    const prev = cutoffDay;
+    setCutoffDay(day); // optimistic
+    const { error } = await supabase.from('tmk_settings').update({ commission_cutoff_day: day }).eq('id', 'main');
+    if (error) { setCutoffDay(prev); toast('เซฟวันตัดไม่ได้ — รัน migration 20260813-commission-cutoff.sql ก่อน', 'error'); return; }
+    logAudit({ action: 'update', entityType: 'target', entityName: 'วันตัดรอบค่าคอม', summary: `ตั้งวันตัดรอบค่าคอม: ทุกวันที่ ${day}`, changes: [{ label: 'วันตัด', before: String(prev), after: String(day) }] });
+    toast(`ตั้งวันตัดรอบค่าคอมเป็นวันที่ ${day} แล้ว`, 'success');
+  };
 
   const load = async () => {
     setLoading(true);
@@ -277,7 +300,8 @@ export function TargetsView() {
     setBaseline(JSON.parse(JSON.stringify(map)));
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [month]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- โหลดข้อมูลเป้า async ตอนเปลี่ยนเดือน (pattern ปกติ) · load ถูกสร้างใหม่ทุก render ใส่เป็น dep จะยิง query รัวๆ
+  useEffect(() => { load(); }, [month]);
 
   // รายชื่อที่แสดง = ส่งใบเสร็จเดือนนี้ + เพิ่มเอง (+ orphan เมื่อกดแสดง)
   const people = useMemo(() => {
@@ -291,13 +315,6 @@ export function TargetsView() {
     || numOf(rows[name], 'crm_target') !== numOf(baseline[name], 'crm_target');
   const dirtyNames = people.filter(isDirty);
 
-  // สรุปจากค่าที่บันทึกแล้ว (baseline รวม orphan → "ตั้งเป้าแล้ว" = เป้าจริงทั้งเดือน)
-  const summary = useMemo(() => {
-    let setCount = 0, totalTarget = 0, totalCrm = 0;
-    Object.values(baseline).forEach(b => { const t = numOf(b, 'sales_target'); if (t > 0 || numOf(b, 'commission_rate') > 0 || numOf(b, 'crm_target') > 0) setCount++; totalTarget += t; totalCrm += numOf(b, 'crm_target'); });
-    return { setCount, totalTarget, totalCrm };
-  }, [baseline]);
-
   const setField = (name, field, val) => setRows(p => ({ ...p, [name]: { ...(p[name] || {}), [field]: val } }));
 
   const persist = async (name) => {
@@ -305,7 +322,7 @@ export function TargetsView() {
     const { error } = await saveTarget({ salesperson: name, month, sales_target: r.sales_target, commission_rate: r.commission_rate });
     if (error) {
       const miss = /relation .* does not exist|tmk_targets|schema cache/i.test(error.message || '');
-      window.__toast?.(miss ? 'ต้องรัน migration 20260701-targets.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error');
+      toast(miss ? 'ต้องรัน migration 20260701-targets.sql ใน Supabase ก่อน' : 'บันทึกไม่สำเร็จ: ' + error.message, 'error');
       return false;
     }
     // เป้า CRM แยกตาราง (tmk_crm_targets) — บันทึกเฉพาะเมื่อเปลี่ยน · ตารางยังไม่ migrate → toast ชี้ migration
@@ -313,7 +330,7 @@ export function TargetsView() {
       const { error: ce } = await saveCrmTarget({ salesperson: name, month, sales_target: r.crm_target });
       if (ce) {
         const miss = /relation .* does not exist|tmk_crm_targets|schema cache/i.test(ce.message || '');
-        window.__toast?.(miss ? 'ต้องรัน migration 20260731-crm-targets-notes.sql ใน Supabase ก่อน' : 'บันทึกเป้า CRM ไม่สำเร็จ: ' + ce.message, 'error');
+        toast(miss ? 'ต้องรัน migration 20260731-crm-targets-notes.sql ใน Supabase ก่อน' : 'บันทึกเป้า CRM ไม่สำเร็จ: ' + ce.message, 'error');
         return false;
       }
     }
@@ -323,12 +340,16 @@ export function TargetsView() {
     return true;
   };
 
-  const saveRow = async (name) => {
+  // auto-save: บันทึกเมื่อโฟกัสออกจากการ์ด (blur) เฉพาะที่มีการแก้จริง — ไม่ต้องกดปุ่มรายคน
+  const [savedKey, setSavedKey] = useState(null);   // แฟลช "บันทึกแล้ว ✓"
+  const saveIfDirty = async (name) => {
+    if (!isDirty(name) || savingKey === name) return;
     setSavingKey(name);
     const ok = await persist(name);
     setSavingKey(null);
-    if (ok) window.__toast?.(`บันทึกเป้า ${name} แล้ว`, 'success');
+    if (ok) { setSavedKey(name); setTimeout(() => setSavedKey(k => (k === name ? null : k)), 1600); }
   };
+
 
   const saveAll = async () => {
     if (!dirtyNames.length) return;
@@ -336,7 +357,7 @@ export function TargetsView() {
     let ok = 0;
     for (const name of dirtyNames) { if (await persist(name)) ok++; }
     setSavingAll(false);
-    if (ok) window.__toast?.(`บันทึกเป้า ${ok} คน เดือนนี้แล้ว`, 'success');
+    if (ok) toast(`บันทึกเป้า ${ok} คน เดือนนี้แล้ว`, 'success');
   };
 
   const addPerson = () => {
@@ -345,156 +366,78 @@ export function TargetsView() {
     setAddName('');
   };
 
+  /* UI มินิมอล (user: "ข้อมูลไม่จำเป็นเยอะเกิน") — เหลือ: หัวบรรทัดเดียว (เดือน+วันตัด) + ตารางชื่อ/3ช่อง
+     กรอกแล้วออกจากแถว = บันทึกเอง (ไอคอนเล็กข้างชื่อ: ●แก้ค้าง →✓บันทึกแล้ว) · ไม่มีแถบสรุป/คำอธิบาย/ปุ่มช่วย */
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Icon name="target" className="size-5" /> เป้าขาย & คอมมิชชั่นต่อเซลล์</CardTitle>
-        <CardDescription>ตั้งเป้ายอดขาย (บาท) · อัตราคอม (%) · เป้า CRM (โทร+LINE) แยกรายคน รายเดือน → โชว์ในหน้า “ยอดขาย → เซลล์” และ “ภาพรวม CRM”</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* แถวควบคุมเดือน + เพิ่มเซลล์ */}
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">เดือน</Label>
-            <div className="flex items-center gap-2">
-              <MonthPicker value={month} onChange={setMonth} className="h-9" />
-              {month !== thisMonth() && <Button variant="ghost" size="sm" onClick={() => setMonth(thisMonth())}>เดือนนี้</Button>}
-            </div>
-          </div>
-          <div className="flex items-end gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">เพิ่มเซลล์เอง (ตั้งเป้าล่วงหน้า)</Label>
-              <Input value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPerson(); }} placeholder="ชื่อเซลล์" className="w-[190px]" />
-            </div>
-            <Button variant="outline" size="sm" onClick={addPerson}><Icon name="plus" className="size-4" /> เพิ่ม</Button>
-          </div>
+      <CardContent className="pt-5 space-y-3">
+        {/* หัว: ชื่อ + เดือน + วันตัดรอบ (บรรทัดเดียว) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold inline-flex items-center gap-2"><Icon name="target" className="size-4" /> เป้า & คอมมิชชั่น</span>
+          <span className="ml-auto flex items-center gap-2">
+            <MonthPicker value={month} onChange={setMonth} className="h-8" />
+            <span className="text-xs text-muted-foreground" title={`รอบค่าคอม: วันที่ ${cutoffDay} เดือนก่อน – วันที่ ${Math.max(cutoffDay - 1, 1)} เดือนนี้ · ใช้ในป๊อปอัพ "ค่าคอมรอบตัด"`}>ตัดรอบ</span>
+            <Select value={String(cutoffDay)} onValueChange={saveCutoffDay} disabled={!cutoffReady}>
+              <SelectTrigger className="h-8 w-[64px]"><SelectValue /></SelectTrigger>
+              <SelectContent>{Array.from({ length: 28 }, (_, i) => i + 1).map(d => <SelectItem key={d} value={String(d)}>{d}</SelectItem>)}</SelectContent>
+            </Select>
+          </span>
         </div>
-
-        {/* แถบสรุปเดือนนี้ */}
-        {!loading && people.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg border bg-muted/40 px-4 py-2.5 text-sm">
-            <span><span className="text-muted-foreground">เซลล์เดือนนี้</span> <b>{people.length}</b> คน</span>
-            <span><span className="text-muted-foreground">ตั้งเป้าแล้ว</span> <b>{summary.setCount}</b> คน</span>
-            <span><span className="text-muted-foreground">เป้ารวม</span> <b>฿{money(summary.totalTarget)}</b></span>
-            {summary.totalCrm > 0 && <span><span className="text-muted-foreground">เป้า CRM รวม</span> <b>฿{money(summary.totalCrm)}</b></span>}
-            {dirtyNames.length > 0 && (
-              <Button size="sm" className="ml-auto" disabled={savingAll} onClick={saveAll}>
-                {savingAll ? 'กำลังบันทึก…' : <><Icon name="check" className="size-4" /> บันทึกทั้งหมด ({dirtyNames.length})</>}
-              </Button>
-            )}
-          </div>
-        )}
 
         {loading ? (
           <p className="text-sm text-muted-foreground py-6 text-center">กำลังโหลด…</p>
         ) : people.length === 0 ? (
-          <div className="text-center py-10 text-muted-foreground text-sm">
-            ยังไม่มีเซลล์ส่งใบเสร็จในเดือนนี้ — พอมีคนส่งยอดจะขึ้นเอง หรือ “เพิ่มเซลล์เอง” ด้านบนเพื่อตั้งเป้าล่วงหน้า
-          </div>
+          <div className="text-center py-8 text-muted-foreground text-sm">ยังไม่มีเซลล์เดือนนี้ — พิมพ์ชื่อด้านล่างเพื่อตั้งเป้าล่วงหน้า</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>เซลล์</TableHead>
-                <TableHead className="text-right">เป้ายอดขาย (บาท)</TableHead>
-                <TableHead className="text-right">คอม (%)</TableHead>
-                <TableHead className="text-right">เป้า CRM (บาท)</TableHead>
-                <TableHead className="text-right hidden sm:table-cell">คอมเมื่อถึงเป้า</TableHead>
-                <TableHead className="text-right w-[110px]"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <div className="rounded-lg border overflow-hidden">
+            {/* หัวคอลัมน์ */}
+            <div className="grid grid-cols-[minmax(72px,1.1fr)_1fr_76px_1fr] gap-2 items-center px-3 py-1.5 bg-muted/40 text-[11px] text-muted-foreground">
+              <span>เซลล์</span><span className="text-right">เป้ายอด (บาท)</span><span className="text-right">คอม %</span><span className="text-right">เป้า CRM (บาท)</span>
+            </div>
+            <div className="divide-y">
               {people.map(name => {
                 const r = rows[name] || {};
                 const dirty = isDirty(name);
-                const commAtTarget = numOf(r, 'sales_target') * numOf(r, 'commission_rate') / 100;
-                const isOrphan = orphanNames.includes(name) && !receiptNames.includes(name);
                 return (
-                  <TableRow key={name} className={dirty ? 'bg-amber-500/5' : undefined}>
-                    <TableCell className="font-medium">
-                      <span className="flex items-center gap-1.5">
-                        {name}
-                        {dirty && <span className="size-1.5 rounded-full bg-amber-500" title="ยังไม่บันทึก" />}
-                        {isOrphan && <span className="text-[10px] text-muted-foreground">(ยังไม่ส่งใบเสร็จ)</span>}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input type="number" inputMode="numeric" value={r.sales_target ?? ''} onChange={e => setField(name, 'sales_target', e.target.value)} className="w-[140px] ml-auto text-right" placeholder="0" />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input type="number" inputMode="decimal" step="0.1" value={r.commission_rate ?? ''} onChange={e => setField(name, 'commission_rate', e.target.value)} className="w-[90px] ml-auto text-right" placeholder="0" />
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Input type="number" inputMode="numeric" value={r.crm_target ?? ''} onChange={e => setField(name, 'crm_target', e.target.value)} className="w-[140px] ml-auto text-right" placeholder="0" title="เป้ายอด CRM (โทร+LINE) — โชว์ในหน้าภาพรวม CRM" />
-                    </TableCell>
-                    <TableCell className="text-right hidden sm:table-cell text-muted-foreground">
-                      {commAtTarget > 0 ? `฿${money(Math.round(commAtTarget))}` : '—'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" variant={dirty ? 'default' : 'secondary'} disabled={savingKey === name} onClick={() => saveRow(name)}>
-                        {savingKey === name ? 'กำลังบันทึก…' : 'บันทึก'}
-                      </Button>
-                    </TableCell>
-                  </TableRow>
+                  <div key={name} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) saveIfDirty(name); }}
+                    className="grid grid-cols-[minmax(72px,1.1fr)_1fr_76px_1fr] gap-2 items-center px-3 py-1.5">
+                    <span className="text-sm font-medium truncate inline-flex items-center gap-1.5">
+                      {name}
+                      {savingKey === name ? <span className="size-2 rounded-full bg-[var(--accent)] animate-pulse shrink-0" title="กำลังบันทึก" />
+                        : savedKey === name ? <Icon name="check" className="size-3.5 text-emerald-600 shrink-0" />
+                        : dirty ? <span className="size-2 rounded-full bg-amber-500 shrink-0" title="ยังไม่บันทึก — ออกจากแถวแล้วบันทึกเอง" /> : null}
+                    </span>
+                    <Input type="number" inputMode="numeric" value={r.sales_target ?? ''} onChange={e => setField(name, 'sales_target', e.target.value)} className="h-8 text-right min-w-0" placeholder="0" />
+                    <Input type="number" inputMode="decimal" step="0.1" value={r.commission_rate ?? ''} onChange={e => setField(name, 'commission_rate', e.target.value)} className="h-8 text-right min-w-0" placeholder="0" />
+                    <Input type="number" inputMode="numeric" value={r.crm_target ?? ''} onChange={e => setField(name, 'crm_target', e.target.value)} className="h-8 text-right min-w-0" placeholder="0" />
+                  </div>
                 );
               })}
-            </TableBody>
-          </Table>
+            </div>
+          </div>
         )}
 
-        {/* เป้าที่บันทึกไว้ให้คนที่ยังไม่ส่งใบเสร็จเดือนนี้ (opt-in · กันเป้าหาย) */}
-        {!loading && orphanNames.length > 0 && (
-          <button type="button" onClick={() => setShowOrphans(v => !v)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">
-            {showOrphans ? 'ซ่อนคนที่ยังไม่ส่งใบเสร็จ' : `มีเป้าบันทึกไว้ให้อีก ${orphanNames.length} คนที่ยังไม่ส่งใบเสร็จเดือนนี้ · แสดง/แก้`}
-          </button>
-        )}
+        {/* ท้าย: เพิ่มเซลล์ (ซ้าย) · บันทึกทั้งหมดเผื่อกรอกหลายคน (ขวา · โผล่เมื่อมีแก้ค้าง) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input value={addName} onChange={e => setAddName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addPerson(); }} placeholder="+ เพิ่มเซลล์" className="h-8 w-[150px]" />
+          {addName.trim() && <Button variant="outline" size="sm" className="h-8" onClick={addPerson}>เพิ่ม</Button>}
+          {!loading && orphanNames.length > 0 && (
+            <button type="button" onClick={() => setShowOrphans(v => !v)} className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
+              {showOrphans ? 'ซ่อนคนที่ยังไม่ส่งใบเสร็จ' : `+${orphanNames.length} คนที่มีเป้าแต่ยังไม่ส่งใบเสร็จ`}
+            </button>
+          )}
+          {dirtyNames.length > 0 && (
+            <Button size="sm" className="h-8 ml-auto" disabled={savingAll} onClick={saveAll}>
+              {savingAll ? 'กำลังบันทึก…' : `บันทึก (${dirtyNames.length})`}
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
 }
 
-// Export ข้อมูลทั้งหมดเป็น CSV (multi-section, BOM สำหรับภาษาไทยใน Excel)
-function exportAllCSV() {
-  // CSV building (pure) → lib/csv.js · ที่นี่คง side-effect (download/audit/toast)
-  const csv = buildAllCsv(TMK);
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  const d = new Date();
-  a.download = `tmk-export-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(a.href);
-  logAudit({ action: 'export', entityType: 'data', entityName: 'CSV', summary: 'ส่งออกข้อมูลทั้งหมดเป็น CSV' });
-  if (window.__toast) window.__toast('ส่งออก CSV เรียบร้อย', 'success');
-}
-
-// รายงานรายเดือน (CSV) — สรุปต่อช่องทาง (เป้า/ยอด/ค่าแอด/ROAS) + ยอดรายวันต่อช่องทาง (สำหรับส่งผู้บริหาร)
-// pickMonth: 1-12 (ค่า default = เดือนปัจจุบัน), pickYearBE: ปี พ.ศ.
-function exportMonthlyReportCSV(pickMonth, pickYearBE) {
-  const t = getToday();
-  const month = pickMonth || t.month;
-  const yearBE = pickYearBE || t.yearBE;
-  const md = computeMonth(month - 1, yearBE);
-  const monthTH = MONTHS_TH_SHORT[month - 1];
-  const channelNameById = Object.fromEntries((TMK.channels || []).map(c => [c.id, c.name]));
-  // CSV building (pure) → lib/csv.js · ที่นี่คง side-effect
-  const csv = buildMonthlyReportCsv({ md, dailyAll: TMK.dailyAll || [], channelNameById, monthTH, yearBE, month });
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `tmk-report-${yearBE}-${String(month).padStart(2, '0')}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(a.href);
-  logAudit({ action: 'export', entityType: 'data', entityName: `รายงาน ${monthTH} ${yearBE}`, summary: `ส่งออกรายงานรายเดือน ${monthTH} ${yearBE}` });
-  if (window.__toast) window.__toast(`ส่งออกรายงาน ${monthTH} ${yearBE} เรียบร้อย`, 'success');
-}
-
 export function GeneralSettings({ dark, setDark }) {
-  // เลือกเดือน-ปีสำหรับรายงาน (default = เดือนปัจจุบัน, ย้อนหลังได้ 5 ปี)
-  const _t = getToday();
-  const [reportMonth, setReportMonth] = useState(_t.month);
-  const [reportYear, setReportYear] = useState(_t.yearBE);
-  const yearOptions = [0, 1, 2, 3, 4, 5].map(d => _t.yearBE - d);
   
   return (
     <div className="flex flex-col gap-6 max-w-4xl mx-auto w-full">
@@ -516,62 +459,6 @@ export function GeneralSettings({ dark, setDark }) {
         </CardContent>
       </Card>
 
-
-      {/* Data */}
-      <Card>
-        <CardHeader className="pb-3 border-b border-border/50 bg-muted/20">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Icon name="layers" className="size-5 text-muted-foreground" /> ข้อมูลและการซิงค์
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 divide-y divide-border/50">
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">ซิงค์ข้อมูลอัตโนมัติ</div>
-              <div className="text-sm text-muted-foreground mt-1">ซิงค์อัตโนมัติผ่าน Supabase Realtime</div>
-            </div>
-            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">เปิด</Badge>
-          </div>
-          <div className="flex items-center justify-between py-4">
-            <div>
-              <div className="font-semibold text-sm">Export ข้อมูล</div>
-              <div className="text-sm text-muted-foreground mt-1">ดาวน์โหลดข้อมูลทั้งหมดเป็น CSV (รองรับภาษาไทยใน Excel)</div>
-            </div>
-            <Button variant="outline" size="sm" onClick={exportAllCSV}>
-              <Icon name="external" className="mr-2 size-4" /> Export
-            </Button>
-          </div>
-          <div className="py-4">
-            <div className="mb-4">
-              <div className="font-semibold text-sm">รายงานยอดขายรายเดือน</div>
-              <div className="text-sm text-muted-foreground mt-1">สรุปต่อช่องทาง (เป้า/ยอด/ROAS) + ยอดรายวันต่อช่องทาง — เลือกเดือนย้อนหลังได้</div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Select value={String(reportMonth)} onValueChange={(val) => setReportMonth(Number(val))}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue placeholder="เลือกเดือน" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MONTHS_TH_SHORT.map((m, i) => <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              
-              <Select value={String(reportYear)} onValueChange={(val) => setReportYear(Number(val))}>
-                <SelectTrigger className="w-[120px]">
-                  <SelectValue placeholder="เลือกปี" />
-                </SelectTrigger>
-                <SelectContent>
-                  {yearOptions.map(y => <SelectItem key={y} value={String(y)}>{y}{y === _t.yearBE ? ' (ปีนี้)' : ''}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              
-              <Button onClick={() => exportMonthlyReportCSV(reportMonth, reportYear)}>
-                <Icon name="external" className="mr-2 size-4" /> ดาวน์โหลด CSV
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* About */}
       <Card>
@@ -683,11 +570,11 @@ export function TrashView() {
         await supabase.from('tmk_staff').update({ deleted_at: null }).eq('email', it.id);
       }
       logAudit({ action: 'restore', entityType: it.meta.type, entityName: it.name, summary: `กู้คืน${it.meta.type} "${it.name}"` });
-      if (window.__toast) window.__toast(`กู้คืน "${it.name}" แล้ว`, 'success');
+      toast(`กู้คืน "${it.name}" แล้ว`, 'success');
       await load();
       if (refresh) await refresh(it.meta.table === 'tmk_user_roles' ? [it.meta.table, 'tmk_staff'] : [it.meta.table]); else if (reload) await reload();
     } catch (err) {
-      if (window.__toast) window.__toast('กู้คืนไม่สำเร็จ: ' + err.message, 'error');
+      toast('กู้คืนไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
   };
 
@@ -695,7 +582,7 @@ export function TrashView() {
     if (!guardEdit()) return;
     if ((it.meta.table === 'tmk_user_roles' || it.meta.table === 'tmk_staff') && !guardAdmin()) return; // ผู้ใช้/สิทธิ์ = admin
     if (busy) return;
-    if (!await window.__confirm?.({ title: 'ลบถาวร', body: `ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`, danger: true, confirmText: 'ลบถาวร' })) return;
+    if (!await confirm({ title: 'ลบถาวร', body: `ลบถาวร "${it.name}"?\nลบแล้วกู้คืนไม่ได้อีก`, danger: true, confirmText: 'ลบถาวร' })) return;
     setBusy(true);
     try {
       const { error } = await supabase.from(it.meta.table).delete().eq(it.meta.key, it.id);
@@ -705,10 +592,10 @@ export function TrashView() {
         if (e2) throw e2;
       }
       logAudit({ action: 'purge', entityType: it.meta.type, entityName: it.name, summary: `ลบถาวร${it.meta.type} "${it.name}"` });
-      if (window.__toast) window.__toast(`ลบถาวร "${it.name}" แล้ว`, 'success');
+      toast(`ลบถาวร "${it.name}" แล้ว`, 'success');
       await load();
     } catch (err) {
-      if (window.__toast) window.__toast('ลบถาวรไม่สำเร็จ: ' + err.message, 'error');
+      toast('ลบถาวรไม่สำเร็จ: ' + err.message, 'error');
     } finally { setBusy(false); }
   };
 

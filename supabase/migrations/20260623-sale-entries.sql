@@ -29,4 +29,4 @@ create index if not exists tmk_sale_entries_ord_idx  on public.tmk_sale_entries(
 create index if not exists tmk_sale_entries_cust_idx on public.tmk_sale_entries(customer_type);
 
 grant select, insert, update, delete on public.tmk_sale_entries to anon, authenticated;
-alter table public.tmk_sale_entries disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sale_entries disable row level security;

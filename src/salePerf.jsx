@@ -8,7 +8,8 @@
    - realtime: ส่งใบ/กรอกคนทัก → หน้านี้ขยับสด (useSaleRealtime)
    ============================================================ */
 import { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
-import { Icon, N, useBeat, PersonAvatar, SourceBadge, InfoTip } from './components.jsx';
+import { createPortal } from 'react-dom';
+import { Icon, N, PersonAvatar, SourceBadge, InfoTip } from './components.jsx';
 import { supabase } from './lib/supabaseClient.js';
 import {
   cachedFetchRange, cachedFetchAll, ORDERS_SEL, SKUS_SEL, OVERRIDES_SEL, funnelTotal, funnelNewOld,
@@ -18,10 +19,11 @@ import { mergeOrderOverrides } from './lib/saleOverrides.js';
 import { fetchTargets, commissionFor, commissionDisplay } from './lib/targets.js';
 import { useUser } from './userContext.jsx';
 import { isAdmin, myNamesOf, orderVisibleTo } from './lib/roleAccess.js';
-import { fmtBaht } from './lib/money.js';
+import { fmtB, monthLabel, prevMonthOf, MEDAL, closeTone, pickVoice } from './lib/salePerfView.js';
 import { useRenderCount } from './realtime/useRenderCount.js';
 import { buildPerf, NO_SELLER, curMonth, daysInMonth, dayOf, isCancelled, spOf, deltaPct } from './lib/salePerfAgg.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
+import { canEdit as busCanEdit, goSection, lockedSections } from './lib/appBus.js';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -29,7 +31,6 @@ import { Progress } from '@/components/ui/progress';
 import { SideSheet } from './modals-core.jsx';
 import { VoiceFeed } from './saleWidgets.jsx';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { SearchInput } from '@/components/ui/search-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { MonthPicker } from './components/MonthPicker.jsx';
@@ -37,27 +38,30 @@ import { OrderCard, daySummary, DayTiles, isCodOrder, useOrderFinancials, finOf 
 import { CustomerDrawer, custFromOrders } from './customerDrawer.jsx';
 import { usePersistedState } from './hooks/usePersistedState.js';
 import { ComboChart, DonutChart, HBars, Sparkline, channelColor } from './charts.jsx';
+import { MultiSelect } from './components/MultiSelect.jsx'; // แหล่งเดียวของทั้งแอป (เดิมมีสำเนา 6 ชุด)
 // PART 96: ปุ่มลัด "คนทัก+เสียงลูกค้า" / "ส่งยอด" — lazy โหลดเฉพาะตอนเปิด popup (กันหน้านี้หนักขึ้น)
 const LeadsQuickSheet = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.LeadsQuickSheet })));
 const SubmitQuickSheet = lazy(() => import('./views-sale-submit.jsx').then(m => ({ default: m.SubmitQuickSheet })));
+// ป๊อปอัพ "ค่าคอมรอบตัด" (26→25) — lazy: โหลดเฉพาะตอนกดปุ่ม ไม่ถ่วงหน้า
+const CommissionCycleSheet = lazy(() => import('./commissionCycleSheet.jsx').then(m => ({ default: m.CommissionCycleSheet })));
 
-// เงินบาท — ใช้ตัวกลาง fmtBaht (decimal-aware · ไม่ตัดทศนิยมยอดขาย/AOV/คอม) · 0 → ฿0 (ไม่ใช่ '—')
-const fmtB = (n) => fmtBaht(Number(n) || 0);
-const TH_MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-const monthLabel = (ym) => { const [y, m] = ym.split('-'); return `${TH_MON[Number(m) - 1] || m} ${Number(y) + 543}`; };
-const prevMonthOf = (ym) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
-const MEDAL = ['#e3b341', '#b8c0cc', '#cd8b5e'];   // ทอง/เงิน/ทองแดง
-const closeTone = (v) => v == null ? 'var(--ink-4)' : v >= 15 ? 'var(--good)' : v >= 8 ? 'var(--warn)' : 'var(--bad)';
-const dPill = (d) => d == null ? null : (
-  <span className={`text-[11px] font-medium ${d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{d >= 0 ? '▲' : '▼'} {Math.abs(Math.round(d))}%</span>
-);
+// เทียบเดือนก่อน — cap ที่ 300% กันตัวเลขระเบิด (ช่วงข้อมูลยังน้อย เช่น ส.ค. เทียบ ก.ค. ที่เพิ่งเริ่ม → 8600%)
+const DELTA_CAP = 300;
+const dPill = (d) => {
+  if (d == null) return null;
+  const mag = Math.abs(Math.round(d));
+  const shown = Math.min(mag, DELTA_CAP);
+  return (
+    <span className={`text-[11px] font-medium ${d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>{d >= 0 ? '▲' : '▼'} {shown}%{mag > DELTA_CAP ? '+' : ''}</span>
+  );
+};
 /* คนทัก = การ์ดย่อย (tiles: ทักรวม/ใหม่/เก่า/%ปิด) — อ่านง่าย · โชว์เสมอแม้ 0 + hint · compact สำหรับการ์ดเซลล์ */
 function LeadPanel({ total = 0, nw = 0, old = 0, close = null, title = 'คนทัก', compact = false }) {
   const tiles = [
     ['ทักรวม', N(total), 'var(--ink)'],
     ['ใหม่', N(nw), 'var(--good)'],
     ['เก่า', N(old), 'var(--ink-3)'],
-    ['%ปิด', close == null ? '—' : Math.round(close) + '%', closeTone(close)],
+    ['%ปิด', close == null ? '—' : close > 100 ? '100%+' : Math.round(close) + '%', close > 100 ? 'var(--warn)' : closeTone(close)],
   ];
   const pad = compact ? 'py-1 px-0.5' : 'py-1.5 px-1';
   const vsz = compact ? 'text-[13px]' : 'text-base';
@@ -116,26 +120,6 @@ function PerfSkeleton({ bodyOnly = false }) {
   );
 }
 
-/* MultiSelect เล็ก (ช่องทาง) — DropdownMenu + checkbox (ว่าง = ทั้งหมด) */
-function MultiSelect({ label, options, value, onChange }) {
-  const toggle = (v) => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
-  const n = value.length;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className={'h-8 rounded-full font-normal gap-1' + (n ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
-          {label}{n > 0 && <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[11px]">{n}</Badge>}<Icon name="down" className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-52 overflow-auto">
-        <DropdownMenuLabel className="flex items-center justify-between py-1"><span>{label}</span>{n > 0 && <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={e => { e.preventDefault(); onChange([]); }}>ล้าง</button>}</DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {options.length === 0 && <div className="px-2 py-2 text-[13px] text-[var(--ink-4)]">ไม่มีข้อมูล</div>}
-        {options.map(o => <DropdownMenuCheckboxItem key={o} checked={value.includes(o)} onSelect={e => { e.preventDefault(); toggle(o); }}>{o || '(ไม่ระบุ)'}</DropdownMenuCheckboxItem>)}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 /* ---- aggregate ต่อเดือน ---- */
 /* ---- การ์ดเซลล์รายคน (โหมด default แท็บรายเดือน) — คลิกเปิด drawer เดิม ---- */
@@ -191,9 +175,9 @@ function SellerCard({ r, rank, share, onOpen, cmp }) {
           <span className="ml-1">· {cd.rateLabel}</span>
           {cmp?.comm != null && <> {dPill(cmp.comm)}</>}
         </div>
-      ) : (!noSeller && window.__canEdit !== false && (
+      ) : (!noSeller && busCanEdit() && (
         <button type="button" className="text-xs text-muted-foreground hover:text-[var(--accent-2)] text-left w-fit transition-colors"
-          onClick={(e) => { e.stopPropagation(); window.__goSection?.('settings', 'targets'); }}>+ ตั้งเป้า/คอม</button>
+          onClick={(e) => { e.stopPropagation(); goSection('settings', 'targets'); }}>+ ตั้งเป้า/คอม</button>
       ))}
       <div className="mt-auto pt-2.5 border-t border-border/50 flex items-center justify-between gap-2">
         <span className="text-[10px] text-muted-foreground">แนวโน้มรายวัน</span>
@@ -237,18 +221,36 @@ function DeepPanel({ r, onOpen }) {
   );
 }
 
+// PART 96/98.3: ปุ่มลัด CTA pill ลอย — สวย+ใช้ง่าย: gradient + เงาแบบแก้ว(glossy sheen) + เงาเรืองสี · ไอคอนในวงแหวนขยับตอน hover · กดยุบเบา · ป้ายชื่อชัด
+function QuickFab({ icon, label, onClick, tone }) {
+  const grad = tone === 'submit'
+    ? 'linear-gradient(135deg,#10b981,#0ea5e9)'   // ส่งยอด: emerald → sky
+    : 'linear-gradient(135deg,#6366f1,#a855f7)';  // คนทัก: indigo → violet
+  const glow = tone === 'submit' ? 'rgba(14,165,233,.5)' : 'rgba(124,58,237,.5)';
+  return (
+    <button type="button" onClick={onClick} aria-label={label}
+      className="group relative inline-flex w-[152px] items-center gap-2.5 overflow-hidden rounded-full py-3 pl-3.5 pr-5 text-[15px] font-semibold text-white ring-1 ring-white/25 transition-all duration-200 hover:-translate-y-0.5 hover:brightness-[1.06] active:translate-y-0 active:scale-[0.97]"
+      style={{ background: grad, boxShadow: `0 14px 34px -10px ${glow}, 0 4px 10px -4px rgba(0,0,0,.32)` }}>
+      {/* glossy sheen ด้านบน + ประกายวิ่งตอน hover */}
+      <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/30 to-transparent" />
+      <span aria-hidden className="pointer-events-none absolute -inset-y-2 -left-1/3 w-1/3 skew-x-[-20deg] bg-white/20 blur-md transition-transform duration-500 group-hover:translate-x-[360%]" />
+      <span className="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-white/25 ring-1 ring-white/30 transition-transform duration-200 group-hover:scale-110 group-active:scale-95 [&_svg]:size-4"><Icon name={icon} /></span>
+      <span className="relative">{label}</span>
+    </button>
+  );
+}
+
 export function SalePerfView() {
   useRenderCount('salePerf'); // Phase 0 baseline (dev-only)
-  const beat = useBeat(350);
   // แยกรายคน: admin เห็นทั้งทีม · เซลล์เห็นเฉพาะของตัวเอง — reactive useUser (ไม่ใช้ window.__isAdmin ที่ lag first render)
   const { user } = useUser();
   const canSeeAll = isAdmin(user);
   const mineSet = useMemo(() => new Set(myNamesOf(user)), [user]);
-  // PART 96: ปุ่มลัดคนทัก/ส่งยอด (popup) + เคารพสิทธิ์เดิม — ปุ่มส่งยอดซ่อนถ้าถูกล็อกหน้า "ส่งยอด/ข้อมูล" (catalog:data)
-  const [leadsOpen, setLeadsOpen] = useState(false);
-  const [submitOpen, setSubmitOpen] = useState(false);
-  const canEdit = typeof window !== 'undefined' && window.__canEdit !== false;
-  const dataLocked = (typeof window !== 'undefined' ? (window.__lockedSections || []) : []).some(x => x === 'catalog' || x === 'catalog:data');
+  // PART 96: ปุ่มลัดลอยมุมขวาล่าง (คนทัก/ส่งยอด) + เคารพสิทธิ์เดิม — ปุ่มส่งยอดซ่อนถ้าถูกล็อกหน้า "ส่งยอด/ข้อมูล" (catalog:data)
+  const [quick, setQuick] = useState(null); // popup ที่เปิด: null | 'leads' | 'submit' — ทีละอัน ไม่ซ้อน
+  const [cycleOpen, setCycleOpen] = useState(false); // ป๊อปอัพค่าคอมรอบตัด (26→25)
+  const canEdit = busCanEdit();
+  const dataLocked = lockedSections().some(x => x === 'catalog' || x === 'catalog:data');
   const [month, setMonth] = useState(curMonth());
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ orders: [], skus: [], funnel: [], receipts: [], prevFull: null });
@@ -301,6 +303,7 @@ export function SalePerfView() {
     } catch { /* ปล่อยว่าง — empty state */ }
     finally { setLoading(false); }
   }, [month]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดข้อมูล async (pattern ปกติ) — load เป็น useCallback ผูก [month]
   useEffect(() => { load(); }, [load]);
   // resolver maps (catalog/alias/override/version) — โหลดครั้งเดียว ไม่ผูกเดือน · ชื่อลาย resolve สดตามแคตตาล็อก
   useEffect(() => { let live = true; loadResolverMaps(supabase).then(m => { if (live) setMaps(m); }); return () => { live = false; }; }, []);
@@ -417,7 +420,7 @@ export function SalePerfView() {
     return { sales: os.reduce((s, o) => s + (Number(o.sales) || 0), 0), orders: os.length };
   }, [data.orders]);
 
-  if (beat) return <PerfSkeleton />;
+  // ไม่มี skeleton หลอกตอนเข้าหน้า — การโหลดจริงมี PerfSkeleton bodyOnly คุมอยู่ด้านล่าง
 
   const clearFilters = () => { setChannelF([]); setOnlyTargets(false); setHideNoSeller(false); };
 
@@ -459,18 +462,13 @@ export function SalePerfView() {
             {!canSeeAll && <Badge variant="outline" className="gap-1 text-[11px] text-muted-foreground"><Icon name="user" className="size-3" />เฉพาะของฉัน</Badge>}
             {loading && perf.rows.length > 0 && <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><span className="size-1.5 rounded-full bg-[var(--accent)] animate-pulse" />กำลังอัปเดต…</span>}
             <MonthPicker value={month} onChange={setMonth} max={curMonth()} className="h-8" />
+            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => setCycleOpen(true)} title="ค่าคอมตามรอบตัดจริง (เช่น 26 ก.ค. – 25 ส.ค.)"><Icon name="wallet" className="size-3.5" /> ค่าคอมรอบตัด</Button>
             {canSeeAll && <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหา" wrapperClassName="w-full sm:w-[180px] sm:ml-auto" className="h-8" />}
             <CollapsibleTrigger asChild>
               <Button variant="outline" size="sm" className={'h-8 gap-1.5' + (nFilters ? ' border-[var(--accent)] text-[var(--accent-2)]' : '')}>
                 <Icon name="filter" className="size-3.5" /> ตัวกรอง{nFilters > 0 && <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">{nFilters}</Badge>}
               </Button>
             </CollapsibleTrigger>
-            {/* PART 96: ปุ่มลัด — กรอกคนทัก+เสียงลูกค้า / ส่งยอด (อัปโหลดใบเสร็จ) เด้ง popup ที่นี่เลย
-                admin มี SearchInput ml-auto ดันขวาให้แล้ว · non-admin ไม่มี → ใส่ ml-auto เอง */}
-            <div className={'flex items-center gap-2' + (canSeeAll ? '' : ' sm:ml-auto')}>
-              {canEdit && <Button size="sm" className="h-8 gap-1.5" onClick={() => setLeadsOpen(true)}><Icon name="chat" className="size-3.5" /> คนทัก</Button>}
-              {!dataLocked && <Button size="sm" className="h-8 gap-1.5" onClick={() => setSubmitOpen(true)}><Icon name="upload" className="size-3.5" /> ส่งยอด</Button>}
-            </div>
           </div>
           {nFilters > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap mt-2">
@@ -565,9 +563,17 @@ export function SalePerfView() {
       {/* ป๊อปอัพ drill รายวัน (เซลล์+วัน / ทั้งวัน) — เปิดเซลล์เป็นหน้าเต็มแทน popup แล้ว */}
       {drillSheets}
 
-      {/* PART 96: popup ปุ่มลัด — โหลด lazy เฉพาะตอนเปิด */}
-      {leadsOpen && <Suspense fallback={null}><LeadsQuickSheet onClose={() => setLeadsOpen(false)} /></Suspense>}
-      {submitOpen && <Suspense fallback={null}><SubmitQuickSheet onClose={() => setSubmitOpen(false)} /></Suspense>}
+      {/* PART 96/98.2: ปุ่มลัดลอยมุมขวาล่าง (คนทัก/ส่งยอด) — portal ไป body ให้ fixed ยึด "มุมจอจริง"
+          (เดิม fixed ถูกผูกกับ .content ที่มี transform → ไปเกาะมุมการ์ด ทับเนื้อหา) · bottom offset เผื่อแถบเมนูล่างมือถือ */}
+      {(canEdit || !dataLocked) && typeof document !== 'undefined' && createPortal(
+        <div className="fixed bottom-24 right-4 z-40 flex flex-col items-end gap-3 sm:bottom-7 sm:right-7 print:hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {canEdit && <QuickFab icon="chat" label="คนทัก" onClick={() => setQuick('leads')} />}
+          {!dataLocked && <QuickFab icon="upload" label="ส่งยอด" tone="submit" onClick={() => setQuick('submit')} />}
+        </div>, document.body)}
+      {/* popup โหลด lazy + เปิดทีละอัน (ไม่ซ้อน) */}
+      {quick === 'leads' && <Suspense fallback={null}><LeadsQuickSheet onClose={() => setQuick(null)} /></Suspense>}
+      {quick === 'submit' && <Suspense fallback={null}><SubmitQuickSheet onClose={() => setQuick(null)} /></Suspense>}
+      {cycleOpen && <Suspense fallback={null}><CommissionCycleSheet onClose={() => setCycleOpen(false)} user={user} canSeeTeam={canSeeAll} /></Suspense>}
     </div>
   );
 }
@@ -625,7 +631,7 @@ function SpDetail({ sp, onDay, cmp }) {
               <table className="w-full">
                 <thead className="bg-muted/40 text-muted-foreground"><tr><th className="text-left px-2 py-1 font-medium">ช่องทาง</th><th className="text-right px-2 py-1 font-medium">ทัก</th><th className="text-right px-2 py-1 font-medium">ปิด</th><th className="text-right px-2 py-1 font-medium">%</th></tr></thead>
                 <tbody>{sp.channelClose.filter(c => c.leads > 0).map(c => (
-                  <tr key={c.ch} className="border-t"><td className="px-2 py-1"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.ch) }} />{c.ch}</span></td><td className="px-2 py-1 text-right">{N(c.leads)}</td><td className="px-2 py-1 text-right">{N(c.orders)}</td><td className="px-2 py-1 text-right font-semibold" style={{ color: closeTone(c.closeRate) }}>{c.closeRate == null ? '—' : Math.round(c.closeRate) + '%'}</td></tr>
+                  <tr key={c.ch} className="border-t"><td className="px-2 py-1"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full shrink-0" style={{ background: channelColor(c.ch) }} />{c.ch}</span></td><td className="px-2 py-1 text-right">{N(c.leads)}</td><td className="px-2 py-1 text-right">{N(c.orders)}</td><td className="px-2 py-1 text-right font-semibold" style={{ color: c.over ? 'var(--warn)' : closeTone(c.closeRate) }}>{c.closeRate == null ? '—' : c.over ? <span className="text-[10px] font-medium">คนทักไม่ครบ</span> : Math.round(c.closeRate) + '%'}</td></tr>
                 ))}</tbody>
               </table>
             </div>
@@ -658,9 +664,6 @@ function VoiceCard({ voice, seller }) {
     </div>
   );
 }
-// รวม voice จากแถว funnel (เผื่อมีหลายแถว/เซลล์) → object เดียว
-const pickVoice = (rows) => (rows || []).map(f => f.voice).find(v => v && (v.ask || v.praise || v.complaint)) || null;
-
 function DayDetail({ day, orders, skus, funnel, onPickCustomer }) {
   const [selSeller, setSelSeller] = useState(null);   // กรองรายเซลล์ (null = ทั้งวัน)
   const allOrds = (orders || []).filter(o => !isCancelled(o) && dayOf(o.order_date) === day)

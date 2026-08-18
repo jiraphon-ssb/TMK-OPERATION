@@ -33,5 +33,5 @@ grant select, insert, update, delete on
   public.tmk_brands, public.tmk_flows
   to anon, authenticated;
 
-alter table public.tmk_brands disable row level security;
-alter table public.tmk_flows  disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_brands disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_flows  disable row level security;

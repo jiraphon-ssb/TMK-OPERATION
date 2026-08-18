@@ -3,7 +3,7 @@
    ============================================================ */
 import { useState, useEffect } from 'react';
 import { TMK } from './data.js';
-import { B, P, Icon, Avatar, Ring, Skel, useBeat } from './components.jsx';
+import { B, P, Icon, Avatar, Ring } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { getToday, THAI_MONTHS, THAI_MONTHS_FULL, todayISO } from './lib/dateUtils.js';
 import { computeMonth } from './dataContext.jsx';
@@ -11,6 +11,7 @@ import { supabase } from './lib/supabaseClient.js';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { toast, openModal } from './lib/appBus.js';
 
 const THAI_WEEKDAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
@@ -248,32 +249,13 @@ function CampaignsCard({ go }) {
 }
 
 
-/* Skeleton หน้าหลัก: greeting + การ์ด todo + การ์ดสรุป */
-function HomeSkeleton() {
-  return (
-    <div className="content-inner rise">
-      <div className="row between wrap" style={{ marginBottom: 20, gap: 12 }}>
-        <div><Skel w={170} h={11} style={{ marginBottom: 10 }} /><Skel w={280} h={30} r={8} /></div>
-        <Skel w={90} h={24} r={20} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 14 }}>
-        {Array.from({ length: 4 }).map((_, i) => <Card key={i} className="p-[22px]"><div className="row" style={{ gap: 10, alignItems: 'flex-start' }}><Skel w={10} h={10} r="50%" style={{ marginTop: 4 }} /><div style={{ flex: 1 }}><Skel w="68%" h={13} /><Skel w="90%" h={9} style={{ marginTop: 9 }} /></div></div></Card>)}
-      </div>
-      <div className="row" style={{ gap: 14, marginTop: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <Card className="p-[22px]" style={{ flex: '2 1 320px' }}><Skel w={140} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 4 }).map((_, i) => <div key={i} className="row" style={{ gap: 10, padding: '8px 0' }}><Skel w={8} h={8} r="50%" /><Skel w={`${52 + i * 8}%`} h={12} /></div>)}</Card>
-        <Card className="p-[22px]" style={{ flex: '1 1 220px' }}><Skel w={120} h={13} style={{ marginBottom: 14 }} />{Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ marginBottom: 14 }}><Skel w="50%" h={9} /><Skel w="75%" h={18} style={{ marginTop: 6 }} /></div>)}</Card>
-      </div>
-    </div>
-  );
-}
 
 /* Skeleton ยอดขาย: การ์ด KPI + กราฟ */
 
 export function HomeView({ go }) {
   const { user } = useUser() || {};
   const userName = user?.name || 'มัง';
-  const beat = useBeat(350); // จังหวะ skeleton สั้นๆ ตอนเข้าหน้า ให้เหมือนหน้า Sale
-  if (beat) return <HomeSkeleton />;
+  // ข้อมูลอยู่ใน TMK singleton แล้ว = ไม่มีการโหลดจริง → render ทันที (เดิมมี skeleton หลอก 320-350ms)
 
   // โฟกัสวันนี้ — สิ่งที่ต้องจัดการ (หลังบ้าน ไม่มียอด/เป้า) + งานวันนี้
   const todayD = getToday().day;
@@ -308,7 +290,7 @@ export function HomeView({ go }) {
     const t = `สรุปยอด TMK — เมื่อวาน (${digest.label}): ${B(digest.yest.total)}`
       + (digest.top ? ` · ช่องเด่น ${digest.top.name} ${B(digest.top.rev)} (${P(digest.top.pct, 0)})` : '')
       + (digest.diff != null ? ` · เทียบเฉลี่ย 7 วัน ${digest.diff >= 0 ? '+' : ''}${digest.diff.toFixed(0)}%` : '');
-    try { navigator.clipboard.writeText(t); window.__toast && window.__toast('คัดลอกสรุปแล้ว — แปะส่งไลน์ได้เลย', 'success'); } catch { window.__toast && window.__toast('คัดลอกไม่สำเร็จ', 'error'); }
+    try { navigator.clipboard.writeText(t); toast('คัดลอกสรุปแล้ว — แปะส่งไลน์ได้เลย', 'success'); } catch { toast('คัดลอกไม่สำเร็จ', 'error'); }
   };
 
   return (
@@ -354,7 +336,7 @@ export function HomeView({ go }) {
                 const names = Array.isArray(t.responsible) ? t.responsible : String(t.responsible || '').split(',').map(s => s.trim()).filter(Boolean);
                 const assignees = names.map(n => { const st = (D.staff || []).find(s => s.name === n); const du = (D.duties || []).find(d => d.name === n); return { name: n, color: st?.color || du?.color || 'var(--ink-3)' }; });
                 return (
-                  <div key={t.id} onClick={() => window.__openModal && window.__openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
+                  <div key={t.id} onClick={() => openModal('task', { ...t, channel: Array.isArray(t.channel) ? t.channel : [t.channel] })}
                     className="flex items-center gap-3 px-2 py-2.5 -mx-1 rounded-lg hover:bg-muted/40 cursor-pointer transition-colors">
                     <span className="size-2 rounded-full shrink-0" style={{ background: stMap.c }} />
                     <span className="text-sm font-medium flex-1 truncate">{t.title}</span>
@@ -401,7 +383,7 @@ export function HomeView({ go }) {
           ) : (
             <div style={{ textAlign: 'center', padding: '14px 0', color: 'var(--ink-4)' }}>
               <div className="cap" style={{ marginBottom: 8 }}>{'ยังไม่มีข้อมูลเมื่อวาน'} ({digest.label})</div>
-              <Button variant="outline" size="sm" onClick={() => window.__openModal && window.__openModal('record', {})}>กรอกย้อนหลัง</Button>
+              <Button variant="outline" size="sm" onClick={() => openModal('record', {})}>กรอกย้อนหลัง</Button>
             </div>
           )}
           </CardContent>

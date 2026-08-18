@@ -67,7 +67,8 @@ export function useCardLabels(ref, enabled = true) {
     const mo = new MutationObserver(apply);
     mo.observe(root, { childList: true, subtree: true });
     return () => mo.disconnect();
-  }, []); // enabled/cards เป็น prop คงที่ตลอดอายุตาราง → deps [] คงเดิม (กัน deps-size warning · ไม่ต้อง re-subscribe)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- enabled/ref คงที่ตลอดอายุตาราง (prop คงที่ + ref object ไม่เปลี่ยน identity) → deps [] เจตนา: subscribe MutationObserver ครั้งเดียว ถ้าเติม deps จะ disconnect/observe ใหม่ทุกครั้งที่ตารางเปลี่ยนแถว
+  }, []);
 }
 
 // ---- wrapper .table-wrap ที่แปลงเป็นการ์ดบนมือถือ (drop-in แทน <div className="table-wrap">) ----

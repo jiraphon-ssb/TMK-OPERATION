@@ -31,4 +31,4 @@ create index if not exists tmk_mp_customers_cadence_idx  on public.tmk_mp_custom
 create index if not exists tmk_mp_customers_province_idx on public.tmk_mp_customers(province);
 
 grant select, insert, update, delete on public.tmk_mp_customers to anon, authenticated;
-alter table public.tmk_mp_customers disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_mp_customers disable row level security;

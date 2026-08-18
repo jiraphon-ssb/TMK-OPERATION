@@ -37,5 +37,5 @@ create table if not exists public.tmk_sale_receipts (
 create index if not exists idx_sale_receipts_uploader on public.tmk_sale_receipts (uploader_email, order_month);
 create index if not exists idx_sale_receipts_month    on public.tmk_sale_receipts (order_month);
 
-alter table public.tmk_sale_receipts disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sale_receipts disable row level security;
 grant select, insert, update, delete on public.tmk_sale_receipts to anon, authenticated;

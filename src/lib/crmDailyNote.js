@@ -7,42 +7,13 @@
    - buildCrmDailyReport() = ประกอบข้อความรายงานส่ง LINE (format กลางทั้งทีม)
    ============================================================ */
 
+// blankNoteData + normNoteData = สูตร canonical ร่วมกับ edge (daily-sale-report)
+//   → นิยามอยู่ที่ _shared/saleFormulas.js (แหล่งเดียว กัน drift) แล้ว re-export ต่อ (P2-4)
+import { blankNoteData, normNoteData } from '../../supabase/functions/_shared/saleFormulas.js';
+export { blankNoteData, normNoteData };
+
 const n = (v) => Number(v) || 0;
 const baht = (v) => n(v).toLocaleString('th-TH', { maximumFractionDigits: 2 });
-
-/** โครงข้อมูลเปล่า — 3 กลุ่มโทร + อัพเซลล์ + แถม/วันเกิด + เสียงลูกค้า */
-export function blankNoteData() {
-  return {
-    calls: {
-      d0: { total: 0, answered: 0 },   // 0DAY (โทรวันปิดการขาย)
-      d5: { total: 0, answered: 0 },   // 5DAY (ตามหลังปิด 5 วัน)
-      rep: { total: 0, answered: 0 },  // Repurchase (ชวนซื้อซ้ำ)
-    },
-    upsellOrders: 0, upsellBaht: 0,
-    freebieOrders: 0,   // ออเดอร์แถม
-    birthdayOrders: 0,  // โปรวันเกิด
-    ask: '', praise: '', complaint: '',  // ถาม / ชม / ติ
-    extra: '',          // หมายเหตุเพิ่มเติม (รับโน้ตข้อความเก่าก่อนมีฟอร์มมาเก็บไว้ที่นี่ด้วย)
-  };
-}
-
-/** เติมช่องที่ขาดให้ครบโครง (data เก่า/บางส่วน → ไม่พัง) */
-export function normNoteData(d) {
-  const b = blankNoteData();
-  if (!d || typeof d !== 'object') return b;
-  const c = d.calls || {};
-  return {
-    calls: {
-      d0: { total: n(c.d0?.total), answered: n(c.d0?.answered) },
-      d5: { total: n(c.d5?.total), answered: n(c.d5?.answered) },
-      rep: { total: n(c.rep?.total), answered: n(c.rep?.answered) },
-    },
-    upsellOrders: n(d.upsellOrders), upsellBaht: n(d.upsellBaht),
-    freebieOrders: n(d.freebieOrders), birthdayOrders: n(d.birthdayOrders),
-    ask: String(d.ask || ''), praise: String(d.praise || ''), complaint: String(d.complaint || ''),
-    extra: String(d.extra || ''),
-  };
-}
 
 /** true ถ้ายังไม่กรอกอะไรเลย (ทุกช่องว่าง/ศูนย์) — ใช้ตัดสินใจลบแถวเมื่อเคลียร์ */
 export function isNoteDataEmpty(d) {

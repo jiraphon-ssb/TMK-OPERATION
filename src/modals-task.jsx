@@ -4,6 +4,7 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { supabase } from './lib/supabaseClient.js';
 import { rtDiag } from './realtime/diagnostics.js';
 import { reduceCommentList } from './lib/commentThread.js';
+import { renderCommentHtml } from './lib/commentHtml.js';
 import { parseTaskDate, todayISO, thaiDate } from './lib/dateUtils.js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Checkbox } from '@/components/ui/checkbox';
 import { logAudit } from './lib/audit.js';
 import { Modal, guardClose, uid, MD } from './modals-core.jsx';
+import { toast, confirm, setFlow as appSetFlow, goSection, userEmail } from './lib/appBus.js';
 
 // การ์ดส่วนฟอร์ม (หัวไอคอน + กรอบขาว + shadow) — ให้ลุคเหมือน popup ออเดอร์ (FormSection) · PART 81.7
 function Section({ icon, title, children, className = '' }) {
@@ -25,6 +27,11 @@ function Section({ icon, title, children, className = '' }) {
       {children}
     </div>
   );
+}
+
+// ปุ่มแถบเครื่องมือของ composer คอมเมนต์ — ประกาศระดับโมดูล (เดิมนิยามในตัว TaskComments → remount ทุก render)
+function TBtn({ onClick, title, children }) {
+  return <button type="button" onMouseDown={e => e.preventDefault()} onClick={onClick} title={title} className="size-7 grid place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground text-sm">{children}</button>;
 }
 
 function TaskField({ icon, label, children, wide = false }) {
@@ -78,7 +85,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   const brandChoices = brandIdList.map(id => (MD.brands || []).find(b => b.id === id)).filter(Boolean);
   const toggleBrand = (id) => set('brandIds', (f.brandIds || []).includes(id) ? f.brandIds.filter(x => x !== id) : [...(f.brandIds || []), id]);
   const statusChoices = (curFlow?.statuses?.length) ? curFlow.statuses : (MD.kanbanMeta || []);
-  const goFlowSettings = () => { if (curFlow?.id && curFlow.id !== '__general__') { try { localStorage.setItem('tmk-flow', curFlow.id); } catch { /* ignore */ } window.__setFlow?.(curFlow.id); } window.__goSection?.('flows', 'settings'); };
+  const goFlowSettings = () => { if (curFlow?.id && curFlow.id !== '__general__') { try { localStorage.setItem('tmk-flow', curFlow.id); } catch { /* ignore */ } appSetFlow(curFlow.id); } goSection('flows', 'settings'); };
   const [touched, setTouched] = useState(false);
   const set = (k, v) => { setTouched(true); setF(p => ({ ...p, [k]: v })); };
   const toggle = (k, v) => { setTouched(true); setF(p => {
@@ -90,7 +97,7 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
   const taskId = useMemo(() => data?.id || uid('tn'), [data?.id]); // id เดียวต่อการเปิดฟอร์ม (กดซ้ำไม่ได้ id ใหม่)
   const close = () => guardClose(touched, onClose);
   const submit = () => { if (!valid || submitting) return; setSubmitting(true); onSubmit({ ...f, id: taskId }); };
-  const doDelete = async () => { if (!(edit && onDelete)) return; if (await window.__confirm?.({ title: 'ลบงาน', body: `ลบงาน "${data.title}"?\nงานจะถูกย้ายไปถังขยะ (กู้คืนได้)`, danger: true, confirmText: 'ลบ' })) onDelete(data); };
+  const doDelete = async () => { if (!(edit && onDelete)) return; if (await confirm({ title: 'ลบงาน', body: `ลบงาน "${data.title}"?\nงานจะถูกย้ายไปถังขยะ (กู้คืนได้)`, danger: true, confirmText: 'ลบ' })) onDelete(data); };
   const flowObj = f.flow_id ? flowOptions.find(fl => fl.id === f.flow_id) : genCfg;
   const setFlow = (v) => {
     const nv = v === '__general' ? '' : v;
@@ -292,19 +299,9 @@ export function TaskModal({ data, onClose, onSubmit, onDelete }) {
 }
 
 /* ---------- คอมเมนต์ในงาน (E2 · ฟีล ClickUp) — แผงขวา · realtime · markdown · @mention · แก้/ลบของตัวเอง ---------- */
-const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-function renderCommentHtml(text) {
-  let h = escHtml(text);
-  h = h.replace(/`([^`\n]+)`/g, '<code class="px-1 py-0.5 rounded bg-muted text-[0.85em] font-mono">$1</code>');
-  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-  h = h.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-  h = h.replace(/(^|[\s(])_([^_\n]+)_/g, '$1<em>$2</em>');
-  h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary underline">$1</a>');
-  h = h.replace(/(^|\s)(@[฀-๿A-Za-z0-9_.-]+)/g, '$1<span class="text-primary font-medium">$2</span>');
-  return h.replace(/\n/g, '<br/>');
-}
+// renderCommentHtml ย้ายไป ./lib/commentHtml.js (pure + testable + escape " ' กัน XSS)
 function TaskComments({ taskId, flow, onUnavailable }) {
-  const meEmail = (typeof window !== 'undefined' && window.__userEmail) || '';
+  const meEmail = userEmail();
   const [list, setList] = useState([]);
   const [body, setBody] = useState('');
   const [unavailable, setUnavailable] = useState(false);
@@ -332,6 +329,7 @@ function TaskComments({ taskId, flow, onUnavailable }) {
     setList(Array.isArray(data) ? data : []);
   };
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดคอมเมนต์แบบ async (setState เกิดหลัง await) = pattern ปกติ
     loadComments();
     if (!supabase) return;
     let ch = null;
@@ -363,6 +361,7 @@ function TaskComments({ taskId, flow, onUnavailable }) {
   const initials = (email) => (nameOf(email) || '?').slice(0, 2).toUpperCase();
   const timeAgo = (iso) => {
     if (!iso) return '';
+    // eslint-disable-next-line react-hooks/purity -- ป้าย "x นาทีที่แล้ว" ต้องอิงเวลาปัจจุบันตอน render (ย้ายไป effect = เวลาค้าง/เพี้ยน)
     const sec = (Date.now() - new Date(iso).getTime()) / 1000;
     if (sec < 60) return 'เมื่อสักครู่';
     if (sec < 3600) return Math.floor(sec / 60) + ' นาทีที่แล้ว';
@@ -418,7 +417,7 @@ function TaskComments({ taskId, flow, onUnavailable }) {
     let { error } = await supabase.from('tmk_task_comments').insert(row);
     if (error && /parent_id/.test(error.message || '')) { delete row.parent_id; ({ error } = await supabase.from('tmk_task_comments').insert(row)); } // graceful: ยังไม่ migrate เธรด
     setBusy(false);
-    if (error) { setUnavailable(true); onUnavailable?.(); window.__toast?.('ส่งคอมเมนต์ไม่สำเร็จ', 'warn'); return; }
+    if (error) { setUnavailable(true); onUnavailable?.(); toast('ส่งคอมเมนต์ไม่สำเร็จ', 'warn'); return; }
     setBody(''); setMentionActive(false); setReplyTo(null);
     setList(p => [...p, { ...row, created_at: new Date().toISOString() }]);
     const _t = (MD.tasks || []).find(t => t.id === taskId);
@@ -442,26 +441,25 @@ function TaskComments({ taskId, flow, onUnavailable }) {
     }
     setList(p => p.map(x => x.id === c.id ? { ...x, reactions: next } : x)); // optimistic
     const { error } = await supabase.from('tmk_task_comments').update({ reactions: next }).eq('id', c.id);
-    if (error) { window.__toast?.('รีแอกชันไม่ได้ — ยังไม่ได้รัน migration 20260801', 'warn'); loadComments(); }
+    if (error) { toast('รีแอกชันไม่ได้ — ยังไม่ได้รัน migration 20260801', 'warn'); loadComments(); }
   };
   const saveEdit = async (id) => {
     const text = editText.trim(); if (!text) return;
     const { error } = await supabase.from('tmk_task_comments').update({ text, updated_at: new Date().toISOString() }).eq('id', id);
-    if (error) { window.__toast?.('แก้ไขไม่สำเร็จ', 'error'); return; }
+    if (error) { toast('แก้ไขไม่สำเร็จ', 'error'); return; }
     setList(p => p.map(c => c.id === id ? { ...c, text, updated_at: new Date().toISOString() } : c)); // อัปเดต updated_at ด้วย → ป้าย "แก้ไขแล้ว" ขึ้นทันที
     setEditId(null); setEditText('');
   };
   const del = async (id) => {
-    if (!await window.__confirm?.({ title: 'ลบคอมเมนต์', body: 'ลบคอมเมนต์นี้?', danger: true, confirmText: 'ลบ' })) return;
+    if (!await confirm({ title: 'ลบคอมเมนต์', body: 'ลบคอมเมนต์นี้?', danger: true, confirmText: 'ลบ' })) return;
     const { error } = await supabase.from('tmk_task_comments').delete().eq('id', id);
-    if (error) { window.__toast?.('ลบไม่สำเร็จ', 'error'); return; }
+    if (error) { toast('ลบไม่สำเร็จ', 'error'); return; }
     setList(p => p.filter(c => c.id !== id));
     const _t = (MD.tasks || []).find(t => t.id === taskId);
     logAudit({ action: 'delete', entityType: 'comment', entityName: _t?.title || 'งาน', summary: 'ลบคอมเมนต์', flowId: flow?.scopeId ?? flow?.id ?? '' });
   };
 
   if (unavailable) return null;
-  const TBtn = ({ onClick, title, children }) => <button type="button" onMouseDown={e => e.preventDefault()} onClick={onClick} title={title} className="size-7 grid place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground text-sm">{children}</button>;
 
   // เธรด: top-level + ตอบกลับต่อ parent · ป้าย "แก้ไขแล้ว" · รีแอกชัน
   const EMOJIS = ['👍', '❤️', '😄', '🎉', '👀', '✅'];

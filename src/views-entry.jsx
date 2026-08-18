@@ -3,13 +3,14 @@
    ============================================================ */
 import { useState, useRef, useLayoutEffect } from 'react';
 import { TMK } from './data.js';
-import { B, Bk, Bc, N, Icon, Ring, useBeat, PageSkeleton } from './components.jsx';
+import { B, Bk, Bc, N, Icon, Ring } from './components.jsx';
 import { getToday, THAI_MONTHS as MONTH_SHORT, THAI_MONTHS_FULL as MONTH_FULL } from './lib/dateUtils.js';
 import { adCampaignInMonth, computeMonth } from './dataContext.jsx';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { supabase } from './lib/supabaseClient.js';
 import { logAudit } from './lib/audit.js';
+import { openModal, toast, confirm, refresh, canEdit as canEditFn } from './lib/appBus.js';
 import { CardTable } from './components/DataTableParts.jsx';
 
 const DD = TMK;
@@ -222,7 +223,7 @@ function QuarterView({ year }) {
 
               {d.status === 'เตรียมการ' && (
                 <Button variant="outline" size="sm" style={{ marginTop: 8, width: '100%' }}
-                  onClick={() => window.__openModal('monthlyTarget', { month: mIdx, year })}>
+                  onClick={() => openModal('monthlyTarget', { month: mIdx, year })}>
                   ตั้งเป้า
                 </Button>
               )}
@@ -243,7 +244,6 @@ function QuarterView({ year }) {
 
 /* ====================  ENTRY VIEW ROUTER  ==================== */
 export function EntryView() {
-  const beat = useBeat();
   const { NOW_MONTH, NOW_YEAR } = _now();
   const [month, setMonth] = useState(NOW_MONTH);
   const [year, setYear]   = useState(NOW_YEAR);
@@ -253,7 +253,7 @@ export function EntryView() {
   const monthLabel = MONTH_SHORT[month];
   const monthFull  = MONTH_FULL[month];
 
-  if (beat) return <PageSkeleton />;
+  // ข้อมูลอยู่ใน TMK singleton แล้ว = ไม่มีการโหลดจริง → render ทันที (เดิมมี skeleton หลอก 320-350ms)
   return (
     <>
       <div className="content-inner">
@@ -292,7 +292,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
   const { TODAY } = _now();
   const { isCurrent, isPast, isFuture } = mode;
   const md = computeMonth(month, year);
-  const canEdit = !!window.__canEdit;
+  const canEdit = canEditFn();
 
   // วัดความสูงปฏิทิน → ให้การ์ด "บันทึกรายวัน" สูงเท่ากัน (ตารางเลื่อนข้างใน) เฉพาะจอกว้าง
   const calRef = useRef(null);
@@ -355,27 +355,27 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
   const hasData = hasMonthlyTotal || hasDailyData || (selRow && selRow.target > 0);
   const entryMode = (selMeta.entryMode) || (hasMonthlyTotal ? 'monthly' : 'daily');
   const switchEntryMode = async (toMode) => {
-    if (!canEdit) { window.__toast?.('ต้องมีสิทธิ์แก้ไขก่อน', 'error'); return; }
+    if (!canEdit) { toast('ต้องมีสิทธิ์แก้ไขก่อน', 'error'); return; }
     if (toMode === entryMode) return;
     const warn = toMode === 'daily'
       ? `เปลี่ยนเป็น "รายวัน"?\n\nระบบจะใช้ผลรวมจากการกรอกรายวันแทนยอดรวมรายเดือน\nยอดรวมเดิมยังเก็บไว้ — สลับกลับได้`
       : `เปลี่ยนเป็น "รายเดือน"?\n\nระบบจะใช้ยอดรวมรายเดือนแทนผลรวมรายวัน\nข้อมูลรายวันยังอยู่ครบ — สลับกลับได้`;
-    if (!await window.__confirm?.({ title: 'เปลี่ยนโหมดกรอก', body: warn, confirmText: 'เปลี่ยน' })) return;
+    if (!await confirm({ title: 'เปลี่ยนโหมดกรอก', body: warn, confirmText: 'เปลี่ยน' })) return;
     try {
       const newMeta = { ...selMeta, entryMode: toMode };
       const { data: upd, error } = await supabase.from('tmk_monthly_history').update({ meta: newMeta }).eq('month', month + 1).eq('year', year).select('id');
       if (error) throw error;
-      if (!upd || upd.length === 0) { window.__toast?.('ยังไม่มีข้อมูลเดือนนี้ — ตั้งเป้า/กรอกยอดก่อนเปลี่ยนโหมด', 'warn'); return; }
+      if (!upd || upd.length === 0) { toast('ยังไม่มีข้อมูลเดือนนี้ — ตั้งเป้า/กรอกยอดก่อนเปลี่ยนโหมด', 'warn'); return; }
       logAudit({
         action: 'update', entityType: 'monthly', entityName: `${monthLabel} ${year}`,
         summary: `เปลี่ยนโหมดข้อมูลเดือน${monthLabel} ${year} → ${toMode === 'daily' ? 'รายวัน' : 'รายเดือน'}`,
         changes: [{ label: 'โหมดข้อมูล', from: entryMode === 'daily' ? 'รายวัน' : 'รายเดือน', to: toMode === 'daily' ? 'รายวัน' : 'รายเดือน' }],
         data: { month: month + 1, year, from: entryMode, to: toMode },
       });
-      window.__refresh?.(['tmk_monthly_history']);
-      window.__toast?.('เปลี่ยนโหมดข้อมูลแล้ว', 'success');
+      refresh(['tmk_monthly_history']);
+      toast('เปลี่ยนโหมดข้อมูลแล้ว', 'success');
     } catch (e) {
-      window.__toast?.('เปลี่ยนโหมดไม่สำเร็จ: ' + e.message, 'error');
+      toast('เปลี่ยนโหมดไม่สำเร็จ: ' + e.message, 'error');
     }
   };
   const modeToggle = (
@@ -401,9 +401,9 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
   }
   const firePrimary = () => {
     if (primaryDisabled) return;
-    if (primaryModal === 'record') { if (primaryDate) window.__openModal('record', { date: primaryDate }); }
-    else if (primaryModal === 'monthlyTarget') window.__openModal('monthlyTarget', { month, year });
-    else if (primaryModal === 'historical') window.__openModal('historical', { year });
+    if (primaryModal === 'record') { if (primaryDate) openModal('record', { date: primaryDate }); }
+    else if (primaryModal === 'monthlyTarget') openModal('monthlyTarget', { month, year });
+    else if (primaryModal === 'historical') openModal('historical', { year });
   };
 
   const _firstDow = new Date(year - 543, month, 1).getDay();
@@ -438,7 +438,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
                 </tr></thead>
                 <tbody>
                   {dailyRows.map(r => (
-                    <tr key={r.day} onClick={() => canEdit && window.__openModal('record', { date: isoFor(r.day) })} style={{ cursor: canEdit ? 'pointer' : 'default', borderTop: '1px solid var(--line-2)' }} title={canEdit ? 'กดเพื่อแก้ไข' : ''}>
+                    <tr key={r.day} onClick={() => canEdit && openModal('record', { date: isoFor(r.day) })} style={{ cursor: canEdit ? 'pointer' : 'default', borderTop: '1px solid var(--line-2)' }} title={canEdit ? 'กดเพื่อแก้ไข' : ''}>
                       <td className="cell-title" style={{ padding: '6px 8px', fontWeight: 600 }}>{r.day} {monthLabel}</td>
                       <td className="num" style={{ textAlign: 'right', padding: '6px 8px' }}>{B(r.rev)}</td>
                       <td className="num" style={{ textAlign: 'right', padding: '6px 8px' }}>{r.ord || '—'}</td>
@@ -468,7 +468,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
             const today = isCurrent && d === TODAY;
             const disabled = future || !canEdit;
             return (
-              <button key={d} disabled={disabled} onClick={() => window.__openModal('record', { date: isoFor(d) })}
+              <button key={d} disabled={disabled} onClick={() => openModal('record', { date: isoFor(d) })}
                 title={ent ? `วันที่ ${d} — ${B(rev)}` : future ? `วันที่ ${d} — ยังไม่ถึง` : `วันที่ ${d} — ยังไม่กรอก`}
                 style={{ position: 'relative', aspectRatio: '1', minHeight: 38, borderRadius: 6, border: today ? '2px solid var(--accent)' : '1px solid var(--line)', background: ent ? 'var(--good-soft)' : 'var(--surface)', cursor: disabled ? 'default' : 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, padding: '2px 1px', opacity: future ? 0.4 : 1, overflow: 'hidden' }}>
                 {/* ✓ มุมขวาบน — สัญลักษณ์เสริมจากสี (ช่วยตาบอดสี) */}
@@ -489,7 +489,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
     <div className="card">
       <div className="card-head row between" style={{ alignItems: 'center' }}>
         <div><div className="eyebrow">เป้าหมาย & งบ ที่ตั้งไว้</div><div className="h3">เดือน{monthLabel} {year}</div></div>
-        {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('monthlyTarget', { month, year })}><Icon name="pencil" /> {TARGET > 0 ? 'แก้ไข' : 'ตั้งค่า'}</Button>}
+        {canEdit && <Button variant="outline" size="sm" onClick={() => openModal('monthlyTarget', { month, year })}><Icon name="pencil" /> {TARGET > 0 ? 'แก้ไข' : 'ตั้งค่า'}</Button>}
       </div>
       <div style={{ padding: '0 16px 16px' }}>
         <div className="grid g2" style={{ gap: 10 }}>
@@ -549,7 +549,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
     <div className="card">
       <div className="card-head row between" style={{ alignItems: 'center' }}>
         <div><div className="eyebrow">แคมเปญแอด</div><div className="h3">{monthAdCamps.length > 0 ? `${monthAdCamps.length} แคมเปญ` : `เดือน${monthLabel}`}</div></div>
-        {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('adCampaign')}><Icon name="plus" /> เพิ่ม</Button>}
+        {canEdit && <Button variant="outline" size="sm" onClick={() => openModal('adCampaign')}><Icon name="plus" /> เพิ่ม</Button>}
       </div>
       <div style={{ padding: '0 16px 16px' }}>
         {monthAdCamps.length === 0
@@ -558,7 +558,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
             <div key={st} style={{ marginBottom: 8 }}>
               <div className="cap" style={{ color: MO_AD_ST[st].c, fontWeight: 700, marginBottom: 4 }}>{MO_AD_ST[st].l} ({monthAdCamps.filter(c => (c.status || 'live') === st).length})</div>
               {monthAdCamps.filter(c => (c.status || 'live') === st).map(c => (
-                <button key={c.id} onClick={() => window.__openModal('adCampaign', c)} title="แก้ไขแคมเปญแอด"
+                <button key={c.id} onClick={() => openModal('adCampaign', c)} title="แก้ไขแคมเปญแอด"
                   className="row between" style={{ width: '100%', gap: 8, padding: '6px 8px', marginBottom: 4, border: '1px solid var(--line)', borderRadius: 'var(--r-sm)', background: 'var(--surface)', cursor: 'pointer', textAlign: 'left' }}>
                   <div className="row" style={{ gap: 8, minWidth: 0 }}>
                     <span style={{ width: 8, height: 8, borderRadius: '50%', background: MO_AD_ST[st].c, flexShrink: 0 }}></span>
@@ -587,14 +587,14 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
             <span style={_bubble}><Icon name="users" /></span>
             <div style={{ minWidth: 0 }}><div className="sm" style={{ fontWeight: 600 }}>กลุ่มลูกค้า</div><div className="cap" style={{ color: 'var(--ink-3)' }}>{segCount > 0 ? `${segCount} กลุ่ม` : 'ยังไม่ได้อัปเดต'}</div></div>
           </div>
-          {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('customerSegment')}>จัดการ</Button>}
+          {canEdit && <Button variant="outline" size="sm" onClick={() => openModal('customerSegment')}>จัดการ</Button>}
         </div>
         <div className="row between" style={{ padding: '10px 4px', gap: 12 }}>
           <div className="row" style={{ gap: 10, minWidth: 0 }}>
             <span style={_bubble}><Icon name="clock" /></span>
             <div style={{ minWidth: 0 }}><div className="sm" style={{ fontWeight: 600 }}>ข้อมูลย้อนหลัง</div><div className="cap" style={{ color: 'var(--ink-3)' }}>กรอกแล้ว {monthsFilled}/12 เดือน</div></div>
           </div>
-          {canEdit && <Button variant="outline" size="sm" onClick={() => window.__openModal('historical', { year })}>กรอก</Button>}
+          {canEdit && <Button variant="outline" size="sm" onClick={() => openModal('historical', { year })}>กรอก</Button>}
         </div>
       </div>
     </div>
@@ -607,7 +607,7 @@ function MonthlyOverview({ mode, monthLabel, monthFull, month, year }) {
         <div className="card" style={{ padding: 24, background: 'var(--accent-soft)', borderLeft: '4px solid var(--accent)' }}>
           <div className="h2" style={{ marginBottom: 4 }}>เตรียมเดือน{monthFull} {year}</div>
           <div className="sm" style={{ color: 'var(--ink-2)', marginBottom: 16 }}>ตั้งเป้าหมาย งบ และแคมเปญล่วงหน้าได้เลย — พอถึงเดือนนี้ค่อยเริ่มกรอกยอดรายวัน</div>
-          {canEdit && <Button style={{ width: '100%', justifyContent: 'center', padding: 12 }} onClick={() => window.__openModal('monthlyTarget', { month, year })}><Icon name="target" /> ตั้งเป้า & งบล่วงหน้า</Button>}
+          {canEdit && <Button style={{ width: '100%', justifyContent: 'center', padding: 12 }} onClick={() => openModal('monthlyTarget', { month, year })}><Icon name="target" /> ตั้งเป้า & งบล่วงหน้า</Button>}
         </div>
         {targetCard}
         <div className="grid g2" style={{ gap: 14, alignItems: 'start' }}>{campaignCard}{extrasCard}</div>

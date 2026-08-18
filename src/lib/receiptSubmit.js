@@ -555,13 +555,21 @@ const rpcMissing = (err) => /PGRST202|42883|does not exist|Could not find the fu
 export async function deleteOrders(orderNos, { source = '', overrideIds = [] } = {}) {
   const nos = [...new Set((orderNos || []).map(n => String(n || '').trim()).filter(Boolean))];
   if (!nos.length) return;
+  // 🛡️ ตารางร่วม (shipnity + มาร์เก็ตเพลส อยู่ตารางเดียวกัน แยกด้วย source)
+  //    ถ้า source ว่าง เงื่อนไข `if (source)` ข้างล่างจะไม่ทำงาน → ลบ "ทุก source" ที่มี order_no ตรงกัน
+  //    ตรงกับกติกาใน CLAUDE.md "ห้าม TRUNCATE ตารางร่วม ใช้ DELETE WHERE source=..."
+  if (!source) throw new Error('deleteOrders: ต้องระบุ source (ตารางร่วม — ลบโดยไม่ระบุ source จะลบข้ามช่องทาง)');
   const rpc = await supabase.rpc('tmk_delete_orders', { p_order_nos: nos, p_source: source || '', p_override_ids: overrideIds || [] });
   if (rpc.error) {
     if (!rpcMissing(rpc.error)) console.warn('tmk_delete_orders RPC ล้มเหลว → fallback batch:', rpc.error?.message || rpc.error);
     for (const ids of chunk(nos, 150)) {
-      const skq = supabase.from('tmk_mp_skus').delete().in('order_no', ids); if (source) skq.eq('source', source); await skq;
+      // ⚠️ เช็ค error ของการลบ "บรรทัดลาย (skus)" ด้วย — เดิม `await skq;` ทิ้งผลลัพธ์
+      //    supabase ไม่ throw แต่คืน { data, error } → ถ้าลบ skus ล้ม (RLS/เน็ต) โค้ดเดินต่อไปลบ order สำเร็จ
+      //    ผลคือ order หายแต่บรรทัดลายค้าง → รายงานลาย/สี/ไซซ์ยังนับยอดนั้น แต่ยอดระดับออเดอร์หายไป = ตัวเลขไม่ตรงแบบเงียบ
+      const skq = supabase.from('tmk_mp_skus').delete().in('order_no', ids); if (source) skq.eq('source', source);
+      { const { error } = await skq; if (error) throw error; }
       const orq = supabase.from('tmk_mp_orders').delete().in('order_no', ids); if (source) orq.eq('source', source);
-      const { error } = await orq; if (error) throw error;
+      { const { error } = await orq; if (error) throw error; }
     }
     for (const ids of chunk(overrideIds || [], 150)) { try { await supabase.from('tmk_order_overrides').delete().in('order_id', ids); } catch { /* optional */ } }
     for (const ids of chunk(nos, 150)) { try { await supabase.from('tmk_sku_overrides').delete().in('order_no', ids); } catch { /* optional — กัน override ลายบรรทัดค้างเป็น orphan */ } }

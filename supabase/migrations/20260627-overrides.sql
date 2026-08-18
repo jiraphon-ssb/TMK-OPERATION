@@ -36,5 +36,5 @@ create index if not exists tmk_sku_ov_ord_idx   on public.tmk_sku_overrides(orde
 -- grants + ปิด RLS เหมือนตาราง tmk_* อื่น (UI-gate, anon เข้าถึงได้)
 grant select, insert, update, delete on public.tmk_order_overrides to anon, authenticated;
 grant select, insert, update, delete on public.tmk_sku_overrides   to anon, authenticated;
-alter table public.tmk_order_overrides disable row level security;
-alter table public.tmk_sku_overrides   disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_order_overrides disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_sku_overrides   disable row level security;

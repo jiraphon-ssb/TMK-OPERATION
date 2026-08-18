@@ -12,6 +12,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { logAudit } from './lib/audit.js';
 import { Modal, toast, nn, guardClose, uid, saveRow, MD } from './modals-core.jsx';
+import { refresh } from './lib/appBus.js';
 
 export function CampaignModal({ data, onClose }) {
   const palette = ['#0a5aa0', '#ee6a3a', '#6b5ce0', '#2f9e6e', '#c08a3e', '#4a8be0'];
@@ -188,7 +189,7 @@ export function MonthlyTargetModal({ data, onClose }) {
         changes: tgtChanges.length ? tgtChanges : null,
         data: { month: monthIdx + 1, year, target: nn(total), meta },
       });
-      window.__refresh?.(['tmk_monthly_history']);
+      refresh(['tmk_monthly_history']);
       toast('บันทึกเป้าหมายเรียบร้อย', 'success');
       onClose();
     } catch (err) {
@@ -413,7 +414,7 @@ export function CustomerSegmentModal({ onClose }) {
       const { error } = await supabase.from('tmk_customer_segments').upsert(rows);
       if (error) throw error;
       logAudit({ action: 'update', entityType: 'segment', entityName: 'กลุ่มลูกค้า', summary: 'อัปเดตกลุ่มลูกค้า (RFM)' });
-      window.__refresh?.(['tmk_customer_segments']);
+      refresh(['tmk_customer_segments']);
       toast('บันทึกกลุ่มลูกค้าเรียบร้อย', 'success');
       onClose();
     } catch (err) {

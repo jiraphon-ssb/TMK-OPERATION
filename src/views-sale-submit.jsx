@@ -8,12 +8,12 @@
    - หลังส่ง: แก้ (เจ้าของใบ = วันเดียวกัน · แอดมิน = เสมอ) / ยกเลิกใบ + ประวัติ
    ============================================================ */
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Icon, N, useBeat, PageSkeleton } from './components.jsx';
+import { Icon, N } from './components.jsx';
 import { useUser } from './userContext.jsx';
 import { useData } from './dataContext.jsx';
 import { isAdmin } from './lib/roleAccess.js';
 import { supabase } from './lib/supabaseClient.js';
-import { SideSheet, Modal } from './modals-core.jsx';
+import { SideSheet, Modal, confirmDiscard } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
 import { funnelPlatforms, funnelBreakdown, funnelNewOld, funnelTotal, getDateBounds } from './lib/saleData.js';
 import { presetRange } from './lib/saleTime.js';
@@ -28,26 +28,24 @@ import {
   isMissingReceiptTable, loadReceiptMatcher, enrichReceiptLine,
 } from './lib/receiptSubmit.js';
 import { deriveReceiptRowStatus } from './lib/receiptValidate.js';
-import { fetchTargets, commissionFor } from './lib/targets.js';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { HealthHub } from './views-health.jsx';
+import { SearchInput } from '@/components/ui/search-input';
+import { MonthPicker } from './components/MonthPicker.jsx';
+import { EmptyState } from './components/EmptyState.jsx';
 import { FormSection, CustomerTypeChips, PriceBreakdown } from './saleWidgets.jsx';
-import { ImportExportHub } from './saleImportHub.jsx';
+import { toast as busToast, confirm, canEdit as busCanEdit } from './lib/appBus.js';
 
 const fmtB = (n) => '฿' + Number(n || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 const fmtD = (iso) => { const s = String(iso || ''); return s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '—'; };
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-const toast = (m, k) => window.__toast?.(m, k);
-// เดือน YYYY-MM ก่อนหน้า (ค.ศ.) — ใช้เทียบเดือนก่อน
-const prevMonthOf = (ym) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; };
+const toast = (m, k) => busToast(m, k);
 const monthLabel = (ym) => { const [y, m] = ym.split('-'); const th = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.']; return `${th[Number(m) - 1] || m} ${Number(y) + 543}`; };
 
 /* ป้ายเตือนยัง未 migrate (ตารางใบเสร็จยังไม่มีใน Supabase) */
@@ -178,11 +176,11 @@ function RowEditor({ row, onChange, showChannel = true }) {
 /* ============================================================
    หน้าใหญ่
    ============================================================ */
-export function SubmitSalesView({ hideFunnel = false } = {}) {
-  const beat = useBeat(350);
+// ใช้ผ่าน SubmitQuickSheet เท่านั้น (PART 102 ลบหน้า "ส่งยอด & ข้อมูล" ไปแล้ว)
+// เหลือ 2 แท็บ: "ส่งใบเสร็จ" + "ประวัติ" — KPI/เป้า/คนทัก ดูจากหน้า perf ที่อยู่ข้างหลัง
+export function SubmitSalesView() {
   const { user } = useUser();
-  const { staff } = useData();
-  const canEdit = window.__canEdit !== false;
+  const canEdit = busCanEdit();
   // เห็น "ทั้งทีม" (ใบเสร็จ + คนทัก) = ผู้ดูแลระบบ (role=admin) เท่านั้น · แก้ไขได้/ดูอย่างเดียว = เฉพาะของตัวเอง
   // ผูก role จาก useUser ตรงๆ (reactive · ไม่พึ่ง window.__isAdmin ที่ lag รอบแรก)
   const canSeeTeam = isAdmin(user);
@@ -196,6 +194,7 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState(null);      // {ok:[], skipped:[]}
   const [dragOver, setDragOver] = useState(false);
+  const [tab, setTab] = useState('submit');   // sheetMode: 'submit' | 'history'
   const fileRef = useRef(null);
   // re-validate สถานะแถวสด (บั๊ก: เดิม freeze problems ตอน parse) — เก็บ matcher + dup maps ให้ patchRow ใช้ซ้ำ
   const matcherRef = useRef(null);       // ผล loadReceiptMatcher() (live re-match ลาย/รหัส)
@@ -204,13 +203,8 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
 
   /* ---- feed + KPI ---- */
   const [feed, setFeed] = useState(null);
-  const [targets, setTargets] = useState({});
   const [range, setRange] = useState({ from: '', to: '' });
   const [, setBounds] = useState({ min: null, max: null });
-  const [prevSales, setPrevSales] = useState(null);           // ยอดฉันช่วงก่อนหน้า (เทียบ)
-  // เดือนอ้างอิง (เป้า/คอม/ป้าย) = เดือนของปลายช่วง · โหมดเดือนเดียว → ป้ายเป็นชื่อเดือน
-  const refMonth = (range.to || todayISO()).slice(0, 7);
-  const singleMonth = range.from && range.to && range.from.slice(0, 7) === range.to.slice(0, 7);
   // ตั้งช่วงเริ่มต้น = เดือนปัจจุบันจริง (anchor วันจริง) + ขอบวันที่ข้อมูล
   useEffect(() => { (async () => {
     const b = await getDateBounds('tmk_sale_receipts');
@@ -218,6 +212,8 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
     const r = presetRange('month', todayISO(), b.min, b.max);
     setRange({ from: r.from || '', to: r.to || '' });
   })().catch(() => { const r = presetRange('month', todayISO()); setRange({ from: r.from || '', to: r.to || '' }); }); }, []);
+  // แยกเป็นตัวแปร primitive — ใส่ optional-chaining ตรงๆ ใน deps ทำให้ React Compiler memoize ต่อไม่ได้ (ค่าเท่าเดิมทุกประการ)
+  const userEmail = user?.email || '';
   const loadFeed = useCallback(async () => {
     if (!range.from || !range.to) return;   // รอขอบวันที่
     try {
@@ -226,7 +222,7 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
       // narrow: ตัด `parsed` (raw parser jsonb — ไม่เคย render · ตัวหนักสุด) · คง confirmed/history/file_url ที่ feed+drawer ใช้จริง
       const FEED_SEL = 'id,order_no,uploader_email,salesperson,channel,order_date,order_month,qty,sales,status,confirmed,history,file_url,void_by,void_reason,void_at,created_at';
       let q = supabase.from('tmk_sale_receipts').select(FEED_SEL).gte('order_date', range.from).lte('order_date', range.to).order('created_at', { ascending: false }).limit(2000);
-      if (!wantTeam) q = q.eq('uploader_email', user?.email || '');
+      if (!wantTeam) q = q.eq('uploader_email', userEmail);
       const r = await q;
       if (r.error) throw r.error;
       setFeed(r.data || []);
@@ -235,42 +231,21 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
       if (isMissingReceiptTable(e)) setMissingTable(true);
       setFeed([]);
     }
-  }, [range.from, range.to, canSeeTeam, user?.email]);
+  }, [range.from, range.to, canSeeTeam, userEmail]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดข้อมูล async (pattern ปกติ) — loadFeed เป็น useCallback ผูกช่วงวันที่/สิทธิ์
   useEffect(() => { loadFeed(); }, [loadFeed]);
-  useEffect(() => { fetchTargets(refMonth).then(rows2 => { const m = {}; rows2.forEach(t => { m[t.salesperson] = t; }); setTargets(m); }).catch(() => {}); }, [refMonth]);
-  // ยอดฉันเดือนก่อน (เทียบ ▲▼) — เฉพาะโหมดเดือนเดียว (ช่วงกว้างเทียบไม่ได้)
-  useEffect(() => {
-    if (!singleMonth) { setPrevSales(null); return; }
-    const pm = prevMonthOf(refMonth);
-    supabase.from('tmk_sale_receipts').select('sales,status,uploader_email').eq('order_month', pm).eq('uploader_email', user?.email || '')
-      .then(({ data }) => setPrevSales((data || []).filter(r => r.status === 'confirmed').reduce((s, r) => s + (Number(r.sales) || 0), 0)))
-      .catch(() => setPrevSales(null));
-  }, [refMonth, singleMonth, user?.email]);
   // realtime: ทีมส่งใบ/แก้ → feed อัปเดตสด (ต้องรัน migration 20260706)
   useSaleRealtime(['tmk_sale_receipts', 'tmk_sales_funnel'], loadFeed);
-  const rangeLabel = singleMonth ? monthLabel(refMonth) : `${fmtD(range.from)}–${fmtD(range.to)}`;
+  // หมายเหตุ: เดิมมี query "เป้าเดือนนี้ (fetchTargets)" + "ยอดเดือนก่อน" ไว้ป้อนการ์ด KPI
+  // ชีตนี้เหลือแค่ ส่ง+ประวัติ (ไม่มี KPI แล้ว) → ตัดทั้งสอง query ทิ้ง ไม่ยิงเปล่าทุกครั้งที่เปิดชีต
+  // แท็บประวัติเปลี่ยนเดือน → ขยับช่วงที่ feed โหลด (loadFeed ผูกกับ range อยู่แล้ว = ไม่ต้องเพิ่ม query)
+  const setHistoryMonth = (ym) => {
+    if (!ym) return;
+    const [y, m] = ym.split('-').map(Number);
+    const last = new Date(y, m, 0).getDate();
+    setRange({ from: `${ym}-01`, to: `${ym}-${String(last).padStart(2, '0')}` });
+  };
 
-  const myKpi = useMemo(() => {
-    const mine = (feed || []).filter(r => r.status === 'confirmed' && r.uploader_email === user?.email);
-    const sales = mine.reduce((s, r) => s + (Number(r.sales) || 0), 0);
-    const t = targets[user?.name] || null;
-    const target = Number(t?.sales_target) || 0;
-    const dPct = prevSales != null && prevSales > 0 ? (sales - prevSales) / prevSales * 100 : null;
-    return { count: mine.length, sales, target, pct: target ? Math.min(100, sales / target * 100) : 0, comm: t ? commissionFor(sales, t) : 0, dPct };
-  }, [feed, targets, user, prevSales]);
-
-  // รายชื่อเซลล์สำหรับคนทัก (staff + คนที่มีใบเสร็จ) · จำนวนออเดอร์ยืนยันวันนี้ต่อคน (ไว้คิด %ปิด)
-  const funnelSellers = useMemo(() => {
-    const set = new Set();
-    (staff || []).forEach(s => { if (s?.name) set.add(s.name); });
-    (feed || []).forEach(r => { if (r?.salesperson) set.add(r.salesperson); });
-    return [...set].sort();
-  }, [staff, feed]);
-  const ordersToday = useMemo(() => {
-    const m = {}, t = todayISO();
-    (feed || []).forEach(r => { if (r.status === 'confirmed' && r.order_date === t && r.salesperson) m[r.salesperson] = (m[r.salesperson] || 0) + 1; });
-    return m;
-  }, [feed]);
   /* ---- เลือกไฟล์ → parse → เช็คซ้ำ/เก่าใหม่ ---- */
   const onFiles = async (fileList) => {
     const files = [...fileList].filter(f => /pdf$/i.test(f.type) || /\.pdf$/i.test(f.name));
@@ -319,6 +294,14 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
     });
     return merged.map(r => ({ ...r, ...deriveReceiptRowStatus(r, { allRows: merged, dupReceipts: dupRef.current, dupOrders: dupOrdersRef.current }) }));
   });
+  // A: ใส่ช่องทางให้ทุกใบที่ยังว่างในคลิกเดียว — เดิมต้องไล่เลือกทีละแถว (อัป 20 ใบ = เลือก 20 ครั้ง)
+  // แตะเฉพาะแถวที่ channel ว่างและไม่ hard-block · recompute สถานะทั้งชุดเหมือน patchRow (dup ข้ามแถว)
+  const patchAllMissingChannel = (ch) => setRows(rs => {
+    const merged = rs.map(r => (!r.hard && !r.channel) ? { ...r, channel: ch } : r);
+    return merged.map(r => ({ ...r, ...deriveReceiptRowStatus(r, { allRows: merged, dupReceipts: dupRef.current, dupOrders: dupOrdersRef.current }) }));
+  });
+  const missingChCount = rows.filter(r => !r.hard && !r.channel).length;
+
   const selectedRows = rows.filter(r => r.selected && !r.hard);
   const readyRows = selectedRows.filter(r => r.channel && r.order_no && (Number(r.total) || 0) > 0);
   const sumSelected = selectedRows.reduce((s, r) => s + (Number(r.total) || 0), 0);
@@ -329,7 +312,7 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
     if (!canEdit) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
     if (!readyRows.length) return;
     if (readyRows.length < selectedRows.length) { toast('บางใบยังไม่ได้เลือกช่องทาง', 'warn'); return; }
-    if (!await window.__confirm?.({ title: 'บันทึกยอด', body: `บันทึก ${readyRows.length} ใบ · ${fmtB(sumSelected)}\nยอดจะขึ้น dashboard ในชื่อ "${user?.name || user?.email}" ทันที`, confirmText: 'บันทึก' })) return;
+    if (!await confirm({ title: 'บันทึกยอด', body: `บันทึก ${readyRows.length} ใบ · ${fmtB(sumSelected)}\nยอดจะขึ้น dashboard ในชื่อ "${user?.name || user?.email}" ทันที`, confirmText: 'บันทึก' })) return;
     setSaving(true);
     try {
       const res = await confirmReceipts(readyRows, { email: user?.email || '', name: user?.name || '' });
@@ -352,147 +335,255 @@ export function SubmitSalesView({ hideFunnel = false } = {}) {
   /* ---- drawer รายละเอียด/แก้/ยกเลิก ---- */
   // path แก้/ยกเลิกในนี้ถูกถอด (PART 81) — แก้/ยกเลิกทำที่หน้าออเดอร์ที่เดียว (แบนเนอร์ท้าย drawer นำทาง · editReceipt/voidReceipt คงอยู่ใน lib)
 
-  if (beat) return <PageSkeleton />;
+  // ฟอร์มพร้อมใช้ทันที (เดิมหน่วง 350ms)
 
 
-  return (
-    <div className="content-inner rise flex flex-col gap-4">
-      {missingTable && <MigrationNotice />}
-
-      {/* บน: ยอดของฉัน (ซ้าย กว้างกว่า) + คนทักวันนี้ (ขวา) — การ์ดสูงเท่ากัน (items-stretch default)
-          hideFunnel (popup ส่งยอดในประสิทธิภาพเซล) → ซ่อนการ์ดคนทัก (มีปุ่มแยกแล้ว) · KPI เต็มความกว้าง */}
-      <div className={hideFunnel ? '' : 'grid gap-4 lg:grid-cols-[1.35fr_1fr]'}>
-      {/* KPI ของฉันเดือนนี้ */}
-      <Card className="p-4 flex flex-col justify-center">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="wallet" /></span>
-            <div>
-            <div className="text-[11px] text-muted-foreground">ยอดของฉัน {rangeLabel} ({user?.name || user?.email})</div>
-            <div className="text-2xl font-bold flex items-baseline gap-2">
-              {fmtB(myKpi.sales)} <span className="text-sm font-normal text-muted-foreground">· {myKpi.count} ใบ</span>
-              {myKpi.dPct != null && (
-                <span className={`text-xs font-medium ${myKpi.dPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                  {myKpi.dPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(myKpi.dPct))}% <span className="text-muted-foreground font-normal">vs เดือนก่อน</span>
-                </span>
-              )}
-            </div>
-            </div>
+  // ส่วน "ส่งใบเสร็จ" (อัปโหลด → ตารางตรวจ → แก้รายใบ → ผลบันทึก)
+  // แยกเป็นตัวแปรเพื่อใช้ซ้ำทั้งหน้าเต็มและโหมด popup (แท็บ) — เนื้อในเหมือนกันเป๊ะ ไม่ fork
+  const submitPane = (<>
+    {/* ขั้น 1: เลือกไฟล์ */}
+    {!rows.length && (
+      <Card
+        className={`p-8 border-dashed border-2 text-center transition-colors ${dragOver ? 'border-primary bg-primary/5' : ''} ${!canEdit ? 'opacity-60' : 'cursor-pointer'}`}
+        onClick={() => canEdit && fileRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); if (canEdit) onFiles(e.dataTransfer.files); }}>
+        <input ref={fileRef} type="file" accept="application/pdf" multiple hidden onChange={e => { onFiles(e.target.files); e.target.value = ''; }} />
+        {parsing ? (
+          <div className="flex flex-col items-center gap-3 py-3">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full animate-pulse [&_svg]:size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="upload" /></span>
+            <div className="text-sm text-muted-foreground">กำลังอ่านใบเสร็จ… {parsing.done}/{parsing.total} ไฟล์{checking ? ' · เช็คข้อมูลซ้ำ' : ''}</div>
           </div>
-          {myKpi.target > 0 && (
-            <div className="min-w-[220px] flex-1 max-w-sm">
-              <div className="flex justify-between text-[11px] text-muted-foreground mb-1">
-                <span>เป้า {fmtB(myKpi.target)}</span><span>{Math.round(myKpi.sales / myKpi.target * 100)}%{myKpi.comm ? ` · คอม ${fmtB(myKpi.comm)}` : ''}</span>
-              </div>
-              <Progress value={myKpi.pct} indicatorColor={myKpi.sales >= myKpi.target ? 'var(--good)' : 'var(--accent)'} />
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-3">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full [&_svg]:size-8" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="upload" /></span>
+            <div>
+              <div className="text-base font-semibold">วางไฟล์ใบเสร็จ Shipnity ที่นี่ หรือลากมาวาง</div>
             </div>
+            <Button size="sm" disabled={!canEdit} onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}><Icon name="upload" /> เลือกไฟล์</Button>
+            {!canEdit && <div className="text-xs text-amber-600">บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — ส่งยอดไม่ได้</div>}
+          </div>
+        )}
+        {fileErrors.length > 0 && (
+          <div className="mt-3 text-left inline-block text-xs text-red-500">
+            {fileErrors.map((e, i) => <div key={i}>· {e.file}: {e.error}</div>)}
+          </div>
+        )}
+      </Card>
+    )}
+
+    {/* ขั้น 2: ตารางตรวจ */}
+    {rows.length > 0 && (
+      <Card className="p-0 overflow-hidden">
+        <div className="flex items-center gap-2 flex-wrap p-3 border-b bg-muted/30">
+          <span className="text-sm font-semibold">ตรวจก่อนบันทึก · {rows.length} ใบ</span>
+          <Badge variant="secondary">เลือก {selectedRows.length}</Badge>
+          {rows.some(r => r.hard) && <Badge variant="secondary" className="bg-red-500/15 text-red-600 dark:text-red-400">ซ้ำ/มีปัญหา {rows.filter(r => r.hard).length}</Badge>}
+          <span className="text-sm text-muted-foreground ml-auto">รวม {fmtB(sumSelected)}</span>
+          {/* A: ตั้งช่องทางทั้งชุด — โผล่เฉพาะตอนมีใบที่ยังไม่มีช่องทาง (เลือกแล้วหายเอง) */}
+          {missingChCount > 0 && (
+            <Select value="" onValueChange={patchAllMissingChannel}>
+              <SelectTrigger className="h-8 w-[195px] text-xs border-amber-500/60">
+                <SelectValue placeholder={`ใส่ช่องทางให้ ${missingChCount} ใบที่ยังว่าง`} />
+              </SelectTrigger>
+              <SelectContent>{CHANNELS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
           )}
+          <Button variant="outline" size="sm" onClick={() => { setRows([]); setResult(null); }}>เริ่มใหม่</Button>
+          <Button size="sm" disabled={saving || !readyRows.length} onClick={submit}>
+            {saving ? 'กำลังบันทึก…' : `บันทึก ${readyRows.length} ใบ · ${fmtB(sumSelected)}`}
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground bg-muted/40">
+              <tr>
+                <th className="px-3 py-2 w-8"></th>
+                <th className="text-left px-2 py-2">เลขที่</th>
+                <th className="text-left px-2 py-2">วันที่</th>
+                <th className="text-left px-2 py-2">ลูกค้า</th>
+                <th className="text-right px-2 py-2">ยอด</th>
+                <th className="text-left px-2 py-2 w-[150px]">ช่องทาง</th>
+                <th className="text-left px-2 py-2">สถานะ</th>
+                <th className="px-2 py-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <ReviewRow key={r._id} r={r} expanded={expandId === r._id}
+                  onToggle={() => setExpandId(id => id === r._id ? null : r._id)}
+                  onSelect={v => patchRow(r._id, { selected: v })}
+                  onChannel={c => patchRow(r._id, { channel: c })}
+                  onEdit={next => patchRow(r._id, next)} />
+              ))}
+            </tbody>
+          </table>
         </div>
       </Card>
-      {/* คนทัก (funnel) — แต่ละคนกรอกของตัวเอง · แอดมินกรอก/แก้แทนได้ + ดูภาพรวมทีม */}
-      {!hideFunnel && <FunnelCard sellers={funnelSellers} createdBy={user?.email || ''} isAdmin={canSeeTeam} canEdit={canEdit} myName={user?.name || ''} ordersToday={ordersToday} />}
+    )}
+
+    {/* แก้ใบเสร็จก่อนบันทึก — popup กลางจอ (reuse RowEditor · Modal เดียวกับระบบ) */}
+    {expandId != null && (() => {
+      const er = rows.find(r => r._id === expandId);
+      if (!er) return null;
+      return (
+        <Modal xl icon="pencil" title={`แก้ใบเสร็จ ${er.order_no || '—'}`}
+          sub={`${er.customer_name || 'ลูกค้า'} · ${fmtB(er.total)}`} onClose={() => setExpandId(null)}
+          footer={<Button onClick={() => setExpandId(null)}><Icon name="check" /> เสร็จ</Button>}>
+          <RowEditor row={er} onChange={next => patchRow(er._id, next)} />
+        </Modal>
+      );
+    })()}
+
+    {/* สรุปผลหลังบันทึก */}
+    {result && (
+      <Card className="p-4">
+        <div className="text-sm font-semibold">ผลการบันทึก</div>
+        <div className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">✓ สำเร็จ {result.ok.length} ใบ</div>
+        {result.skipped.length > 0 && (
+          <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+            ข้าม {result.skipped.length} ใบ: {result.skipped.map(s => `${s.order_no} (${s.reason})`).join(' · ')}
+          </div>
+        )}
+      </Card>
+    )}
+
+  </>);
+
+  // โหมด popup: แท็บ "ส่งใบเสร็จ" / "ประวัติ" — แยกสองเจตนาออกจากกัน ไม่ปนในสกอลล์เดียว
+  const historyMonth = (range.to || todayISO()).slice(0, 7);
+  return (
+      <div className="flex flex-col gap-4">
+        {missingTable && <MigrationNotice />}
+        <Tabs value={tab} onValueChange={setTab} className="flex flex-col gap-4">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="submit" className="gap-1.5"><Icon name="upload" className="size-4" /> ส่งใบเสร็จ</TabsTrigger>
+            <TabsTrigger value="history" className="gap-1.5"><Icon name="clock" className="size-4" /> ประวัติ</TabsTrigger>
+          </TabsList>
+          <TabsContent value="submit" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+            <div className="flex flex-col gap-4">{submitPane}</div>
+          </TabsContent>
+          <TabsContent value="history" className="m-0 border-0 p-0 focus-visible:outline-none focus-visible:ring-0">
+            <ReceiptHistory feed={feed} month={historyMonth} onMonth={setHistoryMonth}
+              canSeeTeam={canSeeTeam} myEmail={user?.email || ''} loading={feed === null} />
+          </TabsContent>
+        </Tabs>
+      </div>
+  );
+
+}
+
+/* ============================================================
+   ReceiptHistory — ประวัติการส่งใบเสร็จ (ดูอย่างเดียว)
+   ============================================================
+   เจตนา: ตอบคำถามเดียวให้ไวที่สุด — "ฉันส่งอะไรไปแล้วบ้าง"
+   - ค่าเริ่มต้น = ของตัวเอง (แอดมินสลับดูทั้งทีมได้ · ตรงกับสิทธิ์ที่ query กรองอยู่แล้ว)
+   - จัดกลุ่มตาม "วัน" เพราะผู้ใช้จำเป็นวัน ไม่ใช่เลขใบ + มีสรุปยอด/จำนวนใบต่อวัน
+   - ใบที่ถูกยกเลิกไม่ซ่อน แต่จางลง + ขีดฆ่า + บอกเหตุผล (โปร่งใส ไม่ทำข้อมูลหายเงียบ)
+   - ไม่มีปุ่มแก้/ยกเลิกในนี้ (ตั้งใจ — แก้/ยกเลิกทำที่หน้าออเดอร์ที่เดียว กันสองทางเข้า)
+   ข้อมูลใช้ feed ที่หน้านี้โหลดอยู่แล้ว → ไม่มี query เพิ่ม
+   ============================================================ */
+export function ReceiptHistory({ feed, month, onMonth, canSeeTeam, myEmail, loading }) {
+  const [q, setQ] = useState('');
+  const [teamMode, setTeamMode] = useState(false);
+  const [onlyVoid, setOnlyVoid] = useState(false);
+
+  const scoped = useMemo(() => {
+    const kw = q.trim().toLowerCase();
+    return (feed || [])
+      .filter(r => (canSeeTeam && teamMode) ? true : r.uploader_email === myEmail)
+      .filter(r => onlyVoid ? r.status === 'void' : true)
+      .filter(r => !kw || [r.order_no, r.salesperson, r.channel].some(v => String(v || '').toLowerCase().includes(kw)))
+      .sort((a, b) => String(b.order_date || '').localeCompare(String(a.order_date || '')) || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  }, [feed, q, teamMode, onlyVoid, canSeeTeam, myEmail]);
+
+  // สรุปหัว: นับเฉพาะใบที่ยังใช้ได้ (ยกเลิกแล้วไม่ใช่ยอด)
+  const sum = useMemo(() => {
+    const live = scoped.filter(r => r.status !== 'void');
+    return { n: live.length, sales: live.reduce((a, r) => a + (Number(r.sales) || 0), 0), voided: scoped.length - live.length };
+  }, [scoped]);
+
+  // จัดกลุ่มตามวัน (เรียงวันใหม่→เก่า) พร้อมยอดรวมต่อวัน
+  const days = useMemo(() => {
+    const m = new Map();
+    scoped.forEach(r => {
+      const d = r.order_date || '—';
+      if (!m.has(d)) m.set(d, { date: d, rows: [], sales: 0, n: 0 });
+      const g = m.get(d); g.rows.push(r);
+      if (r.status !== 'void') { g.sales += Number(r.sales) || 0; g.n += 1; }
+    });
+    return [...m.values()];
+  }, [scoped]);
+
+  const filtered = !!q.trim() || onlyVoid;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* แถบคุม: เดือน · ค้นหา · ตัวกรอง — แถวเดียว ไม่กินพื้นที่รายการ */}
+      <div className="flex flex-wrap items-center gap-2">
+        <MonthPicker value={month} onChange={onMonth} max={todayISO().slice(0, 7)} />
+        <SearchInput value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นเลขที่ / เซลล์ / ช่องทาง" className="h-8 w-[210px]" />
+        <Button variant={onlyVoid ? 'default' : 'outline'} size="sm" className="h-8 rounded-full font-medium gap-1"
+          onClick={() => setOnlyVoid(v => !v)} title="ดูเฉพาะใบที่ถูกยกเลิก">
+          <Icon name="x" className="size-3.5" /> เฉพาะที่ยกเลิก
+        </Button>
+        {canSeeTeam && (
+          <Button variant={teamMode ? 'default' : 'outline'} size="sm" className="h-8 rounded-full font-medium gap-1"
+            onClick={() => setTeamMode(v => !v)} title="สลับระหว่างของฉัน / ทั้งทีม">
+            <Icon name="users" className="size-3.5" /> {teamMode ? 'ทั้งทีม' : 'ของฉัน'}
+          </Button>
+        )}
       </div>
 
-      {/* ขั้น 1: เลือกไฟล์ */}
-      {!rows.length && (
-        <Card
-          className={`p-8 border-dashed border-2 text-center transition-colors ${dragOver ? 'border-primary bg-primary/5' : ''} ${!canEdit ? 'opacity-60' : 'cursor-pointer'}`}
-          onClick={() => canEdit && fileRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); if (canEdit) onFiles(e.dataTransfer.files); }}>
-          <input ref={fileRef} type="file" accept="application/pdf" multiple hidden onChange={e => { onFiles(e.target.files); e.target.value = ''; }} />
-          {parsing ? (
-            <div className="flex flex-col items-center gap-3 py-3">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full animate-pulse [&_svg]:size-7" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="upload" /></span>
-              <div className="text-sm text-muted-foreground">กำลังอ่านใบเสร็จ… {parsing.done}/{parsing.total} ไฟล์{checking ? ' · เช็คข้อมูลซ้ำ' : ''}</div>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-3">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full [&_svg]:size-8" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="upload" /></span>
-              <div>
-                <div className="text-base font-semibold">วางไฟล์ใบเสร็จ Shipnity ที่นี่ หรือลากมาวาง</div>
+      {/* สรุปช่วงที่ดูอยู่ */}
+      <div className="flex items-baseline gap-2 flex-wrap rounded-xl border px-3 py-2.5" style={{ borderColor: 'var(--line)', background: 'var(--surface-2)' }}>
+        <span className="text-[11px] text-muted-foreground">{monthLabel(month)}{canSeeTeam && teamMode ? ' · ทั้งทีม' : ' · ของฉัน'}</span>
+        <span className="text-lg font-bold">{fmtB(sum.sales)}</span>
+        <span className="text-sm text-muted-foreground">· {N(sum.n)} ใบ</span>
+        {sum.voided > 0 && <span className="text-[11px] text-muted-foreground">· ยกเลิก {N(sum.voided)}</span>}
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col gap-2">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-11 rounded-lg animate-pulse" style={{ background: 'var(--surface-2)' }} />)}</div>
+      ) : days.length === 0 ? (
+        <EmptyState
+          mode={filtered ? 'filtered' : 'empty'}
+          icon={filtered ? undefined : 'upload'}
+          title={filtered ? 'ไม่พบใบเสร็จที่ตรงกับที่ค้น' : `ยังไม่มีใบเสร็จใน${monthLabel(month)}`}
+          hint={filtered ? 'ลองเปลี่ยนคำค้น หรือปิดตัวกรอง' : 'ใบที่ส่งจากแท็บ "ส่งใบเสร็จ" จะมาแสดงที่นี่'}
+          onClear={filtered ? () => { setQ(''); setOnlyVoid(false); } : undefined}
+        />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {days.map(g => (
+            <div key={g.date}>
+              {/* หัววัน: วันที่ + ยอดรวมวันนั้น */}
+              <div className="flex items-baseline justify-between gap-2 px-1 pb-1.5">
+                <span className="text-[12px] font-semibold">{fmtD(g.date)}</span>
+                <span className="text-[11px] text-muted-foreground">{N(g.n)} ใบ · {fmtB(g.sales)}</span>
               </div>
-              <Button size="sm" disabled={!canEdit} onClick={e => { e.stopPropagation(); fileRef.current?.click(); }}><Icon name="upload" /> เลือกไฟล์</Button>
-              {!canEdit && <div className="text-xs text-amber-600">บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว" — ส่งยอดไม่ได้</div>}
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: 'var(--line)' }}>
+                {g.rows.map((r, i) => {
+                  const voided = r.status === 'void';
+                  return (
+                    <div key={r.id || r.order_no} className={'flex items-center gap-2.5 px-3 py-2 text-[13px]' + (i ? ' border-t' : '')}
+                      style={{ borderColor: 'var(--line)', opacity: voided ? 0.55 : 1 }}>
+                      <span className="size-2 rounded-full shrink-0" style={{ background: voided ? 'var(--ink-4)' : channelColor(r.channel) }} />
+                      <span className={'font-medium tabular-nums shrink-0' + (voided ? ' line-through' : '')}>{r.order_no || '—'}</span>
+                      {r.channel && <Badge variant="secondary" className="px-1.5 py-0 text-[10.5px] font-medium shrink-0">{r.channel}</Badge>}
+                      {canSeeTeam && teamMode && r.salesperson && <span className="text-[11px] text-muted-foreground truncate">{r.salesperson}</span>}
+                      {voided && <span className="text-[11px] truncate" style={{ color: 'var(--bad)' }}>ยกเลิก{r.void_reason ? ` · ${r.void_reason}` : ''}</span>}
+                      <span className="ml-auto text-[11px] text-muted-foreground shrink-0">{N(r.qty)} ตัว</span>
+                      <span className={'tabular-nums font-semibold shrink-0 w-[92px] text-right' + (voided ? ' line-through' : '')}>{fmtB(r.sales)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          )}
-          {fileErrors.length > 0 && (
-            <div className="mt-3 text-left inline-block text-xs text-red-500">
-              {fileErrors.map((e, i) => <div key={i}>· {e.file}: {e.error}</div>)}
-            </div>
-          )}
-        </Card>
+          ))}
+        </div>
       )}
-
-      {/* ขั้น 2: ตารางตรวจ */}
-      {rows.length > 0 && (
-        <Card className="p-0 overflow-hidden">
-          <div className="flex items-center gap-2 flex-wrap p-3 border-b bg-muted/30">
-            <span className="text-sm font-semibold">ตรวจก่อนบันทึก · {rows.length} ใบ</span>
-            <Badge variant="secondary">เลือก {selectedRows.length}</Badge>
-            {rows.some(r => r.hard) && <Badge variant="secondary" className="bg-red-500/15 text-red-600 dark:text-red-400">ซ้ำ/มีปัญหา {rows.filter(r => r.hard).length}</Badge>}
-            <span className="text-sm text-muted-foreground ml-auto">รวม {fmtB(sumSelected)}</span>
-            <Button variant="outline" size="sm" onClick={() => { setRows([]); setResult(null); }}>เริ่มใหม่</Button>
-            <Button size="sm" disabled={saving || !readyRows.length} onClick={submit}>
-              {saving ? 'กำลังบันทึก…' : `บันทึก ${readyRows.length} ใบ · ${fmtB(sumSelected)}`}
-            </Button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs text-muted-foreground bg-muted/40">
-                <tr>
-                  <th className="px-3 py-2 w-8"></th>
-                  <th className="text-left px-2 py-2">เลขที่</th>
-                  <th className="text-left px-2 py-2">วันที่</th>
-                  <th className="text-left px-2 py-2">ลูกค้า</th>
-                  <th className="text-right px-2 py-2">ยอด</th>
-                  <th className="text-left px-2 py-2 w-[150px]">ช่องทาง</th>
-                  <th className="text-left px-2 py-2">สถานะ</th>
-                  <th className="px-2 py-2 w-8"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(r => (
-                  <ReviewRow key={r._id} r={r} expanded={expandId === r._id}
-                    onToggle={() => setExpandId(id => id === r._id ? null : r._id)}
-                    onSelect={v => patchRow(r._id, { selected: v })}
-                    onChannel={c => patchRow(r._id, { channel: c })}
-                    onEdit={next => patchRow(r._id, next)} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {/* แก้ใบเสร็จก่อนบันทึก — popup กลางจอ (reuse RowEditor · Modal เดียวกับระบบ) */}
-      {expandId != null && (() => {
-        const er = rows.find(r => r._id === expandId);
-        if (!er) return null;
-        return (
-          <Modal xl icon="pencil" title={`แก้ใบเสร็จ ${er.order_no || '—'}`}
-            sub={`${er.customer_name || 'ลูกค้า'} · ${fmtB(er.total)}`} onClose={() => setExpandId(null)}
-            footer={<Button onClick={() => setExpandId(null)}><Icon name="check" /> เสร็จ</Button>}>
-            <RowEditor row={er} onChange={next => patchRow(er._id, next)} />
-          </Modal>
-        );
-      })()}
-
-      {/* สรุปผลหลังบันทึก */}
-      {result && (
-        <Card className="p-4">
-          <div className="text-sm font-semibold">ผลการบันทึก</div>
-          <div className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">✓ สำเร็จ {result.ok.length} ใบ</div>
-          {result.skipped.length > 0 && (
-            <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              ข้าม {result.skipped.length} ใบ: {result.skipped.map(s => `${s.order_no} (${s.reason})`).join(' · ')}
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* คีย์มือ (ขายไม่มีใบเสร็จ) */}
     </div>
   );
 }
@@ -556,11 +647,8 @@ function ReviewRow({ r, expanded, onToggle, onSelect, onChannel }) {
   );
 }
 
-/* ============================================================
-   SaleDataHub — "ส่งยอด & ข้อมูล" หน้าเดียว 3 แท็บ (แทน sub submit + io เดิม)
-   ============================================================
-   [ส่งยอดใบเสร็จ (default — เซลล์ใช้ทุกวัน)] [นำเข้ามาร์เก็ตเพลส] [คุณภาพข้อมูล]
-   แต่ละแท็บเป็น component เดิมทั้งก้อน (มี content-inner ของตัวเอง) — แค่รวมทางเข้า */
+/* PART 102: หน้า "ส่งยอด & ข้อมูล" (SaleDataHub 3 แท็บ) ถูกลบแล้ว —
+   SubmitSalesView เข้าผ่าน SubmitQuickSheet (ปุ่มลอยในประสิทธิภาพเซล) เท่านั้น */
 /* ManualSaleSheet ("คีย์มือ") ย้ายไปไฟล์แยก src/ManualSaleSheet.jsx (reuse ในหน้าออเดอร์ด้วย) */
 
 /* ============================================================
@@ -575,14 +663,17 @@ const emptyLeads = () => Object.fromEntries(FUNNEL_PLATFORMS.map(p => [p, { new:
 const emptyVoice = () => ({ ask: '', praise: '', complaint: '' });
 const normVoice = (v) => (v && typeof v === 'object') ? { ask: String(v.ask || ''), praise: String(v.praise || ''), complaint: String(v.complaint || '') } : emptyVoice();
 const voiceEmpty = (v) => !v.ask.trim() && !v.praise.trim() && !v.complaint.trim();
-export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName = '', ordersToday = {} }) {
+// startOpen = เปิดฟอร์มทันที (โหมด popup จากปุ่มลัด — ตัดคลิกที่สอง) · hideCard = ไม่วาดการ์ดสรุป (popup ไม่มีบริบทหน้า)
+// onFormClose = ปิดฟอร์มแล้วแจ้ง caller (LeadsQuickSheet ใช้ปิดทั้ง flow)
+export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, myName = '', ordersToday = {}, startOpen = false, hideCard = false, onFormClose }) {
   const [date, setDate] = useState(todayISO());   // เลือกวันได้ — กรอก/ดูคนทักย้อนหลัง
   const isToday = date === todayISO();
   const [leads, setLeads] = useState(emptyLeads);
   const [voice, setVoice] = useState(emptyVoice);   // เสียงลูกค้า ถาม/ชม/ติ (ต่อ วัน+เซลล์)
   const [busy, setBusy] = useState(false);
   const [exists, setExists] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!startOpen);
+  const [touched, setTouched] = useState(false); // มีการแก้ที่ยังไม่บันทึก → เตือนก่อนปิด (กันกรอก 12 ช่องแล้วหายเงียบ)
   const [selSeller, setSelSeller] = useState('');
   const [team, setTeam] = useState([]);   // admin = ทั้งทีม · non-admin = เฉพาะของตัวเอง (role-based)
   const nv = (v) => Number(v) || 0;
@@ -599,6 +690,7 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
     if (!name) { setLeads(emptyLeads()); setVoice(emptyVoice()); setExists(false); return; }
     const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('id', `${date}:${name}`).maybeSingle();
     if (data) { setLeads(fillFromRow(data)); setVoice(normVoice(data.voice)); setExists(true); } else { setLeads(emptyLeads()); setVoice(emptyVoice()); setExists(false); }
+    setTouched(false); // ค่าที่เพิ่งโหลด = ตรงกับ DB แล้ว ไม่ต้องเตือนตอนปิด
   }, [date]);
   const loadTeam = useCallback(async () => {
     // admin เห็นทั้งทีม · non-admin เห็นเฉพาะคนทักของตัวเอง (กรองที่ query = ไม่โหลดของคนอื่นมาเลย)
@@ -608,8 +700,11 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
     setTeam(data || []);
   }, [date, isAdmin, myName]);
   // เลือกเซลล์เริ่มต้น: แอดมิน = คนแรก · เซลล์ = ตัวเองเสมอ (ล็อก ไม่มี Select)
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- ตั้งค่าเริ่มต้นครั้งเดียวหลังรายชื่อเซลล์มาถึง (ผู้ใช้เปลี่ยนต่อได้ → derive ตอน render ไม่ได้)
   useEffect(() => { if (!selSeller) setSelSeller(isAdmin ? (sellers[0] || '') : (myName || '')); }, [sellers, selSeller, isAdmin, myName]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดข้อมูล async (pattern ปกติ) — ดึงคนทักของเซลล์ที่เลือก
   useEffect(() => { if (selSeller) loadSeller(selSeller); }, [selSeller, loadSeller]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดข้อมูล async (pattern ปกติ) — ดึงคนทักทั้งทีมของวันที่เลือก
   useEffect(() => { loadTeam(); }, [loadTeam]);
   // realtime: ใครกรอกคนทัก → แถบทีม + ฟอร์มเซลล์ที่เลือกขยับสด
   // realtime: refresh แถบทีมเสมอ · แต่ "ไม่" รีโหลดฟอร์มขณะแอดมินเปิดชีตกรอก (กันทับค่าที่พิมพ์ค้าง)
@@ -631,7 +726,24 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
   const ordersCount = isToday ? nv(ordersToday[selSeller]) : null;
   const close = (ordersCount != null && totalLeads) ? Math.round(ordersCount / totalLeads * 100) : null;
   const closeTone = close == null ? 'var(--ink-4)' : close >= 15 ? 'var(--good)' : close >= 8 ? 'var(--warn)' : 'var(--bad)';
-  const setNum = (p, field, v) => setLeads(prev => ({ ...prev, [p]: { ...prev[p], [field]: v === '' ? '' : String(Math.max(0, Math.floor(Number(v) || 0))) } }));
+  const setNum = (p, field, v) => { setTouched(true); setLeads(prev => ({ ...prev, [p]: { ...prev[p], [field]: v === '' ? '' : String(Math.max(0, Math.floor(Number(v) || 0))) } })); };
+  // B: คัดลอกคนทักของ "เมื่อวาน" (ของเซลล์ที่เลือก) มาเป็นจุดเริ่ม — ฟอร์มกรอกยอดรายวันมีปุ่มนี้อยู่แล้ว ฟอร์มนี้ควรมีเท่ากัน
+  // ก๊อปเฉพาะตัวเลขคนทัก · ไม่ก๊อปเสียงลูกค้า (เป็นข้อความเฉพาะวัน ก๊อปแล้วได้ข้อมูลปลอม)
+  const copyYesterday = async () => {
+    if (!selSeller) return;
+    const d = new Date(date + 'T00:00:00'); d.setDate(d.getDate() - 1);
+    const pd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const { data } = await supabase.from('tmk_sales_funnel').select('*').eq('id', `${pd}:${selSeller}`).maybeSingle();
+    if (!data) { toast(`เมื่อวาน (${pd}) ยังไม่มีคนทักของ ${selSeller}`, 'warn'); return; }
+    setLeads(fillFromRow(data)); setTouched(true);
+    toast('ดึงคนทักของเมื่อวานมาเป็นจุดเริ่ม — ปรับตัวเลขแล้วกดบันทึก', 'success');
+  };
+  // ปิดฟอร์ม: แจ้ง caller ด้วย (โหมด popup = ปิดทั้ง flow) · requestClose = ถามก่อนถ้ามีของค้าง
+  const closeForm = () => { setOpen(false); onFormClose?.(); };
+  // ปุ่ม "ปิด" ใน footer = ทางลัดที่ไม่ผ่าน Radix → ต้องถามเอง
+  // ส่วน ESC / คลิกนอก / ปุ่ม X ไปทาง Radix onOpenChange → ใช้ prop confirmOnClose ของ SideSheet แทน
+  // (สองทางนี้ถามคนละที่แต่ไม่ถามซ้อนกัน เพราะคนละ event)
+  const requestCloseForm = async () => { if (touched && !(await confirmDiscard())) return; closeForm(); };
   const save = async () => {
     if (!canEdit) { toast('บัญชีนี้เป็นสิทธิ์ "ดูอย่างเดียว"', 'warn'); return; }
     if (!isAdmin && selSeller !== myName) { toast('กรอกได้เฉพาะคนทักของตัวเอง', 'error'); return; }
@@ -667,7 +779,7 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
     }
     setBusy(false);
     if (error) { toast(/funnel|does not exist/.test(error.message) ? 'ต้องรัน migration tmk_sales_funnel ก่อน' : 'บันทึกไม่สำเร็จ', 'error'); return; }
-    toast(`บันทึกคนทัก ${selSeller} แล้ว ✓`, 'success'); setExists(true); setOpen(false); loadTeam();
+    toast(`บันทึกคนทัก ${selSeller} แล้ว ✓`, 'success'); setExists(true); setTouched(false); closeForm(); loadTeam();
     logAudit({
       action: exists ? 'update' : 'create', entityType: 'daily', entityName: `คนทัก ${selSeller}`,
       summary: `คนทัก ${selSeller} ${date} · ใหม่ ${totalNew}/เก่า ${totalOld}${ordersCount != null ? ` · ปิด ${ordersCount}` : ''}`,
@@ -687,7 +799,7 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
   };
   return (
     <>
-      <Card className="p-3 flex flex-col justify-center">
+      {!hideCard && <Card className="p-3 flex flex-col justify-center">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3 min-w-0">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-5" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}><Icon name="chat" /></span>
@@ -711,12 +823,18 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
             ))}
           </div>
         )}
-      </Card>
-      {open && <SideSheet size="md" icon="users" title={`คนทัก + เสียงลูกค้า${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ · ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า' : 'ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า ของคุณ'} onClose={() => setOpen(false)}
-        footer={<><Button variant="outline" onClick={() => setOpen(false)}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
+      </Card>}
+      {open && <SideSheet size="md" icon="users" title={`คนทัก + เสียงลูกค้า${isToday ? 'วันนี้' : ''}${isAdmin ? ' (แอดมิน — กรอก/แก้ทั้งทีม)' : ' ของฉัน'}`} sub={isAdmin ? 'เลือกวัน + เซลล์ · ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า' : 'ใส่จำนวนคนทัก (ใหม่/เก่า ต่อช่องทาง) + เสียงลูกค้า ของคุณ'} onClose={closeForm} confirmOnClose={touched}
+        footer={<><Button variant="outline" onClick={requestCloseForm}>ปิด</Button><Button disabled={busy || !selSeller} onClick={save}><Icon name="check" /> {busy ? 'กำลังบันทึก…' : 'บันทึก'}</Button></>}>
         <div className="field mb-3">
           <label>วันที่{!isToday && <span className="ml-1.5 text-[11px] rounded-full px-1.5 py-0.5 bg-amber-500/12 text-amber-600 dark:text-amber-400">ย้อนหลัง</span>}</label>
-          <DatePicker value={date} onChange={v => setDate(v || todayISO())} max={todayISO()} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <DatePicker value={date} onChange={v => setDate(v || todayISO())} max={todayISO()} />
+            {/* B: ให้เท่ากับฟอร์มกรอกยอดรายวันที่มี "คัดลอกเมื่อวาน" อยู่แล้ว — งานประจำวันเหมือนกันควรมีตัวช่วยเท่ากัน */}
+            <Button variant="outline" size="sm" type="button" disabled={!selSeller} onClick={copyYesterday} title="ดึงคนทักของเมื่อวานมาเป็นจุดเริ่ม (ไม่รวมเสียงลูกค้า)">
+              <Icon name="refresh" /> คัดลอกเมื่อวาน
+            </Button>
+          </div>
         </div>
         {/* เซลล์: ล็อกชื่อตัวเอง · แอดมิน: เลือกได้ + ตารางภาพรวมทีม */}
         {!isAdmin ? (
@@ -788,9 +906,9 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
         <div className="rounded-xl border p-3 mb-4" style={{ borderColor: 'var(--line)', background: 'var(--warn-soft)', borderLeft: '3px solid var(--warn)' }}>
           <div className="text-[12px] font-semibold mb-2.5 flex items-center gap-1.5 [&_svg]:size-[15px]" style={{ color: 'var(--warn)' }}><Icon name="chat" /> เสียงลูกค้า{isAdmin && selSeller ? ` — ${selSeller}` : ''}</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.ask} onChange={e => setVoice(v => ({ ...v, ask: e.target.value }))} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
-            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.praise} onChange={e => setVoice(v => ({ ...v, praise: e.target.value }))} placeholder="—" /></label>
-            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.complaint} onChange={e => setVoice(v => ({ ...v, complaint: e.target.value }))} placeholder="—" /></label>
+            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ถามหาอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.ask} onChange={e => { setTouched(true); setVoice(v => ({ ...v, ask: e.target.value })); }} placeholder="เช่น เสื้อแบบมีกระเป๋า" /></label>
+            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ชมเรื่องอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.praise} onChange={e => { setTouched(true); setVoice(v => ({ ...v, praise: e.target.value })); }} placeholder="—" /></label>
+            <label className="flex flex-col gap-1"><span className="text-[11px]" style={{ color: 'var(--ink-4)' }}>ติอะไร</span><Textarea rows={2} className="text-[13px]" style={{ background: 'var(--surface)' }} value={voice.complaint} onChange={e => { setTouched(true); setVoice(v => ({ ...v, complaint: e.target.value })); }} placeholder="—" /></label>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
@@ -806,35 +924,17 @@ export function FunnelCard({ sellers = [], createdBy, isAdmin, canEdit = true, m
   );
 }
 
-export function SaleDataHub() {
-  const [tab, setTab] = useState(() => { try { return localStorage.getItem('tmk-datahub-tab') || 'submit'; } catch { return 'submit'; } });
-  useEffect(() => { try { localStorage.setItem('tmk-datahub-tab', tab); } catch { /* ignore */ } }, [tab]);
-  return (
-    <Tabs value={tab} onValueChange={setTab}>
-      <div className="content-inner" style={{ paddingBottom: 0 }}>
-        <TabsList>
-          <TabsTrigger value="submit"><Icon name="checkCheck" /> ส่งยอดใบเสร็จ</TabsTrigger>
-          <TabsTrigger value="import"><Icon name="external" /> นำเข้ามาร์เก็ตเพลส</TabsTrigger>
-          <TabsTrigger value="quality"><Icon name="search" /> คุณภาพข้อมูล</TabsTrigger>
-        </TabsList>
-      </div>
-      <TabsContent value="submit"><SubmitSalesView /></TabsContent>
-      <TabsContent value="import"><div className="content-inner rise" style={{ display: 'grid', gap: 14 }}><ImportExportHub /></div></TabsContent>
-      <TabsContent value="quality"><HealthHub /></TabsContent>
-    </Tabs>
-  );
-}
-
 /* ============================================================
-   PART 96 — เข้าถึง "คนทัก+เสียงลูกค้า" และ "ส่งยอด" จากที่อื่น (เช่น ปุ่ม popup ในประสิทธิภาพเซล)
-   โดยไม่ต้องเข้าหน้า Data Hub · เตรียมรับการรื้อหน้า Data Hub ในอนาคต
+   PART 96 → 102 — "คนทัก+เสียงลูกค้า" และ "ส่งยอด" เข้าผ่านปุ่มลอยในหน้าประสิทธิภาพเซล
+   PART 102: ลบ SaleDataHub (หน้า "ส่งยอด & ข้อมูล") ทิ้งแล้ว — นำเข้ามาร์เก็ตเพลสลบถาวร ·
+   คุณภาพข้อมูล (HealthHub) ย้ายไปแท็บในหน้า "ตั้งค่า"
    ============================================================ */
 // props ของ FunnelCard สำหรับใช้นอก SubmitSalesView — โหลดเบาๆ เอง (staff จาก context + ออเดอร์ยืนยันวันนี้ต่อคน)
 // ไม่ export (ใช้ภายในไฟล์นี้เท่านั้น) — กัน react-refresh/only-export-components (ไฟล์นี้ export แต่ component)
 function useFunnelCardProps() {
   const { user } = useUser();
   const { staff } = useData();
-  const canEdit = window.__canEdit !== false;
+  const canEdit = busCanEdit();
   const canSeeTeam = isAdmin(user);
   const [ordersToday, setOrdersToday] = useState({});
   useEffect(() => {
@@ -856,20 +956,25 @@ function useFunnelCardProps() {
 }
 
 // popup "คนทัก + เสียงลูกค้าวันนี้" (ลิ้นชักขวา) — hook โหลดเฉพาะตอน mount (เปิด popup) ไม่กินตอนไม่เปิด
+//
+// ⚠️ เดิมต้อง "กดสองต่อ": กดปุ่มคนทัก → เปิด SideSheet ที่ข้างในเป็นการ์ดสรุป → ต้องกด "กรอกของฉัน"
+//    อีกครั้งถึงจะเปิด SideSheet ฟอร์มซ้อนขึ้นมาอีกชั้น (การ์ดสรุปซ้ำกับที่เห็นในหน้าอยู่แล้ว = คลิกเปล่า)
+//    ตอนนี้ให้ FunnelCard เปิดฟอร์มของตัวเองทันที (startOpen) + ไม่วาดการ์ดสรุป (hideCard)
+//    → กดครั้งเดียวเข้าช่องกรอกเลย และไม่มี sheet ซ้อน sheet
 export function LeadsQuickSheet({ onClose }) {
   const props = useFunnelCardProps();
-  return (
-    <SideSheet size="md" icon="chat" title="คนทัก + เสียงลูกค้าวันนี้" sub="กรอก/แก้ จำนวนคนทัก + เสียงลูกค้า (ถาม/ชม/ติ)" onClose={onClose}>
-      <FunnelCard {...props} />
-    </SideSheet>
-  );
+  return <FunnelCard {...props} startOpen hideCard onFormClose={onClose} />;
 }
 
-// popup "ส่งยอด (อัปโหลดใบเสร็จ)" — ทั้ง SubmitSalesView แต่ซ่อนการ์ดคนทัก (มีปุ่มแยกแล้ว)
+// popup "ส่งยอด" — 2 แท็บ: ส่งใบเสร็จ | ประวัติ
+//
+// เดิมยัด SubmitSalesView ทั้งก้อนลงชีต (KPI + เป้า + คนทัก + อัปโหลด + ตารางตรวจ) ปนกันในสกอลล์เดียว
+// ทั้งที่ผู้ใช้เปิดมาทำงานเดียว · ส่วนประวัติก็ไม่มี UI เลย (feed ถูกโหลดแต่ไม่เคยแสดง)
+// ตอนนี้: ชีตเหลือแค่ "ส่ง" กับ "ประวัติ" — KPI/เป้าดูจากหน้า perf ที่อยู่ข้างหลังอยู่แล้ว
 export function SubmitQuickSheet({ onClose }) {
   return (
-    <SideSheet size="xl" icon="upload" title="ส่งยอด (อัปโหลดใบเสร็จ)" sub="อ่านใบเสร็จ Shipnity PDF → ตรวจ → ยืนยันบันทึกยอด" onClose={onClose}>
-      <SubmitSalesView hideFunnel />
+    <SideSheet size="xl" icon="upload" title="ส่งยอด" sub="อ่านใบเสร็จ Shipnity PDF → ตรวจ → บันทึก · ดูประวัติที่ส่งไปแล้วได้ในแท็บถัดไป" onClose={onClose}>
+      <SubmitSalesView />
     </SideSheet>
   );
 }

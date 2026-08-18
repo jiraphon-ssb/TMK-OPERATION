@@ -7,20 +7,15 @@
    (รวมคนที่ตั้ง contact_channel ไว้) — ดู docs/GLOSSARY.md
    ============================================================ */
 import { isCancelled } from './salePerfAgg.js';
+// crmCustomerKey = สูตร canonical ร่วมกับ edge (daily-sale-report) → import จาก _shared แหล่งเดียว (P2-4)
+import { crmCustomerKey } from '../../supabase/functions/_shared/saleFormulas.js';
 
 export const CRM_CHANNELS = ['LINE', 'Phone'];
 export const isCrmOrder = (o) => CRM_CHANNELS.includes(o?.channel);
 
-// คีย์ลูกค้าฝั่งอ่าน — ตรรกะเดียวกับ buildDirectory (saleCrm.jsx) ย้ายมาไว้ที่เดียว
-// ลูกค้าปกปิด (Shopee mask "ณ******์") → '' ไม่คลัสเตอร์ · code ว่าง → จับด้วยชื่อ ('N'+ชื่อ ตรงคีย์โปรไฟล์)
-const isMasked = (v) => /\*{2,}/.test(String(v || ''));
-export function crmCustomerKey(o) {
-  if (isMasked(o.customer_name) || isMasked(o.customer_code)) return '';
-  const c = String(o.customer_code || '').trim();
-  if (c) return c;
-  const n = String(o.customer_name || '').trim();
-  return n ? 'N' + n.slice(0, 60) : '';
-}
+// คีย์ลูกค้าฝั่งอ่าน — ตรรกะเดียวกับ buildDirectory (saleCrm.jsx) ·
+// ลูกค้าปกปิด (Shopee mask "ณ******์") → '' ไม่คลัสเตอร์ · code ว่าง → จับด้วยชื่อ ('N'+ชื่อ) · re-export ต่อ
+export { crmCustomerKey };
 
 const num = (v) => Number(v) || 0;
 const daysIn = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(y, m, 0).getDate(); };

@@ -46,6 +46,9 @@ export function PublicTrackPage({ code }) {
 
   const isCancelled = order && order.status === 'cancelled';
   const curIdx = order ? orderStatusIndex(order.status) : 0;
+  // วันที่แสดงผลใต้รหัสออเดอร์ — fallback เป็นวันนี้เมื่อ created_at ว่าง (ข้อความอย่างเดียว ไม่เข้าสูตรเงิน)
+  // eslint-disable-next-line react-hooks/purity -- Date.now()/new Date() เป็น impure แต่ใช้แค่ fallback แสดงผล ค่าเดิมมาจาก order (state) เสมอเมื่อมี created_at
+  const createdTxt = order ? new Date(order.created_at || Date.now()).toLocaleDateString('th-TH') : '';
   const doSearch = () => fetchOrder(input);
 
   return (
@@ -70,7 +73,7 @@ export function PublicTrackPage({ code }) {
               <span style={{ fontWeight: 800, fontSize: 16 }}>{order.code}</span>
               {isCancelled && <Badge variant="destructive">ยกเลิกแล้ว</Badge>}
             </div>
-            <div className="cap" style={{ marginBottom: 16 }}>{order.customer_name || ''} · {new Date(order.created_at || Date.now()).toLocaleDateString('th-TH')}</div>
+            <div className="cap" style={{ marginBottom: 16 }}>{order.customer_name || ''} · {createdTxt}</div>
 
             {!isCancelled && (
               <div style={{ marginBottom: 18 }}>

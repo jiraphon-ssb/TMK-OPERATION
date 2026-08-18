@@ -15,7 +15,7 @@ create table if not exists public.tmk_notif_prefs (
   primary key (user_email, kind)
 );
 grant select, insert, update, delete on public.tmk_notif_prefs to anon, authenticated;
-alter table public.tmk_notif_prefs disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_notif_prefs disable row level security;
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tmk_notif_prefs') then
     alter publication supabase_realtime add table public.tmk_notif_prefs;
@@ -43,7 +43,7 @@ alter table public.tmk_notifications add column if not exists action      text;
 alter table public.tmk_notifications add column if not exists url         text;
 create index if not exists idx_notif_user_active on public.tmk_notifications(user_email, archived_at, read, created_at desc);
 grant select, insert, update, delete on public.tmk_notifications to anon, authenticated;
-alter table public.tmk_notifications disable row level security;
+-- [audit P3-4: คอมเมนต์กันรันไฟล์ซ้ำแล้ว RLS ปิดเงียบ · ถ้าจะปิดจริงให้ทำใน SQL Editor] alter table public.tmk_notifications disable row level security;
 do $$ begin
   if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='tmk_notifications') then
     alter publication supabase_realtime add table public.tmk_notifications;

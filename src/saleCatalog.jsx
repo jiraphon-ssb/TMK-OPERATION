@@ -11,6 +11,7 @@ import { TMK } from './data.js';
 import { useData } from './dataContext.jsx';
 import { Modal, SideSheet } from './modals-core.jsx';
 import { logAudit } from './lib/audit.js';
+import { toast } from './lib/appBus.js';
 import { logCatalogVersion, fetchCatalogVersions } from './lib/catalogVersions.js';
 import { GOLDEN_DESIGNS, COLOR_TH2CODE } from './lib/shirtCatalog.js';
 import { usePersistedState } from './hooks/usePersistedState.js';
@@ -20,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { Toggle } from '@/components/ui/toggle';
 import { SearchInput } from '@/components/ui/search-input';
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem, DropdownMenuSeparator, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
@@ -28,9 +28,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { SortableTable } from './components/DataTableParts.jsx';
+import { MultiSelect } from './components/MultiSelect.jsx'; // แหล่งเดียวของทั้งแอป (เดิมมีสำเนา 6 ชุด)
+import { EmptyState } from './components/EmptyState.jsx';
 
 const baht = (n) => '฿' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const toast = (m, t) => window.__toast && window.__toast(m, t);
 const uid = () => 'sc-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const normCode = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '');   // จับคู่ catalog.code ↔ products.sku
 
@@ -54,6 +55,7 @@ function CatalogHistory({ catalogId }) {
   const [open, setOpen] = useState(false);
   useEffect(() => {
     let live = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- รีเซ็ตเป็น "ยังไม่โหลด" ก่อนดึง async ตอนเปลี่ยนรายการ (กันโชว์ประวัติของลายเก่าค้าง)
     setRows(null);
     fetchCatalogVersions(catalogId, 20).then(r => { if (live) setRows(r); });
     return () => { live = false; };
@@ -87,35 +89,6 @@ function CatalogHistory({ catalogId }) {
   );
 }
 
-// ตัวกรอง dropdown แบบเดียวกับหน้าออเดอร์/CRM (เลือกหลายอัน + เช็คบ็อกซ์)
-function MultiSelect({ label, options, value, onChange }) {
-  const toggle = (v) => onChange(value.includes(v) ? value.filter(x => x !== v) : [...value, v]);
-  const n = value.length;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className={'rounded-full font-medium' + (n ? ' border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-2)]' : '')}>
-          {label}
-          {n > 0 && <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-[11px]">{n}</Badge>}
-          <Icon name="down" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 w-56 overflow-auto">
-        <DropdownMenuLabel className="flex items-center justify-between py-1">
-          <span>{label}</span>
-          {n > 0 && <button className="text-[12px] font-medium text-[var(--bad)] hover:underline" onClick={(e) => { e.preventDefault(); onChange([]); }}>ล้าง</button>}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {options.length === 0 && <div className="px-2 py-2 text-[13px] text-[var(--ink-4)]">ไม่มีข้อมูล</div>}
-        {options.map(o => (
-          <DropdownMenuCheckboxItem key={o} checked={value.includes(o)} onSelect={(e) => { e.preventDefault(); toggle(o); }}>
-            <span className="min-w-0 flex-1 truncate">{o || '(ไม่ระบุ)'}</span>
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 const blank = () => ({ code: '', name: '', type: 'เสื้อโปโล', price: '', price_wholesale: '', colors: '', sizes: '', status: 'พร้อมขาย', job_type: 'ปลีก', shirt_class: 'เสื้อปกติ', note: '', variants: {} });
 // variants อาจมาเป็น object (jsonb) หรือ string → คืน object เสมอ
 const parseVariants = (v) => { if (!v) return {}; if (typeof v === 'object') return v; try { return JSON.parse(v) || {}; } catch { return {}; } };
@@ -184,6 +157,7 @@ export function ShirtCatalogView() {
     const m = new Map();
     (TMK.products || []).forEach(p => { const k = normCode(p.sku); if (k) m.set(k, p); });
     return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- TMK.products เป็น global singleton (ไม่ใช่ reactive value) · dataVersion คือสัญญาณเดียวที่บอกว่าข้อมูลเปลี่ยน ต้องคงไว้
   }, [dataVersion]);
   const stockOf = (code) => { const k = normCode(code); if (!k) return null; const p = stockByCode.get(k); return p && (p.stock === 'low' || p.stock === 'out') ? p.stock : null; };
   const stockBadge = (code) => { const s = stockOf(code); if (!s) return null; const m = stockMeta(s); return <Badge variant="outline" className="ml-1.5 align-middle text-[10px] font-medium" style={{ color: m.c, borderColor: m.c }}>{m.label}</Badge>; };
@@ -206,8 +180,10 @@ export function ShirtCatalogView() {
     }
     setNoTable(false); setItems(sortByUpdated(r.data || []));
   };
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- โหลดข้อมูล async ครั้งเดียวตอน mount (load สร้างใหม่ทุก render — ใส่เป็น dep จะยิงซ้ำไม่จบ)
   useEffect(() => { load(); }, []);
   useSaleRealtime(['tmk_shirt_catalog'], () => load(true)); // แคตตาล็อกแก้ที่ไหน เห็นสดทุกเครื่อง
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- sync รีเซ็ตโหมดฟอร์มตอนปิดชีต/เปลี่ยนรายการ (รื้อเป็น derived state เสี่ยงกว่าประโยชน์)
   useEffect(() => { if (!edit) { setAddType(null); setSkuOpen(false); } }, [edit]);   // ปิดชีต/เปลี่ยนรายการ → รีเซ็ตโหมดฟอร์ม
 
   const types = useMemo(() => { const s = new Set(); (items || []).forEach(i => { if (i.type) s.add(i.type); }); return [...s].sort(); }, [items]);
@@ -221,6 +197,7 @@ export function ShirtCatalogView() {
     const ql = q.trim().toLowerCase();
     if (ql) r = r.filter(i => `${i.code} ${i.name} ${i.type} ${i.colors} ${i.note}`.toLowerCase().includes(ql));
     return r;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stockOf สร้างใหม่ทุก render (ใส่เป็น dep = memo ไร้ผล) · input จริงของมันคือ stockByCode ซึ่งอยู่ใน deps แล้ว
   }, [items, typeF, statusF, jobF, classF, stockF, stockByCode, q]);
   const nFilters = typeF.length + statusF.length + jobF.length + classF.length + stockF.length;
   const activeChips = [
@@ -372,15 +349,18 @@ export function ShirtCatalogView() {
         </Collapsible>
 
         {empty ? (
-          <div className="mt-4 p-10" style={{ textAlign: 'center' }}>
-            <div style={{ color: 'var(--ink-4)', marginBottom: 16 }}>ยังไม่มีสินค้า — เพิ่มเองหรือดึง 47 ลายมาตรฐานมาใส่ก่อนก็ได้ (พร้อมสี/ไซซ์/ราคา)</div>
-            <div className="row" style={{ gap: 8, justifyContent: 'center' }}>
-              <Button variant="outline" onClick={() => setAskImport(true)} disabled={importing}><Icon name="external" /> นำเข้าลายเสื้อ (47 ลาย)</Button>
-              <Button onClick={() => setEdit(blank())}><Icon name="plus" /> เพิ่มสินค้า</Button>
+          <div className="mt-4">
+            <EmptyState
+              title="ยังไม่มีสินค้าในแคตตาล็อก"
+              hint="เพิ่มเอง หรือดึง 47 ลายมาตรฐานมาใส่ก่อนก็ได้ (พร้อมสี/ไซซ์/ราคา)"
+              action={{ label: 'เพิ่มสินค้า', icon: 'plus', onClick: () => setEdit(blank()) }}
+            />
+            <div className="row mt-2" style={{ gap: 8, justifyContent: 'center' }}>
+              <Button variant="outline" size="sm" onClick={() => setAskImport(true)} disabled={importing}><Icon name="external" /> นำเข้าลายเสื้อ (47 ลาย)</Button>
             </div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="mt-4 p-8" style={{ textAlign: 'center', color: 'var(--ink-4)' }}>ไม่พบรายการที่ค้น</div>
+          <EmptyState className="mt-4" mode="filtered" title="ไม่พบรายการที่ค้นหา" hint="ลองเปลี่ยนคำค้น หรือล้างตัวกรองเพื่อดูทั้งหมด" />
         ) : (
           <div className="mt-4">
           <SortableTable cards density="cozy" initial={{ key: 'code', dir: 'asc' }}

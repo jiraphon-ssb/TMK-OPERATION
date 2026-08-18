@@ -41,10 +41,10 @@ describe('buildPerf', () => {
 
   it('aggregate ยอด/ออเดอร์/ตัว/ลูกค้าใหม่ ต่อเซลล์ · ตัด cancelled', () => {
     const orders = [
-      { order_no: 'A1', salesperson: 'แอน', sales: 3000, qty: 2, channel: 'facebook', customer_type: 'ลูกค้าใหม่', order_date: '2026-03-05', status: 'confirmed' },
-      { order_no: 'A2', salesperson: 'แอน', sales: 2000, qty: 1, channel: 'facebook', customer_type: 'ลูกค้าเก่า', order_date: '2026-03-06', status: 'confirmed' },
-      { order_no: 'X9', salesperson: 'แอน', sales: 9999, qty: 9, channel: 'facebook', order_date: '2026-03-06', status: 'cancelled' }, // ต้องถูกตัด
-      { order_no: 'B1', salesperson: 'บี', sales: 8000, qty: 4, channel: 'line', customer_type: 'ลูกค้าใหม่', order_date: '2026-03-10', status: 'confirmed' },
+      { order_no: 'A1', salesperson: 'แอน', sales: 3000, qty: 2, channel: 'facebook', source: 'shipnity', customer_type: 'ลูกค้าใหม่', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'A2', salesperson: 'แอน', sales: 2000, qty: 1, channel: 'facebook', source: 'shipnity', customer_type: 'ลูกค้าเก่า', order_date: '2026-03-06', status: 'confirmed' },
+      { order_no: 'X9', salesperson: 'แอน', sales: 9999, qty: 9, channel: 'facebook', source: 'shipnity', order_date: '2026-03-06', status: 'cancelled' }, // ต้องถูกตัด
+      { order_no: 'B1', salesperson: 'บี', sales: 8000, qty: 4, channel: 'line', source: 'shipnity', customer_type: 'ลูกค้าใหม่', order_date: '2026-03-10', status: 'confirmed' },
     ];
     const { rows, team, dim } = buildPerf(MONTH, orders, [], [], [], targets, []);
     expect(dim).toBe(31);
@@ -57,7 +57,7 @@ describe('buildPerf', () => {
     expect(an.newC).toBe(1);
     expect(an.aov).toBe(2500);
     expect(an.channels.facebook).toBe(5000);
-    expect(an.chStats.facebook).toEqual({ orders: 2, sales: 5000 });
+    expect(an.chStats.facebook).toEqual({ orders: 2, sales: 5000, chat: 2 }); // chat = ตัวตั้ง %ปิดต่อช่องทาง
     // team รวม (ไม่นับ cancelled)
     expect(team.sales).toBe(13000);
     expect(team.orders).toBe(3);
@@ -80,8 +80,8 @@ describe('buildPerf', () => {
 
   it('funnel → leads/closeRate/leadsByPlat/newOld + channelClose จับคู่ช่องทาง', () => {
     const orders = [
-      { order_no: 'A1', salesperson: 'แอน', sales: 3000, qty: 1, channel: 'facebook', order_date: '2026-03-05', status: 'confirmed' },
-      { order_no: 'A2', salesperson: 'แอน', sales: 2000, qty: 1, channel: 'facebook', order_date: '2026-03-06', status: 'confirmed' },
+      { order_no: 'A1', salesperson: 'แอน', sales: 3000, qty: 1, channel: 'facebook', source: 'shipnity', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'A2', salesperson: 'แอน', sales: 2000, qty: 1, channel: 'facebook', source: 'shipnity', order_date: '2026-03-06', status: 'confirmed' },
     ];
     const funnel = [
       { salesperson: 'แอน', date: '2026-03-05', leads: { facebook: { new: 6, old: 4 } } }, // total 10
@@ -96,7 +96,18 @@ describe('buildPerf', () => {
     expect(fbClose.orders).toBe(2);
     expect(fbClose.leads).toBe(10);
     expect(fbClose.closeRate).toBe(20);
+    expect(fbClose.over).toBe(false);        // ปิด ≤ ทัก → ปกติ
     expect(team.closeRate).toBe(20);
+  });
+
+  it('channelClose.over = true เมื่อปิดมากกว่าคนทัก (%ปิด > 100% เป็นไปไม่ได้ = คนทักไม่ครบ)', () => {
+    const orders = Array.from({ length: 20 }, (_, i) => ({ order_no: 'P' + i, salesperson: 'แอน', sales: 100, qty: 1, channel: 'phone', source: 'shipnity', order_date: '2026-03-05', status: 'confirmed' }));
+    const funnel = [{ salesperson: 'แอน', date: '2026-03-05', leads: { phone: { new: 1, old: 1 } } }]; // ทัก 2 · ปิด 20
+    const { rows } = buildPerf(MONTH, orders, [], funnel, [], {}, []);
+    const ph = rows[0].channelClose.find(c => c.ch === 'phone');
+    expect(ph.orders).toBe(20);
+    expect(ph.leads).toBe(2);
+    expect(ph.over).toBe(true);              // 20 > 2 → คนทักไม่ครบ (UI โชว์ป้ายแทน 1000%)
   });
 
   it('skus → design tally (join order_no) · funnel-only seller ถูกสร้าง', () => {
@@ -148,8 +159,8 @@ describe('buildPerf', () => {
   // P89: %ปิด = ออเดอร์ช่องแชท ÷ คนทัก — มาร์เก็ตเพลส (Shopee/Lazada/POS) ไม่นับตัวตั้ง → ไม่เกิน 100%
   it('closeRate นับเฉพาะออเดอร์ช่องแชท ไม่รวมมาร์เก็ตเพลส', () => {
     const orders = [
-      { order_no: 'C1', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'LINE', order_date: '2026-03-05', status: 'confirmed' },
-      { order_no: 'C2', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'Phone', order_date: '2026-03-06', status: 'confirmed' },
+      { order_no: 'C1', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'LINE', source: 'shipnity', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'C2', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'Phone', source: 'shipnity', order_date: '2026-03-06', status: 'confirmed' },
       { order_no: 'M1', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'Shopee', order_date: '2026-03-06', status: 'confirmed' },
       { order_no: 'M2', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'Lazada', order_date: '2026-03-07', status: 'confirmed' },
       { order_no: 'M3', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'POS', order_date: '2026-03-07', status: 'confirmed' },
@@ -161,5 +172,56 @@ describe('buildPerf', () => {
     expect(fa.chatOrders).toBe(2);      // แชท 2 (LINE+Phone)
     expect(fa.closeRate).toBe(40);      // 2/5 = 40% (ไม่ใช่ 5/5=100% หรือเกิน)
     expect(team.closeRate).toBe(40);
+  });
+
+  // C1: TikTok Shop จากไฟล์ import (source='tiktok' · เซลล์ '(TikTok)') channel เป็น 'TikTok'
+  // = ช่องแชทตามชื่อ แต่ลูกค้าสั่งเองในแพลตฟอร์ม — ต้อง "ไม่" เข้าตัวตั้ง %ปิด (เดิมเข้า → ทีมสูงเกินจริง)
+  // ส่วน TikTok DM ของจริง (ใบเสร็จ shipnity) ต้องนับตามเดิม
+  it('C1: TikTok จาก import ไม่นับเป็นออเดอร์แชท · TikTok จากใบเสร็จ shipnity นับ', () => {
+    const orders = [
+      { order_no: 'T1', salesperson: '(TikTok)', sales: 900, qty: 1, channel: 'TikTok', source: 'tiktok', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'T2', salesperson: 'ฟ้า', sales: 700, qty: 1, channel: 'TikTok', source: 'shipnity', order_date: '2026-03-05', status: 'confirmed' },
+    ];
+    const funnel = [{ date: '2026-03-05', salesperson: 'ฟ้า', leads: { TikTok: { new: 2, old: 0 } } }];
+    const { rows, team } = buildPerf('2026-03', orders, [], funnel, [], {}, []);
+    expect(rows.find(r => r.name === '(TikTok)').chatOrders).toBe(0); // import ไม่นับ
+    expect(rows.find(r => r.name === 'ฟ้า').chatOrders).toBe(1);      // ใบเสร็จนับ
+    expect(team.chatOrders).toBe(1);
+    expect(team.closeRate).toBe(50); // 1 แชท ÷ 2 คนทัก (ไม่ใช่ 2÷2=100%)
+  });
+
+  // C2: ฟอร์มคนทักใช้ชื่อ 'อื่นๆ' · ออเดอร์ fallback ใช้ 'Direct' — เรื่องเดียวกันคนละชื่อ
+  // ต้อง join กันในตาราง %ปิดรายช่องทาง (เดิมแตกเป็น 2 แถวพัง: Direct ไม่มี leads · อื่นๆ 0%)
+  it("C2: leads 'อื่นๆ' รวมเข้ากับออเดอร์ 'Direct' ใน channelClose", () => {
+    const orders = [
+      { order_no: 'D1', salesperson: 'ฟ้า', sales: 500, qty: 1, channel: 'Direct', source: 'shipnity', order_date: '2026-03-05', status: 'confirmed' },
+    ];
+    const funnel = [{ date: '2026-03-05', salesperson: 'ฟ้า', leads: { 'อื่นๆ': { new: 2, old: 0 } } }];
+    const { rows } = buildPerf('2026-03', orders, [], funnel, [], {}, []);
+    const fa = rows.find(r => r.name === 'ฟ้า');
+    const direct = fa.channelClose.find(c => c.ch === 'Direct');
+    expect(direct).toBeTruthy();
+    expect(direct.orders).toBe(1);
+    expect(direct.leads).toBe(2);
+    expect(direct.closeRate).toBe(50);
+    expect(fa.channelClose.find(c => c.ch === 'อื่นๆ')).toBeUndefined(); // ไม่มีแถวแยกอีกแล้ว
+  });
+
+  // FIX: ตาราง "%ปิดต่อช่องทาง" เคยใช้ออเดอร์ทั้งหมด ทำให้แถว TikTok เอา TikTok Shop (import) มารวม
+  // → โชว์ %ปิดสูงเกินจริง และไม่ตรงกับ closeRate รวมบนจอเดียวกัน
+  it('channelClose นับเฉพาะออเดอร์แชท — ตรงกับ closeRate รวม', () => {
+    const orders = [
+      { order_no: 'T1', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'TikTok', source: 'tiktok', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'T2', salesperson: 'ฟ้า', sales: 900, qty: 1, channel: 'TikTok', source: 'tiktok', order_date: '2026-03-05', status: 'confirmed' },
+      { order_no: 'T3', salesperson: 'ฟ้า', sales: 700, qty: 1, channel: 'TikTok', source: 'shipnity', order_date: '2026-03-05', status: 'confirmed' },
+    ];
+    const funnel = [{ date: '2026-03-05', salesperson: 'ฟ้า', leads: { TikTok: { new: 4, old: 0 } } }];
+    const { rows } = buildPerf('2026-03', orders, [], funnel, [], {}, []);
+    const fa = rows.find(r => r.name === 'ฟ้า');
+    const tk = fa.channelClose.find(c => c.ch === 'TikTok');
+    expect(tk.orders).toBe(1);        // เฉพาะใบเสร็จ (ไม่ใช่ 3)
+    expect(tk.leads).toBe(4);
+    expect(tk.closeRate).toBe(25);    // 1/4 — ไม่ใช่ 75%
+    expect(fa.closeRate).toBe(25);    // ตรงกับตัวรวมบนจอเดียวกัน
   });
 });
