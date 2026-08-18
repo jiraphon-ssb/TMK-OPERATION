@@ -937,21 +937,42 @@ function useFunnelCardProps() {
   const canEdit = busCanEdit();
   const canSeeTeam = isAdmin(user);
   const [ordersToday, setOrdersToday] = useState({});
+  const [monthNames, setMonthNames] = useState([]); // เซลล์ที่มีตัวตนเดือนนี้ (ส่งยอด/กรอกคนทัก)
   useEffect(() => {
+    let live = true;
     const t = todayISO();
     supabase.from('tmk_sale_receipts').select('salesperson,status,order_date').eq('order_date', t)
       .then(({ data }) => {
+        if (!live) return;
         const m = {};
         (data || []).forEach(r => { if (r.status === 'confirmed' && r.salesperson) m[r.salesperson] = (m[r.salesperson] || 0) + 1; });
         setOrdersToday(m);
       }, () => {});
+    // รายชื่อจากทั้งเดือน — เดิมใช้แค่ tmk_staff + ใบเสร็จ "วันนี้" → เช้าๆ ที่ยังไม่มีใครส่งยอด
+    // (หรือคนที่ไม่อยู่ในตาราง staff) ชื่อหายจาก dropdown/ตารางทีม ทั้งที่เดือนนี้มียอด/เคยกรอกคนทัก
+    (async () => {
+      const ym = t.slice(0, 7);
+      const out = new Set();
+      const add = (v) => { const n = String(v || '').trim(); if (n && n !== 'ไม่ระบุเซลล์') out.add(n); };
+      try {
+        const { data } = await supabase.from('tmk_sale_receipts').select('salesperson').eq('order_month', ym).neq('status', 'void');
+        (data || []).forEach(r => add(r.salesperson));
+      } catch { /* ตารางใบเสร็จ optional */ }
+      try {
+        const { data } = await supabase.from('tmk_sales_funnel').select('salesperson').gte('date', `${ym}-01`).lte('date', t);
+        (data || []).forEach(r => add(r.salesperson));
+      } catch { /* ignore */ }
+      if (live) setMonthNames([...out]);
+    })();
+    return () => { live = false; };
   }, []);
   const sellers = useMemo(() => {
     const set = new Set();
     (staff || []).forEach(s => { if (s?.name) set.add(s.name); });
+    monthNames.forEach(n => set.add(n));
     Object.keys(ordersToday).forEach(n => set.add(n));
     return [...set].sort();
-  }, [staff, ordersToday]);
+  }, [staff, ordersToday, monthNames]);
   return { sellers, createdBy: user?.email || '', isAdmin: canSeeTeam, canEdit, myName: user?.name || '', ordersToday };
 }
 
