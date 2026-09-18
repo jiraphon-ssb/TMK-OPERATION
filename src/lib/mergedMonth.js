@@ -31,8 +31,8 @@ export async function fetchMergedMonth(ym) {
     const [oR, ovR, fR, dR, crmT] = await Promise.all([
       cachedFetchRange('tmk_mp_orders', ORDERS_SEL, from, to, 'order_date'),
       cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
-      supabase.from('tmk_sales_funnel').select(FUNNEL_SEL).gte('date', from).lte('date', to),
-      supabase.from('tmk_daily_sales').select('date,channels,ad_spend,avg_reply_minutes,note,deleted_at').gte('date', from).lte('date', to),
+      cachedFetchRange('tmk_sales_funnel', FUNNEL_SEL, from, to, 'date'),
+      cachedFetchRange('tmk_daily_sales', 'date,channels,ad_spend,avg_reply_minutes,note,deleted_at', from, to, 'date'),
       fetchCrmTargets(ym),
     ]);
     /* ⚠️ cachedFetchRange คืน { error } — **ไม่ throw** → ถ้าไม่เช็คตรงนี้ จะไม่มีทางเข้า catch

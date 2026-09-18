@@ -117,7 +117,7 @@ function useHomeMoney(ym) {
       const [oR, skR, fR, rcR, tg, ovR, mm, mmPrev, tgPrev] = await Promise.all([
         cachedFetchRange('tmk_mp_orders', ORDERS_SEL, from, to, 'order_date', force),
         cachedFetchRange('tmk_mp_skus', SKUS_SEL, from, to, 'order_date', force),
-        isSupabaseConfigured ? supabase.from('tmk_sales_funnel').select(FUNNEL_SEL).gte('date', funnelFrom).lte('date', to) : NO_DB,
+        cachedFetchRange('tmk_sales_funnel', FUNNEL_SEL, funnelFrom, to, 'date', force),
         isSupabaseConfigured ? supabase.from('tmk_sale_receipts').select('order_no,salesperson,sales,status').eq('order_month', ym) : NO_DB,
         fetchTargetsResult(ym),
         cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),

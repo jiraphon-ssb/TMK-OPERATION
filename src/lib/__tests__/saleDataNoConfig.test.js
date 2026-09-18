@@ -41,3 +41,15 @@ describe('saleData เมื่อยังไม่ได้ตั้งค่�
     expect(r.error.message).toMatch(/VITE_SUPABASE/);
   });
 });
+
+/* stockData ก็ต้องไม่ throw เมื่อ env ขาด — queryMoves เรียก supabase.from() ตรง ๆ
+   (เทส stockPo-dom จับได้ตอนเปลี่ยน fetchStockMoves มาเป็นคิวรีแบบมีขอบเขต 18 ก.ย. 69) */
+describe('stockData เมื่อยังไม่ได้ตั้งค่าฐานข้อมูล', () => {
+  it('⛔ fetchStockMoves ต้องคืน error ไม่ throw', async () => {
+    const { fetchStockMoves, invalidateStockMoves } = await import('../stockData.js');
+    invalidateStockMoves();
+    const r = await fetchStockMoves(true);
+    expect(r.rows).toEqual([]);
+    expect(r.error?.code).toBe('NO_SUPABASE_CONFIG');
+  });
+});

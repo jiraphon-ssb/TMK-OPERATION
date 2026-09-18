@@ -226,9 +226,9 @@ export function SaleDashboard() {
   useEffect(() => { let alive = true; (async () => {
     if (!winFrom || !winTo) { setDailyRows([]); return; }
     try {
-      const { data, error } = await supabase.from('tmk_daily_sales')
-        .select('date,channels,ad_spend,avg_reply_minutes,note,deleted_at')
-        .gte('date', winFrom).lte('date', winTo);
+      // ผ่าน cache กลาง — ชุดเดียวกับที่ mergedMonth ขอ (เดิมยิงตรง = ดึงซ้ำทุกครั้งที่ component mount)
+      const { data, error } = await cachedFetchRange(
+        'tmk_daily_sales', 'date,channels,ad_spend,avg_reply_minutes,note,deleted_at', winFrom, winTo, 'date');
       if (!alive) return;
       /* ⚠️ ห้ามกลืน error — แถวนี้คือ "ค่าแอด" กับ "ยอดมาร์เก็ตเพลสที่กรอกมือ"
          ถ้าอ่านไม่ได้แล้วปล่อยเป็น [] ยอดรวมจะหายเท่ากับยอด Shopee/TikTok/Lazada ทั้งช่วง

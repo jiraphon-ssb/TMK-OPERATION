@@ -5,6 +5,7 @@
    - แคชข้ามหน้า: ครั้งแรกโหลดจริง ครั้งต่อไปใช้ของในแคช (สลับหน้าทันที)
    ============================================================ */
 import { supabase, isSupabaseConfigured } from './supabaseClient.js';
+import { isRealtimeDown } from '../realtime/channelRegistry.js';
 import { markSaleWrite } from './saleRealtime.js';
 import { rtDiag } from '../realtime/diagnostics.js';
 // resolveJobType = สูตร canonical ร่วมกับ edge (daily-sale-report) → import จาก _shared แหล่งเดียว (P2-4)
@@ -29,7 +30,32 @@ export const OVERRIDES_SEL = 'order_id,job_type,customer_name,customer_type,sale
 
 const cache = new Map();    // key -> { ts, data }
 const inflight = new Map();
-const TTL = 5 * 60 * 1000;  // 5 นาที
+/* ============================================================
+   TTL ของ cache — ยืดได้เฉพาะตารางที่ realtime คอยล้าง cache ให้ (18 ก.ย. 69)
+   ============================================================
+   ปัญหา: Egress ทะลุโควตา 120% ทั้งที่ฐานข้อมูลมีแค่ 48 MB
+   ตารางใหญ่อย่าง tmk_mp_orders / tmk_mp_customers ต้องดึง "ทั้งตาราง" จริง ๆ
+   เพราะ CRM คิดยอดตลอดชีพ (tier · อัตราซื้อซ้ำ · ลิสต์ควรติดต่อ) — ใส่ช่วงวันที่แล้วเลขเพี้ยน
+   แต่ TTL 5 นาทีทำให้ "กลับมาที่แท็บ" หลัง 5 นาที = ดาวน์โหลดทั้งตารางใหม่ วันละหลายสิบรอบ/คน
+
+   ทำไมยืดแล้วยังสด:
+     · เขียนเองในเครื่อง → invalidateSaleCache() ล้าง cache ทันที
+     · คนอื่นเขียน       → realtime event → useSaleLiveReload({ invalidate }) ล้างให้
+     → TTL เหลือหน้าที่แค่ "กันกรณีพลาด"
+   ⚠️ realtime หลุดเมื่อไหร่ = ไม่มีใครล้าง cache ให้ → ต้องกลับไป TTL สั้นทันที (ดู ttlFor) */
+export const TTL_SHORT = 5 * 60 * 1000;    // 5 นาที — ค่าปลอดภัย ใช้กับทุกตารางที่ไม่มี realtime คุม
+export const TTL_STABLE = 30 * 60 * 1000;  // 30 นาที — ตารางใหญ่ที่ realtime คุมอยู่
+
+/** ตารางที่ useSaleLiveReload subscribe จริง (ดู saleCrm / saleDashboard / salePerf)
+ *  ⛔ ห้ามเติมตารางที่ไม่ได้ subscribe — จะค้างนานถึงครึ่งชั่วโมงโดยไม่มีใครล้างให้
+ *  (สต็อก/แคตตาล็อก/ใบสั่งผลิต ไม่ได้อยู่ใน publication → คงไว้ที่ TTL สั้น) */
+export const REALTIME_BACKED = new Set([
+  'tmk_mp_orders', 'tmk_mp_skus', 'tmk_mp_customers',
+  'tmk_order_overrides', 'tmk_sale_receipts', 'tmk_sales_funnel',
+]);
+
+export const ttlFor = (table) =>
+  (!isRealtimeDown() && REALTIME_BACKED.has(table) ? TTL_STABLE : TTL_SHORT);
 
 // ประเภทงาน: รวม "ส่ง" (ขายส่งตามจำนวน) เข้าเป็น "ปลีก" — เหลือ ปลีก / DFT / OEM
 // (DFT มาจากหมายเหตุ; ยุบ "ส่ง"→"ปลีก" ทันที)
@@ -107,7 +133,7 @@ async function selectAll(table, sel, addFilters) {
 export async function cachedFetchAll(table, sel = '*', force = false) {
   const key = `${table}|${sel}`;
   const hit = cache.get(key);
-  if (!force && hit && (Date.now() - hit.ts) < TTL) { rtDiag.query(table, 0, true); return { data: hit.data, cached: true, truncated: hit.truncated }; }
+  if (!force && hit && (Date.now() - hit.ts) < ttlFor(table)) { rtDiag.query(table, 0, true); return { data: hit.data, cached: true, truncated: hit.truncated }; }
   if (!force && inflight.has(key)) return inflight.get(key);
   const run = (async () => {
     const r = await selectAll(table, sel, (q) => q);
@@ -123,11 +149,50 @@ export async function cachedFetchAll(table, sel = '*', force = false) {
 }
 
 // โหลดเฉพาะช่วงวันที่ (server-side) — ใช้กับ orders/skus ที่มีจำนวนมาก
+/** เหมือน cachedFetchAll แต่กรองด้วย .eq() หนึ่งคอลัมน์ (เช่น เป้าของเดือนหนึ่ง)
+ *  มีไว้เพราะหลายหน้าขอชุดเดียวกันพร้อมกัน — ถ้ายิงตรงจะได้ request ซ้ำ 6 รอบต่อการเปิดหน้า 1 ครั้ง */
+export async function cachedFetchEq(table, sel, col, val, force = false) {
+  const key = `${table}|${sel}|${col}=${val}`;
+  const hit = cache.get(key);
+  if (!force && hit && (Date.now() - hit.ts) < ttlFor(table)) return { data: hit.data, cached: true };
+  if (!force && inflight.has(key)) return inflight.get(key);
+  const run = (async () => {
+    const r = await selectAll(table, sel, (q) => q.eq(col, val));
+    inflight.delete(key);
+    if (r.error) return r;
+    rtDiag.query(table, r.data?.length || 0, false);
+    cache.set(key, { ts: Date.now(), data: r.data });
+    return r;
+  })();
+  inflight.set(key, run);
+  return run;
+}
+
+/** ใส่ค่าลง cache ตรง ๆ — ใช้ในเทสเท่านั้น (จำลองสถานะ cache ที่สร้างด้วยของจริงไม่ได้ เช่น truncated) */
+export function __setCacheForTest(key, value) { cache.set(key, value); }
+
 export async function cachedFetchRange(table, sel, from, to, dateCol = 'order_date', force = false) {
   if (!from || !to) return cachedFetchAll(table, sel, force);
+
+  /* ⬇️ ลด egress (18 ก.ย. 69) — ถ้า "ทั้งตาราง" ชุดคอลัมน์เดียวกันอยู่ใน cache แล้ว
+     ช่วงย่อยก็ตัดเอาเองได้ ไม่ต้องยิงเน็ตซ้ำ
+     วัดจริง: เปิดหน้า CRM 1 ครั้ง → tmk_mp_orders ถูกดึง 3 รอบ (CRM ขอทั้งตาราง ·
+     หน้าแรก/mergedMonth ขอเดือนนี้+เดือนก่อนของตารางเดียวกัน)
+     ⚠️ ใช้ได้ต่อเมื่อชุดใหญ่ "ครบจริง" — ถ้า truncated (ชนเพดาน paginate) ห้ามใช้ ข้อมูลจะขาด
+     ⚠️ แถวที่ไม่มีวันที่ต้องตัดทิ้ง ให้ตรงกับที่ DB คืนเมื่อใช้ gte/lte */
+  const allHit = force ? null : cache.get(`${table}|${sel}`);
+  if (allHit && !allHit.truncated && Array.isArray(allHit.data) && (Date.now() - allHit.ts) < ttlFor(table)) {
+    const data = allHit.data.filter(r => {
+      const d = String(r?.[dateCol] ?? '').slice(0, 10);
+      return !!d && d >= from && d <= to;
+    });
+    rtDiag.query(table, data.length, true);
+    return { data, cached: true, truncated: false };
+  }
+
   const key = `${table}|${sel}|${from}|${to}`;
   const hit = cache.get(key);
-  if (!force && hit && (Date.now() - hit.ts) < TTL) return { data: hit.data, cached: true, truncated: hit.truncated };
+  if (!force && hit && (Date.now() - hit.ts) < ttlFor(table)) return { data: hit.data, cached: true, truncated: hit.truncated };
   if (!force && inflight.has(key)) return inflight.get(key);
   const run = (async () => {
     const r = await selectAll(table, sel, (q) => q.gte(dateCol, from).lte(dateCol, to));
@@ -145,7 +210,7 @@ export async function cachedFetchRange(table, sel, from, to, dateCol = 'order_da
 export async function getDateBounds(table = 'tmk_mp_orders', dateCol = 'order_date', force = false) {
   const key = `__bounds|${table}`;
   const hit = cache.get(key);
-  if (!force && hit && (Date.now() - hit.ts) < TTL) return hit.data;
+  if (!force && hit && (Date.now() - hit.ts) < ttlFor(table)) return hit.data;
   if (!isSupabaseConfigured) return { min: null, max: null };   // env ขาด = ไม่รู้ขอบวันที่ (ไม่ throw)
   const lo = await supabase.from(table).select(dateCol).not(dateCol, 'is', null).order(dateCol, { ascending: true }).limit(1);
   const hi = await supabase.from(table).select(dateCol).not(dateCol, 'is', null).order(dateCol, { ascending: false }).limit(1);

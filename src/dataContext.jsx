@@ -15,6 +15,7 @@ import { computeMonthPure } from './lib/computeMonthPure.js';
 import { mapToTMK, clearMapMemo } from './lib/mapToTMK.js';
 import { applyMapped } from './lib/applyTMK.js';
 import { rtDiag } from './realtime/diagnostics.js';
+import { patchTableRows, PATCH_CFG } from './lib/realtimePatch.js';
 
 const DataContext = createContext();
 
@@ -58,6 +59,16 @@ const QUERIES = {
   commentCounts: () => supabase.from('tmk_task_comment_counts').select('task_id,comment_count'),
 };
 // ตาราง Supabase → key ใน raw/QUERIES (สำหรับแมป realtime event)
+/* ชื่อ channel ต้องไม่ซ้ำกันในแต่ละครั้งที่ต่อ (18 ก.ย. 69)
+   supabase.removeChannel() เป็น async — ตอน React mount ซ้ำ (StrictMode/dev · หรือ remount จริง)
+   รอบใหม่จะเรียก supabase.channel('tmk-realtime') ขณะที่ตัวเก่ายัง "ถอนไม่เสร็จ"
+   → ได้ object เดิมที่ subscribe ไปแล้ว → .on() โยน
+     "cannot add postgres_changes callbacks after subscribe()"
+   และเสี่ยงได้ channel ที่ subscribe แล้วแต่ไม่มี binding = realtime ตายเงียบ
+   นับเลขต่อท้ายให้ไม่ซ้ำ = ไม่มีทางชนกัน · ชื่อที่ใช้รายงานใน rtDiag คงเดิมเพื่อให้สถิติต่อเนื่อง */
+let rtSeq = 0;
+const RT_DIAG = 'tmk-realtime';
+
 const TABLE_KEY = {
   tmk_channels: 'channels', tmk_campaigns: 'campaigns', tmk_tasks: 'tasks', tmk_brands: 'brands', tmk_flows: 'flows',
   tmk_settings: 'settings', tmk_user_roles: 'roles', tmk_staff: 'staff', tmk_duties: 'duties',
@@ -301,15 +312,22 @@ export function DataProvider({ children }) {
        เปลือง connection + console หน้า login มี error (e2e จับได้บน CI 9 ก.ย. 69)
        ประกาศเป็น let ตรงนี้ แล้ว assign ตัวจริงหลัง connectRealtime ถูกนิยามด้านล่าง */
     let startRt = () => {};
+    /* ⛔ ห้ามใช้ mountedRef ตัดสินใน async path ของ effect นี้ — mountedRef เป็นของ provider
+       "ใช้ร่วมกันทุกรอบ" พอ React mount ซ้ำ (StrictMode/dev) รอบใหม่ตั้งกลับเป็น true
+       closure ของรอบเก่าที่ค้าง await อยู่จึงผ่านด่าน แล้วไปต่อ channel ชื่อเดิมซ้ำ
+       → "cannot add postgres_changes callbacks after subscribe()" และเสี่ยงได้ channel
+         ที่ subscribe แล้วแต่ไม่มี binding = realtime ตายเงียบ (เจอจริง 18 ก.ย. 69)
+       ธงนี้เป็นของ "รอบนี้" เท่านั้น → cleanup ปิดแล้วปิดเลย */
+    let cancelled = false;
     if (!isSupabaseConfigured) {
       load(); // ไม่ได้ตั้งค่า .env → ให้ load() รายงาน error ตามเดิม
     } else {
       (async () => {
         const { data } = await supabase.auth.getSession();
-        if (!mountedRef.current) return;
+        if (cancelled) return;
         if (data?.session) { load(); startRt(); }
         const res = supabase.auth.onAuthStateChange((event) => {
-          if (!mountedRef.current) return;
+          if (cancelled) return;
           if (event === 'SIGNED_OUT') { rawRef.current = null; clearMapMemo(); } // ล้างแคช map ด้วย — กันข้อมูล user เดิมค้างข้ามคน
           if (event === 'SIGNED_IN' && !rawRef.current) load();
           if (event === 'SIGNED_IN') startRt();   // login ใหม่ → ค่อยเปิด WS (idempotent — กันซ้ำใน startRt)
@@ -335,7 +353,8 @@ export function DataProvider({ children }) {
       document.addEventListener('visibilitychange', onVis); // + ตอนกลับมาที่แท็บ (ดึงตารางหลัก + ลองต่อ realtime ใหม่)
       console.info('ℹ️ Realtime ใช้ไม่ได้ — สลับเป็นรีเฟรชอัตโนมัติ (120 วิ เฉพาะตารางหลัก · กลับมาที่แท็บ = ดึง+ลองต่อ realtime ใหม่); การบันทึกในเครื่องนี้รีเฟรชทันทีอยู่แล้ว');
     };
-    const pendingTables = new Set(); // ตารางที่เปลี่ยน — flush ทีเดียวด้วย refreshTables
+    const pendingTables = new Set(); // ตารางที่เปลี่ยน (patch ไม่ได้) — flush ทีเดียวด้วย refreshTables
+    let patchedAny = false;          // มี event ที่แก้เฉพาะแถวสำเร็จ → ต้อง re-render แต่ไม่ต้องยิง network
     const channelTables = [
       'tmk_channels','tmk_campaigns','tmk_tasks','tmk_brands','tmk_flows','tmk_settings',
       'tmk_user_roles','tmk_staff','tmk_duties','tmk_daily_sales','tmk_ad_campaigns',
@@ -351,35 +370,62 @@ export function DataProvider({ children }) {
     const MAX_RECONNECT = 3;
     // สำคัญ: null "ก่อน" removeChannel — unsubscribe ยิง status CLOSED กลับเข้า callback แบบ synchronous
     // ถ้า null ทีหลัง callback จะเรียก teardown ซ้ำเป็นลูกโซ่ = Maximum call stack size exceeded
+    /* รวม event ที่มาติด ๆ กันเป็นรอบเดียว (300ms) — patch แล้วแค่ re-render · ที่เหลือค่อยดึงจาก network */
+    const flushRealtime = () => {
+      const ts = [...pendingTables]; pendingTables.clear();
+      const hadPatch = patchedAny; patchedAny = false;
+      // re-render ก่อนเสมอเมื่อมี patch — refreshTables อาจถูกเลื่อน (inFlight) แล้วของที่ patch ไว้จะขึ้นช้า
+      if (hadPatch && mountedRef.current) { mutateTMK(mapToTMK(rawRef.current)); setVersion(v => v + 1); }
+      // ดึงเฉพาะตารางที่ patch ไม่ได้ (flush จาก realtime — ไม่ stamp กัน echo กินต่อกันเป็นลูกโซ่)
+      if (ts.length) refreshTables(ts, { fromRealtime: true });
+    };
+
     const teardownChannel = () => {
       if (!channel) return;
       const ch = channel; channel = null;
-      rtDiag.channelClose('tmk-realtime'); // Phase 0 baseline
+      rtDiag.channelClose(RT_DIAG); // Phase 0 baseline
       try { supabase.removeChannel(ch); } catch { /* ignore */ }
     };
     const connectRealtime = () => {
       if (!supabase) { startPolling(); return; }
-      if (usingPoll || !mountedRef.current) return;
-      const ch = supabase.channel('tmk-realtime');
+      // channel != null = รอบนี้ต่ออยู่แล้ว · ต่อซ้ำ = supabase คืน channel เดิมที่ subscribe ไปแล้ว → .on() throw
+      if (usingPoll || cancelled || channel) return;
+      rtSeq += 1;
+      const ch = supabase.channel(`${RT_DIAG}-${rtSeq}`);
       channel = ch;
       channelTables.forEach(t => {
-        ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, () => {
+        ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, (payload) => {
           rtDiag.event(t); // Phase 0 baseline: นับ realtime event ที่รับต่อ table (dev-only · รวม echo)
           // ข้าม echo ของการเซฟจากเครื่องนี้เอง "1 ครั้ง" — เราเพิ่ง refresh ตารางนี้ไปแล้ว (<800ms) ไม่ต้องดึงซ้ำ
           // ปลอดภัยเพราะ event มาตามลำดับ commit: event แรกหลังเซฟเรา = ของเราเอง (ข้อมูลอยู่ใน fetch แล้ว)
           // ลบ stamp หลังข้าม → event ถัดไป (ของคนอื่น) ประมวลผลปกติ ไม่มีช่องพลาดข้อมูล
           if (Date.now() - (lastRefreshAtRef.current[t] || 0) < 800) { delete lastRefreshAtRef.current[t]; return; }
+
+          /* ⬇️ ลดค่า egress (18 ก.ย. 69) — payload มีทั้งแถวมาแล้ว ไม่ต้องยิง query ซ้ำ
+             เดิม: event 1 ครั้ง = ดึงตารางนั้นใหม่ทั้งตาราง "ทุกเครื่องที่เปิดอยู่"
+             ตอนนี้: แก้เฉพาะแถวใน cache · patchTableRows คืน null เมื่อไม่มั่นใจ → ถอยไปดึงทั้งตารางเหมือนเดิม
+             เขียนลง rawRef ทันที (ไม่รอ flush) เพื่อให้ event ถัดไปของตารางเดียวกันต่อยอดจากของล่าสุด */
+          const cfg = PATCH_CFG[t];
+          if (cfg && rawRef.current) {
+            const next = patchTableRows(rawRef.current[cfg.key], t, payload, { dailyFrom: dailyFromDate() });
+            if (next) {
+              rawRef.current[cfg.key] = next;
+              patchedAny = true;
+              rtDiag.event(`${t}:patched`);   // แยกนับไว้ดูว่าประหยัด query ไปกี่ครั้ง
+              clearTimeout(timer);
+              timer = setTimeout(flushRealtime, 300);
+              return;
+            }
+          }
+
           pendingTables.add(t);
           clearTimeout(timer);
-          timer = setTimeout(() => {
-            const ts = [...pendingTables]; pendingTables.clear();
-            refreshTables(ts, { fromRealtime: true }); // ดึงเฉพาะตารางที่เปลี่ยน (flush จาก realtime — ไม่ stamp กัน echo กินต่อกันเป็นลูกโซ่)
-          }, 300);
+          timer = setTimeout(flushRealtime, 300);
         });
       });
       ch.subscribe((status) => {
         if (channel !== ch) return; // event จาก channel เก่าที่ถูก teardown ไปแล้ว (CLOSED ตอน unsubscribe) — เมิน กันลูป
-        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); reconnectAttempts = 0; rtDiag.channelOpen('tmk-realtime'); }
+        if (status === 'SUBSCRIBED') { clearTimeout(connectTimeout); reconnectAttempts = 0; rtDiag.channelOpen(RT_DIAG); }
         else if (status === 'CHANNEL_ERROR') { clearTimeout(connectTimeout); teardownChannel(); startPolling(); }
         else if (status === 'CLOSED' || status === 'TIMED_OUT') {
           clearTimeout(connectTimeout); teardownChannel();
@@ -402,10 +448,11 @@ export function DataProvider({ children }) {
       connectRealtime(); // ต่อไม่สำเร็จ → status handler จะ startPolling กลับให้เอง (interval+listener ตั้งใหม่)
     };
     let rtStarted = false;
-    startRt = () => { if (rtStarted || !mountedRef.current) return; rtStarted = true; connectRealtime(); };
+    startRt = () => { if (rtStarted || cancelled) return; rtStarted = true; connectRealtime(); };
     if (!isSupabaseConfigured) startRt();   // ไม่มี client → connectRealtime จะ startPolling ให้เอง (พฤติกรรมเดิม)
 
     return () => {
+      cancelled = true;              // ปิดทุก async path ของ "รอบนี้" ก่อนอย่างอื่น
       mountedRef.current = false;
       authSub?.unsubscribe();
       clearTimeout(timer); clearTimeout(connectTimeout); clearTimeout(reconnectTimer); clearInterval(pollTimer);

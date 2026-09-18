@@ -25,7 +25,7 @@ import { toast, openModal } from './lib/appBus.js';
 import { useUser } from './userContext.jsx';
 import { isAdmin } from './lib/roleAccess.js';
 import { fmtBaht } from './lib/money.js';
-import { cachedFetchAll, OVERRIDES_SEL, fetchCustomerProfiles } from './lib/saleData.js';
+import { cachedFetchAll, ORDERS_SEL, OVERRIDES_SEL, fetchCustomerProfiles } from './lib/saleData.js';
 import { useSaleLiveReload } from './lib/useSaleLive.js';
 import { T } from './lib/tables.js';
 import { usePersistedState, usePersistedMonth } from './hooks/usePersistedState.js';
@@ -57,8 +57,11 @@ async function loadProfiles() {
   return { data: r.rows, error: r.error };
 }
 // source ต้องมี — ORDER_OV_KEY = `${source}:${order_no}` (merge override ระดับออเดอร์)
-// payment_type/cod_amount/customer_type/note/customer_phone/job_type — ไว้ใช้ในการ์ดออเดอร์ popup รายวัน (OVERRIDES_SEL มีครบ merge ต่อเนื่อง)
-const ORDERS_CRM_SEL = 'order_no,source,customer_code,customer_name,customer_social,customer_phone,channel,salesperson,province,sales,qty,order_date,status,payment_type,cod_amount,customer_type,note,job_type';
+/* ⬇️ ใช้ ORDERS_SEL ร่วมกับหน้าอื่น (18 ก.ย. 69 — ลด egress)
+   เดิมหน้านี้มีชุดคอลัมน์ของตัวเอง (ORDERS_CRM_SEL) แต่ cache คีย์ด้วย `table|sel`
+   → เป็นคนละช่องกับหน้าอื่น = ดาวน์โหลด tmk_mp_orders "ทั้งตาราง" ซ้ำอีกรอบเต็ม ๆ
+   ORDERS_SEL ครอบทุกคอลัมน์ที่หน้านี้ใช้อยู่แล้ว (มีเทสบังคับที่ __tests__/queryDedup.test.js)
+   คอลัมน์ส่วนเกินไม่กี่ตัวถูกกว่าการโหลดทั้งตารางซ้ำเยอะ */
 
 /* ============================================================
    หน้า ลูกค้า (CRM)
@@ -92,7 +95,7 @@ export function CrmView() {
     (async () => {
       const [p, o, ov] = await Promise.all([
         loadProfiles(),
-        cachedFetchAll('tmk_mp_orders', ORDERS_CRM_SEL),
+        cachedFetchAll('tmk_mp_orders', ORDERS_SEL),
         cachedFetchAll('tmk_order_overrides', OVERRIDES_SEL),
       ]);
       if (!alive) return;

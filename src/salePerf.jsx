@@ -442,7 +442,7 @@ export function SalePerfView() {
       const base = [
         cachedFetchRange('tmk_mp_orders', ORDERS_SEL, from, to, 'order_date', force),
         cachedFetchRange('tmk_mp_skus', SKUS_SEL, from, to, 'order_date', force),
-        supabase.from('tmk_sales_funnel').select(FUNNEL_SEL).gte('date', from).lte('date', to),
+        cachedFetchRange('tmk_sales_funnel', FUNNEL_SEL, from, to, 'date', force),
         supabase.from('tmk_sale_receipts').select('order_no,salesperson,sales,qty,order_date,status,channel').eq('order_month', month),
         fetchTargets(month),
         // override ระดับออเดอร์ (แก้เซลล์/ยอดในเว็บ) — เดิมหน้านี้ "ลืม" merge → leaderboard ไม่ตรง dashboard/ออเดอร์
@@ -452,7 +452,7 @@ export function SalePerfView() {
       const cmp = [
         cachedFetchRange('tmk_mp_orders', ORDERS_SEL, pFrom, pTo, 'order_date', force),
         cachedFetchRange('tmk_mp_skus', SKUS_SEL, pFrom, pTo, 'order_date', force),
-        supabase.from('tmk_sales_funnel').select(FUNNEL_SEL).gte('date', pFrom).lte('date', pTo),
+        cachedFetchRange('tmk_sales_funnel', FUNNEL_SEL, pFrom, pTo, 'date', force),
         fetchTargets(pm),
       ];
       const [ordersR, skusR, funnelR, receiptsR, tg, ovR, pOrdersR, pSkusR, pFunnelR, pTg] =

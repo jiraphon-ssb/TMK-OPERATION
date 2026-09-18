@@ -7,6 +7,7 @@
      (ตรวจ relation-missing ที่ caller — ข้อความชี้ไป 20260731-crm-targets-notes.sql)
    ============================================================ */
 import { supabase } from './supabaseClient.js';
+import { cachedFetchEq } from './saleData.js';
 import { logAudit } from './audit.js';
 
 export const crmTargetId = (salesperson, month) => `${salesperson}::${month}`;
@@ -17,12 +18,12 @@ export async function fetchCrmTargets(month) {
   if (!month) return [];
   try {
     // PART 110: เป้าเชิงกิจกรรม (calls_target/answer_rate_target) — graceful ถ้ายังไม่ได้รัน migration
-    let { data, error } = await supabase
-      .from('tmk_crm_targets')
-      .select('id,salesperson,month,sales_target,calls_target,answer_rate_target')
-      .eq('month', month);
+    /* ผ่าน cache กลาง — หน้า CRM/รายงานขาย/ประสิทธิภาพเซลล์ ขอชุดเดียวกันพร้อมกัน
+       เดิมยิงตรงทุกครั้งที่ component mount → วัดจริงได้ 6 request ต่อการเปิดหน้า 1 ครั้ง */
+    let { data, error } = await cachedFetchEq(
+      'tmk_crm_targets', 'id,salesperson,month,sales_target,calls_target,answer_rate_target', 'month', month);
     if (error && /calls_target|answer_rate_target|column|schema cache/i.test(error.message || '')) {
-      ({ data, error } = await supabase.from('tmk_crm_targets').select('id,salesperson,month,sales_target').eq('month', month));
+      ({ data, error } = await cachedFetchEq('tmk_crm_targets', 'id,salesperson,month,sales_target', 'month', month));
     }
     /* ⚠️ อ่านไม่ได้ ≠ ไม่มีทีม CRM — คืน [] ทั้งสองกรณีทำให้ crmTeamOf() ได้ Set ว่าง
        → ยอด CRM ของทั้งทีมหายจากรายงาน · CrmTeamStrip ว่าง · activity นับโน้ตของทุกคน (fallback)

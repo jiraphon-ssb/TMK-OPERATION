@@ -36,8 +36,9 @@ vi.mock('../lib/saleRealtime.js', () => ({ useSaleRealtime: () => {} }));
 vi.mock('../lib/useSaleLive.js', () => ({ useSaleLiveReload: () => {} }));
 vi.mock('../lib/saleData.js', async (orig) => ({
   ...(await orig()),
-  cachedFetchRange: async () => ({ data: [], error: null }),
-  cachedFetchAll: async () => ({ data: [], error: null }),
+  // คนทักย้ายมาอ่านผ่าน cachedFetchRange แล้ว (ลด egress 18 ก.ย. 69) → บันทึกช่วงวันที่ตรงนี้แทน
+  cachedFetchRange: async (table, _sel, from, to) => { QUERIES.push({ table, gte: from, lte: to }); return { data: [], error: null }; },
+  cachedFetchAll: async (table) => { QUERIES.push({ table, gte: null, lte: null }); return { data: [], error: null }; },
 }));
 const TARGET_ROWS = [{ salesperson: 'ฟ้า', sales_target: 200000, commission_rate: 3 }];
 vi.mock('../lib/targets.js', async (orig) => ({
@@ -146,14 +147,21 @@ describe('หน้าแรก (PART 122)', () => {
 
 /* ---------- ขอบเดือน: ทุกวันที่ 1 "เมื่อวาน" อยู่เดือนก่อน ---------- */
 describe('หน้าแรก · ขอบเดือน', () => {
+  /* ⚠️ ต้องตรึงวันที่เป็น "วันที่ 1" ถึงจะพิสูจน์อะไรได้
+     ถ้าปล่อยตามวันจริง: วันที่ 18 → ต้นเดือน (1 ก.ย.) ก็ ≤ เมื่อวานอยู่แล้ว
+     mutation test ยืนยัน: ถอดตรรกะถอยช่วงออก เทสยังเขียว = เทสไม่ได้คุมอะไรเลย 29 วันจาก 30 วัน */
   it('ดึงคนทักคร่อม "เมื่อวาน" เสมอ แม้เมื่อวานอยู่เดือนก่อน', async () => {
-    QUERIES.length = 0;
-    render(<HomeView go={() => {}} />);
-    await waitFor(() => expect(QUERIES.some(q => q.table === 'tmk_sales_funnel')).toBe(true), WF);
-    const y = new Date(); y.setDate(y.getDate() - 1);
-    const yIso = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-    const f = QUERIES.find(q => q.table === 'tmk_sales_funnel');
-    expect(f.gte <= yIso).toBe(true);   // ถ้าเป็น 1 ค่ำเดือน ต้องถอยไปถึงวันสุดท้ายของเดือนก่อน
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-09-01T10:00:00+07:00'));   // วันที่ 1 → เมื่อวาน = 31 ส.ค.
+    try {
+      QUERIES.length = 0;
+      render(<HomeView go={() => {}} />);
+      await waitFor(() => expect(QUERIES.some(q => q.table === 'tmk_sales_funnel')).toBe(true), WF);
+      const f = QUERIES.find(q => q.table === 'tmk_sales_funnel');
+      expect(f.gte <= '2026-08-31').toBe(true);   // ต้องถอยไปถึงวันสุดท้ายของเดือนก่อน
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -240,8 +248,8 @@ const remockData = (over = {}) => {
      (CI แดง 9 ก.ย. 69 เพราะเคสหนึ่งตั้งใจให้ cachedFetchRange คืน error แล้วโดนตัวนี้ทับ) */
   vi.doMock('../lib/saleData.js', async (orig) => ({
     ...(await orig()),
-    cachedFetchRange: async () => ({ data: [], error: null }),
-    cachedFetchAll: async () => ({ data: [], error: null }),
+    cachedFetchRange: async (table, _sel, from, to) => { QUERIES.push({ table, gte: from, lte: to }); return { data: [], error: null }; },
+    cachedFetchAll: async (table) => { QUERIES.push({ table, gte: null, lte: null }); return { data: [], error: null }; },
     ...over,
   }));
   vi.doMock('../lib/targets.js', async (orig) => ({

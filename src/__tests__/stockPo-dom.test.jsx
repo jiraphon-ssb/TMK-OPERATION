@@ -80,6 +80,8 @@ describe('สต็อก: ลาย/สี/ไซซ์ มาจากสิ�
     vi.doMock('../lib/stockData.js', async (orig) => ({
       ...(await orig()),
       fetchStockCounts: async () => ({ rows: [{ id: 's1::ชบา::ดำ::M', session_id: 's1', count_date: '2026-08-01', design: 'ชบา', color: 'ดำ', size: 'M', qty: 10, kind: 'open', created_by: '', note: '' }], missing: false }),
+      // ต้อง mock ด้วย — fetchStockMoves ยิง supabase ตรง ๆ (คิวรีแบบมีขอบเขต) ไม่ได้ผ่าน saleData แล้ว
+      fetchStockMoves: async () => ({ rows: [], truncated: false }),
     }));
     vi.doMock('../lib/productionOrders.js', async (orig) => ({ ...(await orig()), fetchPurchaseOrders: async () => ({ rows: [], missing: false }) }));
 

@@ -30,7 +30,13 @@ vi.mock('../supabaseClient.js', () => ({
 }));
 vi.mock('../saleData.js', async (orig) => ({
   ...(await orig()),
-  cachedFetchRange: async () => ({ data: state.orders, error: null }),
+  // คนทักย้ายมาอ่านผ่าน cachedFetchRange แล้ว (ลด egress 18 ก.ย. 69)
+  // คนทัก + ยอดกรอกมือ ย้ายมาอ่านผ่าน cachedFetchRange แล้ว (ลด egress 18 ก.ย. 69)
+  cachedFetchRange: async (table) => {
+    if (table === 'tmk_sales_funnel') return state.funnel || { data: [], error: null };
+    if (table === 'tmk_daily_sales') return state.daily || { data: [], error: null };
+    return { data: state.orders, error: null };
+  },
   cachedFetchAll: async () => ({ data: state.overrides, error: null }),
   fetchOrdersByNos: async () => state.strays,
 }));
