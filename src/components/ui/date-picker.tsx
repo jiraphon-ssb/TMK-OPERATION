@@ -40,7 +40,9 @@ export function DatePicker({ value, onChange, placeholder = "เลือกว�
           defaultMonth={date}
           locale={th}
           disabled={(d: Date) => (!!min && toISO(d) < min) || (!!max && toISO(d) > max)}
-          onSelect={(d?: Date) => { onChange(toISO(d)); setOpen(false) }}
+          // กดวันที่เลือกอยู่ซ้ำ react-day-picker ส่ง undefined (= ยกเลิกเลือก) → ไม่ล้างค่า แค่ปิด
+          // ล้างได้ทางเดียวคือปุ่ม "ล้างวันที่" (บั๊ก L3822: เซลล์กดวันเดิมเพื่อยืนยัน → ใบบันทึกแบบไม่มีวันที่)
+          onSelect={(d?: Date) => { if (d) onChange(toISO(d)); setOpen(false) }}
         />
         {clearable && value && (
           <div className="border-t p-2 flex justify-end">

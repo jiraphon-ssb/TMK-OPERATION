@@ -3,7 +3,7 @@ import { deriveReceiptRowStatus } from '../receiptValidate.js';
 
 // แถวสมบูรณ์ (ควร "พร้อม" = ไม่มี problems)
 const goodRow = () => ({
-  _id: 'r0', order_no: 'SK1', customer_name: 'สมชาย', province: 'กรุงเทพ',
+  _id: 'r0', order_no: 'SK1', order_date: '2026-10-17', customer_name: 'สมชาย', province: 'กรุงเทพ',
   channel: 'facebook', total: 100, subtotal: 100,
   lines: [{ code: 'JSK111', name: 'ลาย A', amount: 100, qty: 1 }],
   parsedRaw: { warnings: [], customer_name: 'สมชาย' },
@@ -82,5 +82,31 @@ describe('deriveReceiptRowStatus — re-validate สด (§บั๊กสถา
     const raw = { warnings: ['ลูกค้าถูกปกปิด (มาร์เก็ตเพลส) — ชื่อ/เบอร์ไม่ครบ'] };
     const r = deriveReceiptRowStatus({ ...goodRow(), parsedRaw: raw }, {});
     expect(r.problems.some(p => /ปกปิด/.test(p))).toBe(true);
+  });
+});
+
+/* ── บั๊ก L3822 (17 ต.ค. 69): ใบไม่มีวันที่บันทึกผ่าน → ออเดอร์หายจากทุกหน้าที่กรองตามวันที่
+   แต่ยังบล็อกการส่งซ้ำ (ตัวกันซ้ำดูแค่เลขที่) = ยอดหาย + ส่งใหม่ไม่ได้ ── */
+describe('deriveReceiptRowStatus — ใบต้องมีวันที่', () => {
+  it('ไม่มี order_date → hard + chip วันที่', () => {
+    const r = deriveReceiptRowStatus({ ...goodRow(), order_date: '' }, {});
+    expect(r.problems).toContain('วันที่');
+    expect(r.hard).toBe(true);
+  });
+
+  it('เคส L3822: ได้คำเตือน "ไม่มีวันที่บนใบ" แล้วเผลอล้างวันที่ → ต้องยังติด (เดิมคำเตือนหายเงียบเพราะนับว่า "แก้แล้ว")', () => {
+    const row = {
+      ...goodRow(), order_date: '',
+      parsedRaw: { warnings: ['ไม่มีวันที่บนใบ — ใช้วันที่อัปโหลด (แก้ได้)'], customer_name: 'สมชาย', order_date: '2026-10-17' },
+    };
+    const r = deriveReceiptRowStatus(row, {});
+    expect(r.hard).toBe(true);
+    expect(r.problems).toContain('วันที่');
+  });
+
+  it('ใส่วันที่กลับแล้ว → chip วันที่หาย ไม่ hard', () => {
+    const r = deriveReceiptRowStatus({ ...goodRow(), order_date: '2026-10-16' }, {});
+    expect(r.problems).not.toContain('วันที่');
+    expect(r.hard).toBe(false);
   });
 });

@@ -295,6 +295,8 @@ export async function confirmReceipts(items, user, { onProgress } = {}) {
   const valid = [];
   for (const it of (items || [])) {
     if (!String(it.order_no || '').trim()) skipped.push({ order_no: it.order_no || '(ว่าง)', reason: 'ไม่มีเลขที่เอกสาร — ตรวจก่อนบันทึก' });
+    // ไม่มีวันที่ = ออเดอร์หายจากทุกหน้าที่กรองตามวันที่ แต่ใบเสร็จยังบล็อกการส่งซ้ำ (บั๊ก L3822) → ตัดก่อนเขียน
+    else if (!String(it.order_date || '').trim()) skipped.push({ order_no: it.order_no, reason: 'ไม่มีวันที่ — ใส่วันที่ก่อนบันทึก' });
     else valid.push(it);
   }
   if (!valid.length) return { ok, skipped };
@@ -466,6 +468,8 @@ export function canEditReceipt(receipt, { email, isAdmin }) {
    editor: { email, name, isAdmin } · salespersonOverride: แอดมินโอนยอด (ชื่อใหม่) หรือ null
    ============================================================ */
 export async function editReceipt(orig, edited, editor, { salespersonOverride = null } = {}) {
+  // กันแก้จนไม่มีวันที่ — ออเดอร์จะหายจากทุกหน้าที่กรองตามวันที่ (บั๊ก L3822)
+  if (!String(edited?.order_date || '').trim()) throw new Error('ใบเสร็จต้องมีวันที่ — ใส่วันที่ก่อนบันทึก');
   const [typeOf, M] = await Promise.all([customerTypeLookup([edited]), loadReceiptMatcher()]);
   const seller = salespersonOverride || orig.salesperson;
   const user = { email: orig.uploader_email, name: seller };

@@ -42,6 +42,9 @@ export function deriveReceiptRowStatus(row, ctx = {}) {
     else if (!dup && dupOrders.has(row.order_no)) { problems.push('มีอยู่แล้วจากไฟล์ import — ติ๊กเพื่อบันทึกทับ'); }
   }
 
+  // ── วันที่ (hard) — ทุกหน้าที่คิดยอดกรองตามวันที่ ใบไม่มีวันที่ = ยอดหายเงียบ แต่ยังบล็อกการส่งซ้ำ (บั๊ก L3822)
+  if (!String(row.order_date || '').trim()) { problems.push('วันที่'); hard = true; }
+
   // ── field structural (recompute สด) ──
   if (!String(row.customer_name || '').trim()) problems.push('ชื่อลูกค้า');
   if (!String(row.province || '').trim()) problems.push('จังหวัด');

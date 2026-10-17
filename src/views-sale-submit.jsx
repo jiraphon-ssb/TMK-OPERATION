@@ -615,6 +615,7 @@ function problemChip(p) {
   if (/มีอยู่แล้วจากไฟล์|import/.test(s)) return { label: 'มีในระบบ · ติ๊กเพื่อทับ', tone: 'over' };
   if (/ปกปิด|มาร์เก็ตเพลส/.test(s)) return { label: 'ลูกค้าปกปิด', tone: 'info' };
   if (/วรรณยุกต์|สระหาย|ฟอนต์/.test(s)) return { label: 'ชื่ออาจเพี้ยน', tone: 'warn' };
+  if (s === 'วันที่') return { label: 'ต้องใส่วันที่', tone: 'block' };   // วันที่ว่าง = บล็อก (บั๊ก L3822)
   if (/วันที่/.test(s)) return { label: 'ไม่มีวันที่', tone: 'warn' };
   if (/จังหวัด/.test(s)) return { label: 'ไม่มีจังหวัด', tone: 'warn' };
   if (/รหัสสินค้า/.test(s)) return { label: 'ไม่มีรหัส', tone: 'warn' };
